@@ -1,0 +1,502 @@
+
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import '../../core/database/app_database.dart';
+import '../../core/database/database_schema.dart';
+import '../../core/system/system_config_service.dart';
+import '../../repositories/sync_repository.dart';
+import 'sync_conflict_service.dart';
+import 'sync_api_client.dart';
+import 'sync_config_repository.dart';
+
+class SyncQueueService {
+  factory SyncQueueService.test({
+    AppDatabase? appDatabase,
+    SyncConfigRepository? configRepository,
+    SyncApiClient? apiClient,
+    SyncConflictService? conflictService,
+  }) {
+    return SyncQueueService._(
+      appDatabase: appDatabase,
+      configRepository: configRepository,
+      apiClient: apiClient,
+      conflictService: conflictService,
+    );
+  }
+
+  SyncQueueService._({
+    AppDatabase? appDatabase,
+    SyncConfigRepository? configRepository,
+    SyncApiClient? apiClient,
+    SyncConflictService? conflictService,
+  }) : _appDatabase = appDatabase ?? AppDatabase.instance,
+       _configRepository = configRepository ?? SyncConfigRepository(),
+       _apiClient = apiClient ?? SyncApiClient(),
+       _conflictService = conflictService ?? SyncConflictService();
+
+  static final SyncQueueService instance = SyncQueueService._();
+
+  final AppDatabase _appDatabase;
+  final SyncConfigRepository _configRepository;
+  final SyncApiClient _apiClient;
+  final SyncConflictService _conflictService;
+  final Map<String, SyncRepository> _repositoriesByScope = {};
+  final StreamController<SyncQueueState> _stateController =
+      StreamController<SyncQueueState>.broadcast();
+
+  static const List<String> _syncOrder = [
+    'clients',
+    'products',
+    'sales',
+    'installments',
+    'payments',
+  ];
+  static const Map<String, List<String>> _scopeDependencies = {
+    'clients': [],
+    'products': ['clients'],
+    'sales': ['clients', 'products'],
+    'installments': ['sales'],
+    'payments': ['sales'],
+  };
+
+  Timer? _retryTimer;
+  bool _isProcessing = false;
+  SyncQueueState _state = const SyncQueueState();
+
+  Stream<SyncQueueState> get stateStream => _stateController.stream;
+  SyncQueueState get state => _state;
+
+  void registerRepository(SyncRepository repository) {
+    _repositoriesByScope[repository.scope] = repository;
+  }
+
+  Future<void> start() async {
+    final settings = await _configRepository.loadSettings();
+    _retryTimer?.cancel();
+    _retryTimer = Timer.periodic(settings.queueRetryInterval, (_) {
+      unawaited(processQueue());
+    });
+    await _refreshState();
+    unawaited(processQueue());
+  }
+
+  void dispose() {
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    if (!_stateController.isClosed) {
+      unawaited(_stateController.close());
+    }
+  }
+
+  Future<void> enqueueUpsert({
+    required String scope,
+    required String recordSyncId,
+    required Map<String, Object?> payload,
+  }) {
+    SystemConfigService.instance.ensureWritable();
+
+    return _enqueue(
+      scope: scope,
+      recordSyncId: recordSyncId,
+      operation: 'upsert',
+      payload: payload,
+    );
+  }
+
+  Future<void> enqueueDelete({
+    required String scope,
+    required String recordSyncId,
+    required Map<String, Object?> payload,
+  }) {
+    SystemConfigService.instance.ensureWritable();
+
+    return _enqueue(
+      scope: scope,
+      recordSyncId: recordSyncId,
+      operation: 'delete',
+      payload: payload,
+    );
+  }
+
+  Future<void> refreshScope(String scope) async {
+    final repository = _repositoriesByScope[scope];
+    if (repository == null) {
+      return;
+    }
+
+    final pendingRecords = await repository.getPendingRecords();
+    for (final record in pendingRecords) {
+      final recordSyncId = record['sync_id']?.toString().trim() ?? '';
+      if (recordSyncId.isEmpty) {
+        continue;
+      }
+      final isDelete =
+          (record['deleted_at']?.toString().trim().isNotEmpty ?? false);
+      await _enqueue(
+        scope: scope,
+        recordSyncId: recordSyncId,
+        operation: isDelete ? 'delete' : 'upsert',
+        payload: record,
+      );
+    }
+  }
+
+  Future<int> pendingCount() async {
+    final db = await _appDatabase.database;
+    final rows = await db.rawQuery(
+      'SELECT COUNT(*) FROM ${DatabaseSchema.syncQueueTable}',
+    );
+    final value = rows.isEmpty ? 0 : rows.first.values.first;
+    if (value is num) {
+      return value.toInt();
+    }
+    return int.tryParse(value.toString()) ?? 0;
+  }
+
+  Future<int> processQueue({int limit = 100}) async {
+    if (SystemConfigService.instance.isReadOnly) {
+      await _refreshState();
+      return 0;
+    }
+
+    if (_isProcessing) {
+      return 0;
+    }
+
+    _isProcessing = true;
+    await _refreshState();
+    try {
+      final settings = await _configRepository.loadSettings();
+      if (!settings.isConfigured) {
+        return 0;
+      }
+
+      final items = await _loadDueItems(limit: limit);
+      if (items.isEmpty) {
+        return 0;
+      }
+
+      var processedCount = 0;
+      final grouped = <String, List<SyncQueueItem>>{};
+      for (final item in items) {
+        grouped.putIfAbsent(item.scope, () => []).add(item);
+      }
+
+      final unavailableScopes = <String>{};
+      final orderedScopes = grouped.keys.toList(growable: false)
+        ..sort((left, right) {
+          final leftIndex = _syncOrder.indexOf(left);
+          final rightIndex = _syncOrder.indexOf(right);
+          final normalizedLeft = leftIndex == -1
+              ? _syncOrder.length
+              : leftIndex;
+          final normalizedRight = rightIndex == -1
+              ? _syncOrder.length
+              : rightIndex;
+          return normalizedLeft.compareTo(normalizedRight);
+        });
+
+      for (final scope in orderedScopes) {
+        final entryItems = grouped[scope] ?? const <SyncQueueItem>[];
+        if (entryItems.isEmpty) {
+          continue;
+        }
+
+        if (_hasUnavailableDependency(scope, unavailableScopes)) {
+          unavailableScopes.add(scope);
+          continue;
+        }
+
+        final repository = _repositoriesByScope[scope];
+        if (repository == null) {
+          continue;
+        }
+
+        try {
+          final response = await _apiClient.uploadQueuedRecords(
+            settings: settings,
+            recordsByScope: {
+              scope: entryItems.map((item) => item.toUploadPayload()).toList(),
+            },
+          );
+
+          final returnedRecords = response.recordsForScope(scope);
+          if (returnedRecords.isNotEmpty) {
+            await repository.mergeRemoteRecords(returnedRecords);
+          }
+
+          final acknowledgedSyncIds = entryItems
+              .map((item) => item.recordSyncId)
+              .toList(growable: false);
+
+          if (acknowledgedSyncIds.isNotEmpty) {
+            await repository.markAsSynced(acknowledgedSyncIds);
+            await _deleteQueuedRecords(scope, acknowledgedSyncIds);
+            await _conflictService.resolveConflicts(
+              scope: scope,
+              recordSyncIds: acknowledgedSyncIds,
+              resolution: 'synced',
+            );
+            processedCount += acknowledgedSyncIds.length;
+          }
+
+          final unconfirmedIds = entryItems
+              .where((item) => !acknowledgedSyncIds.contains(item.recordSyncId))
+              .map((item) => item.recordSyncId)
+              .toList(growable: false);
+          if (unconfirmedIds.isNotEmpty) {
+            await _scheduleRetry(
+              scope: scope,
+              recordSyncIds: unconfirmedIds,
+              errorMessage:
+                  'La API no confirmo todos los registros de la cola.',
+            );
+            unavailableScopes.add(scope);
+          }
+
+          final cursor = response.serverTime;
+          if (cursor != null) {
+            await _configRepository.saveCursor(scope, cursor);
+          }
+        } on SyncConflictException catch (error) {
+          if (error.returnedRecords.isNotEmpty) {
+            await repository.mergeRemoteRecords(error.returnedRecords);
+          }
+          if (error.serverTime != null) {
+            await _configRepository.saveCursor(scope, error.serverTime!);
+          }
+
+          final conflictIds = error.conflicts
+              .map((item) => item.recordSyncId.trim())
+              .where((value) => value.isNotEmpty)
+              .toSet()
+              .toList(growable: false);
+          final affectedIds = conflictIds.isEmpty
+              ? entryItems
+                    .map((item) => item.recordSyncId)
+                    .toList(growable: false)
+              : conflictIds;
+
+          await repository.markAsConflict(affectedIds);
+          await _conflictService.logUploadConflicts(
+            scope: scope,
+            queuedItems: entryItems,
+            exception: error,
+          );
+          await _deleteQueuedRecords(scope, affectedIds);
+
+          final retryIds = entryItems
+              .map((item) => item.recordSyncId)
+              .where((id) => !affectedIds.contains(id))
+              .toList(growable: false);
+          if (retryIds.isNotEmpty) {
+            await _scheduleRetry(
+              scope: scope,
+              recordSyncIds: retryIds,
+              errorMessage: error.message,
+            );
+          }
+          unavailableScopes.add(scope);
+        } on SocketException catch (error) {
+          await _scheduleRetry(
+            scope: scope,
+            recordSyncIds: entryItems.map((item) => item.recordSyncId),
+            errorMessage: 'Sin conexion: ${error.message}',
+          );
+          unavailableScopes.add(scope);
+        } on HttpException catch (error) {
+          await _scheduleRetry(
+            scope: scope,
+            recordSyncIds: entryItems.map((item) => item.recordSyncId),
+            errorMessage: error.message,
+          );
+          unavailableScopes.add(scope);
+        } catch (error) {
+          await _scheduleRetry(
+            scope: scope,
+            recordSyncIds: entryItems.map((item) => item.recordSyncId),
+            errorMessage: 'Error inesperado al procesar la cola: $error',
+          );
+          unavailableScopes.add(scope);
+        }
+      }
+
+      return processedCount;
+    } finally {
+      _isProcessing = false;
+      await _refreshState();
+    }
+  }
+
+  Future<void> _enqueue({
+    required String scope,
+    required String recordSyncId,
+    required String operation,
+    required Map<String, Object?> payload,
+  }) async {
+    final db = await _appDatabase.database;
+    final now = DateTime.now().toIso8601String();
+    final existingRows = await db.query(
+      DatabaseSchema.syncQueueTable,
+      columns: ['id'],
+      where: 'scope = ? AND record_sync_id = ?',
+      whereArgs: [scope, recordSyncId],
+      limit: 1,
+    );
+
+    final values = <String, Object?>{
+      'scope': scope,
+      'record_sync_id': recordSyncId,
+      'operation': operation,
+      'payload_json': jsonEncode(payload),
+      'updated_at': now,
+      'next_attempt_at': now,
+      'last_error': null,
+      'attempt_count': 0,
+    };
+
+    if (existingRows.isEmpty) {
+      await db.insert(DatabaseSchema.syncQueueTable, {
+        ...values,
+        'created_at': now,
+      });
+    } else {
+      await db.update(
+        DatabaseSchema.syncQueueTable,
+        values,
+        where: 'scope = ? AND record_sync_id = ?',
+        whereArgs: [scope, recordSyncId],
+      );
+    }
+
+    await _refreshState();
+    unawaited(processQueue());
+  }
+
+  bool _hasUnavailableDependency(String scope, Set<String> unavailableScopes) {
+    return (_scopeDependencies[scope] ?? const <String>[]).any(
+      unavailableScopes.contains,
+    );
+  }
+
+  Future<List<SyncQueueItem>> _loadDueItems({required int limit}) async {
+    final db = await _appDatabase.database;
+    final now = DateTime.now().toIso8601String();
+    final rows = await db.query(
+      DatabaseSchema.syncQueueTable,
+      where: 'next_attempt_at <= ?',
+      whereArgs: [now],
+      orderBy: 'updated_at ASC',
+      limit: limit,
+    );
+    return rows.map(SyncQueueItem.fromMap).toList(growable: false);
+  }
+
+  Future<void> _deleteQueuedRecords(
+    String scope,
+    Iterable<String> recordSyncIds,
+  ) async {
+    final ids = recordSyncIds.toList(growable: false);
+    if (ids.isEmpty) {
+      return;
+    }
+
+    final db = await _appDatabase.database;
+    final placeholders = List.filled(ids.length, '?').join(', ');
+    await db.rawDelete(
+      'DELETE FROM ${DatabaseSchema.syncQueueTable} '
+      'WHERE scope = ? AND record_sync_id IN ($placeholders)',
+      [scope, ...ids],
+    );
+    await _refreshState();
+  }
+
+  Future<void> _scheduleRetry({
+    required String scope,
+    required Iterable<String> recordSyncIds,
+    required String errorMessage,
+  }) async {
+    final ids = recordSyncIds.toList(growable: false);
+    if (ids.isEmpty) {
+      return;
+    }
+
+    final settings = await _configRepository.loadSettings();
+    final db = await _appDatabase.database;
+    final now = DateTime.now();
+    final nextAttemptAt = now
+        .add(settings.queueRetryInterval)
+        .toIso8601String();
+    final placeholders = List.filled(ids.length, '?').join(', ');
+    await db.rawUpdate(
+      'UPDATE ${DatabaseSchema.syncQueueTable} '
+      'SET attempt_count = attempt_count + 1, '
+      'updated_at = ?, '
+      'next_attempt_at = ?, '
+      'last_error = ? '
+      'WHERE scope = ? AND record_sync_id IN ($placeholders)',
+      [now.toIso8601String(), nextAttemptAt, errorMessage, scope, ...ids],
+    );
+    await _refreshState(lastError: errorMessage);
+  }
+
+  Future<void> _refreshState({String? lastError}) async {
+    final pending = await pendingCount();
+    final resolvedError = lastError ?? (pending == 0 ? null : _state.lastError);
+    final nextState = SyncQueueState(
+      pendingCount: pending,
+      isProcessing: _isProcessing,
+      lastError: resolvedError,
+    );
+    _state = nextState;
+    if (!_stateController.isClosed) {
+      _stateController.add(nextState);
+    }
+  }
+}
+
+class SyncQueueState {
+  const SyncQueueState({
+    this.pendingCount = 0,
+    this.isProcessing = false,
+    this.lastError,
+  });
+
+  final int pendingCount;
+  final bool isProcessing;
+  final String? lastError;
+}
+
+class SyncQueueItem {
+  const SyncQueueItem({
+    required this.scope,
+    required this.recordSyncId,
+    required this.operation,
+    required this.payload,
+  });
+
+  final String scope;
+  final String recordSyncId;
+  final String operation;
+  final Map<String, Object?> payload;
+
+  Map<String, Object?> toUploadPayload() {
+    return payload;
+  }
+
+  factory SyncQueueItem.fromMap(Map<String, Object?> map) {
+    final decoded = jsonDecode(map['payload_json'] as String? ?? '{}');
+    final payload = decoded is Map
+        ? decoded.map((key, value) => MapEntry(key.toString(), value))
+        : <String, Object?>{};
+
+    return SyncQueueItem(
+      scope: map['scope'] as String? ?? '',
+      recordSyncId: map['record_sync_id'] as String? ?? '',
+      operation: map['operation'] as String? ?? 'upsert',
+      payload: payload,
+    );
+  }
+}

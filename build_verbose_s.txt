@@ -1,0 +1,219 @@
+[ +166 ms] Artifact Instance of 'MaterialFonts' is not required, skipping update.
+[   +1 ms] Artifact Instance of 'GradleWrapper' is not required, skipping update.
+[        ] Artifact Instance of 'AndroidGenSnapshotArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'AndroidInternalBuildArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IOSEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterWebSdk' is not required, skipping update.
+[   +1 ms] Artifact Instance of 'LegacyCanvasKitRemover' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterSdk' is not required, skipping update.
+[        ] Artifact Instance of 'WindowsEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'MacOSEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'LinuxEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'LinuxFuchsiaSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'MacOSFuchsiaSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterRunnerSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterRunnerDebugSymbols' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FontSubsetArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'PubDependencies' is not required, skipping update.
+[   +1 ms] executing: [C:\src\flutter/] git -c log.showSignature=false log HEAD -n 1 --pretty=format:%ad --date=iso
+[ +142 ms] Exit code 0 from: git -c log.showSignature=false log HEAD -n 1 --pretty=format:%ad --date=iso
+[        ] 2025-11-20 17:53:13 -0500
+[  +24 ms] Artifact Instance of 'AndroidGenSnapshotArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'AndroidInternalBuildArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IOSEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterWebSdk' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterEngineStamp' is not required, skipping update.
+[        ] Artifact Instance of 'LegacyCanvasKitRemover' is not required, skipping update.
+[   +5 ms] Artifact Instance of 'WindowsEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'MacOSEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'LinuxEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'LinuxFuchsiaSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'MacOSFuchsiaSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterRunnerSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterRunnerDebugSymbols' is not required, skipping update.
+[  +91 ms] Artifact Instance of 'MaterialFonts' is not required, skipping update.
+[        ] Artifact Instance of 'GradleWrapper' is not required, skipping update.
+[        ] Artifact Instance of 'AndroidGenSnapshotArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'AndroidInternalBuildArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IOSEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterWebSdk' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterEngineStamp' is not required, skipping update.
+[        ] Artifact Instance of 'LegacyCanvasKitRemover' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterSdk' is not required, skipping update.
+[   +2 ms] Artifact Instance of 'MacOSEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'LinuxEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'LinuxFuchsiaSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'MacOSFuchsiaSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterRunnerSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterRunnerDebugSymbols' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FontSubsetArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'PubDependencies' is not required, skipping update.
+[  +18 ms] Skipping pub get: version match.
+[ +336 ms] Skipping generating generated_plugin_registrant.h because it is up-to-date.
+[  +10 ms] Skipping generating generated_plugin_registrant.cc because it is up-to-date.
+[   +2 ms] Skipping generating generated_plugins.cmake because it is up-to-date.
+[ +151 ms] executing: C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe -format json -products * -utf8 -latest -version 16 -requires Microsoft.VisualStudio.Workload.NativeDesktop Microsoft.VisualStudio.Component.VC.Tools.x86.x64 Microsoft.VisualStudio.Component.VC.CMake.Project
+[  +90 ms] Exit code 0 from: C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe -format json -products * -utf8 -latest -version 16 -requires Microsoft.VisualStudio.Workload.NativeDesktop Microsoft.VisualStudio.Component.VC.Tools.x86.x64 Microsoft.VisualStudio.Component.VC.CMake.Project
+[   +1 ms] [
+             {
+               "instanceId": "7ddc6518",
+               "installDate": "2025-12-08T17:47:57Z",
+               "installationName": "VisualStudio/18.0.2+11222.15",
+               "installationPath": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community",
+               "installationVersion": "18.0.11222.15",
+               "productId": "Microsoft.VisualStudio.Product.Community",
+               "productPath": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\Common7\\IDE\\devenv.exe",
+               "state": 4294967295,
+               "isComplete": true,
+               "isLaunchable": true,
+               "isPrerelease": false,
+               "isRebootRequired": false,
+               "displayName": "Visual Studio Community 2026",
+               "description": "Everything you need to build modern apps – free for you, built for impact.",
+               "channelId": "VisualStudio.18.Release",
+               "channelUri": "https://aka.ms/vs/18/stable/channel",
+               "enginePath": "C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\resources\\app\\ServiceHub\\Services\\Microsoft.VisualStudio.Setup.Service",
+               "expirationDate": "2026-01-11T17:00:00+00:00",
+               "installedChannelId": "VisualStudio.18.Release",
+               "installedChannelUri": "https://aka.ms/vs/18/stable/channel",
+               "releaseNotes": "https://docs.microsoft.com/en-us/visualstudio/releases/18/release-notes-v18.0#18.0.2",
+               "resolvedInstallationPath": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community",
+               "retirementDate": "2026-02-05T17:00:00+00:00",
+               "thirdPartyNotices": "https://go.microsoft.com/fwlink/?LinkId=661480",
+               "updateDate": "2025-12-08T17:47:57.6277735Z",
+               "catalog": {
+                 "buildBranch": "d18.0",
+                 "buildVersion": "18.0.11222.15",
+                 "featureReleaseMonth": "11",
+                 "featureReleaseYear": "2025",
+                 "id": "VisualStudio/18.0.2+11222.15",
+                 "includeBuildVersionInDisplayVersion": "False",
+                 "localBuild": "build-lab",
+                 "manifestName": "VisualStudio",
+                 "manifestType": "installer",
+                 "productDisplayVersion": "18.0.2",
+                 "productLine": "Dev18",
+                 "productLineVersion": "18",
+                 "productMilestone": "RTW",
+                 "productMilestoneIsPreRelease": "False",
+                 "productName": "Visual Studio",
+                 "productPatchVersion": "2",
+                 "productPreReleaseMilestoneSuffix": "1.0",
+                 "productRelease": "RTW",
+                 "productSemanticVersion": "18.0.2+11222.15",
+                 "requiredEngineVersion": "4.0.2166.47498"
+               },
+               "properties": {
+                 "appLocalWPF": "true",
+                 "campaignId": "2500:a36b0d666b764e8b910693ee7bc32179",
+                 "canceled": "0",
+                 "channelManifestId": "VisualStudio.18.Release/18.0.2+11222.15",
+                 "includeRecommended": "1",
+                 "nickname": "",
+                 "setupEngineFilePath": "C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\setup.exe"
+               }
+             }
+           ]
+[  +11 ms] Building Windows application...
+[   +7 ms] executing: C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe -S S:\windows -B S:\build\windows\x64 -G Visual Studio 18 2026 -A x64 -DFLUTTER_TARGET_PLATFORM=windows-x64
+[ +106 ms] -- Selecting Windows SDK version 10.0.26100.0 to target Windows 10.0.19045.
+[  +33 ms] -- Configuring done (0.1s)
+[ +465 ms] -- Generating done (0.4s)
+[  +23 ms] -- Build files have been written to: S:/build/windows/x64
+[  +59 ms] executing: C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe --build S:\build\windows\x64 --config Release --target INSTALL --verbose
+[ +124 ms] Change Dir: 'S:/build/windows/x64'
+[   +1 ms] Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" INSTALL.vcxproj /p:Configuration=Release /p:Platform=x64 /p:VisualStudioVersion=18.0 /v:n
+[ +193 ms] Versión de MSBuild 18.0.5+e22287bf1 para .NET Framework
+[ +198 ms] Compilación iniciada a las 26/3/2026 17:11:10.
+[ +406 ms] Proyecto "S:\build\windows\x64\INSTALL.vcxproj" en nodo 1 (destinos predeterminados).
+[        ] El proyecto "S:\build\windows\x64\INSTALL.vcxproj" (1) está compilando "S:\build\windows\x64\ZERO_CHECK.vcxproj" (2) en el nodo 1 (destinos predeterminados).
+[        ] PrepareForBuild:
+[        ]   La salida estructurada está habilitada. El formato del diagnóstico del compilador reflejará la jerarquía de errores. Consulte https://aka.ms/cpp/structured-output para obtener más detalles.
+[  +21 ms] InitializeBuildStatus:
+[        ]   Se creará "x64\Release\ZERO_CHECK\ZERO_CHECK.tlog\unsuccessfulbuild" porque se especificó "AlwaysCreate".
+[        ]   Aplicando tarea Touch a "x64\Release\ZERO_CHECK\ZERO_CHECK.tlog\unsuccessfulbuild".
+[  +98 ms] CustomBuild:
+[        ]   Todas las salidas están actualizadas.
+[  +57 ms] FinalizeBuildStatus:
+[        ]   Se eliminará el archivo "x64\Release\ZERO_CHECK\ZERO_CHECK.tlog\unsuccessfulbuild".
+[   +2 ms]   Aplicando tarea Touch a "x64\Release\ZERO_CHECK\ZERO_CHECK.tlog\ZERO_CHECK.lastbuildstate".
+[   +2 ms] Compilación del proyecto terminada "S:\build\windows\x64\ZERO_CHECK.vcxproj" (destinos predeterminados).
+[ +167 ms] El proyecto "S:\build\windows\x64\INSTALL.vcxproj" (1) está compilando "S:\build\windows\x64\ALL_BUILD.vcxproj" (3) en el nodo 1 (destinos predeterminados).
+[        ] El proyecto "S:\build\windows\x64\ALL_BUILD.vcxproj" (3) está compilando "S:\build\windows\x64\flutter\flutter_wrapper_app.vcxproj" (4) en el nodo 1 (destinos predeterminados).
+[        ] El proyecto "S:\build\windows\x64\flutter\flutter_wrapper_app.vcxproj" (4) está compilando "S:\build\windows\x64\flutter\flutter_assemble.vcxproj" (5) en el nodo 1 (destinos predeterminados).
+[        ] PrepareForBuild:
+[        ]   La salida estructurada está habilitada. El formato del diagnóstico del compilador reflejará la jerarquía de errores. Consulte https://aka.ms/cpp/structured-output para obtener más detalles.
+[   +3 ms] InitializeBuildStatus:
+[        ]   Aplicando tarea Touch a "x64\Release\flutter_assemble\flutter_assemble.tlog\unsuccessfulbuild".
+[   +9 ms] CustomBuild:
+[        ]   'La compilación de "S:\build\windows\x64\CMakeFiles\492be19bf2bf0c369053c265385d816b\flutter_assemble.rule" depende de "S:\WINDOWS\FLUTTER\EPHEMERAL\FLUTTER_WINDOWS.DLL", que se genera por la compilación de "S:\build\windows\x64\CMakeFiles\568b97914c02a25a9bb02ce150beacfb\flutter_windows.dll.rule". Los elementos no se pueden compilar en paralelo.'
+[ +153 ms]   Generating S:/windows/flutter/ephemeral/flutter_windows.dll, S:/windows/flutter/ephemeral/flutter_export.h, S:/windows/flutter/ephemeral/flutter_windows.h, S:/windows/flutter/ephemeral/flutter_messenger.h, S:/windows/flutter/ephemeral/flutter_plugin_registrar.h, S:/windows/flutter/ephemeral/flutter_texture_registrar.h, S:/windows/flutter/ephemeral/cpp_client_wrapper/core_implementations.cc, S:/windows/flutter/ephemeral/cpp_client_wrapper/standard_codec.cc, S:/windows/flutter/ephemeral/cpp_client_wrapper/plugin_registrar.cc, S:/windows/flutter/ephemeral/cpp_client_wrapper/flutter_engine.cc, S:/windows/flutter/ephemeral/cpp_client_wrapper/flutter_view_controller.cc, _phony_
+[ +478 ms]   Unhandled exception:
+[        ]   PathNotFoundException: Setting current working directory failed, path = 'S:;FLUTTER_TARGET=lib\main.dart' (OS Error: El sistema no puede encontrar la ruta especificada.
+[        ]   , errno = 3)
+[        ]   #0      _Directory.current= (dart:io/directory_impl.dart:81:7)
+[        ]   #1      Directory.current= (dart:io/directory.dart:174:18)
+[        ]   #2      main (file:///C:/src/flutter/packages/flutter_tools/bin/tool_backend.dart:46:13)
+[        ]   #3      _delayEntrypointInvocation.<anonymous closure> (dart:isolate-patch/isolate_patch.dart:312:33)
+[        ]   #4      _RawReceivePort._handleMessage (dart:isolate-patch/isolate_patch.dart:193:12)
+[  +64 ms] C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Microsoft\VC\v180\Microsoft.CppCommon.targets(254,5): error MSB8066: Compilación personalizada de "S:\build\windows\x64\CMakeFiles\568b97914c02a25a9bb02ce150beacfb\flutter_windows.dll.rule;S:\build\windows\x64\CMakeFiles\492be19bf2bf0c369053c265385d816b\flutter_assemble.rule" terminada con el código 255. [S:\build\windows\x64\flutter\flutter_assemble.vcxproj]
+[   +7 ms] Compilación del proyecto terminada "S:\build\windows\x64\flutter\flutter_assemble.vcxproj" (destinos predeterminados) -- ERROR.
+[        ] Compilación del proyecto terminada "S:\build\windows\x64\flutter\flutter_wrapper_app.vcxproj" (destinos predeterminados) -- ERROR.
+[  +67 ms] Compilación del proyecto terminada "S:\build\windows\x64\ALL_BUILD.vcxproj" (destinos predeterminados) -- ERROR.
+[   +1 ms] Compilación del proyecto terminada "S:\build\windows\x64\INSTALL.vcxproj" (destinos predeterminados) -- ERROR.
+[   +8 ms] ERROR al compilar.
+[        ] "S:\build\windows\x64\INSTALL.vcxproj" (destino predeterminado) (1) ->
+[        ] "S:\build\windows\x64\ALL_BUILD.vcxproj" (destino predeterminado) (3) ->
+[        ] "S:\build\windows\x64\flutter\flutter_wrapper_app.vcxproj" (destino predeterminado) (4) ->
+[        ] "S:\build\windows\x64\flutter\flutter_assemble.vcxproj" (destino predeterminado) (5) ->
+[        ] (CustomBuild destino) -> 
+[        ]   C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Microsoft\VC\v180\Microsoft.CppCommon.targets(254,5): error MSB8066: Compilación personalizada de "S:\build\windows\x64\CMakeFiles\568b97914c02a25a9bb02ce150beacfb\flutter_windows.dll.rule;S:\build\windows\x64\CMakeFiles\492be19bf2bf0c369053c265385d816b\flutter_assemble.rule" terminada con el código 255. [S:\build\windows\x64\flutter\flutter_assemble.vcxproj]
+[        ]     0 Advertencia(s)
+[        ]     1 Errores
+[        ] Tiempo transcurrido 00:00:01.57
+[  +23 ms] Building Windows application... (completed in 2.798ms)
+[        ] "flutter windows" took 3.550ms.
+[ +175 ms] Build process failed.
+[        ] 
+           #0      throwToolExit (package:flutter_tools/src/base/common.dart:34:3)
+           #1      _runBuild (package:flutter_tools/src/windows/build_windows.dart:262:5)
+           <asynchronous suspension>
+           #2      buildWindows (package:flutter_tools/src/windows/build_windows.dart:118:5)
+           <asynchronous suspension>
+           #3      BuildWindowsCommand.runCommand (package:flutter_tools/src/commands/build_windows.dart:72:5)
+           <asynchronous suspension>
+           #4      FlutterCommand.run.<anonymous closure> (package:flutter_tools/src/runner/flutter_command.dart:1559:27)
+           <asynchronous suspension>
+           #5      AppContext.run.<anonymous closure> (package:flutter_tools/src/base/context.dart:154:19)
+           <asynchronous suspension>
+           #6      CommandRunner.runCommand (package:args/command_runner.dart:212:13)
+           <asynchronous suspension>
+           #7      FlutterCommandRunner.runCommand.<anonymous closure> (package:flutter_tools/src/runner/flutter_command_runner.dart:487:9)
+           <asynchronous suspension>
+           #8      AppContext.run.<anonymous closure> (package:flutter_tools/src/base/context.dart:154:19)
+           <asynchronous suspension>
+           #9      FlutterCommandRunner.runCommand (package:flutter_tools/src/runner/flutter_command_runner.dart:422:5)
+           <asynchronous suspension>
+           #10     run.<anonymous closure>.<anonymous closure> (package:flutter_tools/runner.dart:104:11)
+           <asynchronous suspension>
+           #11     AppContext.run.<anonymous closure> (package:flutter_tools/src/base/context.dart:154:19)
+           <asynchronous suspension>
+           #12     main (package:flutter_tools/executable.dart:103:3)
+           <asynchronous suspension>
+
+
+[        ] Running 1 shutdown hook
+[   +2 ms] Shutdown hooks complete
+[ +161 ms] exiting with code 1

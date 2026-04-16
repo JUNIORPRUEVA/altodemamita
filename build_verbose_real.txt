@@ -1,0 +1,524 @@
+[ +126 ms] Artifact Instance of 'MaterialFonts' is not required, skipping update.
+[   +1 ms] Artifact Instance of 'GradleWrapper' is not required, skipping update.
+[        ] Artifact Instance of 'AndroidGenSnapshotArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'AndroidInternalBuildArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IOSEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterWebSdk' is not required, skipping update.
+[   +1 ms] Artifact Instance of 'LegacyCanvasKitRemover' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterSdk' is not required, skipping update.
+[        ] Artifact Instance of 'WindowsEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'MacOSEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'LinuxEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'LinuxFuchsiaSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'MacOSFuchsiaSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterRunnerSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterRunnerDebugSymbols' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FontSubsetArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'PubDependencies' is not required, skipping update.
+[   +1 ms] executing: [C:\src\flutter/] git -c log.showSignature=false log HEAD -n 1 --pretty=format:%ad --date=iso
+[ +100 ms] Exit code 0 from: git -c log.showSignature=false log HEAD -n 1 --pretty=format:%ad --date=iso
+[        ] 2025-11-20 17:53:13 -0500
+[  +15 ms] Artifact Instance of 'AndroidGenSnapshotArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'AndroidInternalBuildArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IOSEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterWebSdk' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterEngineStamp' is not required, skipping update.
+[        ] Artifact Instance of 'LegacyCanvasKitRemover' is not required, skipping update.
+[   +2 ms] Artifact Instance of 'WindowsEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'MacOSEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'LinuxEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'LinuxFuchsiaSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'MacOSFuchsiaSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterRunnerSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterRunnerDebugSymbols' is not required, skipping update.
+[  +58 ms] Artifact Instance of 'MaterialFonts' is not required, skipping update.
+[        ] Artifact Instance of 'GradleWrapper' is not required, skipping update.
+[        ] Artifact Instance of 'AndroidGenSnapshotArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'AndroidInternalBuildArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IOSEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterWebSdk' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterEngineStamp' is not required, skipping update.
+[        ] Artifact Instance of 'LegacyCanvasKitRemover' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterSdk' is not required, skipping update.
+[   +2 ms] Artifact Instance of 'MacOSEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'LinuxEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'LinuxFuchsiaSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'MacOSFuchsiaSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterRunnerSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterRunnerDebugSymbols' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FontSubsetArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'PubDependencies' is not required, skipping update.
+[  +12 ms] Skipping pub get: version match.
+[ +259 ms] Skipping generating generated_plugin_registrant.h because it is up-to-date.
+[   +5 ms] Skipping generating generated_plugin_registrant.cc because it is up-to-date.
+[   +2 ms] Skipping generating generated_plugins.cmake because it is up-to-date.
+[  +88 ms] executing: C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe -format json -products * -utf8 -latest -version 16 -requires Microsoft.VisualStudio.Workload.NativeDesktop Microsoft.VisualStudio.Component.VC.Tools.x86.x64 Microsoft.VisualStudio.Component.VC.CMake.Project
+[  +67 ms] Exit code 0 from: C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe -format json -products * -utf8 -latest -version 16 -requires Microsoft.VisualStudio.Workload.NativeDesktop Microsoft.VisualStudio.Component.VC.Tools.x86.x64 Microsoft.VisualStudio.Component.VC.CMake.Project
+[        ] [
+             {
+               "instanceId": "7ddc6518",
+               "installDate": "2025-12-08T17:47:57Z",
+               "installationName": "VisualStudio/18.0.2+11222.15",
+               "installationPath": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community",
+               "installationVersion": "18.0.11222.15",
+               "productId": "Microsoft.VisualStudio.Product.Community",
+               "productPath": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\Common7\\IDE\\devenv.exe",
+               "state": 4294967295,
+               "isComplete": true,
+               "isLaunchable": true,
+               "isPrerelease": false,
+               "isRebootRequired": false,
+               "displayName": "Visual Studio Community 2026",
+               "description": "Everything you need to build modern apps – free for you, built for impact.",
+               "channelId": "VisualStudio.18.Release",
+               "channelUri": "https://aka.ms/vs/18/stable/channel",
+               "enginePath": "C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\resources\\app\\ServiceHub\\Services\\Microsoft.VisualStudio.Setup.Service",
+               "expirationDate": "2026-01-11T17:00:00+00:00",
+               "installedChannelId": "VisualStudio.18.Release",
+               "installedChannelUri": "https://aka.ms/vs/18/stable/channel",
+               "releaseNotes": "https://docs.microsoft.com/en-us/visualstudio/releases/18/release-notes-v18.0#18.0.2",
+               "resolvedInstallationPath": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community",
+               "retirementDate": "2026-02-05T17:00:00+00:00",
+               "thirdPartyNotices": "https://go.microsoft.com/fwlink/?LinkId=661480",
+               "updateDate": "2025-12-08T17:47:57.6277735Z",
+               "catalog": {
+                 "buildBranch": "d18.0",
+                 "buildVersion": "18.0.11222.15",
+                 "featureReleaseMonth": "11",
+                 "featureReleaseYear": "2025",
+                 "id": "VisualStudio/18.0.2+11222.15",
+                 "includeBuildVersionInDisplayVersion": "False",
+                 "localBuild": "build-lab",
+                 "manifestName": "VisualStudio",
+                 "manifestType": "installer",
+                 "productDisplayVersion": "18.0.2",
+                 "productLine": "Dev18",
+                 "productLineVersion": "18",
+                 "productMilestone": "RTW",
+                 "productMilestoneIsPreRelease": "False",
+                 "productName": "Visual Studio",
+                 "productPatchVersion": "2",
+                 "productPreReleaseMilestoneSuffix": "1.0",
+                 "productRelease": "RTW",
+                 "productSemanticVersion": "18.0.2+11222.15",
+                 "requiredEngineVersion": "4.0.2166.47498"
+               },
+               "properties": {
+                 "appLocalWPF": "true",
+                 "campaignId": "2500:a36b0d666b764e8b910693ee7bc32179",
+                 "canceled": "0",
+                 "channelManifestId": "VisualStudio.18.Release/18.0.2+11222.15",
+                 "includeRecommended": "1",
+                 "nickname": "",
+                 "setupEngineFilePath": "C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\setup.exe"
+               }
+             }
+           ]
+[   +8 ms] Building Windows application...
+[   +4 ms] executing: C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe -S C:\Users\PC\Desktop\EL ALTO DE DOÑA MAMITA\SISTEMA_SOLARES\windows -B C:\Users\PC\Desktop\EL ALTO DE DOÑA MAMITA\SISTEMA_SOLARES\build\windows\x64 -G Visual Studio 18 2026 -A x64 -DFLUTTER_TARGET_PLATFORM=windows-x64
+[  +86 ms] -- Selecting Windows SDK version 10.0.26100.0 to target Windows 10.0.19045.
+[  +28 ms] -- Configuring done (0.1s)
+[ +337 ms] -- Generating done (0.3s)
+[  +20 ms] -- Build files have been written to: C:/Users/PC/Desktop/EL ALTO DE DOÑA MAMITA/SISTEMA_SOLARES/build/windows/x64
+[  +40 ms] executing: C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe --build C:\Users\PC\Desktop\EL ALTO DE DOÑA MAMITA\SISTEMA_SOLARES\build\windows\x64 --config Release --target INSTALL --verbose
+[  +93 ms] Change Dir: 'C:/Users/PC/Desktop/EL ALTO DE DOÑA MAMITA/SISTEMA_SOLARES/build/windows/x64'
+[        ] Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" INSTALL.vcxproj /p:Configuration=Release /p:Platform=x64 /p:VisualStudioVersion=18.0 /v:n
+[ +120 ms] Versión de MSBuild 18.0.5+e22287bf1 para .NET Framework
+[  +72 ms] Compilación iniciada a las 26/3/2026 17:07:54.
+[ +522 ms] Proyecto "C:\Users\PC\Desktop\EL ALTO DE DOÑA MAMITA\SISTEMA_SOLARES\build\windows\x64\INSTALL.vcxproj" en nodo 1 (destinos predeterminados).
+[        ] El proyecto "C:\Users\PC\Desktop\EL ALTO DE DOÑA MAMITA\SISTEMA_SOLARES\build\windows\x64\INSTALL.vcxproj" (1) está compilando "C:\Users\PC\Desktop\EL ALTO DE DOÑA MAMITA\SISTEMA_SOLARES\build\windows\x64\ZERO_CHECK.vcxproj" (2) en el nodo 1 (destinos predeterminados).
+[        ] PrepareForBuild:
+[        ]   Creando directorio "x64\Release\ZERO_CHECK\".
+[  +16 ms]   La salida estructurada está habilitada. El formato del diagnóstico del compilador reflejará la jerarquía de errores. Consulte https://aka.ms/cpp/structured-output para obtener más detalles.
+[        ]   Creando directorio "x64\Release\ZERO_CHECK\ZERO_CHECK.tlog\".
+[   +8 ms] InitializeBuildStatus:
+[        ]   Se creará "x64\Release\ZERO_CHECK\ZERO_CHECK.tlog\unsuccessfulbuild" porque se especificó "AlwaysCreate".
+[        ]   Aplicando tarea Touch a "x64\Release\ZERO_CHECK\ZERO_CHECK.tlog\unsuccessfulbuild".
+[ +145 ms] CustomBuild:
+[        ]   1>Checking Build System
+[ +113 ms] FinalizeBuildStatus:
+[        ]   Se eliminará el archivo "x64\Release\ZERO_CHECK\ZERO_CHECK.tlog\unsuccessfulbuild".
+[        ]   Aplicando tarea Touch a "x64\Release\ZERO_CHECK\ZERO_CHECK.tlog\ZERO_CHECK.lastbuildstate".
+[        ] Compilación del proyecto terminada "C:\Users\PC\Desktop\EL ALTO DE DOÑA MAMITA\SISTEMA_SOLARES\build\windows\x64\ZERO_CHECK.vcxproj" (destinos predeterminados).
+[ +151 ms] El proyecto "C:\Users\PC\Desktop\EL ALTO DE DOÑA MAMITA\SISTEMA_SOLARES\build\windows\x64\INSTALL.vcxproj" (1) está compilando "C:\Users\PC\Desktop\EL ALTO DE DOÑA MAMITA\SISTEMA_SOLARES\build\windows\x64\ALL_BUILD.vcxproj" (3) en el nodo 1 (destinos predeterminados).
+[        ] El proyecto "C:\Users\PC\Desktop\EL ALTO DE DOÑA MAMITA\SISTEMA_SOLARES\build\windows\x64\ALL_BUILD.vcxproj" (3) está compilando "C:\Users\PC\Desktop\EL ALTO DE DOÑA MAMITA\SISTEMA_SOLARES\build\windows\x64\flutter\flutter_wrapper_app.vcxproj" (4) en el nodo 1 (destinos predeterminados).
+[        ] El proyecto "C:\Users\PC\Desktop\EL ALTO DE DOÑA MAMITA\SISTEMA_SOLARES\build\windows\x64\flutter\flutter_wrapper_app.vcxproj" (4) está compilando "C:\Users\PC\Desktop\EL ALTO DE DOÑA MAMITA\SISTEMA_SOLARES\build\windows\x64\flutter\flutter_assemble.vcxproj" (5) en el nodo 1 (destinos predeterminados).
+[        ] PrepareForBuild:
+[        ]   Creando directorio "x64\Release\flutter_assemble\".
+[   +3 ms]   La salida estructurada está habilitada. El formato del diagnóstico del compilador reflejará la jerarquía de errores. Consulte https://aka.ms/cpp/structured-output para obtener más detalles.
+[        ]   Creando directorio "x64\Release\flutter_assemble\flutter_assemble.tlog\".
+[   +3 ms] InitializeBuildStatus:
+[        ]   Se creará "x64\Release\flutter_assemble\flutter_assemble.tlog\unsuccessfulbuild" porque se especificó "AlwaysCreate".
+[        ]   Aplicando tarea Touch a "x64\Release\flutter_assemble\flutter_assemble.tlog\unsuccessfulbuild".
+[   +5 ms] CustomBuild:
+[        ]   'La compilación de "C:\Users\PC\Desktop\EL ALTO DE DOÑA MAMITA\SISTEMA_SOLARES\build\windows\x64\CMakeFiles\89cab8a9851dc747af4abe0e4edd93a3\flutter_assemble.rule" depende de "C:\USERS\PC\DESKTOP\EL ALTO DE DOÑA MAMITA\SISTEMA_SOLARES\WINDOWS\FLUTTER\EPHEMERAL\FLUTTER_WINDOWS.DLL", que se genera por la compilación de "C:\Users\PC\Desktop\EL ALTO DE DOÑA MAMITA\SISTEMA_SOLARES\build\windows\x64\CMakeFiles\eb358f76bb2b6243fa1f60df720b4b4b\flutter_windows.dll.rule". Los elementos no se pueden compilar en paralelo.'
+[ +102 ms]   Generating C:/Users/PC/Desktop/EL ALTO DE DOÑA MAMITA/SISTEMA_SOLARES/windows/flutter/ephemeral/flutter_windows.dll, C:/Users/PC/Desktop/EL ALTO DE DOÑA MAMITA/SISTEMA_SOLARES/windows/flutter/ephemeral/flutter_export.h, C:/Users/PC/Desktop/EL ALTO DE DOÑA MAMITA/SISTEMA_SOLARES/windows/flutter/ephemeral/flutter_windows.h, C:/Users/PC/Desktop/EL ALTO DE DOÑA MAMITA/SISTEMA_SOLARES/windows/flutter/ephemeral/flutter_messenger.h, C:/Users/PC/Desktop/EL ALTO DE DOÑA MAMITA/SISTEMA_SOLARES/windows/flutter/ephemeral/flutter_plugin_registrar.h, C:/Users/PC/Desktop/EL ALTO DE DOÑA MAMITA/SISTEMA_SOLARES/windows/flutter/ephemeral/flutter_texture_registrar.h, C:/Users/PC/Desktop/EL ALTO DE DOÑA MAMITA/SISTEMA_SOLARES/windows/flutter/ephemeral/cpp_client_wrapper/core_implementations.cc, C:/Users/PC/Desktop/EL ALTO DE DOÑA MAMITA/SISTEMA_SOLARES/windows/flutter/ephemeral/cpp_client_wrapper/standard_codec.cc, C:/Users/PC/Desktop/EL ALTO DE DOÑA MAMITA/SISTEMA_SOLARES/windows/flutter/ephemeral/cpp_client_wrapper/plugin_registrar.cc, C:/Users/PC/Desktop/EL ALTO DE DOÑA MAMITA/SISTEMA_SOLARES/windows/flutter/ephemeral/cpp_client_wrapper/flutter_engine.cc, C:/Users/PC/Desktop/EL ALTO DE DOÑA MAMITA/SISTEMA_SOLARES/windows/flutter/ephemeral/cpp_client_wrapper/flutter_view_controller.cc, _phony_
+[+1802 ms]   [ +129 ms] Artifact Instance of 'MaterialFonts' is not required, skipping update.
+[        ]   [   +1 ms] Artifact Instance of 'GradleWrapper' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'AndroidGenSnapshotArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'AndroidInternalBuildArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'IOSEngineArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'FlutterWebSdk' is not required, skipping update.
+[        ]   [   +1 ms] Artifact Instance of 'LegacyCanvasKitRemover' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'FlutterSdk' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'WindowsEngineArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'MacOSEngineArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'LinuxEngineArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'LinuxFuchsiaSDKArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'MacOSFuchsiaSDKArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'FlutterRunnerSDKArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'FlutterRunnerDebugSymbols' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'FontSubsetArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'PubDependencies' is not required, skipping update.
+[   +3 ms]   [  +14 ms] Artifact Instance of 'AndroidGenSnapshotArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'AndroidInternalBuildArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'IOSEngineArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'FlutterWebSdk' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'FlutterEngineStamp' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'LegacyCanvasKitRemover' is not required, skipping update.
+[   +3 ms]   [   +3 ms] Artifact Instance of 'WindowsEngineArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'MacOSEngineArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'LinuxEngineArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'LinuxFuchsiaSDKArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'MacOSFuchsiaSDKArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'FlutterRunnerSDKArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'FlutterRunnerDebugSymbols' is not required, skipping update.
+[  +93 ms]   [  +93 ms] Artifact Instance of 'MaterialFonts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'GradleWrapper' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'AndroidGenSnapshotArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'AndroidInternalBuildArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'IOSEngineArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'FlutterWebSdk' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'FlutterEngineStamp' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'LegacyCanvasKitRemover' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'FlutterSdk' is not required, skipping update.
+[   +2 ms]   [   +2 ms] Artifact Instance of 'MacOSEngineArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'LinuxEngineArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'LinuxFuchsiaSDKArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'MacOSFuchsiaSDKArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'FlutterRunnerSDKArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'FlutterRunnerDebugSymbols' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'FontSubsetArtifacts' is not required, skipping update.
+[        ]   [        ] Artifact Instance of 'PubDependencies' is not required, skipping update.
+[  +67 ms]   [  +69 ms] Initializing file store
+[  +39 ms]   [  +39 ms] dart_build: Starting due to {}
+[   +2 ms]   [   +2 ms] Skipping target: gen_localizations
+[   +6 ms]   [   +3 ms] gen_dart_plugin_registrant: Starting due to {InvalidatedReasonKind.inputChanged: The following inputs have updated contents: C:\Users\PC\Desktop\EL ALTO DE DO├æA MAMITA\SISTEMA_SOLARES\.dart_tool\package_config.json}
+[   +1 ms]   [   +4 ms] unpack_windows: Starting due to {}
+[+1838 ms]   [+1839 ms] unpack_windows: Complete
+[+5565 ms]   [+5565 ms] executing: C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe -format json -products * -utf8 -latest -version 16 -requires Microsoft.VisualStudio.Workload.NativeDesktop Microsoft.VisualStudio.Component.VC.Tools.x86.x64 Microsoft.VisualStudio.Component.VC.CMake.Project
+[  +73 ms]   [  +73 ms] Exit code 0 from: C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe -format json -products * -utf8 -latest -version 16 -requires Microsoft.VisualStudio.Workload.NativeDesktop Microsoft.VisualStudio.Component.VC.Tools.x86.x64 Microsoft.VisualStudio.Component.VC.CMake.Project
+[   +4 ms]   [        ] [
+[        ]                {
+[        ]                  "instanceId": "7ddc6518",
+[        ]                  "installDate": "2025-12-08T17:47:57Z",
+[        ]                  "installationName": "VisualStudio/18.0.2+11222.15",
+[        ]                  "installationPath": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community",
+[        ]                  "installationVersion": "18.0.11222.15",
+[        ]                  "productId": "Microsoft.VisualStudio.Product.Community",
+[        ]                  "productPath": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\Common7\\IDE\\devenv.exe",
+[        ]                  "state": 4294967295,
+[        ]                  "isComplete": true,
+[        ]                  "isLaunchable": true,
+[        ]                  "isPrerelease": false,
+[        ]                  "isRebootRequired": false,
+[        ]                  "displayName": "Visual Studio Community 2026",
+[        ]                  "description": "Everything you need to build modern apps ÔÇô free for you, built for impact.",
+[        ]                  "channelId": "VisualStudio.18.Release",
+[        ]                  "channelUri": "https://aka.ms/vs/18/stable/channel",
+[        ]                  "enginePath": "C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\resources\\app\\ServiceHub\\Services\\Microsoft.VisualStudio.Setup.Service",
+[        ]                  "expirationDate": "2026-01-11T17:00:00+00:00",
+[        ]                  "installedChannelId": "VisualStudio.18.Release",
+[        ]                  "installedChannelUri": "https://aka.ms/vs/18/stable/channel",
+[        ]                  "releaseNotes": "https://docs.microsoft.com/en-us/visualstudio/releases/18/release-notes-v18.0#18.0.2",
+[        ]                  "resolvedInstallationPath": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community",
+[        ]                  "retirementDate": "2026-02-05T17:00:00+00:00",
+[        ]                  "thirdPartyNotices": "https://go.microsoft.com/fwlink/?LinkId=661480",
+[        ]                  "updateDate": "2025-12-08T17:47:57.6277735Z",
+[        ]                  "catalog": {
+[        ]                    "buildBranch": "d18.0",
+[        ]                    "buildVersion": "18.0.11222.15",
+[        ]                    "featureReleaseMonth": "11",
+[        ]                    "featureReleaseYear": "2025",
+[        ]                    "id": "VisualStudio/18.0.2+11222.15",
+[        ]                    "includeBuildVersionInDisplayVersion": "False",
+[        ]                    "localBuild": "build-lab",
+[        ]                    "manifestName": "VisualStudio",
+[        ]                    "manifestType": "installer",
+[        ]                    "productDisplayVersion": "18.0.2",
+[        ]                    "productLine": "Dev18",
+[        ]                    "productLineVersion": "18",
+[        ]                    "productMilestone": "RTW",
+[        ]                    "productMilestoneIsPreRelease": "False",
+[        ]                    "productName": "Visual Studio",
+[        ]                    "productPatchVersion": "2",
+[        ]                    "productPreReleaseMilestoneSuffix": "1.0",
+[        ]                    "productRelease": "RTW",
+[        ]                    "productSemanticVersion": "18.0.2+11222.15",
+[        ]                    "requiredEngineVersion": "4.0.2166.47498"
+[        ]                  },
+[        ]                  "properties": {
+[        ]                    "appLocalWPF": "true",
+[        ]                    "campaignId": "2500:a36b0d666b764e8b910693ee7bc32179",
+[        ]                    "canceled": "0",
+[        ]                    "channelManifestId": "VisualStudio.18.Release/18.0.2+11222.15",
+[        ]                    "includeRecommended": "1",
+[        ]                    "nickname": "",
+[        ]                    "setupEngineFilePath": "C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\setup.exe"
+[        ]                  }
+[        ]                }
+[        ]              ]
+[        ]   [  +11 ms] Building native assets for windows_x64.
+[ +103 ms]   [ +105 ms] Running `C:\src\flutter\bin\cache\dart-sdk\bin\dart compile kernel '--packages=C:\Users\PC\Desktop\EL ALTO DE DO├æA MAMITA\SISTEMA_SOLARES\.dart_tool\package_config.json' '--output=C:\Users\PC\Desktop\EL ALTO DE DO├æA MAMITA\SISTEMA_SOLARES\.dart_tool\hooks_runner\sqlite3\c184d75f180ed4d66305fe267b82e5a3\hook.dill' '--depfile=C:\Users\PC\Desktop\EL ALTO DE DO├æA MAMITA\SISTEMA_SOLARES\.dart_tool\hooks_runner\sqlite3\c184d75f180ed4d66305fe267b82e5a3\hook.dill.d' C:\Users\PC\AppData\Local\Pub\Cache\hosted\pub.dev\sqlite3-3.2.0\hook\build.dart`.
+[ +131 ms]   [ +131 ms] gen_dart_plugin_registrant: Complete
+[   +6 ms]   [   +4 ms] kernel_snapshot_program: Starting due to {}
+[  +16 ms]   [  +17 ms] C:\src\flutter\bin\cache\dart-sdk\bin\dartaotruntime.exe C:\src\flutter\bin\cache\dart-sdk\bin\snapshots\frontend_server_aot.dart.snapshot --sdk-root C:\src\flutter\bin\cache\artifacts\engine\common\flutter_patched_sdk_product/ --target=flutter --no-print-incremental-dependencies -DFLUTTER_VERSION=3.38.3 -DFLUTTER_CHANNEL=stable -DFLUTTER_GIT_URL=https://github.com/flutter/flutter.git -DFLUTTER_FRAMEWORK_REVISION=19074d12f7 -DFLUTTER_ENGINE_REVISION=13e658725d -DFLUTTER_DART_VERSION=3.10.1 -Ddart.vm.profile=false -Ddart.vm.product=true --delete-tostring-package-uri=dart:ui --delete-tostring-package-uri=package:flutter --aot --tfa --target-os windows --packages C:\Users\PC\Desktop\EL ALTO DE DO├æA MAMITA\SISTEMA_SOLARES\.dart_tool\package_config.json --output-dill C:\Users\PC\Desktop\EL ALTO DE DO├æA MAMITA\SISTEMA_SOLARES\.dart_tool\flutter_build\758016c8636b509ba7f9fa62c64c0a8e\app.dill --depfile C:\Users\PC\Desktop\EL ALTO DE DO├æA MAMITA\SISTEMA_SOLARES\.dart_tool\flutter_build\758016c8636b509ba7f9fa62c64c0a8e\kernel_snapshot_program.d --verbosity=error package:sistema_solares/main.dart
+[+2002 ms]   [+2000 ms] input.json contents:
+[        ]              {
+[        ]                "assets": {},
+[        ]                "config": {
+[        ]                  "build_asset_types": [
+[        ]                    "code_assets/code"
+[        ]                  ],
+[        ]                  "extensions": {
+[        ]                    "code_assets": {
+[        ]                      "c_compiler": {
+[        ]                        "ar": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\lib.exe",
+[        ]                        "cc": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+[        ]                        "ld": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\link.exe",
+[        ]                        "windows": {
+[        ]                          "developer_command_prompt": {
+[        ]                            "arguments": [],
+[        ]                            "script": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Auxiliary\\Build\\vcvars64.bat"
+[        ]                          }
+[        ]                        }
+[        ]                      },
+[        ]                      "link_mode_preference": "dynamic",
+[        ]                      "target_architecture": "x64",
+[        ]                      "target_os": "windows"
+[        ]                    }
+[        ]                  },
+[        ]                  "linking_enabled": true
+[        ]                },
+[        ]                "out_dir_shared": "C:\\Users\\PC\\Desktop\\EL ALTO DE DO├æA MAMITA\\SISTEMA_SOLARES\\.dart_tool\\hooks_runner\\shared\\sqlite3\\build\\",
+[        ]                "out_file": "C:\\Users\\PC\\Desktop\\EL ALTO DE DO├æA MAMITA\\SISTEMA_SOLARES\\.dart_tool\\hooks_runner\\sqlite3\\c184d75f180ed4d66305fe267b82e5a3\\output.json",
+[        ]                "package_name": "sqlite3",
+[        ]                "package_root": "C:\\Users\\PC\\AppData\\Local\\Pub\\Cache\\hosted\\pub.dev\\sqlite3-3.2.0\\",
+[        ]                "user_defines": {}
+[        ]              }
+[   +4 ms]   [  +11 ms] Running `(cd C:\Users\PC\AppData\Local\Pub\Cache\hosted\pub.dev\sqlite3-3.2.0\; PATH=C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.50.35717\bin\HostX64\x64;C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64;;C:\Program Files (x86)\Microsoft SDKs\Windows\v10.0A\bin\NETFX 4.8 Tools\x64;C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x86;;C:\Program Files (x86)\Microsoft SDKs\Windows\v10.0A\bin\NETFX 4.8 Tools;C:\Program Files\Microsoft Visual Studio\18\Community\Common7\tools;C:\Program Files\Microsoft Visual Studio\18\Community\Common7\ide;C:\Program Files (x86)\HTML Help Workshop;;C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\amd64;C:\WINDOWS\Microsoft.NET\Framework64\v4.0.30319\;C:\WINDOWS\Microsoft.NET\Framework\v4.0.30319\;C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin;C:\WINDOWS\Microsoft.NET\Framework\v4.0.30319\;;c:\Users\PC\AppData\Roaming\Code\User\globalStorage\github.copilot-chat\debugCommand;c:\Users\PC\AppData\Roaming\Code\User\globalStorage\github.copilot-chat\copilotCli;C:\src\flutter\bin\;C:\Users\PC\AppData\Local\Programs\Microsoft VS Code;C:\Program Files\Eclipse Adoptium\jdk-17.0.18.8-hotspot\bin;C:\WINDOWS\system32;C:\WINDOWS;C:\WINDOWS\System32\Wbem;C:\WINDOWS\System32\WindowsPowerShell\v1.0\;C:\WINDOWS\System32\OpenSSH\;C:\Program Files\Git\cmd;C:\Users\PC\AppData\Local\nvm;C:\nvm4w\nodejs;C:\src\flutter\bin;C:\Program Files (x86)\Windows Kits\10\Windows Performance Toolkit\;C:\ProgramData\chocolatey\bin;C:\Program Files\CMake\bin;C:\Users\PC\AppData\Local\Microsoft\WindowsApps;C:\Users\PC\AppData\Local\Programs\Microsoft VS Code\bin;C:\Users\PC\Downloads\dart-sdk\bin;C:\Users\PC\AppData\Local\GitHubDesktop\bin;C:\Users\PC\AppData\Local\nvm;C:\nvm4w\nodejs;C:\Program Files\Eclipse Adoptium\jdk-17.0.18.8-hotspot\bin;C:\Users\PC\AppData\Local\Microsoft\WindowsApps;;C:\src\flutter\bin\mingit\cmd;;C:\src\flutter\bin\mingit\cmd PROGRAMDATA=C:\ProgramData SYSTEMDRIVE=C: SYSTEMROOT=C:\WINDOWS TEMP=C:\Users\PC\AppData\Local\Temp TMP=C:\Users\PC\AppData\Local\Temp USERPROFILE=C:\Users\PC WINDIR=C:\WINDOWS C:\src\flutter\bin\cache\dart-sdk\bin\dart '--packages=C:\Users\PC\Desktop\EL ALTO DE DO├æA MAMITA\SISTEMA_SOLARES\.dart_tool\package_config.json' 'C:\Users\PC\Desktop\EL ALTO DE DO├æA MAMITA\SISTEMA_SOLARES\.dart_tool\hooks_runner\sqlite3\c184d75f180ed4d66305fe267b82e5a3\hook.dill' '--config=C:\Users\PC\Desktop\EL ALTO DE DO├æA MAMITA\SISTEMA_SOLARES\.dart_tool\hooks_runner\sqlite3\c184d75f180ed4d66305fe267b82e5a3\input.json' )`.
+[+1590 ms]   [+1591 ms] output.json contents:
+[        ]              {
+[        ]                "assets": [
+[        ]                  {
+[        ]                    "encoding": {
+[        ]                      "file": "C:\\Users\\PC\\Desktop\\EL ALTO DE DO├æA MAMITA\\SISTEMA_SOLARES\\.dart_tool\\hooks_runner\\shared\\sqlite3\\build\\download-15cf4587\\sqlite3.dll",
+[        ]                      "id": "package:sqlite3/src/ffi/libsqlite3.g.dart",
+[        ]                      "link_mode": {
+[        ]                        "type": "dynamic_loading_bundle"
+[        ]                      }
+[        ]                    },
+[        ]                    "type": "code_assets/code"
+[        ]                  }
+[        ]                ],
+[        ]                "assets_for_linking": {},
+[        ]                "status": "success",
+[        ]                "timestamp": "2026-03-26 17:08:08.000"
+[        ]              }
+[ +108 ms]   [ +112 ms] Note: You are using the dart build hooks feature which is currently in preview. Please see https://dart.dev/interop/c-interop#native-assets for more details.
+[        ]   [        ] Building native assets for windows_x64 done.
+[  +26 ms]   [  +24 ms] dart_build: Complete
+[  +27 ms]   [  +28 ms] install_code_assets: Starting due to {}
+[   +7 ms]   [   +8 ms] Copying native assets to C:\Users\PC\Desktop\EL ALTO DE DO├æA MAMITA\SISTEMA_SOLARES\build\native_assets\windows\.
+[+16124 ms]   [+16124 ms] kernel_snapshot_program: Complete
+[+1116 ms]   [+1116 ms] aot_elf_release: Starting due to {InvalidatedReasonKind.inputChanged: The following inputs have updated contents: C:\src\flutter\packages\flutter_tools\lib\src\build_system\targets\common.dart,C:\Users\PC\Desktop\EL ALTO DE DO├æA MAMITA\SISTEMA_SOLARES\.dart_tool\flutter_build\758016c8636b509ba7f9fa62c64c0a8e\app.dill,C:\src\flutter\bin\cache\engine.stamp,C:\src\flutter\bin\cache\engine.stamp,C:\src\flutter\bin\cache\engine.stamp, InvalidatedReasonKind.outputSetAddition: The following outputs were added to the output set: C:\Users\PC\Desktop\EL ALTO DE DO├æA MAMITA\SISTEMA_SOLARES\.dart_tool\flutter_build\758016c8636b509ba7f9fa62c64c0a8e\app.so}
+[   +9 ms]   [   +8 ms] targetingApplePlatform = false
+[        ]   [        ] extractAppleDebugSymbols = true
+[        ]   [        ] Will strip AOT snapshot during build.
+[   +1 ms]   [   +2 ms] executing: C:\src\flutter\bin\cache\artifacts\engine\windows-x64-release\gen_snapshot --deterministic --snapshot_kind=app-aot-elf --elf=C:\Users\PC\Desktop\EL ALTO DE DO├æA MAMITA\SISTEMA_SOLARES\.dart_tool\flutter_build\758016c8636b509ba7f9fa62c64c0a8e\app.so --strip C:\Users\PC\Desktop\EL ALTO DE DO├æA MAMITA\SISTEMA_SOLARES\.dart_tool\flutter_build\758016c8636b509ba7f9fa62c64c0a8e\app.dill
+[ +220 ms] CUSTOMBUILD : [ +205 ms] error : Unable to read file: C:\Users\PC\Desktop\EL ALTO DE DO´┐¢A MAMITA\SISTEMA_SOLARES\.dart_tool\flutter_build\758016c8636b509ba7f9fa62c64c0a8e\app.dill [C:\Users\PC\Desktop\EL ALTO DE DOÑA MAMITA\SISTEMA_SOLARES\build\windows\x64\flutter\flutter_assemble.vcxproj]
+[        ]   [   +1 ms] Persisting file store
+[        ]   [   +2 ms] Dart snapshot generator failed with exit code 255
+[   +9 ms]   [  +21 ms] Done persisting file store
+[  +34 ms]   [  +33 ms] Target install_code_assets failed: PathExistsException: Cannot copy file to 'C:\Users\PC\Desktop\EL ALTO DE DO├æA MAMITA\SISTEMA_SOLARES\build\native_assets\windows\sqlite3.dll', path = 'C:\Users\PC\Desktop\EL ALTO DE DO├æA MAMITA\SISTEMA_SOLARES\.dart_tool\hooks_runner\shared\sqlite3\build\download-15cf4587\sqlite3.dll' (OS Error: No se puede crear un archivo que ya existe.
+[        ]              , errno = 183)
+[        ]              #0      _checkForErrorResponse (dart:io/common.dart:58:9)
+[        ]              #1      _File.copy.<anonymous closure> (dart:io/file_impl.dart:410:7)
+[        ]              #2      _rootRunUnary (dart:async/zone.dart:1538:47)
+[        ]              #3      _CustomZone.runUnary (dart:async/zone.dart:1429:19)
+[        ]              <asynchronous suspension>
+[        ]              #4      ForwardingFile.copy (package:file/src/forwarding/forwarding_file.dart:29:51)
+[        ]              <asynchronous suspension>
+[        ]              #5      ForwardingFile.copy (package:file/src/forwarding/forwarding_file.dart:29:51)
+[        ]              <asynchronous suspension>
+[        ]              #6      _copyNativeCodeAssetsToBundleOnWindowsLinux (package:flutter_tools/src/isolated/native_assets/native_assets.dart:649:5)
+[        ]              <asynchronous suspension>
+[        ]              #7      _copyNativeCodeAssetsForOS (package:flutter_tools/src/isolated/native_assets/native_assets.dart:463:7)
+[        ]              <asynchronous suspension>
+[        ]              #8      installCodeAssets (package:flutter_tools/src/isolated/native_assets/native_assets.dart:119:3)
+[        ]              <asynchronous suspension>
+[        ]              #9      InstallCodeAssets.build (package:flutter_tools/src/build_system/targets/native_assets.dart:171:5)
+[        ]              <asynchronous suspension>
+[        ]              #10     _BuildInstance._invokeInternal (package:flutter_tools/src/build_system/build_system.dart:873:9)
+[        ]              <asynchronous suspension>
+[        ]              #11     Future.wait.<anonymous closure> (dart:async/future.dart:546:21)
+[        ]              <asynchronous suspension>
+[        ]              #12     _BuildInstance.invokeTarget (package:flutter_tools/src/build_system/build_system.dart:811:32)
+[        ]              <asynchronous suspension>
+[        ]              #13     FlutterBuildSystem.build (package:flutter_tools/src/build_system/build_system.dart:631:16)
+[        ]              <asynchronous suspension>
+[        ]              #14     AssembleCommand.runCommand (package:flutter_tools/src/commands/assemble.dart:361:32)
+[        ]              <asynchronous suspension>
+[        ]              #15     FlutterCommand.run.<anonymous closure> (package:flutter_tools/src/runner/flutter_command.dart:1559:27)
+[        ]              <asynchronous suspension>
+[        ]              #16     AppContext.run.<anonymous closure> (package:flutter_tools/src/base/context.dart:154:19)
+[        ]              <asynchronous suspension>
+[        ]              #17     CommandRunner.runCommand (package:args/command_runner.dart:212:13)
+[        ]              <asynchronous suspension>
+[        ]              #18     FlutterCommandRunner.runCommand.<anonymous closure> (package:flutter_tools/src/runner/flutter_command_runner.dart:487:9)
+[        ]              <asynchronous suspension>
+[        ]              #19     AppContext.run.<anonymous closure> (package:flutter_tools/src/base/context.dart:154:19)
+[        ]              <asynchronous suspension>
+[        ]              #20     FlutterCommandRunner.runCommand (package:flutter_tools/src/runner/flutter_command_runner.dart:422:5)
+[        ]              <asynchronous suspension>
+[        ]              #21     run.<anonymous closure>.<anonymous closure> (package:flutter_tools/runner.dart:104:11)
+[        ]              <asynchronous suspension>
+[        ]              #22     AppContext.run.<anonymous closure> (package:flutter_tools/src/base/context.dart:154:19)
+[        ]              <asynchronous suspension>
+[        ]              #23     main (package:flutter_tools/executable.dart:103:3)
+[        ]              <asynchronous suspension>
+[        ]   [   +1 ms] Target aot_elf_release failed: Exception: AOT snapshotter exited with code 255
+[        ]              #0      AotElfBase.build (package:flutter_tools/src/build_system/targets/common.dart:389:7)
+[        ]              <asynchronous suspension>
+[        ]              #1      _BuildInstance._invokeInternal (package:flutter_tools/src/build_system/build_system.dart:873:9)
+[        ]              <asynchronous suspension>
+[        ]              #2      Future.wait.<anonymous closure> (dart:async/future.dart:546:21)
+[        ]              <asynchronous suspension>
+[        ]              #3      _BuildInstance.invokeTarget (package:flutter_tools/src/build_system/build_system.dart:811:32)
+[        ]              <asynchronous suspension>
+[        ]              #4      Future.wait.<anonymous closure> (dart:async/future.dart:546:21)
+[        ]              <asynchronous suspension>
+[        ]              #5      _BuildInstance.invokeTarget (package:flutter_tools/src/build_system/build_system.dart:811:32)
+[        ]              <asynchronous suspension>
+[        ]              #6      FlutterBuildSystem.build (package:flutter_tools/src/build_system/build_system.dart:631:16)
+[        ]              <asynchronous suspension>
+[        ]              #7      AssembleCommand.runCommand (package:flutter_tools/src/commands/assemble.dart:361:32)
+[        ]              <asynchronous suspension>
+[        ]   [   +1 ms] "flutter assemble" took 29.285ms.
+[   +3 ms]              #8      FlutterCommand.run.<anonymous closure> (package:flutter_tools/src/runner/flutter_command.dart:1559:27)
+[        ]              <asynchronous suspension>
+[        ]              #9      AppContext.run.<anonymous closure> (package:flutter_tools/src/base/context.dart:154:19)
+[        ]              <asynchronous suspension>
+[        ]              #10     CommandRunner.runCommand (package:args/command_runner.dart:212:13)
+[        ]              <asynchronous suspension>
+[        ]              #11     FlutterCommandRunner.runCommand.<anonymous closure> (package:flutter_tools/src/runner/flutter_command_runner.dart:487:9)
+[        ]              <asynchronous suspension>
+[        ]              #12     AppContext.run.<anonymous closure> (package:flutter_tools/src/base/context.dart:154:19)
+[        ]              <asynchronous suspension>
+[        ]              #13     FlutterCommandRunner.runCommand (package:flutter_tools/src/runner/flutter_command_runner.dart:422:5)
+[        ]              <asynchronous suspension>
+[        ]              #14     run.<anonymous closure>.<anonymous closure> (package:flutter_tools/runner.dart:104:11)
+[        ]              <asynchronous suspension>
+[        ]              #15     AppContext.run.<anonymous closure> (package:flutter_tools/src/base/context.dart:154:19)
+[        ]              <asynchronous suspension>
+[        ]              #16     main (package:flutter_tools/executable.dart:103:3)
+[        ]              <asynchronous suspension>
+[ +182 ms]   [ +200 ms] 
+[        ]              #0      throwToolExit (package:flutter_tools/src/base/common.dart:34:3)
+[        ]              #1      AssembleCommand.runCommand (package:flutter_tools/src/commands/assemble.dart:379:7)
+[        ]              <asynchronous suspension>
+[        ]              #2      FlutterCommand.run.<anonymous closure> (package:flutter_tools/src/runner/flutter_command.dart:1559:27)
+[        ]              <asynchronous suspension>
+[        ]              #3      AppContext.run.<anonymous closure> (package:flutter_tools/src/base/context.dart:154:19)
+[        ]              <asynchronous suspension>
+[        ]              #4      CommandRunner.runCommand (package:args/command_runner.dart:212:13)
+[        ]              <asynchronous suspension>
+[        ]              #5      FlutterCommandRunner.runCommand.<anonymous closure> (package:flutter_tools/src/runner/flutter_command_runner.dart:487:9)
+[        ]              <asynchronous suspension>
+[        ]              #6      AppContext.run.<anonymous closure> (package:flutter_tools/src/base/context.dart:154:19)
+[        ]              <asynchronous suspension>
+[        ]              #7      FlutterCommandRunner.runCommand (package:flutter_tools/src/runner/flutter_command_runner.dart:422:5)
+[        ]              <asynchronous suspension>
+[        ]              #8      run.<anonymous closure>.<anonymous closure> (package:flutter_tools/runner.dart:104:11)
+[        ]              <asynchronous suspension>
+[        ]              #9      AppContext.run.<anonymous closure> (package:flutter_tools/src/base/context.dart:154:19)
+[        ]              <asynchronous suspension>
+[        ]              #10     main (package:flutter_tools/executable.dart:103:3)
+[        ]              <asynchronous suspension>
+[        ]   [        ] Running 1 shutdown hook
+[        ]   [   +1 ms] Shutdown hooks complete
+[ +160 ms]   [ +161 ms] exiting with code 1
+[ +120 ms] C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Microsoft\VC\v180\Microsoft.CppCommon.targets(254,5): error MSB8066: Compilación personalizada de "C:\Users\PC\Desktop\EL ALTO DE DOÑA MAMITA\SISTEMA_SOLARES\build\windows\x64\CMakeFiles\eb358f76bb2b6243fa1f60df720b4b4b\flutter_windows.dll.rule;C:\Users\PC\Desktop\EL ALTO DE DOÑA MAMITA\SISTEMA_SOLARES\build\windows\x64\CMakeFiles\89cab8a9851dc747af4abe0e4edd93a3\flutter_assemble.rule;C:\Users\PC\Desktop\EL ALTO DE DOÑA MAMITA\SISTEMA_SOLARES\windows\flutter\CMakeLists.txt" terminada con el código 1. [C:\Users\PC\Desktop\EL ALTO DE DOÑA MAMITA\SISTEMA_SOLARES\build\windows\x64\flutter\flutter_assemble.vcxproj]
+[   +2 ms] Compilación del proyecto terminada "C:\Users\PC\Desktop\EL ALTO DE DOÑA MAMITA\SISTEMA_SOLARES\build\windows\x64\flutter\flutter_assemble.vcxproj" (destinos predeterminados) -- ERROR.
+[        ] Compilación del proyecto terminada "C:\Users\PC\Desktop\EL ALTO DE DOÑA MAMITA\SISTEMA_SOLARES\build\windows\x64\flutter\flutter_wrapper_app.vcxproj" (destinos predeterminados) -- ERROR.
+[  +77 ms] Compilación del proyecto terminada "C:\Users\PC\Desktop\EL ALTO DE DOÑA MAMITA\SISTEMA_SOLARES\build\windows\x64\ALL_BUILD.vcxproj" (destinos predeterminados) -- ERROR.
+[        ] Compilación del proyecto terminada "C:\Users\PC\Desktop\EL ALTO DE DOÑA MAMITA\SISTEMA_SOLARES\build\windows\x64\INSTALL.vcxproj" (destinos predeterminados) -- ERROR.
+[   +1 ms] ERROR al compilar.
+[   +4 ms] "C:\Users\PC\Desktop\EL ALTO DE DOÑA MAMITA\SISTEMA_SOLARES\build\windows\x64\INSTALL.vcxproj" (destino predeterminado) (1) ->
+[        ] "C:\Users\PC\Desktop\EL ALTO DE DOÑA MAMITA\SISTEMA_SOLARES\build\windows\x64\ALL_BUILD.vcxproj" (destino predeterminado) (3) ->
+[        ] "C:\Users\PC\Desktop\EL ALTO DE DOÑA MAMITA\SISTEMA_SOLARES\build\windows\x64\flutter\flutter_wrapper_app.vcxproj" (destino predeterminado) (4) ->
+[        ] "C:\Users\PC\Desktop\EL ALTO DE DOÑA MAMITA\SISTEMA_SOLARES\build\windows\x64\flutter\flutter_assemble.vcxproj" (destino predeterminado) (5) ->
+[        ] (CustomBuild destino) -> 
+[        ]   CUSTOMBUILD : [ +205 ms] error : Unable to read file: C:\Users\PC\Desktop\EL ALTO DE DO´┐¢A MAMITA\SISTEMA_SOLARES\.dart_tool\flutter_build\758016c8636b509ba7f9fa62c64c0a8e\app.dill [C:\Users\PC\Desktop\EL ALTO DE DOÑA MAMITA\SISTEMA_SOLARES\build\windows\x64\flutter\flutter_assemble.vcxproj]
+[        ]   C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Microsoft\VC\v180\Microsoft.CppCommon.targets(254,5): error MSB8066: Compilación personalizada de "C:\Users\PC\Desktop\EL ALTO DE DOÑA MAMITA\SISTEMA_SOLARES\build\windows\x64\CMakeFiles\eb358f76bb2b6243fa1f60df720b4b4b\flutter_windows.dll.rule;C:\Users\PC\Desktop\EL ALTO DE DOÑA MAMITA\SISTEMA_SOLARES\build\windows\x64\CMakeFiles\89cab8a9851dc747af4abe0e4edd93a3\flutter_assemble.rule;C:\Users\PC\Desktop\EL ALTO DE DOÑA MAMITA\SISTEMA_SOLARES\windows\flutter\CMakeLists.txt" terminada con el código 1. [C:\Users\PC\Desktop\EL ALTO DE DOÑA MAMITA\SISTEMA_SOLARES\build\windows\x64\flutter\flutter_assemble.vcxproj]
+[        ]     0 Advertencia(s)
+[        ]     2 Errores
+[        ] Tiempo transcurrido 00:00:32.73
+[  +28 ms] Building Windows application... (completed in 33,6s)
+[        ] "flutter windows" took 34.094ms.
+[ +148 ms] Build process failed.
+[        ] 
+           #0      throwToolExit (package:flutter_tools/src/base/common.dart:34:3)
+           #1      _runBuild (package:flutter_tools/src/windows/build_windows.dart:262:5)
+           <asynchronous suspension>
+           #2      buildWindows (package:flutter_tools/src/windows/build_windows.dart:118:5)
+           <asynchronous suspension>
+           #3      BuildWindowsCommand.runCommand (package:flutter_tools/src/commands/build_windows.dart:72:5)
+           <asynchronous suspension>
+           #4      FlutterCommand.run.<anonymous closure> (package:flutter_tools/src/runner/flutter_command.dart:1559:27)
+           <asynchronous suspension>
+           #5      AppContext.run.<anonymous closure> (package:flutter_tools/src/base/context.dart:154:19)
+           <asynchronous suspension>
+           #6      CommandRunner.runCommand (package:args/command_runner.dart:212:13)
+           <asynchronous suspension>
+           #7      FlutterCommandRunner.runCommand.<anonymous closure> (package:flutter_tools/src/runner/flutter_command_runner.dart:487:9)
+           <asynchronous suspension>
+           #8      AppContext.run.<anonymous closure> (package:flutter_tools/src/base/context.dart:154:19)
+           <asynchronous suspension>
+           #9      FlutterCommandRunner.runCommand (package:flutter_tools/src/runner/flutter_command_runner.dart:422:5)
+           <asynchronous suspension>
+           #10     run.<anonymous closure>.<anonymous closure> (package:flutter_tools/runner.dart:104:11)
+           <asynchronous suspension>
+           #11     AppContext.run.<anonymous closure> (package:flutter_tools/src/base/context.dart:154:19)
+           <asynchronous suspension>
+           #12     main (package:flutter_tools/executable.dart:103:3)
+           <asynchronous suspension>
+
+
+[        ] Running 1 shutdown hook
+[   +2 ms] Shutdown hooks complete
+[ +144 ms] exiting with code 1

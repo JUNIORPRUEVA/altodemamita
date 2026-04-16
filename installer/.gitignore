@@ -1,0 +1,10 @@
+# Ignore generated installer outputs (keep sources like setup.iss)
+/output/
+/redist/
+
+# Common Inno Setup artifacts
+*.exe
+*.msi
+*.zip
+*.7z
+*.log

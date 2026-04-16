@@ -1,0 +1,1141 @@
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+import '../../../core/database/app_database.dart';
+import '../../../core/database/database_schema.dart';
+import '../../../core/system/system_config_service.dart';
+import '../../../services/sync/sync_queue_service.dart';
+import '../../installments/domain/installment.dart';
+import '../../sales/domain/sale_calculator.dart';
+import '../../settings/data/settings_repository.dart';
+import '../domain/payment_draft.dart';
+import '../domain/payment_history_item.dart';
+import '../domain/client_pagare_report.dart';
+import '../domain/payment_sale_context.dart';
+import '../domain/payment_sale_option.dart';
+
+class PaymentsRepository {
+  PaymentsRepository({
+    AppDatabase? appDatabase,
+    SettingsRepository? settingsRepository,
+    SyncQueueService? syncQueueService,
+  }) : _appDatabase = appDatabase ?? AppDatabase.instance,
+       _settingsRepository = settingsRepository ?? SettingsRepository(),
+       _syncQueueService = syncQueueService ?? SyncQueueService.instance;
+
+  final AppDatabase _appDatabase;
+  final SettingsRepository _settingsRepository;
+  final SyncQueueService _syncQueueService;
+
+  Future<List<PaymentSaleOption>> fetchActiveSales() async {
+    final db = await _appDatabase.database;
+    final rows = await db.rawQuery('''
+      SELECT
+        v.id,
+        v.cliente_id,
+        v.solar_id,
+        v.saldo_pendiente,
+        v.monto_inicial_requerido,
+        v.monto_inicial_pagado,
+        v.monto_inicial_pendiente,
+        v.estado,
+        c.nombre AS cliente_nombre,
+        c.cedula AS cliente_cedula,
+        c.telefono AS cliente_telefono,
+        s.manzana_numero,
+        s.solar_numero
+      FROM ${DatabaseSchema.salesTable} v
+      INNER JOIN ${DatabaseSchema.clientsTable} c ON c.id = v.cliente_id
+      INNER JOIN ${DatabaseSchema.lotsTable} s ON s.id = v.solar_id
+      WHERE v.estado IN ('apartado', 'inicial_incompleto', 'activa')
+        AND (v.monto_inicial_pendiente > 0 OR v.saldo_pendiente > 0)
+      ORDER BY c.nombre COLLATE NOCASE ASC, v.id ASC
+    ''');
+
+    return rows.map(PaymentSaleOption.fromMap).toList();
+  }
+
+  Future<String> fetchDefaultPaymentMethod() async {
+    final settings = await _settingsRepository.fetchByKeysWithDefaults({
+      SettingsRepository.defaultPaymentMethodKey: 'efectivo',
+    });
+    return settings[SettingsRepository.defaultPaymentMethodKey]?.value ??
+        'efectivo';
+  }
+
+  Future<PaymentSaleContext?> fetchSaleContext(int saleId) async {
+    final db = await _appDatabase.database;
+    final saleRows = await db.rawQuery(
+      '''
+      SELECT
+        v.id,
+        v.cliente_id,
+        v.solar_id,
+        v.saldo_pendiente,
+        v.estado,
+        v.fecha_venta,
+        v.interes_mensual,
+        v.cantidad_cuotas,
+        v.monto_inicial_requerido,
+        v.monto_inicial_pagado,
+        v.monto_inicial_pendiente,
+        c.nombre AS cliente_nombre,
+        c.cedula AS cliente_cedula,
+        s.manzana_numero,
+        s.solar_numero
+      FROM ${DatabaseSchema.salesTable} v
+      INNER JOIN ${DatabaseSchema.clientsTable} c ON c.id = v.cliente_id
+      INNER JOIN ${DatabaseSchema.lotsTable} s ON s.id = v.solar_id
+      WHERE v.id = ?
+      LIMIT 1
+    ''',
+      [saleId],
+    );
+
+    if (saleRows.isEmpty) {
+      return null;
+    }
+
+    final installmentRows = await db.query(
+      DatabaseSchema.installmentsTable,
+      where: 'venta_id = ? AND estado <> ?',
+      whereArgs: [saleId, 'ajustada'],
+      orderBy: 'numero_cuota ASC',
+    );
+    final installments = installmentRows.map(Installment.fromMap).toList();
+
+    final historyRows = await db.rawQuery(
+      '''
+      SELECT
+        p.*,
+        q.numero_cuota
+      FROM ${DatabaseSchema.paymentsTable} p
+      LEFT JOIN ${DatabaseSchema.installmentsTable} q ON q.id = p.cuota_id
+      WHERE p.venta_id = ?
+      ORDER BY p.fecha_pago DESC, p.id DESC
+    ''',
+      [saleId],
+    );
+
+    return PaymentSaleContext(
+      sale: PaymentSaleOption.fromMap(saleRows.first),
+      monthlyInterest: _toDouble(saleRows.first['interes_mensual']),
+      installments: installments,
+      history: historyRows.map(PaymentHistoryItem.fromMap).toList(),
+      actionableInstallment: _findActionableInstallment(
+        installments,
+        DateTime.now(),
+      ),
+    );
+  }
+
+  Future<ClientPagareReport> fetchClientPagareReport(int clientId) async {
+    final db = await _appDatabase.database;
+
+    final clientRows = await db.query(
+      DatabaseSchema.clientsTable,
+      columns: ['id', 'nombre', 'cedula'],
+      where: 'id = ?',
+      whereArgs: [clientId],
+      limit: 1,
+    );
+
+    if (clientRows.isEmpty) {
+      throw StateError('No se encontró el cliente seleccionado.');
+    }
+
+    final client = clientRows.first;
+    final historyRows = await db.rawQuery(
+      '''
+      SELECT
+        p.id,
+        p.venta_id,
+        p.fecha_pago,
+        p.monto_pagado,
+        p.metodo_pago,
+        p.tipo_pago,
+        p.referencia,
+        q.numero_cuota,
+        s.manzana_numero,
+        s.solar_numero
+      FROM ${DatabaseSchema.paymentsTable} p
+      INNER JOIN ${DatabaseSchema.salesTable} v ON v.id = p.venta_id
+      LEFT JOIN ${DatabaseSchema.installmentsTable} q ON q.id = p.cuota_id
+      LEFT JOIN ${DatabaseSchema.lotsTable} s ON s.id = v.solar_id
+      WHERE p.cliente_id = ?
+      ORDER BY p.fecha_pago DESC, p.id DESC
+    ''',
+      [clientId],
+    );
+
+    return ClientPagareReport(
+      clientId: clientId,
+      clientName: client['nombre'] as String? ?? 'Cliente',
+      clientDocumentId: client['cedula'] as String? ?? 'N/A',
+      items: historyRows.map(ClientPagareItem.fromMap).toList(growable: false),
+    );
+  }
+
+  Future<void> registerPayment(PaymentDraft draft) async {
+    SystemConfigService.instance.ensureWritable();
+
+    final db = await _appDatabase.database;
+    final deletedInstallmentPayloads = <Map<String, Object?>>[];
+
+    await db.transaction<void>((txn) async {
+      await _registerPaymentInTransaction(
+        txn,
+        draft,
+        deletedInstallmentPayloads,
+      );
+    });
+
+    for (final payload in deletedInstallmentPayloads) {
+      final syncId = payload['sync_id']?.toString().trim();
+      if (syncId == null || syncId.isEmpty) {
+        continue;
+      }
+      await _syncQueueService.enqueueDelete(
+        scope: 'installments',
+        recordSyncId: syncId,
+        payload: payload,
+      );
+    }
+
+    await _syncQueueService.refreshScope('products');
+    await _syncQueueService.refreshScope('sales');
+    await _syncQueueService.refreshScope('installments');
+    await _syncQueueService.refreshScope('payments');
+  }
+
+  Future<void> deletePayment(int paymentId) async {
+    SystemConfigService.instance.ensureWritable();
+
+    final db = await _appDatabase.database;
+    final deleteQueue =
+        <({String scope, String syncId, Map<String, Object?> payload})>[];
+
+    await db.transaction<void>((txn) async {
+      final paymentRows = await txn.query(
+        DatabaseSchema.paymentsTable,
+        where: 'id = ?',
+        whereArgs: [paymentId],
+        limit: 1,
+      );
+      if (paymentRows.isEmpty) {
+        throw StateError('El pago seleccionado ya no existe.');
+      }
+
+      final paymentRow = paymentRows.first;
+      final paymentSyncId = (paymentRow['sync_id'] as String?)?.trim();
+      if (paymentSyncId != null && paymentSyncId.isNotEmpty) {
+        deleteQueue.add((
+          scope: 'payments',
+          syncId: paymentSyncId,
+          payload: _buildDeletePayload(
+            paymentRow,
+            updatedAtField: 'fecha_actualizacion',
+          ),
+        ));
+      }
+      final saleId = _toInt(paymentRow['venta_id']);
+      final latestRows = await txn.query(
+        DatabaseSchema.paymentsTable,
+        columns: ['id'],
+        where: 'venta_id = ?',
+        whereArgs: [saleId],
+        orderBy: 'fecha_pago DESC, id DESC',
+        limit: 1,
+      );
+      if (latestRows.isEmpty || _toInt(latestRows.first['id']) != paymentId) {
+        throw StateError(
+          'Por seguridad solo se puede anular el ultimo pago registrado de la venta.',
+        );
+      }
+
+      final saleRows = await txn.query(
+        DatabaseSchema.salesTable,
+        where: 'id = ?',
+        whereArgs: [saleId],
+        limit: 1,
+      );
+      if (saleRows.isEmpty) {
+        throw StateError('La venta asociada al pago ya no existe.');
+      }
+
+      final saleRow = saleRows.first;
+      final paymentType = paymentRow['tipo_pago'] as String? ?? 'cuota';
+      final paymentAmount = _roundCurrency(
+        _toDouble(paymentRow['monto_pagado']),
+      );
+      final currentInitialPaid = _roundCurrency(
+        _toDouble(saleRow['monto_inicial_pagado']),
+      );
+      final requiredInitial = _roundCurrency(
+        _toDouble(saleRow['monto_inicial_requerido']),
+      );
+      final salePrice = _roundCurrency(_toDouble(saleRow['precio_venta']));
+      final currentPendingBalance = _roundCurrency(
+        _toDouble(saleRow['saldo_pendiente']),
+      );
+      final financedBalance = _roundCurrency(
+        _toDouble(saleRow['saldo_financiado']),
+      );
+      final monthlyInterest = _toDouble(saleRow['interes_mensual']);
+      final installmentCount = _toInt(saleRow['cantidad_cuotas']);
+      final lotId = _toInt(saleRow['solar_id']);
+      final installmentId = paymentRow['cuota_id'] as int?;
+      final paymentDate = DateTime.tryParse(
+        paymentRow['fecha_pago'] as String? ?? '',
+      );
+      final saleDate = DateTime.tryParse(
+        saleRow['fecha_venta'] as String? ?? '',
+      );
+      final existingActivationDate = saleRow['fecha_activacion'] as String?;
+      final updatedAt = DateTime.now().toIso8601String();
+
+      await txn.delete(
+        DatabaseSchema.paymentsTable,
+        where: 'id = ?',
+        whereArgs: [paymentId],
+      );
+
+      if (paymentType == 'apartado' || paymentType == 'abono_inicial') {
+        final updatedInitialPaid = _roundCurrency(
+          (currentInitialPaid - paymentAmount).clamp(0, salePrice),
+        );
+        final updatedInitialPending =
+            SaleCalculator.calculatePendingInitialPayment(
+              requiredInitialPayment: requiredInitial,
+              initialPaymentPaid: updatedInitialPaid,
+            );
+        final updatedFinancedBalance = SaleCalculator.calculateFinancedBalance(
+          salePrice: salePrice,
+          downPaymentAmount: updatedInitialPaid,
+        );
+        final newSaleStatus = _resolveUpfrontSaleStatus(
+          initialRequiredAmount: requiredInitial,
+          initialPaidAmount: updatedInitialPaid,
+          financedBalance: updatedFinancedBalance,
+        );
+
+        final deletedInstallmentRows = await txn.query(
+          DatabaseSchema.installmentsTable,
+          where: 'venta_id = ?',
+          whereArgs: [saleId],
+        );
+        for (final row in deletedInstallmentRows) {
+          final syncId = (row['sync_id'] as String?)?.trim();
+          if (syncId == null || syncId.isEmpty) {
+            continue;
+          }
+          deleteQueue.add((
+            scope: 'installments',
+            syncId: syncId,
+            payload: _buildDeletePayload(row),
+          ));
+        }
+
+        await txn.delete(
+          DatabaseSchema.installmentsTable,
+          where: 'venta_id = ?',
+          whereArgs: [saleId],
+        );
+
+        await txn.update(
+          DatabaseSchema.salesTable,
+          {
+            'inicial_monto': updatedInitialPaid,
+            'monto_inicial_pagado': updatedInitialPaid,
+            'monto_inicial_pendiente': updatedInitialPending,
+            'saldo_financiado': updatedFinancedBalance,
+            'estado': newSaleStatus,
+            'fecha_activacion':
+                newSaleStatus == 'activa' || newSaleStatus == 'pagada'
+                ? (existingActivationDate ??
+                      (saleDate ?? paymentDate ?? DateTime.now())
+                          .toIso8601String())
+                : null,
+            'saldo_pendiente': updatedFinancedBalance,
+            'fecha_actualizacion': updatedAt,
+          },
+          where: 'id = ?',
+          whereArgs: [saleId],
+        );
+
+        if (newSaleStatus == 'activa' && saleDate != null) {
+          final generatedInstallments = SaleCalculator.buildInstallmentSchedule(
+            saleId: saleId,
+            saleDate: saleDate,
+            financedBalance: updatedFinancedBalance,
+            monthlyInterest: monthlyInterest,
+            installmentCount: installmentCount,
+            createdAt: DateTime.parse(updatedAt),
+          );
+          final batch = txn.batch();
+          for (final installment in generatedInstallments) {
+            batch.insert(
+              DatabaseSchema.installmentsTable,
+              installment.toMap()..remove('id'),
+            );
+          }
+          await batch.commit(noResult: true);
+        }
+
+        await txn.update(
+          DatabaseSchema.lotsTable,
+          {
+            'estado': newSaleStatus == 'activa' || newSaleStatus == 'pagada'
+                ? 'vendido'
+                : 'reservado',
+            'fecha_actualizacion': updatedAt,
+          },
+          where: 'id = ?',
+          whereArgs: [lotId],
+        );
+        return;
+      }
+
+      if (paymentType == 'cuota') {
+        if (installmentId == null) {
+          throw StateError(
+            'El pago de cuota no tiene una cuota asociada valida.',
+          );
+        }
+
+        final installmentRows = await txn.query(
+          DatabaseSchema.installmentsTable,
+          where: 'id = ?',
+          whereArgs: [installmentId],
+          limit: 1,
+        );
+        if (installmentRows.isEmpty) {
+          throw StateError('La cuota asociada al pago ya no existe.');
+        }
+
+        final installment = Installment.fromMap(installmentRows.first);
+        final principalReversal =
+            paymentAmount > installment.paidPrincipalAmount
+            ? installment.paidPrincipalAmount
+            : paymentAmount;
+        final interestReversal = _roundCurrency(
+          paymentAmount - principalReversal,
+        );
+        final updatedPaidAmount = _roundCurrency(
+          (installment.paidAmount - paymentAmount).clamp(
+            0,
+            installment.totalAmount,
+          ),
+        );
+        final updatedPrincipalPaid = _roundCurrency(
+          (installment.paidPrincipalAmount - principalReversal).clamp(
+            0,
+            installment.principalAmount,
+          ),
+        );
+        final updatedInterestPaid = _roundCurrency(
+          (installment.paidInterestAmount - interestReversal).clamp(
+            0,
+            installment.interestAmount,
+          ),
+        );
+        final updatedStatus = updatedPaidAmount <= 0.009
+            ? 'pendiente'
+            : updatedPaidAmount >= installment.totalAmount - 0.009
+            ? 'pagada'
+            : 'parcial';
+
+        await txn.update(
+          DatabaseSchema.installmentsTable,
+          {
+            'monto_pagado': updatedPaidAmount,
+            'capital_pagado': updatedPrincipalPaid,
+            'interes_pagado': updatedInterestPaid,
+            'estado': updatedStatus,
+            'fecha_actualizacion': updatedAt,
+            'sync_status': DatabaseSchema.syncStatusPending,
+          },
+          where: 'id = ?',
+          whereArgs: [installmentId],
+        );
+
+        final newPendingBalance = _roundCurrency(
+          (currentPendingBalance + principalReversal).clamp(0, financedBalance),
+        );
+
+        await txn.update(
+          DatabaseSchema.salesTable,
+          {
+            'saldo_pendiente': newPendingBalance,
+            'estado': newPendingBalance <= 0.009 ? 'pagada' : 'activa',
+            'fecha_actualizacion': updatedAt,
+            'sync_status': DatabaseSchema.syncStatusPending,
+          },
+          where: 'id = ?',
+          whereArgs: [saleId],
+        );
+        return;
+      }
+
+      if (paymentType == 'abono_capital') {
+        final newPendingBalance = _roundCurrency(
+          (currentPendingBalance + paymentAmount).clamp(0, financedBalance),
+        );
+        final installmentRows = await txn.query(
+          DatabaseSchema.installmentsTable,
+          where: 'venta_id = ?',
+          whereArgs: [saleId],
+          orderBy: 'numero_cuota ASC',
+        );
+        final installments = installmentRows.map(Installment.fromMap).toList();
+        final lastPaidInstallmentNumber = installments
+            .where((item) => item.paidAmount > 0.009 || item.status == 'pagada')
+            .fold<int>(0, (current, item) {
+              return item.installmentNumber > current
+                  ? item.installmentNumber
+                  : current;
+            });
+
+        await _recalculateFutureInstallments(
+          txn: txn,
+          installments: installments,
+          paymentDate: paymentDate ?? DateTime.now(),
+          currentInstallmentNumber: lastPaidInstallmentNumber,
+          monthlyInterest: monthlyInterest,
+          fixedInstallmentAmount: _resolveContractFixedInstallmentAmount(
+            financedBalance: financedBalance,
+            monthlyInterest: monthlyInterest,
+            installmentCount: installmentCount,
+          ),
+          newPendingBalance: newPendingBalance,
+          updatedAt: updatedAt,
+          shouldRecalculate: true,
+        );
+
+        await txn.update(
+          DatabaseSchema.salesTable,
+          {
+            'saldo_pendiente': newPendingBalance,
+            'estado': newPendingBalance <= 0.009 ? 'pagada' : 'activa',
+            'fecha_actualizacion': updatedAt,
+            'sync_status': DatabaseSchema.syncStatusPending,
+          },
+          where: 'id = ?',
+          whereArgs: [saleId],
+        );
+        return;
+      }
+
+      throw StateError('El tipo de pago no admite anulacion automatica.');
+    });
+
+    for (final item in deleteQueue) {
+      await _syncQueueService.enqueueDelete(
+        scope: item.scope,
+        recordSyncId: item.syncId,
+        payload: item.payload,
+      );
+    }
+    await _syncQueueService.refreshScope('products');
+    await _syncQueueService.refreshScope('sales');
+    await _syncQueueService.refreshScope('installments');
+    await _syncQueueService.refreshScope('payments');
+  }
+
+  Future<void> _registerPaymentInTransaction(
+    DatabaseExecutor txn,
+    PaymentDraft draft,
+    List<Map<String, Object?>> deletedInstallmentPayloads,
+  ) async {
+    final paymentReference = _generatePaymentReference(draft);
+    final saleRows = await txn.query(
+      DatabaseSchema.salesTable,
+      where: 'id = ?',
+      whereArgs: [draft.saleId],
+      limit: 1,
+    );
+    if (saleRows.isEmpty) {
+      throw StateError('La venta seleccionada no existe.');
+    }
+
+    final saleRow = saleRows.first;
+    final saleStatus = saleRow['estado'] as String? ?? 'apartado';
+    final clientId = saleRow['cliente_id'] as int? ?? 0;
+    final registeredByUserId =
+        draft.registeredByUserId ?? (saleRow['usuario_id'] as int?);
+    final monthlyInterest = _toDouble(saleRow['interes_mensual']);
+    final pendingBalance = _toDouble(saleRow['saldo_pendiente']);
+    final salePrice = _toDouble(saleRow['precio_venta']);
+    final requiredInitial = _toDouble(saleRow['monto_inicial_requerido']);
+    final paidInitial = _toDouble(saleRow['monto_inicial_pagado']);
+    final pendingInitial = _toDouble(saleRow['monto_inicial_pendiente']);
+    final saleDate =
+        DateTime.tryParse(saleRow['fecha_venta'] as String? ?? '') ??
+        draft.paymentDate;
+    final installmentCount = _toInt(saleRow['cantidad_cuotas']);
+    final fixedInstallmentAmount = _resolveContractFixedInstallmentAmount(
+      financedBalance: _toDouble(saleRow['saldo_financiado']),
+      monthlyInterest: monthlyInterest,
+      installmentCount: installmentCount,
+    );
+
+    if (pendingInitial <= 0 && pendingBalance <= 0) {
+      throw StateError('La venta seleccionada ya no tiene saldo pendiente.');
+    }
+    if (draft.amountPaid <= 0) {
+      throw StateError('El monto pagado debe ser mayor que cero.');
+    }
+
+    final timestamp = draft.paymentDate.toIso8601String();
+    var remainingAmount = _roundCurrency(draft.amountPaid);
+
+    if (saleStatus == 'apartado' || saleStatus == 'inicial_incompleto') {
+      final saleAmountRemaining = _roundCurrency(
+        (salePrice - paidInitial).clamp(0, double.infinity),
+      );
+      final initialPaymentApplied = remainingAmount > saleAmountRemaining
+          ? saleAmountRemaining
+          : remainingAmount;
+
+      if (initialPaymentApplied > 0) {
+        final updatedInitialPaid = _roundCurrency(
+          paidInitial + initialPaymentApplied,
+        );
+        final updatedInitialPending =
+            SaleCalculator.calculatePendingInitialPayment(
+              requiredInitialPayment: requiredInitial,
+              initialPaymentPaid: updatedInitialPaid,
+            );
+        final updatedFinancedBalance = SaleCalculator.calculateFinancedBalance(
+          salePrice: salePrice,
+          downPaymentAmount: updatedInitialPaid,
+        );
+        final newStatus = _resolveUpfrontSaleStatus(
+          initialRequiredAmount: requiredInitial,
+          initialPaidAmount: updatedInitialPaid,
+          financedBalance: updatedFinancedBalance,
+        );
+
+        await txn.insert(DatabaseSchema.paymentsTable, {
+          'sync_id': _newSyncId('payment'),
+          'venta_id': draft.saleId,
+          'cliente_id': clientId,
+          'usuario_id': registeredByUserId,
+          'cuota_id': null,
+          'fecha_pago': timestamp,
+          'monto_pagado': initialPaymentApplied,
+          'metodo_pago': draft.paymentMethod,
+          'tipo_pago': paidInitial <= 0.009 ? 'apartado' : 'abono_inicial',
+          'referencia': paymentReference,
+          'ano_a_pagar': draft.yearToPay,
+          'fecha_creacion': timestamp,
+          'fecha_actualizacion': timestamp,
+          'deleted_at': null,
+          'sync_status': DatabaseSchema.syncStatusPending,
+        });
+
+        await txn.update(
+          DatabaseSchema.salesTable,
+          {
+            'inicial_monto': updatedInitialPaid,
+            'monto_inicial_pagado': updatedInitialPaid,
+            'monto_inicial_pendiente': updatedInitialPending,
+            'saldo_financiado': updatedFinancedBalance,
+            'saldo_pendiente': updatedFinancedBalance,
+            'estado': newStatus,
+            'fecha_activacion': newStatus == 'activa' || newStatus == 'pagada'
+                ? timestamp
+                : null,
+            'fecha_actualizacion': timestamp,
+            'sync_status': DatabaseSchema.syncStatusPending,
+          },
+          where: 'id = ?',
+          whereArgs: [draft.saleId],
+        );
+
+        await txn.update(
+          DatabaseSchema.lotsTable,
+          {
+            'estado': newStatus == 'activa' || newStatus == 'pagada'
+                ? 'vendido'
+                : 'reservado',
+            'fecha_actualizacion': timestamp,
+            'sync_status': DatabaseSchema.syncStatusPending,
+          },
+          where: 'id = ?',
+          whereArgs: [saleRow['solar_id']],
+        );
+
+        final previousInstallmentRows = await txn.query(
+          DatabaseSchema.installmentsTable,
+          where: 'venta_id = ?',
+          whereArgs: [draft.saleId],
+        );
+        deletedInstallmentPayloads.addAll(
+          previousInstallmentRows.map((row) => _buildDeletePayload(row)),
+        );
+
+        await txn.delete(
+          DatabaseSchema.installmentsTable,
+          where: 'venta_id = ?',
+          whereArgs: [draft.saleId],
+        );
+
+        if (newStatus == 'activa') {
+          final generatedInstallments = SaleCalculator.buildInstallmentSchedule(
+            saleId: draft.saleId,
+            saleDate: saleDate,
+            financedBalance: updatedFinancedBalance,
+            monthlyInterest: monthlyInterest,
+            installmentCount: installmentCount,
+            createdAt: draft.paymentDate,
+          );
+          final batch = txn.batch();
+          for (final installment in generatedInstallments) {
+            batch.insert(
+              DatabaseSchema.installmentsTable,
+              installment.toMap()
+                ..['sync_id'] = _newSyncId('installment')
+                ..['deleted_at'] = null
+                ..['sync_status'] = DatabaseSchema.syncStatusPending
+                ..remove('id'),
+            );
+          }
+          await batch.commit(noResult: true);
+        }
+
+        remainingAmount = _roundCurrency(
+          remainingAmount - initialPaymentApplied,
+        );
+      }
+
+      if (remainingAmount > 0.009) {
+        throw StateError('El pago excede el monto restante de la venta.');
+      }
+
+      return;
+    }
+
+    if (saleStatus != 'activa' && saleStatus != 'pagada') {
+      throw StateError(
+        'La venta seleccionada no admite pagos en su estado actual.',
+      );
+    }
+    if (pendingBalance <= 0) {
+      throw StateError(
+        'La venta seleccionada ya no tiene saldo financiado pendiente.',
+      );
+    }
+
+    final installmentRows = await txn.query(
+      DatabaseSchema.installmentsTable,
+      where: 'venta_id = ?',
+      whereArgs: [draft.saleId],
+      orderBy: 'numero_cuota ASC',
+    );
+    final installments = installmentRows.map(Installment.fromMap).toList();
+    final actionableInstallment = _findActionableInstallment(
+      installments,
+      draft.paymentDate,
+    );
+
+    var totalPrincipalReduction = 0.0;
+    var currentInstallmentNumber = 0;
+
+    if (actionableInstallment != null) {
+      currentInstallmentNumber = actionableInstallment.installmentNumber;
+      final installmentOutcome = _applyToInstallment(
+        installment: actionableInstallment,
+        amount: remainingAmount,
+      );
+
+      if (installmentOutcome.appliedAmount > 0) {
+        await txn.update(
+          DatabaseSchema.installmentsTable,
+          {
+            'monto_pagado': installmentOutcome.newPaidAmount,
+            'capital_pagado': installmentOutcome.newPrincipalPaid,
+            'interes_pagado': installmentOutcome.newInterestPaid,
+            'estado': installmentOutcome.newStatus,
+            'fecha_actualizacion': timestamp,
+            'sync_status': DatabaseSchema.syncStatusPending,
+          },
+          where: 'id = ?',
+          whereArgs: [actionableInstallment.id],
+        );
+
+        await txn.insert(DatabaseSchema.paymentsTable, {
+          'sync_id': _newSyncId('payment'),
+          'venta_id': draft.saleId,
+          'cliente_id': clientId,
+          'usuario_id': registeredByUserId,
+          'cuota_id': actionableInstallment.id,
+          'fecha_pago': timestamp,
+          'monto_pagado': installmentOutcome.appliedAmount,
+          'metodo_pago': draft.paymentMethod,
+          'tipo_pago': 'cuota',
+          'referencia': paymentReference,
+          'ano_a_pagar': draft.yearToPay,
+          'fecha_creacion': timestamp,
+          'fecha_actualizacion': timestamp,
+          'deleted_at': null,
+          'sync_status': DatabaseSchema.syncStatusPending,
+        });
+
+        remainingAmount = installmentOutcome.remainingAmount;
+        totalPrincipalReduction += installmentOutcome.principalPaidNow;
+      }
+    }
+
+    var capitalPrepayment = 0.0;
+    if (remainingAmount > 0) {
+      final maxCapitalPayment = pendingBalance - totalPrincipalReduction;
+      if (maxCapitalPayment <= 0) {
+        throw StateError('El pago excede el saldo pendiente disponible.');
+      }
+
+      capitalPrepayment = remainingAmount > maxCapitalPayment
+          ? maxCapitalPayment
+          : remainingAmount;
+
+      await txn.insert(DatabaseSchema.paymentsTable, {
+        'sync_id': _newSyncId('payment'),
+        'venta_id': draft.saleId,
+        'cliente_id': clientId,
+        'usuario_id': registeredByUserId,
+        'cuota_id': null,
+        'fecha_pago': timestamp,
+        'monto_pagado': capitalPrepayment,
+        'metodo_pago': draft.paymentMethod,
+        'tipo_pago': 'abono_capital',
+        'referencia': paymentReference,
+        'ano_a_pagar': draft.yearToPay,
+        'fecha_creacion': timestamp,
+        'fecha_actualizacion': timestamp,
+        'deleted_at': null,
+        'sync_status': DatabaseSchema.syncStatusPending,
+      });
+
+      remainingAmount = _roundCurrency(remainingAmount - capitalPrepayment);
+      totalPrincipalReduction += capitalPrepayment;
+    }
+
+    if (remainingAmount > 0.009) {
+      throw StateError('El pago excede el saldo pendiente de la venta.');
+    }
+
+    final newPendingBalance = _roundCurrency(
+      (pendingBalance - totalPrincipalReduction).clamp(0, double.infinity),
+    );
+
+    await _recalculateFutureInstallments(
+      txn: txn,
+      installments: installments,
+      paymentDate: draft.paymentDate,
+      currentInstallmentNumber: currentInstallmentNumber,
+      monthlyInterest: monthlyInterest,
+      fixedInstallmentAmount: fixedInstallmentAmount,
+      newPendingBalance: newPendingBalance,
+      updatedAt: timestamp,
+      shouldRecalculate: capitalPrepayment > 0,
+    );
+
+    await txn.update(
+      DatabaseSchema.salesTable,
+      {
+        'saldo_pendiente': newPendingBalance,
+        'estado': newPendingBalance <= 0 ? 'pagada' : 'activa',
+        'fecha_actualizacion': timestamp,
+        'sync_status': DatabaseSchema.syncStatusPending,
+      },
+      where: 'id = ?',
+      whereArgs: [draft.saleId],
+    );
+  }
+
+  Installment? _findActionableInstallment(
+    List<Installment> installments,
+    DateTime paymentDate,
+  ) {
+    for (final installment in installments) {
+      if (_isClosedStatus(installment.status)) {
+        continue;
+      }
+      if (!installment.dueDate.isAfter(paymentDate)) {
+        return installment;
+      }
+    }
+    return null;
+  }
+
+  _InstallmentPaymentOutcome _applyToInstallment({
+    required Installment installment,
+    required double amount,
+  }) {
+    final installmentRemaining = installment.remainingAmount;
+    final appliedAmount = amount > installmentRemaining
+        ? installmentRemaining
+        : amount;
+    final interestRemaining =
+        installment.interestAmount - installment.paidInterestAmount;
+    final interestPaidNow = appliedAmount > interestRemaining
+        ? interestRemaining
+        : appliedAmount;
+    final principalPaidNow = _roundCurrency(appliedAmount - interestPaidNow);
+    final newPaidAmount = _roundCurrency(
+      installment.paidAmount + appliedAmount,
+    );
+    final newInterestPaid = _roundCurrency(
+      installment.paidInterestAmount + interestPaidNow,
+    );
+    final newPrincipalPaid = _roundCurrency(
+      installment.paidPrincipalAmount + principalPaidNow,
+    );
+
+    return _InstallmentPaymentOutcome(
+      appliedAmount: _roundCurrency(appliedAmount),
+      principalPaidNow: principalPaidNow,
+      newPaidAmount: newPaidAmount,
+      newInterestPaid: newInterestPaid,
+      newPrincipalPaid: newPrincipalPaid,
+      remainingAmount: _roundCurrency(amount - appliedAmount),
+      newStatus: newPaidAmount >= installment.totalAmount - 0.009
+          ? 'pagada'
+          : newPaidAmount > 0
+          ? 'parcial'
+          : 'pendiente',
+    );
+  }
+
+  Future<void> _recalculateFutureInstallments({
+    required DatabaseExecutor txn,
+    required List<Installment> installments,
+    required DateTime paymentDate,
+    required int currentInstallmentNumber,
+    required double monthlyInterest,
+    required double fixedInstallmentAmount,
+    required double newPendingBalance,
+    required String updatedAt,
+    required bool shouldRecalculate,
+  }) async {
+    if (!shouldRecalculate) {
+      return;
+    }
+
+    final futureInstallments = installments.where((installment) {
+      if (installment.status == 'pagada') {
+        return false;
+      }
+      if (currentInstallmentNumber > 0) {
+        return installment.installmentNumber > currentInstallmentNumber;
+      }
+      return installment.dueDate.isAfter(paymentDate);
+    }).toList();
+
+    if (futureInstallments.isEmpty) {
+      return;
+    }
+
+    if (newPendingBalance <= 0) {
+      for (final installment in futureInstallments) {
+        await txn.update(
+          DatabaseSchema.installmentsTable,
+          {
+            'saldo_inicial': 0,
+            'capital_cuota': 0,
+            'interes_cuota': 0,
+            'monto_cuota': 0,
+            'monto_pagado': 0,
+            'capital_pagado': 0,
+            'interes_pagado': 0,
+            'saldo_final': 0,
+            'estado': 'ajustada',
+            'fecha_actualizacion': updatedAt,
+            'sync_status': DatabaseSchema.syncStatusPending,
+          },
+          where: 'id = ?',
+          whereArgs: [installment.id],
+        );
+      }
+      return;
+    }
+
+    final schedule = _rebuildSchedule(
+      startingPrincipal: newPendingBalance,
+      monthlyInterest: monthlyInterest,
+      fixedInstallmentAmount: fixedInstallmentAmount,
+      futureInstallments: futureInstallments,
+      updatedAt: DateTime.parse(updatedAt),
+    );
+
+    for (var index = 0; index < futureInstallments.length; index++) {
+      final current = futureInstallments[index];
+      if (index < schedule.length) {
+        final recalculated = schedule[index];
+        await txn.update(
+          DatabaseSchema.installmentsTable,
+          {
+            'saldo_inicial': recalculated.openingBalance,
+            'capital_cuota': recalculated.principalAmount,
+            'interes_cuota': recalculated.interestAmount,
+            'monto_cuota': recalculated.totalAmount,
+            'monto_pagado': 0,
+            'capital_pagado': 0,
+            'interes_pagado': 0,
+            'saldo_final': recalculated.endingBalance,
+            'estado': 'pendiente',
+            'fecha_actualizacion': updatedAt,
+            'sync_status': DatabaseSchema.syncStatusPending,
+          },
+          where: 'id = ?',
+          whereArgs: [current.id],
+        );
+        continue;
+      }
+
+      await txn.update(
+        DatabaseSchema.installmentsTable,
+        {
+          'saldo_inicial': 0,
+          'capital_cuota': 0,
+          'interes_cuota': 0,
+          'monto_cuota': 0,
+          'monto_pagado': 0,
+          'capital_pagado': 0,
+          'interes_pagado': 0,
+          'saldo_final': 0,
+          'estado': 'ajustada',
+          'fecha_actualizacion': updatedAt,
+          'sync_status': DatabaseSchema.syncStatusPending,
+        },
+        where: 'id = ?',
+        whereArgs: [current.id],
+      );
+    }
+  }
+
+  List<Installment> _rebuildSchedule({
+    required double startingPrincipal,
+    required double monthlyInterest,
+    required double fixedInstallmentAmount,
+    required List<Installment> futureInstallments,
+    required DateTime updatedAt,
+  }) {
+    if (futureInstallments.isEmpty) {
+      return const [];
+    }
+
+    return SaleCalculator.buildInstallmentScheduleForDueDatesWithFixedPayment(
+      saleId: futureInstallments.first.saleId,
+      dueDates: futureInstallments.map((item) => item.dueDate).toList(),
+      financedBalance: startingPrincipal,
+      monthlyInterest: monthlyInterest,
+      fixedPaymentAmount: fixedInstallmentAmount,
+      createdAt: futureInstallments.first.createdAt,
+      updatedAt: updatedAt,
+      startingInstallmentNumber: futureInstallments.first.installmentNumber,
+      installmentIds: futureInstallments.map((item) => item.id).toList(),
+    );
+  }
+
+  double _resolveContractFixedInstallmentAmount({
+    required double financedBalance,
+    required double monthlyInterest,
+    required int installmentCount,
+  }) {
+    return SaleCalculator.calculateEstimatedInstallmentAmount(
+      financedBalance: financedBalance,
+      monthlyInterest: monthlyInterest,
+      installmentCount: installmentCount,
+    );
+  }
+
+  bool _isClosedStatus(String status) {
+    return status == 'pagada' || status == 'ajustada';
+  }
+
+  double _roundCurrency(double value) {
+    return (value * 100).roundToDouble() / 100;
+  }
+
+  String _newSyncId(String scope) {
+    return '$scope-${DateTime.now().microsecondsSinceEpoch}';
+  }
+
+  Map<String, Object?> _buildDeletePayload(
+    Map<String, Object?> row, {
+    String updatedAtField = 'fecha_actualizacion',
+  }) {
+    final now = DateTime.now().toIso8601String();
+    return {
+      'id': row['id'],
+      'sync_id': row['sync_id'],
+      'version': ((row['version'] as int?) ?? 1) + 1,
+      'created_at': row['fecha_creacion'],
+      'updated_at': row[updatedAtField] ?? row['fecha_creacion'] ?? now,
+      'deleted_at': now,
+      'sync_status': DatabaseSchema.syncStatusPending,
+    };
+  }
+
+  String _generatePaymentReference(PaymentDraft draft) {
+    final date = draft.paymentDate;
+    final timestamp = date.microsecondsSinceEpoch;
+    return 'PAY-${draft.saleId}-$timestamp';
+  }
+
+  double _toDouble(Object? value) {
+    if (value is num) {
+      return value.toDouble();
+    }
+
+    return double.tryParse(value.toString()) ?? 0;
+  }
+
+  int _toInt(Object? value) {
+    if (value is int) {
+      return value;
+    }
+    if (value is num) {
+      return value.toInt();
+    }
+
+    return int.tryParse(value.toString()) ?? 0;
+  }
+
+  String _resolveUpfrontSaleStatus({
+    required double initialRequiredAmount,
+    required double initialPaidAmount,
+    required double financedBalance,
+  }) {
+    if (financedBalance <= 0.009) {
+      return 'pagada';
+    }
+    if (initialPaidAmount >= initialRequiredAmount - 0.009) {
+      return 'activa';
+    }
+    if (initialPaidAmount <= 0.009) {
+      return 'apartado';
+    }
+    return 'inicial_incompleto';
+  }
+}
+
+class _InstallmentPaymentOutcome {
+  const _InstallmentPaymentOutcome({
+    required this.appliedAmount,
+    required this.principalPaidNow,
+    required this.newPaidAmount,
+    required this.newInterestPaid,
+    required this.newPrincipalPaid,
+    required this.remainingAmount,
+    required this.newStatus,
+  });
+
+  final double appliedAmount;
+  final double principalPaidNow;
+  final double newPaidAmount;
+  final double newInterestPaid;
+  final double newPrincipalPaid;
+  final double remainingAmount;
+  final String newStatus;
+}

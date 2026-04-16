@@ -1,0 +1,16 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Flutter Windows (Hot Reload)",
+      "request": "launch",
+      "type": "dart",
+      "program": "C:/dev/sistema_solares_ascii/lib/main.dart",
+      "cwd": "C:/dev/sistema_solares_ascii",
+      "flutterMode": "debug",
+      "deviceId": "windows",
+      "args": ["-d", "windows"],
+      "preLaunchTask": "Flutter Windows Setup (Hot Reload)"
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+FROM ghcr.io/cirruslabs/flutter:3.35.7 AS builder
+
+WORKDIR /app
+
+COPY pubspec.* ./
+RUN flutter pub get
+
+COPY . .
+
+RUN flutter build web --release --base-href / --dart-define=API_BASE_URL=http://localhost:3000/api
+
+FROM nginx:alpine AS production
+
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY deploy/app-config.json.template /etc/nginx/templates/app-config.json.template
+COPY deploy/40-env-config.sh /docker-entrypoint.d/40-env-config.sh
+COPY --from=builder /app/build/web /usr/share/nginx/html
+
+RUN chmod +x /docker-entrypoint.d/40-env-config.sh
+
+ENV API_BASE_URL=http://localhost:3000/api
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]

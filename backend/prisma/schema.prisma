@@ -1,0 +1,266 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SyncStatus {
+  pending
+  synced
+}
+
+enum RoleCode {
+  SUPER_ADMIN
+  ADMIN
+  MANAGER
+  CASHIER
+  SALES_AGENT
+  PANEL_ADMIN
+  PANEL_VIEWER
+}
+
+enum SaleStatus {
+  draft
+  active
+  completed
+  cancelled
+  overdue
+}
+
+enum PaymentMethod {
+  cash
+  transfer
+  card
+  check
+  mobile_wallet
+  mixed
+}
+
+enum InstallmentStatus {
+  pending
+  paid
+  overdue
+  partial
+  cancelled
+}
+
+model User {
+  id             String       @id @default(uuid()) @db.Uuid
+  syncId         String       @unique @default(uuid()) @map("sync_id")
+  email          String       @unique
+  username       String       @unique
+  fullName       String
+  passwordHash   String
+  isActive       Boolean      @default(true)
+  syncStatus     SyncStatus   @default(pending)
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  deletedAt      DateTime?    @map("deleted_at")
+  sales          Sale[]
+  userRoles      UserRole[]
+
+  @@map("users")
+}
+
+model Role {
+  id             String           @id @default(uuid()) @db.Uuid
+  syncId         String           @unique @default(uuid()) @map("sync_id")
+  code           RoleCode         @unique
+  name           String           @unique
+  description    String?
+  syncStatus     SyncStatus       @default(pending)
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+  deletedAt      DateTime?        @map("deleted_at")
+  userRoles      UserRole[]
+  rolePermissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id              String           @id @default(uuid()) @db.Uuid
+  syncId          String           @unique @default(uuid()) @map("sync_id")
+  code            String           @unique
+  name            String
+  description     String?
+  syncStatus      SyncStatus       @default(pending)
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+  deletedAt       DateTime?        @map("deleted_at")
+  rolePermissions RolePermission[]
+
+  @@map("permissions")
+}
+
+model CompanyProfile {
+  id          String    @id @default(uuid()) @db.Uuid
+  name        String
+  phone       String?
+  address     String?
+  logoBase64  String?   @map("logo_base64")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@map("company_profiles")
+}
+
+model UserRole {
+  id          String      @id @default(uuid()) @db.Uuid
+  userId      String      @map("user_id") @db.Uuid
+  roleId      String      @map("role_id") @db.Uuid
+  syncStatus  SyncStatus  @default(pending)
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+  deletedAt   DateTime?   @map("deleted_at")
+  user        User        @relation(fields: [userId], references: [id])
+  role        Role        @relation(fields: [roleId], references: [id])
+
+  @@unique([userId, roleId])
+  @@map("user_roles")
+}
+
+model RolePermission {
+  id            String      @id @default(uuid()) @db.Uuid
+  roleId        String      @map("role_id") @db.Uuid
+  permissionId  String      @map("permission_id") @db.Uuid
+  syncStatus    SyncStatus  @default(pending)
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+  deletedAt     DateTime?   @map("deleted_at")
+  role          Role        @relation(fields: [roleId], references: [id])
+  permission    Permission  @relation(fields: [permissionId], references: [id])
+
+  @@unique([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model Client {
+  id            String      @id @default(uuid()) @db.Uuid
+  syncId        String      @unique @default(uuid()) @map("sync_id")
+  code          String?     @unique
+  firstName     String      @map("first_name")
+  lastName      String      @map("last_name")
+  documentId    String?     @map("document_id")
+  email         String?
+  phone         String?
+  address       String?
+  notes         String?
+  syncStatus    SyncStatus  @default(pending)
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+  deletedAt     DateTime?   @map("deleted_at")
+  sales         Sale[]
+
+  @@index([documentId])
+  @@map("clients")
+}
+
+model Product {
+  id             String      @id @default(uuid()) @db.Uuid
+  syncId         String      @unique @default(uuid()) @map("sync_id")
+  code           String      @unique
+  name           String
+  description    String?
+  price          Decimal     @db.Decimal(18, 2)
+  financingPrice Decimal?    @map("financing_price") @db.Decimal(18, 2)
+  stock          Int         @default(0)
+  isActive       Boolean     @default(true) @map("is_active")
+  syncPayload    Json?       @map("sync_payload")
+  syncStatus     SyncStatus  @default(pending)
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+  deletedAt      DateTime?   @map("deleted_at")
+  sales          Sale[]
+
+  @@map("products")
+}
+
+model Sale {
+  id                  String             @id @default(uuid()) @db.Uuid
+  syncId              String             @unique @default(uuid()) @map("sync_id")
+  clientId            String             @map("client_id") @db.Uuid
+  userId              String             @map("user_id") @db.Uuid
+  productId           String             @map("product_id") @db.Uuid
+  contractNumber      String?            @unique @map("contract_number")
+  saleDate            DateTime           @map("sale_date")
+  principalAmount     Decimal            @map("principal_amount") @db.Decimal(18, 2)
+  financedAmount      Decimal            @map("financed_amount") @db.Decimal(18, 2)
+  downPayment         Decimal            @map("down_payment") @db.Decimal(18, 2)
+  interestRate        Decimal            @map("interest_rate") @db.Decimal(8, 4)
+  totalAmount         Decimal            @map("total_amount") @db.Decimal(18, 2)
+  termMonths          Int                @map("term_months")
+  paidAmount          Decimal            @default(0) @map("paid_amount") @db.Decimal(18, 2)
+  outstandingBalance  Decimal            @map("outstanding_balance") @db.Decimal(18, 2)
+  status              SaleStatus         @default(active)
+  notes               String?
+  syncPayload         Json?              @map("sync_payload")
+  syncStatus          SyncStatus         @default(pending)
+  createdAt           DateTime           @default(now()) @map("created_at")
+  updatedAt           DateTime           @updatedAt @map("updated_at")
+  deletedAt           DateTime?          @map("deleted_at")
+  client              Client             @relation(fields: [clientId], references: [id])
+  user                User               @relation(fields: [userId], references: [id])
+  product             Product            @relation(fields: [productId], references: [id])
+  payments            Payment[]
+  installments        Installment[]
+
+  @@index([clientId])
+  @@index([userId])
+  @@index([productId])
+  @@index([status])
+  @@map("sales")
+}
+
+model Payment {
+  id                String        @id @default(uuid()) @db.Uuid
+  syncId            String        @unique @default(uuid()) @map("sync_id")
+  saleId            String        @map("sale_id") @db.Uuid
+  installmentId     String?       @map("installment_id") @db.Uuid
+  paymentDate       DateTime      @map("payment_date")
+  amount            Decimal       @db.Decimal(18, 2)
+  principalAmount   Decimal       @map("principal_amount") @db.Decimal(18, 2)
+  interestAmount    Decimal       @map("interest_amount") @db.Decimal(18, 2)
+  method            PaymentMethod
+  reference         String?
+  notes             String?
+  syncPayload       Json?         @map("sync_payload")
+  syncStatus        SyncStatus    @default(pending)
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+  deletedAt         DateTime?     @map("deleted_at")
+  sale              Sale          @relation(fields: [saleId], references: [id])
+  installment       Installment?  @relation(fields: [installmentId], references: [id])
+
+  @@index([saleId])
+  @@index([installmentId])
+  @@map("payments")
+}
+
+model Installment {
+  id                String             @id @default(uuid()) @db.Uuid
+  syncId            String             @unique @default(uuid()) @map("sync_id")
+  saleId            String             @map("sale_id") @db.Uuid
+  installmentNumber Int                @map("installment_number")
+  dueDate           DateTime           @map("due_date")
+  amount            Decimal            @db.Decimal(18, 2)
+  principalAmount   Decimal            @map("principal_amount") @db.Decimal(18, 2)
+  interestAmount    Decimal            @map("interest_amount") @db.Decimal(18, 2)
+  paidAmount        Decimal            @default(0) @map("paid_amount") @db.Decimal(18, 2)
+  status            InstallmentStatus  @default(pending)
+  syncPayload       Json?              @map("sync_payload")
+  syncStatus        SyncStatus         @default(pending)
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+  deletedAt         DateTime?          @map("deleted_at")
+  sale              Sale               @relation(fields: [saleId], references: [id])
+  payments          Payment[]
+
+  @@unique([saleId, installmentNumber])
+  @@index([saleId])
+  @@index([status])
+  @@map("installments")
+}

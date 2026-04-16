@@ -1,0 +1,18 @@
+export const PERMISSIONS = {
+  authManage: 'auth.manage',
+  systemConfig: 'system.config',
+  usersRead: 'users.read',
+  usersWrite: 'users.write',
+  clientsRead: 'clients.read',
+  clientsWrite: 'clients.write',
+  productsRead: 'products.read',
+  productsWrite: 'products.write',
+  salesRead: 'sales.read',
+  salesWrite: 'sales.write',
+  paymentsRead: 'payments.read',
+  paymentsWrite: 'payments.write',
+  installmentsRead: 'installments.read',
+  installmentsWrite: 'installments.write',
+  reportsRead: 'reports.read',
+  syncManage: 'sync.manage',
+} as const;
