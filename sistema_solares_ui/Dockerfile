@@ -1,6 +1,6 @@
 FROM ghcr.io/cirruslabs/flutter:3.41.6 AS builder
 
-ARG API_BASE_URL=https://altodemanita-altodemamita-backend.onqyr1.easypanel.host/api
+ARG API_BASE_URL=https://altodemanita-altodemamita-backent.onqyr1.easypanel.host/api
 
 WORKDIR /app
 
@@ -14,7 +14,7 @@ RUN printf "self.addEventListener('install', function () { self.skipWaiting(); }
 
 FROM nginx:alpine AS production
 
-ARG API_BASE_URL=https://altodemanita-altodemamita-backend.onqyr1.easypanel.host/api
+ARG API_BASE_URL=https://altodemanita-altodemamita-backent.onqyr1.easypanel.host/api
 
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY deploy/app-config.json.template /etc/nginx/templates/app-config.json.template

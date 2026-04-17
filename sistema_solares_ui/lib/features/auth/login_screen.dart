@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:sistema_solares_ui/core/auth/auth_controller.dart';
+import 'package:sistema_solares_ui/core/config/app_config.dart';
 import 'package:sistema_solares_ui/core/network/api_client.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -18,6 +19,8 @@ class _LoginScreenState extends State<LoginScreen> {
   String? _errorText;
   bool _obscurePassword = true;
 
+  String get _apiBaseUrl => AppConfig.apiBaseUrl;
+
   @override
   void dispose() {
     _identifierController.dispose();
@@ -31,6 +34,9 @@ class _LoginScreenState extends State<LoginScreen> {
     }
 
     final authController = context.read<AuthController>();
+    setState(() {
+      _errorText = null;
+    });
     try {
       await authController.signIn(
         identifier: _identifierController.text,
@@ -50,93 +56,154 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final authController = context.watch<AuthController>();
+    final errorMessage = _errorText ?? authController.errorMessage;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF0F3F8),
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final width = constraints.maxWidth;
-          final isMobile = width < 700;
-          final horizontalPadding = isMobile ? 16.0 : 32.0;
-          final verticalPadding = isMobile ? 18.0 : 36.0;
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFFFFFFFF), Color(0xFFF5F7FA)],
+          ),
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final width = constraints.maxWidth;
+            final isMobile = width < 700;
 
-          return SafeArea(
-            child: Center(
-              child: SingleChildScrollView(
-                padding: EdgeInsets.symmetric(
-                  horizontal: horizontalPadding,
-                  vertical: verticalPadding,
-                ),
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(maxWidth: isMobile ? 420 : 460),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(isMobile ? 24 : 28),
-                      border: Border.all(color: const Color(0xFFD8D1C4)),
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Color(0x0D000000),
-                          blurRadius: 20,
-                          offset: Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: Padding(
-                      padding: EdgeInsets.fromLTRB(
-                        isMobile ? 18 : 32,
-                        isMobile ? 20 : 34,
-                        isMobile ? 18 : 32,
-                        isMobile ? 18 : 28,
+            return SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: isMobile ? 430 : 460),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0D2844),
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0x18000000),
+                            blurRadius: 28,
+                            offset: Offset(0, 10),
+                          ),
+                        ],
                       ),
-                      child: Form(
-                        key: _formKey,
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const _BrandHeader(),
-                            SizedBox(height: isMobile ? 20 : 30),
-                            Text(
-                              'Iniciar sesion',
-                              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                                    fontWeight: FontWeight.w700,
-                                    color: const Color(0xFF1D2733),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(28, 30, 28, 28),
+                        child: Form(
+                          key: _formKey,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              const _PanelBadge(),
+                              const SizedBox(height: 14),
+                              Container(
+                                width: 62,
+                                height: 62,
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.10),
+                                  borderRadius: BorderRadius.circular(18),
+                                  border: Border.all(
+                                    color: Colors.white.withValues(alpha: 0.12),
                                   ),
-                            ),
-                            const SizedBox(height: 8),
-                            const Text(
-                              'Accede con tu cuenta para continuar.',
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: Color(0xFF6A7684),
-                                height: 1.45,
+                                ),
+                                child: const Icon(
+                                  Icons.wb_sunny_rounded,
+                                  color: Colors.white,
+                                  size: 30,
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 24),
-                            TextFormField(
-                              controller: _identifierController,
-                              textInputAction: TextInputAction.next,
-                              decoration: const InputDecoration(
-                                labelText: 'Correo o usuario',
-                                prefixIcon: Icon(Icons.person_outline),
+                              const SizedBox(height: 18),
+                              const Text(
+                                'Sistema Solares',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
-                              validator: (value) {
-                                if (value == null || value.trim().isEmpty) {
-                                  return 'Ingresa tu correo o usuario.';
-                                }
-                                return null;
-                              },
-                            ),
-                            const SizedBox(height: 16),
-                            TextFormField(
-                              controller: _passwordController,
-                              obscureText: _obscurePassword,
-                              textInputAction: TextInputAction.done,
-                              onFieldSubmitted: (_) => authController.isBusy ? null : _submit(),
-                              decoration: InputDecoration(
-                                labelText: 'Contrasena',
-                                prefixIcon: const Icon(Icons.lock_outline),
+                              const SizedBox(height: 6),
+                              Text(
+                                'Iniciar sesion',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.88),
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              Text(
+                                _apiBaseUrl,
+                                textAlign: TextAlign.center,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.62),
+                                  fontSize: 11,
+                                ),
+                              ),
+                              const SizedBox(height: 24),
+                              AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 180),
+                                child: errorMessage == null
+                                    ? const SizedBox.shrink()
+                                    : Container(
+                                        key: ValueKey<String>(errorMessage),
+                                        margin: const EdgeInsets.only(bottom: 16),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 14,
+                                          vertical: 12,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF8F2436),
+                                          borderRadius: BorderRadius.circular(14),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            const Icon(
+                                              Icons.error_outline,
+                                              size: 18,
+                                              color: Colors.white,
+                                            ),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: Text(
+                                                errorMessage,
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 13,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                              ),
+                              _LoginField(
+                                controller: _identifierController,
+                                hintText: 'Correo o usuario',
+                                icon: Icons.person_outline,
+                                textInputAction: TextInputAction.next,
+                                onFieldSubmitted: (_) {},
+                                validator: (value) {
+                                  if (value == null || value.trim().isEmpty) {
+                                    return 'Ingresa tu correo o usuario';
+                                  }
+                                  return null;
+                                },
+                              ),
+                              const SizedBox(height: 14),
+                              _LoginField(
+                                controller: _passwordController,
+                                hintText: 'Contrasena',
+                                icon: Icons.lock_outline,
+                                obscureText: _obscurePassword,
                                 suffixIcon: IconButton(
                                   onPressed: () {
                                     setState(() {
@@ -145,50 +212,31 @@ class _LoginScreenState extends State<LoginScreen> {
                                   },
                                   icon: Icon(
                                     _obscurePassword
-                                        ? Icons.visibility_outlined
-                                        : Icons.visibility_off_outlined,
+                                        ? Icons.visibility_off_outlined
+                                        : Icons.visibility_outlined,
+                                    color: Colors.white.withValues(alpha: 0.78),
+                                    size: 20,
                                   ),
                                 ),
+                                textInputAction: TextInputAction.done,
+                                onFieldSubmitted: (_) => authController.isBusy ? null : _submit(),
+                                validator: (value) {
+                                  if ((value ?? '').isEmpty) {
+                                    return 'Ingresa tu contrasena';
+                                  }
+                                  return null;
+                                },
                               ),
-                              validator: (value) {
-                                if (value == null || value.isEmpty) {
-                                  return 'Ingresa tu contrasena.';
-                                }
-                                return null;
-                              },
-                            ),
-                            if (_errorText != null || authController.errorMessage != null) ...[
-                              const SizedBox(height: 16),
-                              Container(
-                                width: double.infinity,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 14,
-                                  vertical: 12,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFFDECEC),
-                                  borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(
-                                    color: const Color(0xFFF2B8B5),
-                                  ),
-                                ),
-                                child: Text(
-                                  _errorText ?? authController.errorMessage!,
-                                  style: const TextStyle(
-                                    color: Color(0xFFB42318),
-                                    fontWeight: FontWeight.w600,
-                                    height: 1.4,
-                                  ),
-                                ),
-                              ),
-                            ],
-                            const SizedBox(height: 24),
-                            SizedBox(
-                              width: double.infinity,
-                              child: FilledButton(
+                              const SizedBox(height: 22),
+                              FilledButton(
                                 onPressed: authController.isBusy ? null : _submit,
                                 style: FilledButton.styleFrom(
-                                  minimumSize: const Size.fromHeight(54),
+                                  minimumSize: const Size.fromHeight(52),
+                                  backgroundColor: Colors.white,
+                                  foregroundColor: const Color(0xFF0D2844),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
                                 ),
                                 child: authController.isBusy
                                     ? const SizedBox(
@@ -198,70 +246,120 @@ class _LoginScreenState extends State<LoginScreen> {
                                           strokeWidth: 2.2,
                                         ),
                                       )
-                                    : const Text('Entrar'),
+                                    : const Text(
+                                        'Entrar',
+                                        style: TextStyle(
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
-          );
-        },
+            );
+          },
+        ),
       ),
     );
   }
 }
 
-class _BrandHeader extends StatelessWidget {
-  const _BrandHeader();
+class _PanelBadge extends StatelessWidget {
+  const _PanelBadge();
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 52,
-          height: 52,
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF16324F), Color(0xFF2A5C45)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: const Color(0xFF2CC06B).withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: const Color(0xFF2CC06B).withValues(alpha: 0.34),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: const [
+            Icon(Icons.circle, size: 10, color: Color(0xFF2CC06B)),
+            SizedBox(width: 8),
+            Text(
+              'Panel web listo',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
             ),
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: const Icon(Icons.sunny_snowing, color: Colors.white, size: 24),
+          ],
         ),
-        const SizedBox(width: 14),
-        const Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Sistema Solares',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF1D2733),
-                ),
-              ),
-              SizedBox(height: 2),
-              Text(
-                'Acceso del sistema',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF6A7684),
-                ),
-              ),
-            ],
-          ),
+      ),
+    );
+  }
+}
+
+class _LoginField extends StatelessWidget {
+  const _LoginField({
+    required this.controller,
+    required this.hintText,
+    required this.icon,
+    required this.validator,
+    this.obscureText = false,
+    this.suffixIcon,
+    this.textInputAction,
+    this.onFieldSubmitted,
+  });
+
+  final TextEditingController controller;
+  final String hintText;
+  final IconData icon;
+  final String? Function(String?) validator;
+  final bool obscureText;
+  final Widget? suffixIcon;
+  final TextInputAction? textInputAction;
+  final ValueChanged<String>? onFieldSubmitted;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextFormField(
+      controller: controller,
+      obscureText: obscureText,
+      textInputAction: textInputAction,
+      onFieldSubmitted: onFieldSubmitted,
+      style: const TextStyle(color: Colors.white, fontSize: 14),
+      validator: validator,
+      decoration: InputDecoration(
+        hintText: hintText,
+        hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.58)),
+        prefixIcon: Icon(icon, color: Colors.white.withValues(alpha: 0.82)),
+        filled: true,
+        fillColor: Colors.white.withValues(alpha: 0.08),
+        errorStyle: const TextStyle(color: Color(0xFFFFC9D1)),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
         ),
-      ],
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: Colors.white, width: 1.2),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: Color(0xFFFFA8B5)),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: Color(0xFFFFC9D1), width: 1.2),
+        ),
+        suffixIcon: suffixIcon,
+      ),
     );
   }
 }

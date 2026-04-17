@@ -10,6 +10,7 @@ class AdminShell extends StatelessWidget {
   const AdminShell({super.key, required this.child});
 
   final Widget child;
+  static const String _companyName = 'Sistema Solares';
 
   @override
   Widget build(BuildContext context) {
@@ -108,7 +109,7 @@ class AdminShell extends StatelessWidget {
                       child: Column(
                         children: [
                           _TopBar(
-                            title: currentItem?.label ?? 'Sistema Solares',
+                            title: currentItem?.label ?? _companyName,
                             realtimeController: realtimeController,
                             onOpenMenu: wide ? null : scaffoldKey.currentState?.openDrawer,
                           ),
@@ -123,6 +124,7 @@ class AdminShell extends StatelessWidget {
                               child: child,
                             ),
                           ),
+                          const _ShellFooter(companyName: _companyName),
                         ],
                       ),
                     ),
@@ -501,27 +503,68 @@ class _Sidebar extends StatelessWidget {
                 border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
                 borderRadius: BorderRadius.circular(18),
               ),
-              child: const Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Row(
                 children: [
-                  Text(
-                    'Sistema Solares',
-                    style: TextStyle(
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(14),
+                      gradient: const LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [Color(0xFF59B6FF), Color(0xFF1B5BA8)],
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF4B9EE8).withValues(alpha: 0.32),
+                          blurRadius: 14,
+                          offset: const Offset(0, 6),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(
+                      Icons.wb_sunny_rounded,
+                      size: 21,
                       color: Colors.white,
-                      fontSize: 22,
-                      fontWeight: FontWeight.w700,
                     ),
                   ),
-                  SizedBox(height: 4),
-                  Text(
-                    'Panel administrativo',
-                    style: TextStyle(color: Color(0xFFAAB8C8), height: 1.4),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Sistema Solares',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.1,
+                          ),
+                        ),
+                        SizedBox(height: 2),
+                        Text(
+                          'Navegacion ejecutiva',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: Color(0x8AFFFFFF),
+                            fontSize: 10,
+                            fontWeight: FontWeight.w500,
+                            letterSpacing: 0.35,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 20),
-            const _SectionLabel('Resumen y operacion'),
+            const _SectionLabel('Destacados'),
             const SizedBox(height: 10),
             ...summaryItems.map((item) => _NavTile(
                   item: item,
@@ -550,7 +593,7 @@ class _Sidebar extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Estado del panel',
+                    'Acceso rapido',
                     style: TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.w700,
@@ -558,7 +601,7 @@ class _Sidebar extends StatelessWidget {
                   ),
                   SizedBox(height: 8),
                   Text(
-                    'Consulta, seguimiento y configuracion disponibles desde este entorno.',
+                    'Resumen, reportes, clientes y configuracion con la misma jerarquia visual del escritorio.',
                     style: TextStyle(color: Color(0xFFD2D8E2), height: 1.45),
                   ),
                 ],
@@ -704,4 +747,32 @@ class _NavItem {
   final String route;
   final IconData icon;
   final String label;
+}
+
+class _ShellFooter extends StatelessWidget {
+  const _ShellFooter({required this.companyName});
+
+  final String companyName;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 7),
+      decoration: const BoxDecoration(
+        color: Color(0xFFF7F9FC),
+        border: Border(top: BorderSide(color: Color(0xFFE8EDF4))),
+      ),
+      child: Text(
+        '© 2026 $companyName · Todos los derechos reservados',
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+          color: const Color(0xFFABB5C3),
+          fontWeight: FontWeight.w400,
+          fontSize: 10.5,
+          letterSpacing: 0.1,
+        ),
+        textAlign: TextAlign.right,
+      ),
+    );
+  }
 }
