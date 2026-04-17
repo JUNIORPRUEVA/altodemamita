@@ -11,6 +11,7 @@ import { Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Server, Socket } from 'socket.io';
+import { isAllowedPanelOrigin } from 'src/shared/utils/panel-origin.util';
 
 type RealtimeUser = {
   sub: string;
@@ -129,7 +130,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       return;
     }
 
-    if (origin !== allowedOrigin) {
+    if (!isAllowedPanelOrigin(origin, allowedOrigin)) {
       throw new UnauthorizedException('Origen no autorizado para WebSocket.');
     }
   }
