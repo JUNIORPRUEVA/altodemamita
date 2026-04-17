@@ -167,7 +167,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                         currency.format(_readNum(item['financingPrice'])),
                                       ),
                                     ),
-                                    DataCell(Text('${_readNum(item['stock']).toStringAsFixed(0)}')),
+                                    DataCell(Text(_readNum(item['stock']).toStringAsFixed(0))),
                                     DataCell(
                                       _StatusBadge(
                                         isActive: item['isActive'] == true,
