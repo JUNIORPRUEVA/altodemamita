@@ -54,6 +54,7 @@ Ejecución con URL del backend configurable en runtime:
 ```bash
 docker run --rm -p 80:80 \
 	-e API_BASE_URL=https://api.tudominio.com/api \
+	-e CANONICAL_HOST=panel.tudominio.com \
 	sistema-solares-ui
 ```
 
@@ -70,12 +71,15 @@ La imagen:
 Variables recomendadas:
 
 - `API_BASE_URL=https://api.tudominio.com/api`
+- `CANONICAL_HOST=panel.tudominio.com`
+- `CANONICAL_SCHEME=https`
 
 Puerto expuesto por la imagen:
 
 - `80`
 
 La app usará `app-config.json` generado al arrancar el contenedor, por lo que puedes cambiar la URL del backend desde EasyPanel sin reconstruir la imagen.
+Además, Nginx redirige cualquier dominio secundario al dominio canónico configurado en `CANONICAL_HOST`, evitando que el navegador trate el panel como dos PWAs distintas con cachés separadas por origen.
 
 ## Realtime
 
