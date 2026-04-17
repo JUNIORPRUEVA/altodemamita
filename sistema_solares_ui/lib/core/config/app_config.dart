@@ -7,7 +7,7 @@ class AppConfig {
   static const String _defaultApiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
     defaultValue:
-        'https://altodemamita-altodemamita-backent.onqyr1.easypanel.host/api',
+      'https://altodemanita-altodemamita-backent.onqyr1.easypanel.host/api',
   );
 
   static String _apiBaseUrl = _defaultApiBaseUrl;
