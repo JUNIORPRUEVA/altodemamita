@@ -123,7 +123,8 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     const allowedOrigin = this.configService.getOrThrow<string>('security.panelWebOrigin');
     const origin = client.handshake.headers.origin;
     const clientType = client.handshake.auth?.clientType;
-    const isDesktopClient = clientType == 'desktop' || typeof origin !== 'string' || origin.trim().isEmpty;
+    const isDesktopClient =
+      clientType == 'desktop' || typeof origin !== 'string' || origin.trim().length === 0;
     if (isDesktopClient) {
       return;
     }

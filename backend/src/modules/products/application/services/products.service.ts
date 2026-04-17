@@ -121,7 +121,7 @@ export class ProductsService {
       filters.push({ isActive: true });
     }
 
-    if (normalizedSearch?.isNotEmpty == true) {
+    if (normalizedSearch && normalizedSearch.length > 0) {
       filters.push({
         OR: [
           { code: { contains: normalizedSearch, mode: 'insensitive' } },
@@ -131,12 +131,12 @@ export class ProductsService {
       });
     }
 
-    if (filters.isEmpty) {
+    if (filters.length === 0) {
       return {};
     }
 
     if (filters.length == 1) {
-      return filters.first;
+      return filters[0];
     }
 
     return { AND: filters };
