@@ -65,7 +65,11 @@ class RealtimeSyncService {
           .setReconnectionDelay(1000)
           .setReconnectionDelayMax(10000)
           .setTimeout(10000)
-          .setAuth({'token': settings.jwtToken, 'deviceId': settings.deviceId})
+          .setAuth({
+            'token': settings.jwtToken,
+            'deviceId': settings.deviceId,
+            'clientType': 'desktop',
+          })
           .build(),
     );
 

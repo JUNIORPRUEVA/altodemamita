@@ -122,7 +122,13 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   private validateOrigin(client: Socket): void {
     const allowedOrigin = this.configService.getOrThrow<string>('security.panelWebOrigin');
     const origin = client.handshake.headers.origin;
-    if (typeof origin !== 'string' || origin !== allowedOrigin) {
+    const clientType = client.handshake.auth?.clientType;
+    const isDesktopClient = clientType == 'desktop' || typeof origin !== 'string' || origin.trim().isEmpty;
+    if (isDesktopClient) {
+      return;
+    }
+
+    if (origin !== allowedOrigin) {
       throw new UnauthorizedException('Origen no autorizado para WebSocket.');
     }
   }
