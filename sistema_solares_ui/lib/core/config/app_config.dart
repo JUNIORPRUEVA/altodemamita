@@ -66,6 +66,16 @@ class AppConfig {
       return _defaultApiBaseUrl;
     }
 
-    return trimmed.replaceAll(RegExp(r'/$'), '');
+    final uri = Uri.tryParse(trimmed);
+    if (uri == null || uri.host.trim().isEmpty) {
+      return trimmed.replaceAll(RegExp(r'/$'), '');
+    }
+
+    final pathSegments = uri.pathSegments.where((segment) => segment.isNotEmpty).toList();
+    if (pathSegments.isEmpty || pathSegments.last.toLowerCase() != 'api') {
+      pathSegments.add('api');
+    }
+
+    return uri.replace(pathSegments: pathSegments).toString().replaceAll(RegExp(r'/$'), '');
   }
 }

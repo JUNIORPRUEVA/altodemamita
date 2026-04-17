@@ -29,14 +29,20 @@ class AuthBootstrapResult {
     required this.requiresInitialSetup,
     required this.isOnline,
     required this.isCloudInitialized,
+    required this.backendStatus,
+    this.backendStatusMessage,
     this.currentUser,
   });
 
   final bool requiresInitialSetup;
   final bool isOnline;
   final bool isCloudInitialized;
+  final BackendConnectionStatus backendStatus;
+  final String? backendStatusMessage;
   final UserModel? currentUser;
 }
+
+enum BackendConnectionStatus { unconfigured, connected, unreachable, error }
 
 enum AuthSignInMode { online, offline }
 
@@ -56,10 +62,16 @@ class _RemoteSystemStatus {
   const _RemoteSystemStatus({
     required this.isReachable,
     required this.initialized,
+    required this.statusAvailable,
+    required this.connectionStatus,
+    this.message,
   });
 
   final bool isReachable;
   final bool initialized;
+  final bool statusAvailable;
+  final BackendConnectionStatus connectionStatus;
+  final String? message;
 }
 
 class AuthException implements Exception {
@@ -123,11 +135,22 @@ class AuthService {
     final localRequiresInitialSetup = await requiresInitialSetup();
 
     if (remoteStatus.isReachable && !remoteStatus.initialized) {
+      if (!remoteStatus.statusAvailable) {
+        return AuthBootstrapResult(
+          requiresInitialSetup: false,
+          isOnline: true,
+          isCloudInitialized: !localRequiresInitialSetup,
+          backendStatus: remoteStatus.connectionStatus,
+          backendStatusMessage: remoteStatus.message,
+        );
+      }
       await clearSession();
-      return const AuthBootstrapResult(
+      return AuthBootstrapResult(
         requiresInitialSetup: true,
         isOnline: true,
         isCloudInitialized: false,
+        backendStatus: remoteStatus.connectionStatus,
+        backendStatusMessage: remoteStatus.message,
       );
     }
 
@@ -140,11 +163,16 @@ class AuthService {
     }
 
     return AuthBootstrapResult(
-      requiresInitialSetup: remoteStatus.isReachable && !remoteStatus.initialized,
+      requiresInitialSetup:
+          remoteStatus.isReachable &&
+          remoteStatus.statusAvailable &&
+          !remoteStatus.initialized,
       isOnline: remoteStatus.isReachable,
-      isCloudInitialized: remoteStatus.isReachable
+      isCloudInitialized: remoteStatus.isReachable && remoteStatus.statusAvailable
           ? remoteStatus.initialized
           : !localRequiresInitialSetup,
+      backendStatus: remoteStatus.connectionStatus,
+      backendStatusMessage: remoteStatus.message,
       currentUser: currentUser,
     );
   }
@@ -156,7 +184,7 @@ class AuthService {
     final settings = await _syncConfigRepository.loadSettings();
     final remoteStatus = await _fetchRemoteSystemStatus();
     if (remoteStatus.isReachable) {
-      if (!remoteStatus.initialized) {
+      if (remoteStatus.statusAvailable && !remoteStatus.initialized) {
         throw const AuthException(
           'El sistema central aun no ha sido inicializado.',
         );
@@ -1212,6 +1240,9 @@ class AuthService {
         return const _RemoteSystemStatus(
           isReachable: false,
           initialized: false,
+          statusAvailable: false,
+          connectionStatus: BackendConnectionStatus.unconfigured,
+          message: 'Configura la URL del backend.',
         );
       }
 
@@ -1220,6 +1251,9 @@ class AuthService {
         return const _RemoteSystemStatus(
           isReachable: false,
           initialized: false,
+          statusAvailable: false,
+          connectionStatus: BackendConnectionStatus.unconfigured,
+          message: 'La URL del backend no es valida.',
         );
       }
 
@@ -1228,16 +1262,56 @@ class AuthService {
         return const _RemoteSystemStatus(
           isReachable: false,
           initialized: false,
+          statusAvailable: false,
+          connectionStatus: BackendConnectionStatus.unreachable,
+          message: 'No se pudo resolver el backend.',
         );
       }
 
-      final body = await _sendJsonRequest(method: 'GET', uri: uri);
-      return _RemoteSystemStatus(
-        isReachable: true,
-        initialized: body['initialized'] == true,
+      try {
+        final body = await _sendJsonRequest(method: 'GET', uri: uri);
+        return _RemoteSystemStatus(
+          isReachable: true,
+          initialized: body['initialized'] == true,
+          statusAvailable: true,
+          connectionStatus: BackendConnectionStatus.connected,
+        );
+      } on AuthException catch (error) {
+        final healthUri = Uri.parse('${settings.normalizedBaseUrl}/system/config');
+        try {
+          await _sendJsonRequest(method: 'GET', uri: healthUri);
+          return _RemoteSystemStatus(
+            isReachable: true,
+            initialized: false,
+            statusAvailable: false,
+            connectionStatus: BackendConnectionStatus.error,
+            message: error.message,
+          );
+        } catch (_) {
+          return _RemoteSystemStatus(
+            isReachable: false,
+            initialized: false,
+            statusAvailable: false,
+            connectionStatus: BackendConnectionStatus.unreachable,
+            message: 'No se pudo consultar el backend.',
+          );
+        }
+      }
+    } on SocketException {
+      return const _RemoteSystemStatus(
+        isReachable: false,
+        initialized: false,
+        statusAvailable: false,
+        connectionStatus: BackendConnectionStatus.unreachable,
+        message: 'No hay comunicacion con el backend.',
       );
     } catch (_) {
-      return const _RemoteSystemStatus(isReachable: false, initialized: false);
+      return const _RemoteSystemStatus(
+        isReachable: false,
+        initialized: false,
+        statusAvailable: false,
+        connectionStatus: BackendConnectionStatus.unreachable,
+      );
     }
   }
 

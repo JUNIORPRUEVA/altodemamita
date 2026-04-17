@@ -32,6 +32,25 @@ class SyncConfigRepository {
   static const _deviceIdPreferenceKey = 'sync.device_id';
   static const _cursorPreferencePrefix = 'sync.cursor.';
 
+  static String normalizeBackendBaseUrl(String baseUrl) {
+    final trimmed = baseUrl.trim();
+    if (trimmed.isEmpty) {
+      return defaultSyncBaseUrl;
+    }
+
+    final uri = Uri.tryParse(trimmed);
+    if (uri == null || uri.host.trim().isEmpty) {
+      return trimmed.replaceAll(RegExp(r'/$'), '');
+    }
+
+    final pathSegments = uri.pathSegments.where((segment) => segment.isNotEmpty).toList();
+    if (pathSegments.isEmpty || pathSegments.last.toLowerCase() != 'api') {
+      pathSegments.add('api');
+    }
+
+    return uri.replace(pathSegments: pathSegments).toString().replaceAll(RegExp(r'/$'), '');
+  }
+
   final SettingsRepository _settingsRepository;
   final SensitiveStorage _sensitiveStorage;
   final Future<SharedPreferences> Function() _preferencesFactory;
@@ -52,10 +71,8 @@ class SyncConfigRepository {
     ]);
     final prefs = await _preferencesFactory();
     final storedBaseUrl = values[syncBaseUrlKey]?.value ?? '';
-    final baseUrl = storedBaseUrl.trim().isEmpty
-        ? defaultSyncBaseUrl
-        : storedBaseUrl.trim();
-    if (storedBaseUrl.trim().isEmpty) {
+    final baseUrl = normalizeBackendBaseUrl(storedBaseUrl);
+    if (storedBaseUrl.trim().isEmpty || storedBaseUrl.trim() != baseUrl) {
       await _settingsRepository.upsert(syncBaseUrlKey, baseUrl);
     }
     final token = await _sensitiveStorage.read(_jwtTokenPreferenceKey) ?? '';
@@ -77,7 +94,10 @@ class SyncConfigRepository {
   }
 
   Future<void> saveBaseUrl(String baseUrl) {
-    return _settingsRepository.upsert(syncBaseUrlKey, baseUrl.trim());
+    return _settingsRepository.upsert(
+      syncBaseUrlKey,
+      normalizeBackendBaseUrl(baseUrl),
+    );
   }
 
   Future<void> saveJwtToken(String jwtToken) async {

@@ -185,7 +185,7 @@ class DatabaseSchema {
     await db.rawUpdate(
       'UPDATE $settingsTable '
       'SET valor = ?, fecha_actualizacion = ? '
-      'WHERE clave = ? AND TRIM(COALESCE(valor, \"\")) = \"\"',
+      "WHERE clave = ? AND TRIM(COALESCE(valor, '')) = ''",
       [defaultSyncBaseUrl, now, 'sync.base_url'],
     );
     await _ensureAdminCredentials(db, now);

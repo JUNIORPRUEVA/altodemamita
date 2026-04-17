@@ -20,6 +20,9 @@ class AuthProvider extends ChangeNotifier {
   bool _requiresInitialSetup = false;
   bool _isOnline = false;
   bool _isCloudInitialized = true;
+  BackendConnectionStatus _backendStatus =
+      BackendConnectionStatus.unconfigured;
+  String? _backendStatusMessage;
   UserModel? _currentUser;
   String? _errorMessage;
   String? _lastGeneratedRecoveryCode;
@@ -29,6 +32,8 @@ class AuthProvider extends ChangeNotifier {
   bool get requiresInitialSetup => _requiresInitialSetup;
   bool get isOnline => _isOnline;
   bool get isCloudInitialized => _isCloudInitialized;
+  BackendConnectionStatus get backendStatus => _backendStatus;
+  String? get backendStatusMessage => _backendStatusMessage;
   bool get isAuthenticated => _currentUser != null;
   UserModel? get currentUser => _currentUser;
   String? get errorMessage => _errorMessage;
@@ -46,6 +51,8 @@ class AuthProvider extends ChangeNotifier {
       _requiresInitialSetup = bootstrap.requiresInitialSetup;
       _isOnline = bootstrap.isOnline;
       _isCloudInitialized = bootstrap.isCloudInitialized;
+      _backendStatus = bootstrap.backendStatus;
+      _backendStatusMessage = bootstrap.backendStatusMessage;
       _clearAdminOverrides(notify: false);
       if (_requiresInitialSetup) {
         await _authService.clearSession();
@@ -59,6 +66,8 @@ class AuthProvider extends ChangeNotifier {
       _requiresInitialSetup = false;
       _isOnline = false;
       _isCloudInitialized = true;
+      _backendStatus = BackendConnectionStatus.unreachable;
+      _backendStatusMessage = 'No se pudo verificar el backend.';
       _errorMessage = 'No se pudo restaurar la sesion.';
     } finally {
       _isInitializing = false;
@@ -87,6 +96,11 @@ class AuthProvider extends ChangeNotifier {
       _currentUser = result.user;
       _requiresInitialSetup = false;
       _isCloudInitialized = true;
+        _isOnline = result.mode == AuthSignInMode.online;
+        _backendStatus = _isOnline
+          ? BackendConnectionStatus.connected
+          : BackendConnectionStatus.unreachable;
+        _backendStatusMessage = null;
       return true;
     } on AuthException catch (error) {
       _currentUser = null;
@@ -131,6 +145,10 @@ class AuthProvider extends ChangeNotifier {
       _currentUser = result.user;
       _isOnline = result.mode == AuthSignInMode.online;
       _isCloudInitialized = true;
+        _backendStatus = _isOnline
+          ? BackendConnectionStatus.connected
+          : BackendConnectionStatus.unreachable;
+        _backendStatusMessage = null;
       return true;
     } on AuthException catch (error) {
       _currentUser = null;

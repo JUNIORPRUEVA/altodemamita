@@ -97,7 +97,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 controller: controller,
                 decoration: const InputDecoration(
                   labelText: 'URL base del backend',
-                  hintText: 'https://api.tudominio.com/api',
+                  hintText: 'https://tu-backend.easypanel.host',
                 ),
                 validator: (value) {
                   final trimmed = value?.trim() ?? '';
@@ -208,7 +208,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             children: [
                               Column(
                                 children: [
-                                  _ConnectionBadge(isOnline: auth.isOnline),
+                                  _ConnectionBadge(status: auth.backendStatus),
                                   const SizedBox(height: 14),
                                   Container(
                                     width: 62,
@@ -280,6 +280,17 @@ class _LoginScreenState extends State<LoginScreen> {
                                     icon: const Icon(Icons.settings_ethernet, size: 16),
                                     label: const Text('Configurar backend'),
                                   ),
+                                  if (auth.backendStatusMessage != null) ...[
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      auth.backendStatusMessage!,
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: Colors.white.withValues(alpha: 0.68),
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                  ],
                                 ],
                               ),
                               const SizedBox(height: 24),
@@ -442,14 +453,24 @@ class _LoginScreenState extends State<LoginScreen> {
 }
 
 class _ConnectionBadge extends StatelessWidget {
-  const _ConnectionBadge({required this.isOnline});
+  const _ConnectionBadge({required this.status});
 
-  final bool isOnline;
+  final BackendConnectionStatus status;
 
   @override
   Widget build(BuildContext context) {
-    final color = isOnline ? const Color(0xFF2CC06B) : const Color(0xFFE05353);
-    final label = isOnline ? 'Conectado' : 'Sin conexion';
+    final color = switch (status) {
+      BackendConnectionStatus.connected => const Color(0xFF2CC06B),
+      BackendConnectionStatus.error => const Color(0xFFF3A53B),
+      BackendConnectionStatus.unconfigured => const Color(0xFFE05353),
+      BackendConnectionStatus.unreachable => const Color(0xFFE05353),
+    };
+    final label = switch (status) {
+      BackendConnectionStatus.connected => 'Conectado',
+      BackendConnectionStatus.error => 'Backend con error',
+      BackendConnectionStatus.unconfigured => 'Sin configurar',
+      BackendConnectionStatus.unreachable => 'Sin conexion',
+    };
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
