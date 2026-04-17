@@ -6,11 +6,13 @@ function parsePanelOrigins(env: NodeJS.ProcessEnv): string[] {
     ...(env.PANEL_WEB_ORIGINS ?? '').split(','),
   ];
 
-  return [...new Set(
-    candidates
-      .map((value) => value?.trim() ?? '')
-      .where((value) => value.length > 0),
-  )];
+  return [
+    ...new Set(
+      candidates
+        .map((value) => value?.trim() ?? '')
+        .filter((value) => value.length > 0),
+    ),
+  ];
 }
 
 export const appConfig = () => {
