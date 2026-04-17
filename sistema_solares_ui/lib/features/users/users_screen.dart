@@ -67,7 +67,6 @@ class _UsersScreenState extends State<UsersScreen> {
 
         return DesktopPageScaffold(
           title: 'Usuarios',
-          subtitle: 'Accesos, roles, estado y detalle operativo de usuarios.',
           toolbar: DesktopFieldToolbar(
             child: DesktopToolbar(
               searchField: DesktopSearchField(
@@ -105,11 +104,6 @@ class _UsersScreenState extends State<UsersScreen> {
                     const Text(
                       'Resumen de accesos',
                       style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Vista ordenada para revisar usuarios registrados, su nivel de acceso y el estado de la sesion actual conectada al panel.',
-                      style: TextStyle(color: Color(0xFF657089), height: 1.5),
                     ),
                     const SizedBox(height: 16),
                     Wrap(

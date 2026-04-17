@@ -124,7 +124,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
                                   const _BrandMark(),
-                                  SizedBox(height: isMobile ? 24 : 28),
+                                  SizedBox(height: isMobile ? 20 : 24),
                                   Text(
                                     'Iniciar sesion',
                                     textAlign: TextAlign.center,
@@ -135,17 +135,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                       letterSpacing: -0.6,
                                     ),
                                   ),
-                                  const SizedBox(height: 10),
-                                  Text(
-                                    'Accede para gestionar clientes, reportes y configuracion desde un entorno seguro.',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      color: const Color(0xFF53657A),
-                                      fontSize: isMobile ? 14 : 15,
-                                      height: 1.55,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 26),
+                                  SizedBox(height: isMobile ? 22 : 26),
                                   AnimatedSwitcher(
                                     duration: const Duration(milliseconds: 180),
                                     child: errorMessage == null
@@ -338,17 +328,6 @@ class _BrandMark extends StatelessWidget {
             color: const Color(0xFF16324F),
             fontSize: 22,
             fontWeight: FontWeight.w800,
-          ),
-        ),
-        const SizedBox(height: 6),
-        const Text(
-          'Panel administrativo',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            color: Color(0xFF6A7684),
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 0.2,
           ),
         ),
       ],

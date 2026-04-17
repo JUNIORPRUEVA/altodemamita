@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:sistema_solares_ui/core/auth/auth_controller.dart';
-import 'package:sistema_solares_ui/core/config/app_config.dart';
 import 'package:sistema_solares_ui/core/network/api_client.dart';
 import 'package:sistema_solares_ui/core/realtime/realtime_controller.dart';
 import 'package:sistema_solares_ui/features/settings/settings_service.dart';
@@ -47,10 +46,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         final auth = context.watch<AuthController>();
         final realtime = context.watch<RealtimeController>();
         final compact = MediaQuery.sizeOf(context).width < 760;
-
         return DesktopPageScaffold(
           title: 'Configuracion',
-          subtitle: 'Estado del entorno, sesion actual y estructura de acceso.',
           child: ListView(
             children: [
               DesktopInfoStrip(
@@ -58,7 +55,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'Estado general del sistema',
+                      'Resumen del panel',
                       style: TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.w800,
@@ -70,18 +67,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       runSpacing: 14,
                       children: [
                         _InfoTile(
-                          title: 'Sistema inicializado',
+                          title: 'Panel listo',
                           value: data.initialized ? 'Si' : 'No',
                         ),
                         _InfoTile(
-                          title: 'API base',
-                          value: AppConfig.apiBaseUrl,
-                        ),
-                        _InfoTile(
-                          title: 'Realtime',
-                          value: realtime.isConnected
-                              ? 'Conectado'
-                              : 'Desconectado',
+                          title: 'Roles registrados',
+                          value: '${data.roles.length}',
                         ),
                         _InfoTile(
                           title: 'Usuario actual',

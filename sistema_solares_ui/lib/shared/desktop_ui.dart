@@ -46,17 +46,6 @@ class DesktopPageScaffold extends StatelessWidget {
                           color: _desktopInk,
                         ),
               ),
-              if (subtitle != null) ...[
-                const SizedBox(height: 4),
-                Text(
-                  subtitle!,
-                  style: TextStyle(
-                    color: _desktopMuted,
-                    fontSize: compact ? 12 : 13,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
             ],
           ),
         ),
@@ -550,11 +539,11 @@ class DesktopInfoStrip extends StatelessWidget {
 
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFFFAFBFC),
-        borderRadius: BorderRadius.circular(24),
+        color: const Color(0xFFFCFDFE),
+        borderRadius: BorderRadius.circular(22),
         border: Border.all(color: _desktopOutline),
       ),
-      child: Padding(padding: const EdgeInsets.all(20), child: child),
+      child: Padding(padding: const EdgeInsets.all(18), child: child),
     );
   }
 }
@@ -709,7 +698,7 @@ class DesktopTableCard extends StatelessWidget {
               ...(trailing != null ? <Widget>[trailing!] : const <Widget>[]),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
           child,
         ],
       ),
@@ -747,16 +736,16 @@ class DesktopMetricCard extends StatelessWidget {
         border: Border.all(color: _desktopOutline),
       ),
       child: Padding(
-        padding: EdgeInsets.all(compact ? 14 : 16),
+        padding: EdgeInsets.all(compact ? 13 : 15),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Container(
-              width: 14,
-              height: 14,
+              width: 12,
+              height: 12,
               decoration: BoxDecoration(color: color, shape: BoxShape.circle),
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 12),
             Text(title, style: const TextStyle(color: _desktopMuted)),
             const SizedBox(height: 8),
             Text(

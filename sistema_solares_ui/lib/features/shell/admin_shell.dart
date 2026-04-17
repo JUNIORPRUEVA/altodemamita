@@ -93,7 +93,7 @@ class AdminShell extends StatelessWidget {
               children: [
                 if (wide)
                   SizedBox(
-                    width: 288,
+                    width: 264,
                     child: sidebar,
                   ),
                 Expanded(
@@ -124,7 +124,7 @@ class AdminShell extends StatelessWidget {
                               child: child,
                             ),
                           ),
-                          const _ShellFooter(companyName: _companyName),
+                          const _ShellFooter(),
                         ],
                       ),
                     ),
@@ -315,15 +315,6 @@ class _TopBar extends StatelessWidget {
                               fontSize: veryCompact ? 16 : 17,
                             ),
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Sistema Solares',
-                        style: TextStyle(
-                          color: const Color(0xFF0D2640).withValues(alpha: 0.42),
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
                     ],
                   ),
                 ),
@@ -331,34 +322,23 @@ class _TopBar extends StatelessWidget {
                 sessionMenu,
               ],
             ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
+            const SizedBox(height: 10),
+            Row(
               children: [
-                _HeaderBadge(
-                  icon: realtimeController.isConnected
-                      ? Icons.wifi_tethering_rounded
-                      : Icons.wifi_off_rounded,
-                  label: realtimeController.isConnected ? 'Realtime activo' : 'Realtime desconectado',
-                  color: realtimeController.isConnected
-                      ? const Color(0xFF2BB673)
-                      : const Color(0xFF6B7682),
-                  fill: realtimeController.isConnected
-                      ? const Color(0xFFE9F8F0)
-                      : const Color(0xFFF1F4F8),
-                  compact: true,
-                ),
-                if (!veryCompact)
-                  _HeaderBadge(
-                    icon: Icons.person_outline_rounded,
-                    label: authController.user?.panelRole == PanelRole.admin
+                _ConnectionIndicator(isConnected: realtimeController.isConnected),
+                if (!veryCompact) ...[
+                  const SizedBox(width: 8),
+                  Text(
+                    authController.user?.panelRole == PanelRole.admin
                         ? 'Administrador'
                         : 'Supervisor',
-                    color: const Color(0xFF173450),
-                    fill: const Color(0xFFF1F4FA),
-                    compact: true,
+                    style: const TextStyle(
+                      color: Color(0xFF6F7891),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
+                ],
               ],
             ),
           ],
@@ -396,33 +376,11 @@ class _TopBar extends StatelessWidget {
                         fontSize: 15.5,
                       ),
                 ),
-                const SizedBox(height: 1),
-                Text(
-                  'Sistema Solares',
-                  style: TextStyle(
-                    color: const Color(0xFF0D2640).withValues(alpha: 0.32),
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w400,
-                  ),
-                ),
               ],
             ),
           ),
           const SizedBox(width: 10),
-          _HeaderBadge(
-            icon: realtimeController.isConnected
-                ? Icons.wifi_tethering_rounded
-                : Icons.wifi_off_rounded,
-            label: realtimeController.isConnected
-                ? 'Realtime activo'
-                : 'Realtime desconectado',
-            color: realtimeController.isConnected
-                ? const Color(0xFF2BB673)
-                : const Color(0xFF6B7682),
-            fill: realtimeController.isConnected
-                ? const Color(0xFFE9F8F0)
-                : const Color(0xFFF1F4F8),
-          ),
+          _ConnectionIndicator(isConnected: realtimeController.isConnected),
           const SizedBox(width: 10),
           sessionMenu,
         ],
@@ -497,7 +455,7 @@ class _Sidebar extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Container(
-              padding: EdgeInsets.fromLTRB(drawerMode ? 16 : 14, drawerMode ? 16 : 14, drawerMode ? 16 : 14, drawerMode ? 14 : 12),
+              padding: EdgeInsets.fromLTRB(drawerMode ? 14 : 12, drawerMode ? 14 : 12, drawerMode ? 14 : 12, drawerMode ? 12 : 10),
               decoration: BoxDecoration(
                 color: Colors.white.withValues(alpha: 0.08),
                 border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
@@ -545,36 +503,26 @@ class _Sidebar extends StatelessWidget {
                             letterSpacing: 0.1,
                           ),
                         ),
-                        SizedBox(height: 2),
-                        Text(
-                          'Navegacion ejecutiva',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: Color(0x8AFFFFFF),
-                            fontSize: 10,
-                            fontWeight: FontWeight.w500,
-                            letterSpacing: 0.35,
-                          ),
-                        ),
                       ],
                     ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 20),
-            const _SectionLabel('Destacados'),
-            const SizedBox(height: 10),
+            const SizedBox(height: 18),
             ...summaryItems.map((item) => _NavTile(
                   item: item,
                   selected: currentRoute == item.route,
                   compact: compact,
                 )),
             if (adminItems.isNotEmpty) ...[
-              const SizedBox(height: 18),
-              const _SectionLabel('Administracion'),
-              const SizedBox(height: 10),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Divider(
+                  height: 1,
+                  color: Colors.white.withValues(alpha: 0.10),
+                ),
+              ),
               ...adminItems.map((item) => _NavTile(
                     item: item,
                     selected: currentRoute == item.route,
@@ -582,31 +530,6 @@ class _Sidebar extends StatelessWidget {
                   )),
             ],
             const Spacer(),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.06),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
-                borderRadius: BorderRadius.circular(18),
-              ),
-              child: const Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Acceso rapido',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  SizedBox(height: 8),
-                  Text(
-                    'Resumen, reportes, clientes y configuracion con la misma jerarquia visual del escritorio.',
-                    style: TextStyle(color: Color(0xFFD2D8E2), height: 1.45),
-                  ),
-                ],
-              ),
-            ),
           ],
         ),
       ),
@@ -675,63 +598,31 @@ class _NavTile extends StatelessWidget {
   }
 }
 
-class _SectionLabel extends StatelessWidget {
-  const _SectionLabel(this.label);
+class _ConnectionIndicator extends StatelessWidget {
+  const _ConnectionIndicator({required this.isConnected});
 
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      label.toUpperCase(),
-      style: const TextStyle(
-        color: Color(0xFFAAB5C7),
-        fontSize: 11,
-        fontWeight: FontWeight.w700,
-        letterSpacing: 1.2,
-      ),
-    );
-  }
-}
-
-class _HeaderBadge extends StatelessWidget {
-  const _HeaderBadge({
-    required this.icon,
-    required this.label,
-    required this.color,
-    required this.fill,
-    this.compact = false,
-  });
-
-  final IconData icon;
-  final String label;
-  final Color color;
-  final Color fill;
-  final bool compact;
+  final bool isConnected;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 12, vertical: compact ? 9 : 10),
-      decoration: BoxDecoration(
-        color: fill,
-        border: Border.all(color: color.withValues(alpha: 0.20)),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: compact ? 16 : 18, color: color),
-          SizedBox(width: compact ? 6 : 8),
-          Text(
-            label,
-            style: TextStyle(
-              color: color,
-              fontWeight: FontWeight.w700,
-              fontSize: compact ? 12 : 13,
-            ),
-          ),
-        ],
+    final color = isConnected ? const Color(0xFF2BB673) : const Color(0xFF8B96A7);
+    final fill = isConnected ? const Color(0xFFEAF8F0) : const Color(0xFFF1F4F8);
+
+    return Tooltip(
+      message: isConnected ? 'Sincronizacion activa' : 'Sincronizacion inactiva',
+      child: Container(
+        width: 42,
+        height: 42,
+        decoration: BoxDecoration(
+          color: fill,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: color.withValues(alpha: 0.18)),
+        ),
+        child: Icon(
+          isConnected ? Icons.wifi_tethering_rounded : Icons.wifi_off_rounded,
+          size: 18,
+          color: color,
+        ),
       ),
     );
   }
@@ -750,28 +641,16 @@ class _NavItem {
 }
 
 class _ShellFooter extends StatelessWidget {
-  const _ShellFooter({required this.companyName});
-
-  final String companyName;
+  const _ShellFooter();
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 7),
+      height: 12,
       decoration: const BoxDecoration(
         color: Color(0xFFF7F9FC),
         border: Border(top: BorderSide(color: Color(0xFFE8EDF4))),
-      ),
-      child: Text(
-        '© 2026 $companyName · Todos los derechos reservados',
-        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-          color: const Color(0xFFABB5C3),
-          fontWeight: FontWeight.w400,
-          fontSize: 10.5,
-          letterSpacing: 0.1,
-        ),
-        textAlign: TextAlign.right,
       ),
     );
   }

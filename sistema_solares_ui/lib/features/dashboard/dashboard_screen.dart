@@ -44,59 +44,41 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
         return DesktopPageScaffold(
           title: 'Vista general',
-          subtitle: 'Resumen comercial y financiero del sistema.',
           child: ListView(
             children: [
-              DesktopInfoStrip(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Panel ejecutivo',
-                      style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Indicadores comerciales, cartera y actividad reciente en una vista consolidada.',
-                      style: TextStyle(color: Color(0xFF657089), height: 1.5),
-                    ),
-                    const SizedBox(height: 18),
-                    DesktopMetricStrip(
-                      children: [
-                        DesktopMetricCard(
-                          title: 'Clientes',
-                          value: '${data.summary['clients'] ?? 0}',
-                          color: const Color(0xFF223048),
-                        ),
-                        DesktopMetricCard(
-                          title: 'Ventas activas',
-                          value: '${data.summary['activeSales'] ?? 0}',
-                          color: const Color(0xFF2F6F5C),
-                        ),
-                        DesktopMetricCard(
-                          title: 'Cartera total',
-                          value: currency.format(data.summary['totalPortfolio'] ?? 0),
-                          color: const Color(0xFFC78442),
-                        ),
-                        DesktopMetricCard(
-                          title: 'Cobrado',
-                          value: currency.format(data.summary['totalCollected'] ?? 0),
-                          color: const Color(0xFF59728D),
-                        ),
-                        DesktopMetricCard(
-                          title: 'Saldo pendiente',
-                          value: currency.format(data.summary['outstanding'] ?? 0),
-                          color: const Color(0xFFB05233),
-                        ),
-                        DesktopMetricCard(
-                          title: 'Cuotas vencidas',
-                          value: '${data.summary['overdueInstallments'] ?? 0}',
-                          color: const Color(0xFF7F5807),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
+              DesktopMetricStrip(
+                children: [
+                  DesktopMetricCard(
+                    title: 'Clientes',
+                    value: '${data.summary['clients'] ?? 0}',
+                    color: const Color(0xFF223048),
+                  ),
+                  DesktopMetricCard(
+                    title: 'Ventas activas',
+                    value: '${data.summary['activeSales'] ?? 0}',
+                    color: const Color(0xFF2F6F5C),
+                  ),
+                  DesktopMetricCard(
+                    title: 'Cartera total',
+                    value: currency.format(data.summary['totalPortfolio'] ?? 0),
+                    color: const Color(0xFFC78442),
+                  ),
+                  DesktopMetricCard(
+                    title: 'Cobrado',
+                    value: currency.format(data.summary['totalCollected'] ?? 0),
+                    color: const Color(0xFF59728D),
+                  ),
+                  DesktopMetricCard(
+                    title: 'Saldo pendiente',
+                    value: currency.format(data.summary['outstanding'] ?? 0),
+                    color: const Color(0xFFB05233),
+                  ),
+                  DesktopMetricCard(
+                    title: 'Cuotas vencidas',
+                    value: '${data.summary['overdueInstallments'] ?? 0}',
+                    color: const Color(0xFF7F5807),
+                  ),
+                ],
               ),
               const SizedBox(height: 16),
               LayoutBuilder(
