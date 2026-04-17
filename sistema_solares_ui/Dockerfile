@@ -10,7 +10,6 @@ RUN flutter pub get
 COPY . .
 
 RUN flutter build web --release --base-href / --dart-define=API_BASE_URL=${API_BASE_URL}
-RUN sed -i '/serviceWorkerSettings:/,/^  }/d' build/web/flutter_bootstrap.js
 RUN printf "self.addEventListener('install', function () { self.skipWaiting(); });\nself.addEventListener('activate', function (event) { event.waitUntil(self.clients.claim()); });\n" > build/web/flutter_service_worker.js
 
 FROM nginx:alpine AS production
