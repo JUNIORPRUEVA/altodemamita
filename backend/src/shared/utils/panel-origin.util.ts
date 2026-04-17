@@ -1,5 +1,5 @@
 function normalizeOrigin(value: string): string {
-  return value.trim().replaceAll(RegExp('/+4'), '');
+  return value.trim().replace(/\/+$/, '');
 }
 
 function isLoopbackHostname(hostname: string): boolean {
