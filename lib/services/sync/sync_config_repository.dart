@@ -146,6 +146,11 @@ class SyncConfigRepository {
     );
   }
 
+  Future<void> clearCursor(String scope) async {
+    final prefs = await _preferencesFactory();
+    await prefs.remove('$_cursorPreferencePrefix$scope');
+  }
+
   Future<void> saveLastRun({String? errorMessage}) async {
     await _settingsRepository.saveMultiple({
       syncLastRunAtKey: DateTime.now().toIso8601String(),

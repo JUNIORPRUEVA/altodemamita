@@ -1153,6 +1153,12 @@ export class SyncService {
   private serializeProductRecord(product: {
     id: string;
     syncId: string;
+    code: string;
+    name: string;
+    price: Prisma.Decimal;
+    financingPrice: Prisma.Decimal | null;
+    stock: number;
+    isActive: boolean;
     createdAt: Date;
     updatedAt: Date;
     deletedAt: Date | null;
@@ -1160,8 +1166,10 @@ export class SyncService {
     syncPayload: Prisma.JsonValue | null;
   }) {
     const payload = this.readJsonRecord(product.syncPayload);
+    const productSyncData = this.buildProductSyncData(product, payload);
     return {
       ...(payload ?? {}),
+      ...productSyncData,
       id: product.id,
       sync_id: product.syncId,
       version: Number(payload?.['version'] ?? 1),
@@ -1192,6 +1200,18 @@ export class SyncService {
     product: { syncId: string };
   }) {
     const payload = this.readJsonRecord(sale.syncPayload);
+    const salePrice = Number(payload?.['sale_price'] ?? sale.principalAmount);
+    const downPaymentAmount = Number(payload?.['down_payment_amount'] ?? sale.downPayment);
+    const requiredInitialPayment = Number(
+      payload?.['required_initial_payment'] ?? downPaymentAmount,
+    );
+    const paidInitialPayment = Number(
+      payload?.['paid_initial_payment'] ?? downPaymentAmount,
+    );
+    const pendingInitialPayment = Number(
+      payload?.['pending_initial_payment'] ??
+        Math.max(requiredInitialPayment - paidInitialPayment, 0),
+    );
     return {
       ...(payload ?? {}),
       id: sale.id,
@@ -1200,9 +1220,26 @@ export class SyncService {
       client_sync_id: payload?.['client_sync_id']?.toString() ?? sale.client.syncId,
       product_sync_id: payload?.['product_sync_id']?.toString() ?? sale.product.syncId,
       sale_date: payload?.['sale_date']?.toString() ?? sale.saleDate.toISOString(),
-      sale_price: Number(payload?.['sale_price'] ?? sale.principalAmount),
+      sale_price: salePrice,
       financed_balance: Number(payload?.['financed_balance'] ?? sale.financedAmount),
-      down_payment_amount: Number(payload?.['down_payment_amount'] ?? sale.downPayment),
+      down_payment_percentage: Number(
+        payload?.['down_payment_percentage'] ??
+          (salePrice > 0
+            ? this.roundCurrency((downPaymentAmount / salePrice) * 100)
+            : 0),
+      ),
+      down_payment_amount: downPaymentAmount,
+      required_initial_payment: requiredInitialPayment,
+      paid_initial_payment: paidInitialPayment,
+      pending_initial_payment: pendingInitialPayment,
+      minimum_reserve_amount: payload?.['minimum_reserve_amount'] == null
+          ? null
+          : Number(payload?.['minimum_reserve_amount']),
+      activation_date:
+        payload?.['activation_date']?.toString() ??
+        (sale.status === 'active' || sale.status === 'completed' || sale.status === 'overdue'
+            ? sale.saleDate.toISOString()
+            : null),
       monthly_interest: Number(payload?.['monthly_interest'] ?? sale.interestRate),
       installment_count: Number(payload?.['installment_count'] ?? sale.termMonths),
       pending_balance: Number(payload?.['pending_balance'] ?? sale.outstandingBalance),
@@ -1232,6 +1269,12 @@ export class SyncService {
     sale: { syncId: string };
   }) {
     const payload = this.readJsonRecord(installment.syncPayload);
+    const totalAmount = Number(payload?.['total_amount'] ?? installment.amount);
+    const principalAmount = Number(payload?.['principal_amount'] ?? installment.principalAmount);
+    const paidAmount = Number(payload?.['paid_amount'] ?? installment.paidAmount);
+    const paidPrincipalAmount = Number(
+      payload?.['paid_principal_amount'] ?? Math.min(principalAmount, paidAmount),
+    );
     return {
       ...(payload ?? {}),
       id: installment.id,
@@ -1240,10 +1283,18 @@ export class SyncService {
       sale_sync_id: payload?.['sale_sync_id']?.toString() ?? installment.sale.syncId,
       installment_number: Number(payload?.['installment_number'] ?? installment.installmentNumber),
       due_date: payload?.['due_date']?.toString() ?? installment.dueDate.toISOString(),
-      total_amount: Number(payload?.['total_amount'] ?? installment.amount),
-      principal_amount: Number(payload?.['principal_amount'] ?? installment.principalAmount),
+      opening_balance: Number(payload?.['opening_balance'] ?? totalAmount),
+      total_amount: totalAmount,
+      principal_amount: principalAmount,
       interest_amount: Number(payload?.['interest_amount'] ?? installment.interestAmount),
-      paid_amount: Number(payload?.['paid_amount'] ?? installment.paidAmount),
+      paid_amount: paidAmount,
+      paid_principal_amount: paidPrincipalAmount,
+      paid_interest_amount: Number(
+        payload?.['paid_interest_amount'] ?? Math.max(paidAmount - paidPrincipalAmount, 0),
+      ),
+      ending_balance: Number(
+        payload?.['ending_balance'] ?? Math.max(totalAmount - paidAmount, 0),
+      ),
       status: payload?.['status']?.toString() ?? this.mapInstallmentStatusToLocal(installment.status),
       created_at: payload?.['created_at']?.toString() ?? installment.createdAt.toISOString(),
       updated_at: payload?.['updated_at']?.toString() ?? installment.updatedAt.toISOString(),
@@ -1279,13 +1330,89 @@ export class SyncService {
       payment_date: payload?.['payment_date']?.toString() ?? payment.paymentDate.toISOString(),
       amount_paid: Number(payload?.['amount_paid'] ?? payment.amount),
       payment_method: payload?.['payment_method']?.toString() ?? this.mapPaymentMethodToLocal(payment.method),
-      payment_type: payload?.['payment_type']?.toString() ?? 'cuota',
+      payment_type: payload?.['payment_type']?.toString() ?? (payment.installment == null ? 'inicial' : 'cuota'),
       reference: payload?.['reference']?.toString() ?? payment.reference,
+      year_to_pay: payload?.['year_to_pay']?.toString() ?? payment.paymentDate.getFullYear().toString(),
       created_at: payload?.['created_at']?.toString() ?? payment.createdAt.toISOString(),
       updated_at: payload?.['updated_at']?.toString() ?? payment.updatedAt.toISOString(),
       deleted_at: payload?.['deleted_at']?.toString() ?? payment.deletedAt?.toISOString(),
       sync_status: payment.syncStatus,
     };
+  }
+
+  private buildProductSyncData(
+    product: {
+      syncId: string;
+      code: string;
+      name: string;
+      price: Prisma.Decimal;
+      stock: number;
+      isActive: boolean;
+    },
+    payload: Record<string, unknown> | null,
+  ) {
+    const parsedCode = this.parseLotReference(product.code);
+    const parsedName = this.parseLotReference(product.name);
+    const blockNumber =
+      payload?.['block_number']?.toString().trim() ||
+      parsedCode?.blockNumber ||
+      parsedName?.blockNumber ||
+      'GEN';
+    const lotNumber =
+      payload?.['lot_number']?.toString().trim() ||
+      parsedCode?.lotNumber ||
+      parsedName?.lotNumber ||
+      product.code.trim() ||
+      product.syncId.slice(0, 8);
+    const totalPrice = Number(product.price);
+    const area = Number(payload?.['area'] ?? 0);
+    const pricePerSquareMeter = Number(
+      payload?.['price_per_square_meter'] ??
+        (area > 0 ? this.roundCurrency(totalPrice / area) : totalPrice),
+    );
+    const status =
+      payload?.['status']?.toString() ??
+      (!product.isActive
+          ? 'inactivo'
+          : product.stock > 0
+              ? 'disponible'
+              : 'vendido');
+
+    return {
+      block_number: blockNumber,
+      lot_number: lotNumber,
+      area,
+      price_per_square_meter: pricePerSquareMeter,
+      status,
+    };
+  }
+
+  private parseLotReference(value: string | null | undefined) {
+    const normalized = value?.trim();
+    if (!normalized) {
+      return null;
+    }
+
+    const patterns = [
+      /m(?:anzana)?\s*[-#:]*\s*([a-z0-9]+)\s*[-/ ]+s(?:olar)?\s*[-#:]*\s*([a-z0-9]+)/i,
+      /^([a-z0-9]+)\s*[-/]\s*([a-z0-9]+)$/i,
+      /([a-z0-9]+)\s+([a-z0-9]+)$/i,
+    ];
+
+    for (const pattern of patterns) {
+      const match = pattern.exec(normalized);
+      if (!match) {
+        continue;
+      }
+
+      const blockNumber = match[1]?.trim();
+      const lotNumber = match[2]?.trim();
+      if (blockNumber && lotNumber) {
+        return { blockNumber, lotNumber };
+      }
+    }
+
+    return null;
   }
 
   private sanitizeJob(job: SyncQueuedJob): SyncJobResponseDto {

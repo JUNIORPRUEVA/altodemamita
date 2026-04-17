@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 
+import '../../core/database/app_database.dart';
+import '../../core/database/database_schema.dart';
 import '../../core/system/system_config_service.dart';
 import '../../models/sync/sync_conflict_strategy.dart';
 import '../../models/sync/sync_report.dart';
@@ -30,6 +32,7 @@ class SyncService {
   final SyncConfigRepository _configRepository;
   final SyncApiClient _apiClient;
   final SyncQueueService _syncQueueService;
+  final AppDatabase _appDatabase = AppDatabase.instance;
   List<String> _lastScopeWarnings = const [];
   bool _isSyncing = false;
   SyncReport? _lastReport;
@@ -141,6 +144,14 @@ class SyncService {
     _lastScopeWarnings = const [];
     if (targetScopes.isEmpty) {
       return 0;
+    }
+
+    if (await _shouldForceFullBusinessDownload(targetScopes)) {
+      for (final scope in const ['products', 'sales', 'installments', 'payments']) {
+        if (targetScopes.contains(scope)) {
+          await _configRepository.clearCursor(scope);
+        }
+      }
     }
 
     DateTime? earliestCursor;
@@ -263,5 +274,34 @@ class SyncService {
       }
     }
     return latest;
+  }
+
+  Future<bool> _shouldForceFullBusinessDownload(Set<String> targetScopes) async {
+    final touchesBusinessData =
+        targetScopes.contains('products') ||
+        targetScopes.contains('sales') ||
+        targetScopes.contains('installments') ||
+        targetScopes.contains('payments');
+    if (!touchesBusinessData) {
+      return false;
+    }
+
+    final db = await _appDatabase.database;
+    final clientsCount = await _countRows(db, DatabaseSchema.clientsTable);
+    final lotsCount = await _countRows(db, DatabaseSchema.lotsTable);
+    return clientsCount > 0 && lotsCount == 0;
+  }
+
+  Future<int> _countRows(dynamic db, String tableName) async {
+    final rows = await db.rawQuery('SELECT COUNT(*) AS total FROM $tableName');
+    if (rows.isEmpty) {
+      return 0;
+    }
+
+    final value = rows.first['total'];
+    if (value is num) {
+      return value.toInt();
+    }
+    return int.tryParse(value?.toString() ?? '') ?? 0;
   }
 }
