@@ -235,12 +235,6 @@ List<String> _buildDataAlerts(_DashboardStats stats) {
     );
   }
 
-  if (stats.totalLots > 0 && stats.soldLots == 0 && stats.pendingPayments == 0) {
-    alerts.add(
-      'El inventario local existe, pero no hay ventas ni cuotas aplicadas. Si en nube sí existen, revisa el scope sales/installments del sync.',
-    );
-  }
-
   return alerts;
 }
 

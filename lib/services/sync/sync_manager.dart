@@ -33,6 +33,7 @@ class SyncManager extends ChangeNotifier {
   StreamSubscription<int>? _conflictSubscription;
   SyncManagerState _state = const SyncManagerState();
   bool _started = false;
+  bool _manualSyncInProgress = false;
 
   Stream<SyncManagerState> get stream => _stateController.stream;
   SyncManagerState get state => _state;
@@ -75,9 +76,12 @@ class SyncManager extends ChangeNotifier {
   }
 
   Future<SyncReport> syncNow({bool showAsBusy = true}) async {
-    if (showAsBusy) {
-      _setState(_state.copyWith(isSyncing: true));
-    }
+    _manualSyncInProgress = showAsBusy;
+    _setState(
+      _state.copyWith(
+        isSyncing: _manualSyncInProgress || _syncQueueService.state.isProcessing,
+      ),
+    );
 
     final report = await _syncService.syncNow();
     final syncIssues = <String>[
@@ -91,9 +95,11 @@ class SyncManager extends ChangeNotifier {
       syncIssues: syncIssues,
     );
 
+    _manualSyncInProgress = false;
+
     _setState(
       _state.copyWith(
-        isSyncing: false,
+        isSyncing: _syncQueueService.state.isProcessing,
         pendingCount: report.pendingRecords,
         lastSyncIssues: syncIssues,
         currentErrors: errors,
@@ -119,7 +125,7 @@ class SyncManager extends ChangeNotifier {
     _setState(
       _state.copyWith(
         pendingCount: queueState.pendingCount,
-        isSyncing: _state.isSyncing || queueState.isProcessing,
+        isSyncing: _manualSyncInProgress || queueState.isProcessing,
         currentErrors: _combineErrors(
           queueError: queueState.lastError,
           realtimeError: _realtimeSyncService.state.lastError,
