@@ -15,7 +15,10 @@ async function bootstrap(): Promise<void> {
   const panelWebOrigin = configService.get<string>('security.panelWebOrigin', 'http://localhost:8080');
 
   app.enableCors({
-    origin: (origin, callback) => {
+    origin: (
+      origin: string | undefined,
+      callback: (error: Error | null, allow?: boolean) => void,
+    ) => {
       if (isCorsOriginAllowed(origin, panelWebOrigin)) {
         callback(null, true);
         return;

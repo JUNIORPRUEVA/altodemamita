@@ -312,10 +312,11 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
     widget.defaults.installmentCount,
   );
 
-  double get _requiredInitialPayment => SaleCalculator.calculateDownPaymentAmount(
-    salePrice: _salePrice,
-    downPaymentPercentage: _downPaymentPercentage,
-  );
+  double get _requiredInitialPayment =>
+      SaleCalculator.calculateDownPaymentAmount(
+        salePrice: _salePrice,
+        downPaymentPercentage: _downPaymentPercentage,
+      );
 
   double get _appliedInitialPayment {
     final parsed = _parseDouble(_initialPaidController.text, 0);
@@ -389,9 +390,8 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
         (initialDraft?.initialPaymentMethod ?? _initialPaymentMethods.first)
             .trim()
             .toLowerCase();
-    _selectedInitialPaymentMethod = _initialPaymentMethods.contains(
-      normalizedInitialPaymentMethod,
-    )
+    _selectedInitialPaymentMethod =
+        _initialPaymentMethods.contains(normalizedInitialPaymentMethod)
         ? normalizedInitialPaymentMethod
         : _initialPaymentMethods.first;
     _initialPaymentDeadline = initialDraft?.initialPaymentDeadline;
@@ -517,10 +517,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
                   ),
                 ),
                 const SizedBox(height: 2),
-                Text(
-                  'Registro de venta',
-                  style: theme.textTheme.bodySmall,
-                ),
+                Text('Registro de venta', style: theme.textTheme.bodySmall),
               ],
             ),
           ),
@@ -580,7 +577,6 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
   Widget _buildDialogFooter() {
     final pendingFields = <String>[
       if (_selectedClientId == null) 'cliente',
-      if (_selectedSellerId == null) 'vendedor',
       if (_selectedLotId == null) 'solar',
     ];
     final readyToSave = pendingFields.isEmpty;
@@ -690,8 +686,9 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
       ),
       onSearch: _pickClientFromDialog,
       createLabel: _isCreatingClient ? 'Guardando...' : 'Nuevo cliente',
-      onCreate:
-          !_canCreateClients || _isCreatingClient ? null : _createClientQuickly,
+      onCreate: !_canCreateClients || _isCreatingClient
+          ? null
+          : _createClientQuickly,
       trailingActions: [
         if (selectedClient != null && _canUpdateClients)
           _buildCompactIconButton(
@@ -710,7 +707,10 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
         initialValue: _selectedSellerId,
         isExpanded: true,
         menuMaxHeight: 320,
-        decoration: const InputDecoration(labelText: 'Seleccionar vendedor'),
+        decoration: const InputDecoration(
+          labelText: 'Seleccionar vendedor',
+          helperText: 'Opcional',
+        ),
         items: _filteredSellers
             .map(
               (seller) => DropdownMenuItem<int>(
@@ -727,13 +727,23 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
             _selectedSellerId = value;
           });
         },
-        validator: (value) => value == null ? 'Seleccione un vendedor' : null,
       ),
       onSearch: _pickSellerFromDialog,
       createLabel: _isCreatingSeller ? 'Guardando...' : 'Nuevo vendedor',
-      onCreate:
-          !_canCreateSellers || _isCreatingSeller ? null : _createSellerQuickly,
+      onCreate: !_canCreateSellers || _isCreatingSeller
+          ? null
+          : _createSellerQuickly,
       trailingActions: [
+        if (selectedSeller != null)
+          _buildCompactIconButton(
+            icon: Icons.clear_outlined,
+            tooltip: 'Quitar vendedor',
+            onPressed: () {
+              setState(() {
+                _selectedSellerId = null;
+              });
+            },
+          ),
         if (selectedSeller != null && _canUpdateSellers)
           _buildCompactIconButton(
             icon: Icons.edit_outlined,
@@ -747,7 +757,8 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
   Widget _buildLotLine() {
     final selectedLot = _selectedLot;
     final showInlineHint = _availableLots.isEmpty;
-    final showAdditionalLots = _additionalLotIds.isNotEmpty ||
+    final showAdditionalLots =
+        _additionalLotIds.isNotEmpty ||
         (!_isEditingSale && _getAvailableLotsForAddition().isNotEmpty);
 
     return Column(
@@ -782,8 +793,9 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
           ),
           onSearch: _pickLotFromDialog,
           createLabel: _isCreatingLot ? 'Guardando...' : 'Nuevo solar',
-          onCreate:
-              !_canCreateLots || _isCreatingLot ? null : _createLotQuickly,
+          onCreate: !_canCreateLots || _isCreatingLot
+              ? null
+              : _createLotQuickly,
           trailingActions: [
             if (!_isEditingSale && _getAvailableLotsForAddition().isNotEmpty)
               _buildCompactIconButton(
@@ -797,8 +809,9 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
               _buildCompactIconButton(
                 icon: Icons.edit_outlined,
                 tooltip: 'Editar solar',
-                onPressed:
-                    _isEditingLot ? null : () => _editLotInline(selectedLot),
+                onPressed: _isEditingLot
+                    ? null
+                    : () => _editLotInline(selectedLot),
               ),
             if (selectedLot != null)
               _buildCompactIconButton(
@@ -824,8 +837,10 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
   }
 
   Widget _buildSaleTermsBand() {
-    final compactFieldWidth =
-        math.max(118.0, (MediaQuery.sizeOf(context).width - 440) / 6);
+    final compactFieldWidth = math.max(
+      118.0,
+      (MediaQuery.sizeOf(context).width - 440) / 6,
+    );
 
     return Wrap(
       spacing: 10,
@@ -905,7 +920,8 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
               setState(() {
                 _useDirectInstallmentCount = useDirectCount;
                 if (!useDirectCount) {
-                  final calculatedCount = (_durationYears * 12) + _durationMonths;
+                  final calculatedCount =
+                      (_durationYears * 12) + _durationMonths;
                   _installmentCountController.text = calculatedCount.toString();
                 }
               });
@@ -1025,8 +1041,9 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
               labelText: 'Fecha límite',
               suffixIcon: _initialPaymentDeadline == null
                   ? IconButton(
-                      onPressed:
-                          _pendingInitialPayment > 0 ? _pickInitialDeadline : null,
+                      onPressed: _pendingInitialPayment > 0
+                          ? _pickInitialDeadline
+                          : null,
                       icon: const Icon(Icons.calendar_month_outlined),
                     )
                   : Wrap(
@@ -1060,8 +1077,8 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
     final statusColor = _saleLifecycleStatus == 'activa'
         ? theme.colorScheme.secondary
         : _saleLifecycleStatus == 'apartado'
-            ? const Color(0xFF9C5A00)
-            : theme.colorScheme.primary;
+        ? const Color(0xFF9C5A00)
+        : theme.colorScheme.primary;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1122,10 +1139,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
             tooltip: 'Buscar',
             onPressed: onSearch,
           ),
-          _buildCompactActionButton(
-            label: createLabel,
-            onPressed: onCreate,
-          ),
+          _buildCompactActionButton(label: createLabel, onPressed: onCreate),
           ...trailingActions,
         ];
 
@@ -1188,7 +1202,9 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
   SaleDetail? _buildPreviewSaleDetail() {
     final selectedLot = _selectedLot;
     final selectedClient = _findClientById(_selectedClientId);
-    if (selectedLot == null || selectedClient == null || _installmentCount <= 0) {
+    if (selectedLot == null ||
+        selectedClient == null ||
+        _installmentCount <= 0) {
       return null;
     }
 
@@ -1300,7 +1316,10 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
               ActionChip(
                 onPressed: _showAddLotDialog,
                 avatar: const Icon(Icons.add, size: 16),
-                label: const Text('Agregar solar', style: TextStyle(fontSize: 11)),
+                label: const Text(
+                  'Agregar solar',
+                  style: TextStyle(fontSize: 11),
+                ),
               ),
           ],
         ),
@@ -1308,11 +1327,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
     );
   }
 
-  Widget _buildSummaryText(
-    String label,
-    String value, {
-    Color? emphasisColor,
-  }) {
+  Widget _buildSummaryText(String label, String value, {Color? emphasisColor}) {
     final theme = Theme.of(context);
     return RichText(
       text: TextSpan(
@@ -1344,7 +1359,8 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
       items: _clients,
       emptyMessage: 'No hay clientes registrados.',
       titleBuilder: (client) => client.fullName,
-      subtitleBuilder: (client) => '${client.documentId} • ${client.phone ?? ''}',
+      subtitleBuilder: (client) =>
+          '${client.documentId} • ${client.phone ?? ''}',
       matches: (client, query) {
         return client.fullName.toLowerCase().contains(query) ||
             client.documentId.toLowerCase().contains(query) ||
@@ -1470,16 +1486,17 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
                                 padding: const EdgeInsets.all(20),
                                 child: Text(
                                   emptyMessage,
-                                  style: Theme.of(dialogContext)
-                                      .textTheme
-                                      .bodyMedium,
+                                  style: Theme.of(
+                                    dialogContext,
+                                  ).textTheme.bodyMedium,
                                 ),
                               ),
                             )
                           : ListView.separated(
                               shrinkWrap: true,
                               itemCount: filteredItems.length,
-                              separatorBuilder: (_, _) => const Divider(height: 1),
+                              separatorBuilder: (_, _) =>
+                                  const Divider(height: 1),
                               itemBuilder: (context, index) {
                                 final item = filteredItems[index];
                                 return ListTile(
@@ -1492,7 +1509,9 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
                                   ),
                                   onTap: () {
                                     controller.text = searchController.text;
-                                    Navigator.of(dialogContext).pop(idBuilder(item));
+                                    Navigator.of(
+                                      dialogContext,
+                                    ).pop(idBuilder(item));
                                   },
                                 );
                               },
@@ -1916,8 +1935,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
     final selectedLot = _selectedLot;
     if (_selectedClientId == null ||
         selectedLot == null ||
-        selectedLot.id == null ||
-        _selectedSellerId == null) {
+        selectedLot.id == null) {
       return;
     }
 
@@ -2174,7 +2192,9 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
                             searchQuery,
                           ) ||
                           lot.area.toString().contains(searchQuery) ||
-                          lot.pricePerSquareMeter.toString().contains(searchQuery) ||
+                          lot.pricePerSquareMeter.toString().contains(
+                            searchQuery,
+                          ) ||
                           lot.totalPrice.toString().contains(searchQuery);
                     }).toList();
 
@@ -2188,7 +2208,8 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
                       TextField(
                         controller: searchController,
                         decoration: InputDecoration(
-                          hintText: 'Buscar por código, área, precio por metro o total...',
+                          hintText:
+                              'Buscar por código, área, precio por metro o total...',
                           prefixIcon: const Icon(Icons.search),
                           suffixIcon: searchController.text.isNotEmpty
                               ? IconButton(
@@ -2368,12 +2389,18 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
               _buildDetailRow('Código', lot.displayCode),
               _buildDetailRow('Manzana', lot.blockNumber.toString()),
               _buildDetailRow('Número', lot.lotNumber.toString()),
-              _buildDetailRow('Metros cuadrados', '${lot.area.toStringAsFixed(2)} m²'),
+              _buildDetailRow(
+                'Metros cuadrados',
+                '${lot.area.toStringAsFixed(2)} m²',
+              ),
               _buildDetailRow(
                 'Precio por metro',
                 'RD\$${lot.pricePerSquareMeter.toStringAsFixed(2)} /m²',
               ),
-              _buildDetailRow('Precio total', 'RD\$${lot.totalPrice.toStringAsFixed(2)}'),
+              _buildDetailRow(
+                'Precio total',
+                'RD\$${lot.totalPrice.toStringAsFixed(2)}',
+              ),
               _buildDetailRow('Estado', lot.status),
             ],
           ),
@@ -2496,7 +2523,12 @@ class _InstallmentCountInputState extends State<_InstallmentCountInput> {
                   ),
                 ),
                 const SizedBox(width: 12),
-                Expanded(child: Align(alignment: Alignment.centerRight, child: modeSelector)),
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: modeSelector,
+                  ),
+                ),
               ],
             );
           },
@@ -2695,4 +2727,3 @@ class _InstallmentCountInputState extends State<_InstallmentCountInput> {
     );
   }
 }
-

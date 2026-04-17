@@ -14,8 +14,8 @@ import 'package:sistema_solares/features/lots/domain/lot.dart';
 import 'package:sistema_solares/features/sales/domain/sale_defaults.dart';
 import 'package:sistema_solares/features/sales/domain/sale_draft.dart';
 import 'package:sistema_solares/features/sales/domain/seller.dart';
-import 'package:sistema_solares/features/sales/presentation/sale_form_dialog.dart';
 import 'package:sistema_solares/features/sales/data/seller_repository.dart';
+import 'package:sistema_solares/features/sales/presentation/sale_form_dialog.dart';
 
 Future<void> _settle(WidgetTester tester) async {
   await tester.pump();
@@ -34,6 +34,17 @@ Widget _buildTestApp(Widget child) {
     value: _TestAuthProvider(),
     child: MaterialApp(home: Scaffold(body: child)),
   );
+}
+
+DropdownButtonFormField<int> _dropdownByLabel(
+  WidgetTester tester,
+  String label,
+) {
+  return tester
+      .widgetList<DropdownButtonFormField<int>>(
+        find.byType(DropdownButtonFormField<int>),
+      )
+      .firstWhere((widget) => widget.decoration.labelText == label);
 }
 
 Lot _testLot({
@@ -803,6 +814,154 @@ void main() {
         find.text('Ya existe el solar MB-S22 y actualmente está reservado.'),
         findsOneWidget,
       );
+    },
+  );
+
+  testWidgets('permite guardar una venta sin seleccionar vendedor', (
+    tester,
+  ) async {
+    final now = DateTime(2026, 3, 26);
+    SaleDraft? submittedDraft;
+
+    await clientRepository.save(
+      Client(
+        fullName: 'Maria Gomez',
+        documentId: '001-1234567-8',
+        phone: '8095550199',
+        address: 'Calle 1',
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+
+    await _configureDesktopSurface(tester, const Size(1280, 860));
+
+    await tester.pumpWidget(
+      _buildTestApp(
+        Builder(
+          builder: (context) => FilledButton(
+            onPressed: () async {
+              submittedDraft = await SaleFormDialog.show(
+                context,
+                clients: await clientRepository.fetchAll(),
+                availableLots: [
+                  _testLot(
+                    id: 1,
+                    blockNumber: 'A',
+                    lotNumber: '10',
+                    area: 180,
+                    totalPrice: 850000,
+                    now: now,
+                  ),
+                ],
+                sellers: const [],
+                defaults: const SaleDefaults(
+                  downPaymentPercentage: 10,
+                  monthlyInterest: 1,
+                  installmentCount: 12,
+                ),
+                clientRepository: clientRepository,
+                lotRepository: lotRepository,
+                sellerRepository: SellerRepository(database: appDatabase),
+              );
+            },
+            child: const Text('Abrir venta'),
+          ),
+        ),
+      ),
+    );
+    await _settle(tester);
+
+    await tester.tap(find.text('Abrir venta'));
+    await _settle(tester);
+
+    _dropdownByLabel(tester, 'Seleccionar cliente').onChanged?.call(1);
+    _dropdownByLabel(tester, 'Seleccionar solar').onChanged?.call(1);
+    await _settle(tester);
+
+    await tester.tap(find.text('Crear venta'));
+    await _settle(tester);
+
+    expect(submittedDraft, isNotNull);
+    expect(submittedDraft?.clientId, 1);
+    expect(submittedDraft?.lotId, 1);
+    expect(submittedDraft?.sellerId, isNull);
+  });
+
+  testWidgets(
+    'permite crear vendedor desde ventas con cedula en cualquier formato',
+    (tester) async {
+      final now = DateTime(2026, 3, 26);
+      final sellerRepository = SellerRepository(database: appDatabase);
+
+      await clientRepository.save(
+        Client(
+          fullName: 'Maria Gomez',
+          documentId: '001-1234567-8',
+          phone: '8095550199',
+          address: 'Calle 1',
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+
+      await _configureDesktopSurface(tester, const Size(1400, 1000));
+
+      await tester.pumpWidget(
+        _buildTestApp(
+          SaleFormDialog(
+            clients: await clientRepository.fetchAll(),
+            availableLots: [
+              _testLot(
+                id: 1,
+                blockNumber: 'A',
+                lotNumber: '10',
+                area: 180,
+                totalPrice: 850000,
+                now: now,
+              ),
+            ],
+            defaults: const SaleDefaults(
+              downPaymentPercentage: 10,
+              monthlyInterest: 1,
+              installmentCount: 12,
+            ),
+            clientRepository: clientRepository,
+            lotRepository: lotRepository,
+            sellers: const [],
+            sellerRepository: sellerRepository,
+          ),
+        ),
+      );
+      await _settle(tester);
+
+      await tester.ensureVisible(find.text('Nuevo vendedor'));
+      await tester.tap(find.text('Nuevo vendedor'));
+      await _settle(tester);
+
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Nombre').last,
+        'Pedro Lopez',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Cédula').last,
+        'A-001/VENTA-77',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Teléfono').last,
+        '8095550111',
+      );
+
+      await tester.tap(find.text('Crear vendedor'));
+      await _settle(tester);
+
+      final sellers = await sellerRepository.getAll();
+      expect(sellers, hasLength(1));
+      expect(sellers.single.documentId, 'A-001/VENTA-77');
+
+      final sellerDropdown = _dropdownByLabel(tester, 'Seleccionar vendedor');
+      expect(sellerDropdown.initialValue, sellers.single.id);
+      expect(find.text('Opcional'), findsOneWidget);
     },
   );
 }

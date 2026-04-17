@@ -9,10 +9,7 @@ class SellerFormDialog extends StatefulWidget {
 
   final Seller? initialSeller;
 
-  static Future<Seller?> show(
-    BuildContext context, {
-    Seller? initialSeller,
-  }) {
+  static Future<Seller?> show(BuildContext context, {Seller? initialSeller}) {
     return showDialog<Seller>(
       context: context,
       barrierDismissible: false,
@@ -32,6 +29,14 @@ class _SellerFormDialogState extends State<SellerFormDialog> {
   late final TextEditingController _phoneController;
 
   bool get _isEditing => widget.initialSeller != null;
+
+  String? _validateDocumentId(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return 'La cédula es obligatoria.';
+    }
+
+    return null;
+  }
 
   @override
   void initState() {
@@ -76,27 +81,20 @@ class _SellerFormDialogState extends State<SellerFormDialog> {
                 const SizedBox(height: 16),
                 TextFormField(
                   controller: _nameController,
-                  decoration: const InputDecoration(
-                    labelText: 'Nombre',
-                  ),
+                  decoration: const InputDecoration(labelText: 'Nombre'),
                   inputFormatters: [NameFormatter()],
-                  validator: DominicanValidators.validateName,
+                  validator: _validateName,
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _documentIdController,
-                  decoration: const InputDecoration(
-                    labelText: 'Cédula',
-                  ),
-                  inputFormatters: [DominicanIdFormatter()],
-                  validator: DominicanValidators.validateDominicanId,
+                  decoration: const InputDecoration(labelText: 'Cédula'),
+                  validator: _validateDocumentId,
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _phoneController,
-                  decoration: const InputDecoration(
-                    labelText: 'Teléfono',
-                  ),
+                  decoration: const InputDecoration(labelText: 'Teléfono'),
                   inputFormatters: [DominicanPhoneFormatter()],
                   validator: DominicanValidators.validateDominicanPhone,
                 ),
@@ -128,13 +126,23 @@ class _SellerFormDialogState extends State<SellerFormDialog> {
       id: widget.initialSeller?.id,
       name: _nameController.text.trim(),
       phone: _phoneController.text.trim(),
-      documentId: DominicanValidators.formatDominicanId(
-        _documentIdController.text,
-      ),
+      documentId: _documentIdController.text.trim(),
       createdAt: widget.initialSeller?.createdAt ?? now,
       updatedAt: now,
     );
 
     Navigator.of(context).pop(seller);
+  }
+
+  String? _validateName(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return 'El nombre es obligatorio.';
+    }
+
+    if (value.trim().length < 3) {
+      return 'El nombre debe tener al menos 3 caracteres.';
+    }
+
+    return null;
   }
 }

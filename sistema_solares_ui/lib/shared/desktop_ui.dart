@@ -34,13 +34,14 @@ class DesktopPageScaffold extends StatelessWidget {
             children: [
               Text(
                 title,
-                style: (compact
-                        ? Theme.of(context).textTheme.titleLarge
-                        : Theme.of(context).textTheme.headlineSmall)
-                    ?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: _desktopInk,
-                ),
+                style:
+                    (compact
+                            ? Theme.of(context).textTheme.titleLarge
+                            : Theme.of(context).textTheme.headlineSmall)
+                        ?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: _desktopInk,
+                        ),
               ),
               if (subtitle != null) ...[
                 const SizedBox(height: 4),
@@ -56,10 +57,7 @@ class DesktopPageScaffold extends StatelessWidget {
             ],
           ),
         ),
-        if (toolbar != null) ...[
-          toolbar!,
-          SizedBox(height: compact ? 12 : 16),
-        ],
+        if (toolbar != null) ...[toolbar!, SizedBox(height: compact ? 12 : 16)],
         Expanded(child: child ?? const SizedBox.shrink()),
       ],
     );
@@ -96,9 +94,7 @@ class DesktopSurface extends StatelessWidget {
         ],
       ),
       child: Padding(
-        padding: compact
-            ? const EdgeInsets.all(16)
-            : padding,
+        padding: compact ? const EdgeInsets.all(16) : padding,
         child: child,
       ),
     );
@@ -128,14 +124,22 @@ class DesktopToolbar extends StatelessWidget {
 
         if (compact) {
           return Padding(
-            padding: EdgeInsets.symmetric(horizontal: veryCompact ? 12 : 16, vertical: 12),
+            padding: EdgeInsets.symmetric(
+              horizontal: veryCompact ? 12 : 16,
+              vertical: 12,
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 searchField,
                 if (rowActions.isNotEmpty) ...[
                   const SizedBox(height: 10),
-                  Wrap(spacing: 8, runSpacing: 8, children: rowActions),
+                  ...rowActions.map(
+                    (action) => Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: SizedBox(width: double.infinity, child: action),
+                    ),
+                  ),
                 ],
               ],
             ),
@@ -158,7 +162,8 @@ class DesktopToolbar extends StatelessWidget {
     );
   }
 
-  double constraintsFor(BuildContext context) => MediaQuery.sizeOf(context).width;
+  double constraintsFor(BuildContext context) =>
+      MediaQuery.sizeOf(context).width;
 }
 
 class DesktopSearchField extends StatelessWidget {
@@ -185,7 +190,10 @@ class DesktopSearchField extends StatelessWidget {
           hintText: hintText,
           prefixIcon: const Icon(Icons.search, size: 18),
           isDense: true,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 12,
+          ),
         ),
       ),
     );
@@ -246,10 +254,7 @@ class DesktopEmptyState extends StatelessWidget {
                   height: 1.45,
                 ),
               ),
-              if (action != null) ...[
-                const SizedBox(height: 20),
-                action!,
-              ],
+              if (action != null) ...[const SizedBox(height: 20), action!],
             ],
           ),
         ),
@@ -259,10 +264,7 @@ class DesktopEmptyState extends StatelessWidget {
 }
 
 class DesktopModuleList extends StatelessWidget {
-  const DesktopModuleList({
-    super.key,
-    required this.children,
-  });
+  const DesktopModuleList({super.key, required this.children});
 
   final List<Widget> children;
 
@@ -277,7 +279,8 @@ class DesktopModuleList extends StatelessWidget {
       child: ListView.separated(
         padding: EdgeInsets.zero,
         itemCount: children.length,
-        separatorBuilder: (_, _) => const Divider(height: 1, indent: 72, endIndent: 16),
+        separatorBuilder: (_, _) =>
+            const Divider(height: 1, indent: 72, endIndent: 16),
         itemBuilder: (context, index) => children[index],
       ),
     );
@@ -303,7 +306,12 @@ class DesktopPlainSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: EdgeInsets.fromLTRB(compact ? 0 : 4, 0, compact ? 0 : 4, compact ? 12 : 14),
+          padding: EdgeInsets.fromLTRB(
+            compact ? 0 : 4,
+            0,
+            compact ? 0 : 4,
+            compact ? 12 : 14,
+          ),
           child: Row(
             children: [
               Expanded(
@@ -352,7 +360,10 @@ class DesktopListRow extends StatelessWidget {
       child: SizedBox(
         height: compact ? height + 10 : height,
         child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: compact ? 14 : 18, vertical: compact ? 8 : 0),
+          padding: EdgeInsets.symmetric(
+            horizontal: compact ? 14 : 18,
+            vertical: compact ? 8 : 0,
+          ),
           child: compact
               ? Column(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -413,15 +424,18 @@ class DesktopListRow extends StatelessWidget {
 }
 
 class DesktopFieldToolbar extends StatelessWidget {
-  const DesktopFieldToolbar({
-    super.key,
-    required this.child,
-  });
+  const DesktopFieldToolbar({super.key, required this.child});
 
   final Widget child;
 
   @override
   Widget build(BuildContext context) {
+    final compact = MediaQuery.sizeOf(context).width < 760;
+
+    if (compact) {
+      return child;
+    }
+
     return Container(
       decoration: BoxDecoration(
         color: const Color(0xFFFAFBFC),
@@ -456,25 +470,25 @@ class DesktopDataListSection extends StatelessWidget {
 }
 
 class DesktopInfoStrip extends StatelessWidget {
-  const DesktopInfoStrip({
-    super.key,
-    required this.child,
-  });
+  const DesktopInfoStrip({super.key, required this.child});
 
   final Widget child;
 
   @override
   Widget build(BuildContext context) {
+    final compact = MediaQuery.sizeOf(context).width < 760;
+
+    if (compact) {
+      return child;
+    }
+
     return Container(
       decoration: BoxDecoration(
         color: const Color(0xFFFAFBFC),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: _desktopOutline),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: child,
-      ),
+      child: Padding(padding: const EdgeInsets.all(20), child: child),
     );
   }
 }
@@ -506,7 +520,10 @@ class DesktopStackedStat extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             value,
-            style: const TextStyle(fontWeight: FontWeight.w800, color: _desktopInk),
+            style: const TextStyle(
+              fontWeight: FontWeight.w800,
+              color: _desktopInk,
+            ),
           ),
         ],
       ),
@@ -528,8 +545,12 @@ class DesktopTag extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final compact = MediaQuery.sizeOf(context).width < 760;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 12 : 10,
+        vertical: compact ? 8 : 6,
+      ),
       decoration: BoxDecoration(
         color: background,
         border: Border.all(color: foreground.withValues(alpha: 0.16)),
@@ -537,17 +558,18 @@ class DesktopTag extends StatelessWidget {
       ),
       child: Text(
         label,
-        style: TextStyle(color: foreground, fontWeight: FontWeight.w700),
+        style: TextStyle(
+          color: foreground,
+          fontWeight: FontWeight.w700,
+          fontSize: compact ? 13 : 12,
+        ),
       ),
     );
   }
 }
 
 class DesktopMetricStrip extends StatelessWidget {
-  const DesktopMetricStrip({
-    super.key,
-    required this.children,
-  });
+  const DesktopMetricStrip({super.key, required this.children});
 
   final List<Widget> children;
 
@@ -563,10 +585,7 @@ class DesktopMetricStrip extends StatelessWidget {
 }
 
 class DesktopCompactSurface extends StatelessWidget {
-  const DesktopCompactSurface({
-    super.key,
-    required this.child,
-  });
+  const DesktopCompactSurface({super.key, required this.child});
 
   final Widget child;
 
@@ -638,15 +657,23 @@ class DesktopMetricCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final compact = MediaQuery.sizeOf(context).width < 760;
+    final compactWidth = (MediaQuery.sizeOf(context).width - 56)
+        .clamp(220.0, 420.0)
+        .toDouble();
+
     return Container(
-      constraints: const BoxConstraints(minWidth: 210, maxWidth: 260),
+      width: compact ? compactWidth : null,
+      constraints: compact
+          ? null
+          : const BoxConstraints(minWidth: 210, maxWidth: 260),
       decoration: BoxDecoration(
         color: _desktopSurface,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(compact ? 18 : 20),
         border: Border.all(color: _desktopOutline),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.all(compact ? 14 : 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -660,8 +687,8 @@ class DesktopMetricCard extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               value,
-              style: const TextStyle(
-                fontSize: 24,
+              style: TextStyle(
+                fontSize: compact ? 22 : 24,
                 fontWeight: FontWeight.w800,
                 color: _desktopInk,
               ),
@@ -685,14 +712,21 @@ class DesktopPageError extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final compact = MediaQuery.sizeOf(context).width < 760;
+
     return Center(
       child: DesktopSurface(
+        radius: compact ? 18 : 20,
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 420),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.error_outline, size: 40, color: Color(0xFFA53F2B)),
+              const Icon(
+                Icons.error_outline,
+                size: 40,
+                color: Color(0xFFA53F2B),
+              ),
               const SizedBox(height: 16),
               Text(
                 message,

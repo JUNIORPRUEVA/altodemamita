@@ -28,6 +28,10 @@ class UserRecord {
     required this.fullName,
     required this.isActive,
     required this.roles,
+    required this.isOnline,
+    required this.connectionCount,
+    required this.clientTypes,
+    required this.connectedAt,
   });
 
   final String id;
@@ -36,6 +40,10 @@ class UserRecord {
   final String fullName;
   final bool isActive;
   final List<RoleRecord> roles;
+  final bool isOnline;
+  final int connectionCount;
+  final List<String> clientTypes;
+  final DateTime? connectedAt;
 
   factory UserRecord.fromMap(Map<String, dynamic> json) {
     final roles = (json['roles'] as List<dynamic>? ?? const <dynamic>[])
@@ -47,6 +55,11 @@ class UserRecord {
           ),
         )
         .toList();
+    final presence = (json['presence'] as Map<dynamic, dynamic>? ?? const <dynamic, dynamic>{})
+        .map((key, value) => MapEntry(key.toString(), value));
+    final clientTypes = (presence['clientTypes'] as List<dynamic>? ?? const <dynamic>[])
+        .map((item) => item.toString())
+        .toList();
     return UserRecord(
       id: json['id']?.toString() ?? '',
       email: json['email']?.toString() ?? '',
@@ -54,6 +67,10 @@ class UserRecord {
       fullName: json['fullName']?.toString() ?? '',
       isActive: json['isActive'] == true,
       roles: roles,
+      isOnline: presence['isOnline'] == true,
+      connectionCount: (presence['connectionCount'] as num?)?.toInt() ?? 0,
+      clientTypes: clientTypes,
+      connectedAt: DateTime.tryParse(presence['connectedAt']?.toString() ?? ''),
     );
   }
 }

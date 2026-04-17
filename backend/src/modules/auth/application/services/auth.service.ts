@@ -11,6 +11,7 @@ import * as bcrypt from 'bcrypt';
 import { PrismaService } from 'src/infrastructure/prisma/prisma.service';
 import { AuthenticatedUser } from 'src/shared/decorators/current-user.decorator';
 import { PaginationQueryDto } from 'src/shared/dto/pagination-query.dto';
+import { UserPresenceService } from 'src/shared/services/user-presence.service';
 import { AssignRolePermissionsDto } from '../dto/assign-role-permissions.dto';
 import { AssignUserRolesDto } from '../dto/assign-user-roles.dto';
 import { CreatePermissionDto } from '../dto/create-permission.dto';
@@ -24,6 +25,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
+    private readonly userPresenceService: UserPresenceService,
   ) {}
 
   async login(dto: LoginDto) {
@@ -90,12 +92,7 @@ export class AuthService {
     ]);
 
     return {
-      items: items.map((user) => ({
-        ...user,
-        roles: user.userRoles.map((item) => item.role),
-        passwordHash: undefined,
-        userRoles: undefined,
-      })),
+      items: items.map((user) => this.serializeUser(user)),
       meta: {
         total,
         page: query.page,
@@ -107,11 +104,7 @@ export class AuthService {
 
   async getUserById(id: string) {
     const user = await this.findUserEntity(id);
-    return {
-      ...user,
-      roles: user.userRoles.map((item) => item.role),
-      passwordHash: undefined,
-    };
+    return this.serializeUser(user);
   }
 
   async createUser(dto: CreateUserDto) {
@@ -425,6 +418,30 @@ export class AuthService {
     }
 
     return user;
+  }
+
+  private serializeUser(user: {
+    id: string;
+    email: string;
+    username: string;
+    fullName: string;
+    isActive: boolean;
+    createdAt?: Date;
+    updatedAt?: Date;
+    deletedAt?: Date | null;
+    syncId?: string;
+    syncStatus?: SyncStatus;
+    userRoles: Array<{ role: unknown }>;
+  }) {
+    const presence = this.userPresenceService.getPresenceForUser(user.id);
+
+    return {
+      ...user,
+      roles: user.userRoles.map((item) => item.role),
+      passwordHash: undefined,
+      userRoles: undefined,
+      presence,
+    };
   }
 
   private buildUserWhere(search?: string): Prisma.UserWhereInput {

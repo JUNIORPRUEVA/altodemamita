@@ -11,6 +11,7 @@ import { Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Server, Socket } from 'socket.io';
+import { UserPresenceService } from 'src/shared/services/user-presence.service';
 import { isAllowedPanelOrigin } from 'src/shared/utils/panel-origin.util';
 
 type RealtimeUser = {
@@ -28,6 +29,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   constructor(
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly userPresenceService: UserPresenceService,
   ) {}
 
   @WebSocketServer()
@@ -48,6 +50,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       });
 
       client.data.user = user;
+      this.userPresenceService.markConnected(user.sub, user.type, client.id);
       client.join(this.buildUserRoom(user.sub));
       client.join(this.buildClientTypeRoom(user.type));
       for (const role of user.roles) {
@@ -71,6 +74,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   }
 
   handleDisconnect(client: Socket): void {
+    this.userPresenceService.markDisconnected(client.id);
     this.logger.debug(`Cliente WebSocket desconectado: ${client.id}`);
   }
 

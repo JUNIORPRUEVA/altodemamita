@@ -49,7 +49,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
         return DesktopPageScaffold(
           title: 'Configuracion',
-          subtitle: 'Estado general, roles y permisos del sistema.',
+          subtitle: 'Estado del entorno, sesion actual y estructura de acceso.',
           child: ListView(
             children: [
               DesktopInfoStrip(
@@ -81,6 +81,47 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           title: 'Usuario actual',
                           value: auth.user?.fullName ?? '-',
                         ),
+                        _InfoTile(
+                          title: 'Rol del panel',
+                          value: auth.user?.panelRole == PanelRole.admin
+                              ? 'Administrador'
+                              : 'Consulta',
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              DesktopSurface(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Sesion actual',
+                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: [
+                        _InfoTile(
+                          title: 'Nombre',
+                          value: auth.user?.fullName ?? '-',
+                        ),
+                        _InfoTile(
+                          title: 'Correo',
+                          value: auth.user?.email ?? '-',
+                        ),
+                        _InfoTile(
+                          title: 'Usuario',
+                          value: auth.user?.username ?? '-',
+                        ),
+                        _InfoTile(
+                          title: 'Conexion realtime',
+                          value: realtime.isConnected ? 'En linea' : 'Sin conexion',
+                        ),
                       ],
                     ),
                   ],
@@ -95,25 +136,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         title: 'No hay roles configurados',
                         message: 'El backend no devolvio roles para esta instalacion.',
                       )
-                    : Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: data.roles
-                            .map(
-                              (role) => Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFF1F4FA),
-                                  borderRadius: BorderRadius.circular(999),
+                    : DesktopSurface(
+                        padding: const EdgeInsets.all(16),
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: data.roles
+                              .map(
+                                (role) => Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF1F4FA),
+                                    borderRadius: BorderRadius.circular(999),
+                                    border: Border.all(color: const Color(0xFFE4EAF2)),
+                                  ),
+                                  child: Text('${role.name} (${role.code})'),
                                 ),
-                                child: Text('${role.name} (${role.code})'),
-                              ),
-                            )
-                            .toList(),
+                              )
+                              .toList(),
+                        ),
                       ),
               ),
               const SizedBox(height: 16),
-                          DesktopPlainSection(
+              DesktopPlainSection(
                 title: 'Permisos vigentes',
                 child: data.permissions.isEmpty
                     ? const DesktopEmptyState(
@@ -121,21 +166,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         title: 'No hay permisos vigentes',
                         message: 'No se encontraron permisos asignados para la configuracion actual.',
                       )
-                    : Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: data.permissions
-                            .map(
-                              (permission) => Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFF6EFE3),
-                                  borderRadius: BorderRadius.circular(999),
+                    : DesktopSurface(
+                        padding: const EdgeInsets.all(16),
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: data.permissions
+                              .map(
+                                (permission) => Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF6EFE3),
+                                    borderRadius: BorderRadius.circular(999),
+                                    border: Border.all(color: const Color(0xFFE4EAF2)),
+                                  ),
+                                  child: Text(permission),
                                 ),
-                                child: Text(permission),
-                              ),
-                            )
-                            .toList(),
+                              )
+                              .toList(),
+                        ),
                       ),
               ),
             ],
