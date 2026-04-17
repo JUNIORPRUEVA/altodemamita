@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:sistema_solares_ui/core/network/api_client.dart';
 import 'package:sistema_solares_ui/core/realtime/realtime_controller.dart';
 import 'package:sistema_solares_ui/features/clients/clients_service.dart';
+import 'package:sistema_solares_ui/shared/desktop_ui.dart';
 
 class ClientsScreen extends StatefulWidget {
   const ClientsScreen({super.key});
@@ -22,6 +23,10 @@ class _ClientsScreenState extends State<ClientsScreen> {
     super.dispose();
   }
 
+  void _reload() {
+    setState(() => _future = null);
+  }
+
   @override
   Widget build(BuildContext context) {
     final refreshTick = context.watch<RealtimeController>().refreshTick;
@@ -39,95 +44,113 @@ class _ClientsScreenState extends State<ClientsScreen> {
           return const Center(child: CircularProgressIndicator());
         }
         if (snapshot.hasError) {
-          return Center(child: Text(snapshot.error.toString()));
+          return DesktopPageError(
+            message: snapshot.error.toString(),
+            onRetry: _reload,
+          );
         }
 
         final data = snapshot.data!;
-        return ListView(
-          children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Clientes en solo lectura',
-                      style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'La PWA muestra informacion comercial pero no crea, edita ni elimina clientes desde este modulo.',
-                      style: TextStyle(color: Color(0xFF5F6570)),
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _searchController,
-                            decoration: const InputDecoration(
-                              prefixIcon: Icon(Icons.search),
-                              labelText: 'Buscar por nombre, cedula, correo o telefono',
-                            ),
-                            onSubmitted: (_) => setState(() => _future = null),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        FilledButton(
-                          onPressed: () => setState(() => _future = null),
-                          child: const Text('Buscar'),
-                        ),
-                      ],
-                    ),
-                  ],
+        return DesktopPageScaffold(
+          title: 'Clientes',
+          subtitle:
+              'Consulta de clientes con el mismo patron de barra de trabajo, listado y estado vacio del escritorio.',
+          toolbar: DesktopFieldToolbar(
+            child: DesktopToolbar(
+              searchField: DesktopSearchField(
+                controller: _searchController,
+                hintText: 'Buscar por nombre, cedula, correo o telefono',
+                onSubmitted: (_) => _reload(),
+              ),
+              actions: [
+                OutlinedButton.icon(
+                  onPressed: _reload,
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: const Text('Actualizar'),
+                ),
+                FilledButton.icon(
+                  onPressed: _reload,
+                  icon: const Icon(Icons.search_rounded),
+                  label: const Text('Buscar'),
+                ),
+              ],
+              compactActions: [
+                FilledButton.icon(
+                  onPressed: _reload,
+                  icon: const Icon(Icons.search_rounded),
+                  label: const Text('Buscar'),
+                ),
+              ],
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(6, 0, 6, 12),
+                child: Text(
+                  'Total visibles: ${data.total}',
+                  style: const TextStyle(
+                    color: Color(0xFF536079),
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 16),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Total visibles: ${data.total}',
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    const SizedBox(height: 12),
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: DataTable(
-                        columns: const [
-                          DataColumn(label: Text('Nombre')),
-                          DataColumn(label: Text('Documento')),
-                          DataColumn(label: Text('Telefono')),
-                          DataColumn(label: Text('Correo')),
-                          DataColumn(label: Text('Codigo')),
-                        ],
-                        rows: data.items
-                            .map(
-                              (item) => DataRow(cells: [
-                                DataCell(
-                                  Text(
-                                    '${item['firstName'] ?? ''} ${item['lastName'] ?? ''}'.trim(),
-                                  ),
+              Expanded(
+                child: data.items.isEmpty
+                    ? const DesktopEmptyState(
+                        icon: Icons.people_outline_rounded,
+                        title: 'No hay clientes para este filtro',
+                        message: 'Prueba otro termino de busqueda o espera a la siguiente sincronizacion.',
+                      )
+                    : DesktopModuleList(
+                        children: data.items.map((item) {
+                          final fullName =
+                              '${item['firstName'] ?? ''} ${item['lastName'] ?? ''}'.trim();
+                          final documentId = item['documentId']?.toString() ?? 'Sin documento';
+                          final phone = item['phone']?.toString() ?? 'Sin telefono';
+                          final code = item['code']?.toString() ?? '-';
+                          return DesktopListRow(
+                            leading: CircleAvatar(
+                              radius: 22,
+                              backgroundColor: const Color(0xFFEFF3FB),
+                              child: Text(
+                                (fullName.isNotEmpty ? fullName[0] : 'C').toUpperCase(),
+                                style: const TextStyle(
+                                  color: Color(0xFF223048),
+                                  fontWeight: FontWeight.w800,
                                 ),
-                                DataCell(Text(item['documentId']?.toString() ?? '-')),
-                                DataCell(Text(item['phone']?.toString() ?? '-')),
-                                DataCell(Text(item['email']?.toString() ?? '-')),
-                                DataCell(Text(item['code']?.toString() ?? '-')),
-                              ]),
-                            )
-                            .toList(),
+                              ),
+                            ),
+                            title: Text(
+                              fullName.isEmpty ? 'Sin nombre' : fullName,
+                              style: const TextStyle(fontWeight: FontWeight.w800),
+                            ),
+                            subtitle: Text(
+                              '$documentId  •  $phone  •  ${item['email']?.toString() ?? 'Sin correo'}',
+                              style: const TextStyle(color: Color(0xFF6E7791)),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            trailing: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF6EFE3),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Text(
+                                code,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF8C5A2C),
+                                ),
+                              ),
+                            ),
+                          );
+                        }).toList(),
                       ),
-                    ),
-                  ],
-                ),
               ),
-            ),
-          ],
+            ],
+          ),
         );
       },
     );

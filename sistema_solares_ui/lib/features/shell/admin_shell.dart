@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:sistema_solares_ui/core/auth/auth_controller.dart';
 import 'package:sistema_solares_ui/core/realtime/realtime_controller.dart';
+import 'package:sistema_solares_ui/shared/desktop_ui.dart';
 
 class AdminShell extends StatelessWidget {
   const AdminShell({super.key, required this.child});
@@ -11,31 +12,34 @@ class AdminShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scaffoldKey = GlobalKey<ScaffoldState>();
     final authController = context.watch<AuthController>();
     final realtimeController = context.watch<RealtimeController>();
     final location = GoRouterState.of(context).uri.path;
-    final items = <_NavItem>[
+    final summaryItems = <_NavItem>[
       const _NavItem(
         route: '/dashboard',
-        icon: Icons.space_dashboard_outlined,
-        label: 'Dashboard',
+        icon: Icons.grid_view_rounded,
+        label: 'Resumen general',
       ),
       const _NavItem(
         route: '/reports',
-        icon: Icons.query_stats_outlined,
+        icon: Icons.query_stats_rounded,
         label: 'Reportes',
       ),
       const _NavItem(
         route: '/clients',
-        icon: Icons.people_outline,
+        icon: Icons.people_alt_outlined,
         label: 'Clientes',
       ),
       if (authController.hasPermission('products.read') || authController.isPanelAdmin)
         const _NavItem(
           route: '/products',
-          icon: Icons.inventory_2_outlined,
+          icon: Icons.domain_outlined,
           label: 'Solares',
         ),
+    ];
+    final adminItems = <_NavItem>[
       if (authController.canManageUsers)
         const _NavItem(
           route: '/users',
@@ -45,66 +49,88 @@ class AdminShell extends StatelessWidget {
       if (authController.canAccessSettings)
         const _NavItem(
           route: '/settings',
-          icon: Icons.tune_outlined,
+          icon: Icons.settings_outlined,
           label: 'Configuracion',
         ),
     ];
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final wide = constraints.maxWidth >= 1100;
-        final rail = SizedBox(
-          width: 280,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 10, 20),
-            child: _Sidebar(
-              items: items,
-              currentRoute: location,
-            ),
-          ),
+        final wide = constraints.maxWidth >= 1120;
+        final compact = constraints.maxWidth < 760;
+        final sidebar = _Sidebar(
+          summaryItems: summaryItems,
+          adminItems: adminItems,
+          currentRoute: location,
+          compact: !wide,
         );
 
         return Scaffold(
-          drawer: wide
-              ? null
-              : Drawer(
-                  child: _Sidebar(
-                    items: items,
-                    currentRoute: location,
-                    compact: true,
-                  ),
-                ),
+          key: scaffoldKey,
+          drawer: wide ? null : Drawer(child: SafeArea(child: sidebar)),
+          backgroundColor: const Color(0xFFF6EBDD),
           body: Container(
             decoration: const BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: [Color(0xFFF7EFE3), Color(0xFFF2E5CF), Color(0xFFF7F5EE)],
+                colors: [Color(0xFFF5EBDD), Color(0xFFF4F0E7), Color(0xFFE7DDCF)],
               ),
             ),
-            child: SafeArea(
-              child: Row(
-                children: [
-                  if (wide) rail,
-                  Expanded(
-                    child: Padding(
-                      padding: EdgeInsets.fromLTRB(wide ? 10 : 12, 16, 16, 16),
-                      child: Column(
-                        children: [
-                          _TopBar(
-                            realtimeController: realtimeController,
-                            onOpenMenu: wide
-                                ? null
-                                : () => Scaffold.of(context).openDrawer(),
-                          ),
-                          const SizedBox(height: 16),
-                          Expanded(child: child),
-                        ],
-                      ),
-                    ),
+            child: Stack(
+              children: [
+                Positioned(
+                  top: -110,
+                  left: -50,
+                  child: _GlowOrb(
+                    size: 240,
+                    color: const Color(0xFFCC8749).withValues(alpha: 0.18),
                   ),
-                ],
-              ),
+                ),
+                Positioned(
+                  right: -80,
+                  bottom: -120,
+                  child: _GlowOrb(
+                    size: 280,
+                    color: const Color(0xFF36506C).withValues(alpha: 0.10),
+                  ),
+                ),
+                SafeArea(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (wide)
+                        SizedBox(
+                          width: 310,
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(22, 22, 10, 22),
+                            child: sidebar,
+                          ),
+                        ),
+                      Expanded(
+                        child: Padding(
+                          padding: EdgeInsets.fromLTRB(wide ? 10 : 14, compact ? 14 : 22, compact ? 14 : 18, compact ? 12 : 18),
+                          child: Column(
+                            children: [
+                              _TopBar(
+                                realtimeController: realtimeController,
+                                onOpenMenu: wide ? null : scaffoldKey.currentState?.openDrawer,
+                              ),
+                              SizedBox(height: compact ? 12 : 18),
+                              Expanded(
+                                child: Padding(
+                                  padding: EdgeInsets.fromLTRB(compact ? 2 : 6, 0, compact ? 2 : 4, 0),
+                                  child: child,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
         );
@@ -125,88 +151,96 @@ class _TopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final authController = context.watch<AuthController>();
+    final compact = MediaQuery.sizeOf(context).width < 760;
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-        child: Row(
-          children: [
-            if (onOpenMenu != null)
-              IconButton(
+    return DesktopSurface(
+      padding: EdgeInsets.symmetric(horizontal: compact ? 12 : 18, vertical: compact ? 10 : 14),
+      radius: compact ? 20 : 24,
+      child: Row(
+        children: [
+          if (onOpenMenu != null)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: IconButton(
                 onPressed: onOpenMenu,
-                icon: const Icon(Icons.menu),
-              ),
-            Expanded(
-              child: Wrap(
-                spacing: 12,
-                runSpacing: 10,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 10,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF1F2A37),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: const Text(
-                      'Modo Administracion / Panel Web',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  _StatusPill(
-                    icon: realtimeController.isConnected
-                        ? Icons.wifi_tethering
-                        : Icons.wifi_off,
-                    label: realtimeController.isConnected
-                        ? 'Realtime activo'
-                        : 'Realtime desconectado',
-                    color: realtimeController.isConnected
-                        ? const Color(0xFF266A54)
-                        : const Color(0xFFC96F3B),
-                  ),
-                  _StatusPill(
-                    icon: Icons.lock_outline,
-                    label: authController.user?.panelRole == PanelRole.admin
-                        ? 'Acceso administrador'
-                        : 'Acceso solo lectura',
-                    color: const Color(0xFF5C6B8A),
-                  ),
-                ],
+                icon: const Icon(Icons.menu_rounded),
               ),
             ),
-            PopupMenuButton<String>(
-              tooltip: 'Sesion',
-              onSelected: (value) async {
-                if (value == 'logout') {
-                  await context.read<AuthController>().signOut();
-                  if (context.mounted) {
-                    context.go('/login');
-                  }
-                }
-              },
-              itemBuilder: (context) => const [
-                PopupMenuItem<String>(
-                  value: 'logout',
-                  child: Text('Cerrar sesion'),
+          Expanded(
+            child: Wrap(
+              spacing: compact ? 8 : 10,
+              runSpacing: compact ? 8 : 10,
+              children: [
+                const _HeaderBadge(
+                  icon: Icons.desktop_windows_outlined,
+                  label: 'PWA alineada con escritorio',
+                  color: Color(0xFF223048),
+                  fill: Color(0xFFEAF0F7),
+                ),
+                _HeaderBadge(
+                  icon: realtimeController.isConnected
+                      ? Icons.wifi_tethering_rounded
+                      : Icons.wifi_off_rounded,
+                  label: realtimeController.isConnected
+                      ? 'Realtime activo'
+                      : 'Realtime desconectado',
+                  color: realtimeController.isConnected
+                      ? const Color(0xFF246B53)
+                      : const Color(0xFFA85A2C),
+                  fill: realtimeController.isConnected
+                      ? const Color(0xFFE8F6F0)
+                      : const Color(0xFFFCEEDF),
+                ),
+                _HeaderBadge(
+                  icon: Icons.lock_outline_rounded,
+                  label: authController.user?.panelRole == PanelRole.admin
+                      ? 'Acceso administrador'
+                      : 'Acceso supervisado',
+                  color: const Color(0xFF5A6782),
+                  fill: const Color(0xFFF0F3F9),
                 ),
               ],
+            ),
+          ),
+          if (!compact) ...[
+            const SizedBox(width: 12),
+          PopupMenuButton<String>(
+            tooltip: 'Sesion',
+            onSelected: (value) async {
+              if (value == 'logout') {
+                await context.read<AuthController>().signOut();
+                if (context.mounted) {
+                  context.go('/login');
+                }
+              }
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem<String>(
+                value: 'logout',
+                child: Text('Cerrar sesion'),
+              ),
+            ],
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF7F8FB),
+                borderRadius: BorderRadius.circular(18),
+              ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   CircleAvatar(
-                    backgroundColor: const Color(0xFFC96F3B),
+                    radius: 22,
+                    backgroundColor: const Color(0xFFC6894C),
                     child: Text(
                       (authController.user?.fullName.isNotEmpty == true
                               ? authController.user!.fullName[0]
                               : 'U')
                           .toUpperCase(),
-                      style: const TextStyle(color: Colors.white),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -215,13 +249,125 @@ class _TopBar extends StatelessWidget {
                     children: [
                       Text(
                         authController.user?.fullName ?? 'Sin usuario',
-                        style: const TextStyle(fontWeight: FontWeight.w700),
+                        style: const TextStyle(fontWeight: FontWeight.w800),
                       ),
-                      Text(
-                        authController.user?.email ?? '',
-                        style: const TextStyle(color: Color(0xFF6B7280)),
-                      ),
+                      if (!compact)
+                        Text(
+                          authController.user?.email ?? '',
+                          style: const TextStyle(
+                            color: Color(0xFF6F7891),
+                            fontSize: 12,
+                          ),
+                        ),
                     ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _Sidebar extends StatelessWidget {
+  const _Sidebar({
+    required this.summaryItems,
+    required this.adminItems,
+    required this.currentRoute,
+    required this.compact,
+  });
+
+  final List<_NavItem> summaryItems;
+  final List<_NavItem> adminItems;
+  final String currentRoute;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF1F2A37),
+        borderRadius: BorderRadius.circular(30),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x19000000),
+            blurRadius: 30,
+            offset: Offset(0, 18),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 20, 18, 18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF2A3646),
+                borderRadius: BorderRadius.circular(22),
+              ),
+              child: const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Sistema Solares',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    'Mismo lenguaje visual del escritorio para supervision, consulta y control.',
+                    style: TextStyle(color: Color(0xFFD2D8E2), height: 1.45),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            const _SectionLabel('Resumen y operacion'),
+            const SizedBox(height: 10),
+            ...summaryItems.map((item) => _NavTile(
+                  item: item,
+                  selected: currentRoute == item.route,
+                  compact: compact,
+                )),
+            if (adminItems.isNotEmpty) ...[
+              const SizedBox(height: 18),
+              const _SectionLabel('Administracion'),
+              const SizedBox(height: 10),
+              ...adminItems.map((item) => _NavTile(
+                    item: item,
+                    selected: currentRoute == item.route,
+                    compact: compact,
+                  )),
+            ],
+            const Spacer(),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF2A3646),
+                borderRadius: BorderRadius.circular(22),
+              ),
+              child: const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Modo protegido',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    'Ventas, pagos, cuotas y caja siguen bloqueados en la PWA para evitar desajustes operativos.',
+                    style: TextStyle(color: Color(0xFFD2D8E2), height: 1.45),
                   ),
                 ],
               ),
@@ -233,118 +379,95 @@ class _TopBar extends StatelessWidget {
   }
 }
 
-class _Sidebar extends StatelessWidget {
-  const _Sidebar({
-    required this.items,
-    required this.currentRoute,
-    this.compact = false,
+class _NavTile extends StatelessWidget {
+  const _NavTile({
+    required this.item,
+    required this.selected,
+    required this.compact,
   });
 
-  final List<_NavItem> items;
-  final String currentRoute;
+  final _NavItem item;
+  final bool selected;
   final bool compact;
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      color: const Color(0xFF1F2A37),
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const SizedBox(height: 12),
-            const Text(
-              'Sistema Solares',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 22,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Supervision, usuarios y configuracion del sistema.',
-              style: TextStyle(color: Color(0xFFCAD1DB), height: 1.45),
-            ),
-            const SizedBox(height: 18),
-            ...items.map((item) {
-              final selected = currentRoute == item.route;
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(18),
-                  onTap: () {
-                    context.go(item.route);
-                    if (compact) {
-                      Navigator.of(context).pop();
-                    }
-                  },
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 180),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 14,
-                    ),
-                    decoration: BoxDecoration(
-                      color: selected
-                          ? const Color(0xFFC96F3B)
-                          : const Color(0xFF2B3748),
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(item.icon, color: Colors.white),
-                        const SizedBox(width: 12),
-                        Text(
-                          item.label,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                    ),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: () {
+          context.go(item.route);
+          if (compact) {
+            Navigator.of(context).pop();
+          }
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          decoration: BoxDecoration(
+            color: selected ? const Color(0xFFC6894C) : const Color(0xFF2A3646),
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: Row(
+            children: [
+              Icon(item.icon, color: Colors.white),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  item.label,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-              );
-            }),
-            const Spacer(),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: const Color(0xFF2B3748),
-                borderRadius: BorderRadius.circular(18),
               ),
-              child: const Text(
-                'Operaciones criticas bloqueadas: ventas, pagos, cuotas y caja.',
-                style: TextStyle(color: Color(0xFFD6DCE6), height: 1.4),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-class _StatusPill extends StatelessWidget {
-  const _StatusPill({
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      label.toUpperCase(),
+      style: const TextStyle(
+        color: Color(0xFFAAB5C7),
+        fontSize: 11,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 1.2,
+      ),
+    );
+  }
+}
+
+class _HeaderBadge extends StatelessWidget {
+  const _HeaderBadge({
     required this.icon,
     required this.label,
     required this.color,
+    required this.fill,
   });
 
   final IconData icon;
   final String label;
   final Color color;
+  final Color fill;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
+        color: fill,
         borderRadius: BorderRadius.circular(999),
       ),
       child: Row(
@@ -357,6 +480,27 @@ class _StatusPill extends StatelessWidget {
             style: TextStyle(color: color, fontWeight: FontWeight.w700),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _GlowOrb extends StatelessWidget {
+  const _GlowOrb({required this.size, required this.color});
+
+  final double size;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: RadialGradient(
+          colors: [color, color.withValues(alpha: 0)],
+        ),
       ),
     );
   }

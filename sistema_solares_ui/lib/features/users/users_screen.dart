@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:sistema_solares_ui/core/network/api_client.dart';
 import 'package:sistema_solares_ui/core/realtime/realtime_controller.dart';
 import 'package:sistema_solares_ui/features/users/users_service.dart';
+import 'package:sistema_solares_ui/shared/desktop_ui.dart';
 
 class UsersScreen extends StatefulWidget {
   const UsersScreen({super.key});
@@ -22,6 +23,10 @@ class _UsersScreenState extends State<UsersScreen> {
     super.dispose();
   }
 
+  void _reload() {
+    setState(() => _future = null);
+  }
+
   @override
   Widget build(BuildContext context) {
     final refreshTick = context.watch<RealtimeController>().refreshTick;
@@ -39,91 +44,168 @@ class _UsersScreenState extends State<UsersScreen> {
           return const Center(child: CircularProgressIndicator());
         }
         if (snapshot.hasError) {
-          return Center(child: Text(snapshot.error.toString()));
+          return DesktopPageError(
+            message: snapshot.error.toString(),
+            onRetry: _reload,
+          );
         }
 
         final data = snapshot.data!;
+        final compact = MediaQuery.sizeOf(context).width < 760;
 
-        return ListView(
-          children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Usuarios en solo lectura',
-                      style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'El panel web solo consulta usuarios y roles asignados. Las acciones de crear, editar o eliminar no estan disponibles aqui.',
-                      style: TextStyle(color: Color(0xFF5F6570)),
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _searchController,
-                            decoration: const InputDecoration(
-                              prefixIcon: Icon(Icons.search),
-                              labelText: 'Buscar usuario',
-                            ),
-                            onSubmitted: (_) => setState(() => _future = null),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        FilledButton(
-                          onPressed: () => setState(() => _future = null),
-                          child: const Text('Buscar'),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
+        return DesktopPageScaffold(
+          title: 'Usuarios',
+          subtitle:
+              'Supervision de accesos, roles y estado de usuarios con la misma grilla limpia del entorno de escritorio.',
+          toolbar: DesktopFieldToolbar(
+            child: DesktopToolbar(
+              searchField: DesktopSearchField(
+                controller: _searchController,
+                hintText: 'Buscar usuario',
+                onSubmitted: (_) => _reload(),
               ),
+              actions: [
+                OutlinedButton.icon(
+                  onPressed: _reload,
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: const Text('Actualizar'),
+                ),
+                FilledButton.icon(
+                  onPressed: _reload,
+                  icon: const Icon(Icons.search_rounded),
+                  label: const Text('Buscar'),
+                ),
+              ],
+              compactActions: [
+                FilledButton.icon(
+                  onPressed: _reload,
+                  icon: const Icon(Icons.search_rounded),
+                  label: const Text('Buscar'),
+                ),
+              ],
             ),
-            const SizedBox(height: 16),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: DataTable(
-                    columns: const [
-                      DataColumn(label: Text('Nombre')),
-                      DataColumn(label: Text('Correo')),
-                      DataColumn(label: Text('Usuario')),
-                      DataColumn(label: Text('Roles')),
-                      DataColumn(label: Text('Estado')),
-                    ],
-                    rows: data.users
-                        .map(
-                          (user) => DataRow(cells: [
-                            DataCell(Text(user.fullName)),
-                            DataCell(Text(user.email)),
-                            DataCell(Text(user.username)),
-                            DataCell(
-                              Wrap(
-                                spacing: 6,
-                                children: user.roles
-                                    .map((role) => Chip(label: Text(role.name)))
-                                    .toList(),
+          ),
+          child: data.users.isEmpty
+              ? const DesktopEmptyState(
+                  icon: Icons.manage_accounts_outlined,
+                  title: 'No hay usuarios visibles',
+                  message: 'Prueba otro filtro o verifica que el backend este devolviendo el listado esperado.',
+                )
+              : compact
+                  ? DesktopDataListSection(
+                      title: 'Usuarios registrados',
+                      children: data.users.map((user) {
+                        return DesktopListRow(
+                          height: 92,
+                          leading: CircleAvatar(
+                            radius: 22,
+                            backgroundColor: const Color(0xFFEFF3FB),
+                            child: Text(
+                              user.fullName.isNotEmpty ? user.fullName[0].toUpperCase() : 'U',
+                              style: const TextStyle(
+                                color: Color(0xFF223048),
+                                fontWeight: FontWeight.w800,
                               ),
                             ),
-                            DataCell(
-                              Text(user.isActive ? 'Activo' : 'Inactivo'),
-                            ),
-                          ]),
-                        )
-                        .toList(),
+                          ),
+                          title: Text(user.fullName, style: const TextStyle(fontWeight: FontWeight.w800)),
+                          subtitle: Text(
+                            '${user.username}  •  ${user.email}',
+                            style: const TextStyle(color: Color(0xFF6E7791)),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          trailing: Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [
+                              ...user.roles.map(
+                                (role) => DesktopTag(
+                                  label: role.name,
+                                  background: const Color(0xFFF1F4FA),
+                                ),
+                              ),
+                              DesktopTag(
+                                label: user.isActive ? 'Activo' : 'Inactivo',
+                                background: user.isActive
+                                    ? const Color(0xFFE7F5EF)
+                                    : const Color(0xFFFCEEDF),
+                                foreground: user.isActive
+                                    ? const Color(0xFF2F6F5C)
+                                    : const Color(0xFF9A6408),
+                              ),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                    )
+                  : DesktopTableCard(
+                  title: 'Usuarios registrados',
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: DataTable(
+                      columns: const [
+                        DataColumn(label: Text('Nombre')),
+                        DataColumn(label: Text('Correo')),
+                        DataColumn(label: Text('Usuario')),
+                        DataColumn(label: Text('Roles')),
+                        DataColumn(label: Text('Estado')),
+                      ],
+                      rows: data.users
+                          .map(
+                            (user) => DataRow(cells: [
+                              DataCell(Text(user.fullName)),
+                              DataCell(Text(user.email)),
+                              DataCell(Text(user.username)),
+                              DataCell(
+                                ConstrainedBox(
+                                  constraints: const BoxConstraints(maxWidth: 320),
+                                  child: Wrap(
+                                    spacing: 6,
+                                    runSpacing: 6,
+                                    children: user.roles
+                                        .map(
+                                          (role) => Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 10,
+                                              vertical: 6,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFFF1F4FA),
+                                              borderRadius: BorderRadius.circular(999),
+                                            ),
+                                            child: Text(role.name),
+                                          ),
+                                        )
+                                        .toList(),
+                                  ),
+                                ),
+                              ),
+                              DataCell(
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: user.isActive
+                                        ? const Color(0xFFE7F5EF)
+                                        : const Color(0xFFFCEEDF),
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                  child: Text(
+                                    user.isActive ? 'Activo' : 'Inactivo',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      color: user.isActive
+                                          ? const Color(0xFF2F6F5C)
+                                          : const Color(0xFF9A6408),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ]),
+                          )
+                          .toList(),
+                    ),
                   ),
                 ),
-              ),
-            ),
-          ],
         );
       },
     );
