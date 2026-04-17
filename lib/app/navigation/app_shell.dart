@@ -519,6 +519,8 @@ class _AppShellState extends State<AppShell> {
                               currentUser: user,
                               isSyncing: syncState.isSyncing,
                               connectionStatus: syncState.connectionStatus,
+                              currentErrors: syncState.currentErrors,
+                              pendingCount: syncState.pendingCount,
                               unresolvedConflictCount:
                                   syncState.unresolvedConflictCount,
                               onTriggerSync: isReadOnly ? () async {} : _runSync,
@@ -547,6 +549,8 @@ class _ShellHeader extends StatelessWidget {
     required this.currentUser,
     required this.isSyncing,
     required this.connectionStatus,
+    required this.currentErrors,
+    required this.pendingCount,
     required this.unresolvedConflictCount,
     required this.onTriggerSync,
     required this.onOpenProfile,
@@ -556,6 +560,8 @@ class _ShellHeader extends StatelessWidget {
   final UserModel? currentUser;
   final bool isSyncing;
   final SyncConnectionStatus connectionStatus;
+  final List<String> currentErrors;
+  final int pendingCount;
   final int unresolvedConflictCount;
   final Future<void> Function() onTriggerSync;
   final Future<void> Function() onOpenProfile;
@@ -565,90 +571,104 @@ class _ShellHeader extends StatelessWidget {
     final user = currentUser;
 
     return Container(
-      height: 72,
-      padding: const EdgeInsets.symmetric(horizontal: 20),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       decoration: const BoxDecoration(
         color: Color(0xFFFAFBFC),
         border: Border(bottom: BorderSide(color: Color(0xFFECEFF3), width: 1)),
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  selectedModule.label,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: const Color(0xFF0D2640),
-                    fontWeight: FontWeight.w700,
-                    fontSize: 15.5,
-                    letterSpacing: -0.1,
-                  ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      selectedModule.label,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: const Color(0xFF0D2640),
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15.5,
+                        letterSpacing: -0.1,
+                      ),
+                    ),
+                    const SizedBox(height: 1),
+                    Text(
+                      'Sistema Solares',
+                      style: TextStyle(
+                        color: const Color(0xFF0D2640).withValues(alpha: 0.32),
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w400,
+                        letterSpacing: 0.1,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 1),
-                Text(
-                  'Sistema Solares',
-                  style: TextStyle(
-                    color: const Color(0xFF0D2640).withValues(alpha: 0.32),
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w400,
-                    letterSpacing: 0.1,
-                  ),
+              ),
+              IconButton(
+                tooltip: 'Sincronizar ahora',
+                onPressed: isSyncing ? null : onTriggerSync,
+                icon: isSyncing
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.sync_rounded, color: Color(0xFF0D2640)),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(right: 10),
+                child: _SyncStatusBadge(
+                  isSyncing: isSyncing,
+                  connectionStatus: connectionStatus,
+                  hasErrors: currentErrors.isNotEmpty,
                 ),
+              ),
+              if (pendingCount > 0)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: _QueuePill(count: pendingCount),
+                ),
+              if (unresolvedConflictCount > 0)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: _ConflictPill(count: unresolvedConflictCount),
+                ),
+              if (user != null) ...[
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      user.nombre,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF0D2640),
+                      ),
+                    ),
+                    Text(
+                      user.role.label,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                        color: const Color(0xFF0D2640).withValues(alpha: 0.45),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(width: 12),
+                _HeaderProfileButton(onTap: onOpenProfile),
               ],
-            ),
+            ],
           ),
-          IconButton(
-            tooltip: 'Sincronizar ahora',
-            onPressed: isSyncing ? null : onTriggerSync,
-            icon: isSyncing
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.sync_rounded, color: Color(0xFF0D2640)),
-          ),
-          Padding(
-            padding: const EdgeInsets.only(right: 10),
-            child: _SyncStatusBadge(
-              isSyncing: isSyncing,
-              connectionStatus: connectionStatus,
-            ),
-          ),
-          if (unresolvedConflictCount > 0)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: _ConflictPill(count: unresolvedConflictCount),
-            ),
-          if (user != null) ...[
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  user.nombre,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF0D2640),
-                  ),
-                ),
-                Text(
-                  user.role.label,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
-                    color: const Color(0xFF0D2640).withValues(alpha: 0.45),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(width: 12),
-            _HeaderProfileButton(onTap: onOpenProfile),
+          if (currentErrors.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _SyncAlertBanner(message: currentErrors.first),
           ],
         ],
       ),
@@ -660,10 +680,12 @@ class _SyncStatusBadge extends StatelessWidget {
   const _SyncStatusBadge({
     required this.isSyncing,
     required this.connectionStatus,
+    required this.hasErrors,
   });
 
   final bool isSyncing;
   final SyncConnectionStatus connectionStatus;
+  final bool hasErrors;
 
   @override
   Widget build(BuildContext context) {
@@ -673,12 +695,18 @@ class _SyncStatusBadge extends StatelessWidget {
     if (isSyncing) {
       color = const Color(0xFFE2A400);
       label = 'Sincronizando';
+    } else if (hasErrors || connectionStatus == SyncConnectionStatus.error) {
+      color = const Color(0xFFD9534F);
+      label = 'Error de sync';
     } else if (connectionStatus == SyncConnectionStatus.connected) {
       color = const Color(0xFF2BB673);
-      label = 'Conectado';
+      label = 'Realtime activo';
+    } else if (connectionStatus == SyncConnectionStatus.connecting) {
+      color = const Color(0xFF4E7AC7);
+      label = 'Conectando';
     } else {
-      color = const Color(0xFFD9534F);
-      label = 'Sin conexion';
+      color = const Color(0xFF6B7682);
+      label = 'Realtime desconectado';
     }
 
     return Container(
@@ -699,6 +727,69 @@ class _SyncStatusBadge extends StatelessWidget {
               fontSize: 11.5,
               fontWeight: FontWeight.w700,
               color: Color(0xFF0D2640),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _QueuePill extends StatelessWidget {
+  const _QueuePill({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFF173450).withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0xFF173450).withValues(alpha: 0.18)),
+      ),
+      child: Text(
+        'Pendientes: $count',
+        style: const TextStyle(
+          fontSize: 11.5,
+          fontWeight: FontWeight.w700,
+          color: Color(0xFF0D2640),
+        ),
+      ),
+    );
+  }
+}
+
+class _SyncAlertBanner extends StatelessWidget {
+  const _SyncAlertBanner({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF4E5),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFF0C36D)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.warning_amber_rounded, color: Color(0xFF9A5B00), size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF6E4300),
+              ),
             ),
           ),
         ],

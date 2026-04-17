@@ -80,16 +80,22 @@ class SyncManager extends ChangeNotifier {
     }
 
     final report = await _syncService.syncNow();
+    final syncIssues = <String>[
+      ...report.warnings,
+      if (report.errorMessage != null && report.errorMessage!.trim().isNotEmpty)
+        report.errorMessage!.trim(),
+    ];
     final errors = _combineErrors(
       queueError: _syncQueueService.state.lastError,
       realtimeError: _realtimeSyncService.state.lastError,
-      syncError: report.errorMessage,
+      syncIssues: syncIssues,
     );
 
     _setState(
       _state.copyWith(
         isSyncing: false,
         pendingCount: report.pendingRecords,
+        lastSyncIssues: syncIssues,
         currentErrors: errors,
       ),
     );
@@ -117,6 +123,7 @@ class SyncManager extends ChangeNotifier {
         currentErrors: _combineErrors(
           queueError: queueState.lastError,
           realtimeError: _realtimeSyncService.state.lastError,
+          syncIssues: _state.lastSyncIssues,
         ),
       ),
     );
@@ -129,6 +136,7 @@ class SyncManager extends ChangeNotifier {
         currentErrors: _combineErrors(
           queueError: _syncQueueService.state.lastError,
           realtimeError: realtimeState.lastError,
+          syncIssues: _state.lastSyncIssues,
         ),
         dataVersion: realtimeState.dataVersion > _state.dataVersion
             ? realtimeState.dataVersion
@@ -142,13 +150,15 @@ class SyncManager extends ChangeNotifier {
   List<String> _combineErrors({
     String? queueError,
     String? realtimeError,
-    String? syncError,
+    List<String> syncIssues = const [],
   }) {
     return <String>{
       if (queueError != null && queueError.trim().isNotEmpty) queueError.trim(),
       if (realtimeError != null && realtimeError.trim().isNotEmpty)
         realtimeError.trim(),
-      if (syncError != null && syncError.trim().isNotEmpty) syncError.trim(),
+      ...syncIssues.where((issue) => issue.trim().isNotEmpty).map(
+        (issue) => issue.trim(),
+      ),
     }.toList(growable: false);
   }
 

@@ -6,6 +6,7 @@ class SyncManagerState {
     this.pendingCount = 0,
     this.unresolvedConflictCount = 0,
     this.currentErrors = const [],
+    this.lastSyncIssues = const [],
     this.isSyncing = false,
     this.dataVersion = 0,
     this.lastRealtimeEventAt,
@@ -15,6 +16,7 @@ class SyncManagerState {
   final int pendingCount;
   final int unresolvedConflictCount;
   final List<String> currentErrors;
+  final List<String> lastSyncIssues;
   final bool isSyncing;
   final int dataVersion;
   final DateTime? lastRealtimeEventAt;
@@ -27,6 +29,7 @@ class SyncManagerState {
     int? pendingCount,
     int? unresolvedConflictCount,
     List<String>? currentErrors,
+    List<String>? lastSyncIssues,
     bool? isSyncing,
     int? dataVersion,
     DateTime? lastRealtimeEventAt,
@@ -37,6 +40,7 @@ class SyncManagerState {
       unresolvedConflictCount:
           unresolvedConflictCount ?? this.unresolvedConflictCount,
       currentErrors: currentErrors ?? this.currentErrors,
+      lastSyncIssues: lastSyncIssues ?? this.lastSyncIssues,
       isSyncing: isSyncing ?? this.isSyncing,
       dataVersion: dataVersion ?? this.dataVersion,
       lastRealtimeEventAt: lastRealtimeEventAt ?? this.lastRealtimeEventAt,

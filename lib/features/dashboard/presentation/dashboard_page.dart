@@ -109,6 +109,7 @@ class _DashboardPageState extends State<DashboardPage> {
           }
 
           final stats = snapshot.data ?? const _DashboardStats.empty();
+          final dataAlerts = _buildDataAlerts(stats);
 
           return LayoutBuilder(
             builder: (context, constraints) {
@@ -128,6 +129,10 @@ class _DashboardPageState extends State<DashboardPage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
+                              if (dataAlerts.isNotEmpty) ...[
+                                _DashboardDataAlert(messages: dataAlerts),
+                                const SizedBox(height: 16),
+                              ],
                               _MetricsPanel(stats: stats, columns: 3),
                               const SizedBox(height: 24),
                               _InsightPanels(
@@ -167,6 +172,10 @@ class _DashboardPageState extends State<DashboardPage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
+                              if (dataAlerts.isNotEmpty) ...[
+                                _DashboardDataAlert(messages: dataAlerts),
+                                const SizedBox(height: 16),
+                              ],
                               _MetricsPanel(stats: stats, columns: 2),
                               const SizedBox(height: 16),
                               _InventoryCard(stats: stats, compact: true),
@@ -194,6 +203,10 @@ class _DashboardPageState extends State<DashboardPage> {
 
               return ListView(
                 children: [
+                  if (dataAlerts.isNotEmpty) ...[
+                    _DashboardDataAlert(messages: dataAlerts),
+                    const SizedBox(height: 16),
+                  ],
                   _MetricsPanel(stats: stats, columns: 1),
                   const SizedBox(height: 16),
                   _CollectionPriorityCard(stats: stats),
@@ -208,6 +221,86 @@ class _DashboardPageState extends State<DashboardPage> {
             },
           );
         },
+      ),
+    );
+  }
+}
+
+List<String> _buildDataAlerts(_DashboardStats stats) {
+  final alerts = <String>[];
+
+  if (stats.totalClients > 0 && stats.totalLots == 0) {
+    alerts.add(
+      'Hay clientes en la base local, pero no hay solares sincronizados. El resumen está leyendo SQLite local; esto suele indicar que el scope products no llegó o que el backend no devolvió productos con payload válido de solar.',
+    );
+  }
+
+  if (stats.totalLots > 0 && stats.soldLots == 0 && stats.pendingPayments == 0) {
+    alerts.add(
+      'El inventario local existe, pero no hay ventas ni cuotas aplicadas. Si en nube sí existen, revisa el scope sales/installments del sync.',
+    );
+  }
+
+  return alerts;
+}
+
+class _DashboardDataAlert extends StatelessWidget {
+  const _DashboardDataAlert({required this.messages});
+
+  final List<String> messages;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: EdgeInsets.zero,
+      elevation: 0,
+      color: const Color(0xFFFFF8E8),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: const BorderSide(color: Color(0xFFF1D28D)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Padding(
+              padding: EdgeInsets.only(top: 2),
+              child: Icon(
+                Icons.info_outline,
+                color: Color(0xFF9A5B00),
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Estado real de datos locales',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: const Color(0xFF6E4300),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  for (final message in messages) ...[
+                    Text(
+                      message,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        height: 1.45,
+                        color: Color(0xFF6E4300),
+                      ),
+                    ),
+                    if (message != messages.last) const SizedBox(height: 6),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

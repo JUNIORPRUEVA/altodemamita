@@ -55,8 +55,10 @@ class RealtimeSyncService {
       ),
     );
 
+    final realtimeBaseUrl = _resolveRealtimeBaseUrl(settings.normalizedBaseUrl);
+
     final socket = io.io(
-      '${settings.normalizedBaseUrl}/realtime',
+      '$realtimeBaseUrl/realtime',
       io.OptionBuilder()
           .setTransports(['websocket'])
           .enableAutoConnect()
@@ -77,6 +79,7 @@ class RealtimeSyncService {
       _emitState(
         RealtimeSyncState(
           connectionStatus: SyncConnectionStatus.connected,
+          lastError: null,
           dataVersion: _state.dataVersion,
           lastDataChangedAt: _state.lastDataChangedAt,
         ),
@@ -87,6 +90,7 @@ class RealtimeSyncService {
       _emitState(
         RealtimeSyncState(
           connectionStatus: SyncConnectionStatus.connected,
+          lastError: null,
           dataVersion: _state.dataVersion,
           lastDataChangedAt: _state.lastDataChangedAt,
         ),
@@ -129,6 +133,20 @@ class RealtimeSyncService {
     });
 
     _socket = socket;
+  }
+
+  String _resolveRealtimeBaseUrl(String normalizedBaseUrl) {
+    final parsed = Uri.tryParse(normalizedBaseUrl.trim());
+    if (parsed == null || parsed.host.trim().isEmpty) {
+      return normalizedBaseUrl.replaceFirst(RegExp(r'/api/?$'), '');
+    }
+
+    final segments = parsed.pathSegments.where((segment) => segment.isNotEmpty).toList();
+    if (segments.isNotEmpty && segments.last.toLowerCase() == 'api') {
+      segments.removeLast();
+    }
+
+    return parsed.replace(pathSegments: segments).toString().replaceAll(RegExp(r'/$'), '');
   }
 
   Future<int> pollNow() async {
