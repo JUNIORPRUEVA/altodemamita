@@ -119,11 +119,13 @@ class _ProductsScreenState extends State<ProductsScreen> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Revisa disponibilidad, estado y valores del inventario.',
-                  style: TextStyle(color: Color(0xFF66718A), height: 1.45),
-                ),
+                if (!compact) ...[
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Revisa disponibilidad, estado y valores del inventario.',
+                    style: TextStyle(color: Color(0xFF66718A), height: 1.45),
+                  ),
+                ],
               ],
             ),
           ),

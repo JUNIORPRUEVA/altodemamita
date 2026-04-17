@@ -111,7 +111,11 @@ class AdminShell extends StatelessWidget {
                           _TopBar(
                             title: currentItem?.label ?? _companyName,
                             realtimeController: realtimeController,
-                            onOpenMenu: wide ? null : scaffoldKey.currentState?.openDrawer,
+                            onOpenMenu: wide
+                                ? null
+                                : () {
+                                    scaffoldKey.currentState?.openDrawer();
+                                  },
                           ),
                           Expanded(
                             child: Padding(
@@ -449,89 +453,96 @@ class _Sidebar extends StatelessWidget {
           colors: [Color(0xFF0D2844), Color(0xFF071829)],
         ),
       ),
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(drawerMode ? 16 : 18, drawerMode ? 18 : 16, drawerMode ? 16 : 18, drawerMode ? 20 : 16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Container(
-              padding: EdgeInsets.fromLTRB(drawerMode ? 14 : 12, drawerMode ? 14 : 12, drawerMode ? 14 : 12, drawerMode ? 12 : 10),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.08),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
-                borderRadius: BorderRadius.circular(18),
-              ),
-              child: Row(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(
+              drawerMode ? 16 : 18,
+              drawerMode ? 18 : 16,
+              drawerMode ? 16 : 18,
+              drawerMode ? 20 : 16,
+            ),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Container(
-                    width: 42,
-                    height: 42,
+                    padding: EdgeInsets.fromLTRB(drawerMode ? 14 : 12, drawerMode ? 14 : 12, drawerMode ? 14 : 12, drawerMode ? 12 : 10),
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(14),
-                      gradient: const LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [Color(0xFF59B6FF), Color(0xFF1B5BA8)],
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: const Color(0xFF4B9EE8).withValues(alpha: 0.32),
-                          blurRadius: 14,
-                          offset: const Offset(0, 6),
-                        ),
-                      ],
+                      color: Colors.white.withValues(alpha: 0.08),
+                      border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+                      borderRadius: BorderRadius.circular(18),
                     ),
-                    child: const Icon(
-                      Icons.wb_sunny_rounded,
-                      size: 21,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    child: Row(
                       children: [
-                        Text(
-                          'Sistema Solares',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
+                        Container(
+                          width: 42,
+                          height: 42,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(14),
+                            gradient: const LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [Color(0xFF59B6FF), Color(0xFF1B5BA8)],
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF4B9EE8).withValues(alpha: 0.32),
+                                blurRadius: 14,
+                                offset: const Offset(0, 6),
+                              ),
+                            ],
+                          ),
+                          child: const Icon(
+                            Icons.wb_sunny_rounded,
+                            size: 21,
                             color: Colors.white,
-                            fontSize: 15,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 0.1,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Text(
+                            'Sistema Solares',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.1,
+                            ),
                           ),
                         ),
                       ],
                     ),
                   ),
+                  const SizedBox(height: 18),
+                  ...summaryItems.map((item) => _NavTile(
+                        item: item,
+                        selected: currentRoute == item.route,
+                        compact: compact,
+                      )),
+                  if (adminItems.isNotEmpty) ...[
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Divider(
+                        height: 1,
+                        color: Colors.white.withValues(alpha: 0.10),
+                      ),
+                    ),
+                    ...adminItems.map((item) => _NavTile(
+                          item: item,
+                          selected: currentRoute == item.route,
+                          compact: compact,
+                        )),
+                  ],
+                  const SizedBox(height: 12),
                 ],
               ),
             ),
-            const SizedBox(height: 18),
-            ...summaryItems.map((item) => _NavTile(
-                  item: item,
-                  selected: currentRoute == item.route,
-                  compact: compact,
-                )),
-            if (adminItems.isNotEmpty) ...[
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Divider(
-                  height: 1,
-                  color: Colors.white.withValues(alpha: 0.10),
-                ),
-              ),
-              ...adminItems.map((item) => _NavTile(
-                    item: item,
-                    selected: currentRoute == item.route,
-                    compact: compact,
-                  )),
-            ],
-            const Spacer(),
-          ],
-        ),
+          );
+        },
       ),
     );
   }

@@ -327,6 +327,7 @@ class _SaleDetailDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final compact = MediaQuery.sizeOf(context).width < 760;
     final currency = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$ ');
     final installments =
         (detail['installments'] as List<dynamic>? ?? const <dynamic>[])
@@ -337,11 +338,14 @@ class _SaleDetailDialog extends StatelessWidget {
         .toList();
 
     return Dialog(
-      insetPadding: const EdgeInsets.all(18),
+      insetPadding: EdgeInsets.all(compact ? 10 : 18),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 860, maxHeight: 760),
+        constraints: BoxConstraints(
+          maxWidth: compact ? 420 : 860,
+          maxHeight: compact ? MediaQuery.sizeOf(context).height - 20 : 760,
+        ),
         child: Padding(
-          padding: const EdgeInsets.all(20),
+          padding: EdgeInsets.all(compact ? 16 : 20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -455,6 +459,7 @@ class _SaleDetailDialog extends StatelessWidget {
                                 return DesktopCompactSurface(
                                   child: ListTile(
                                     dense: true,
+                                    isThreeLine: compact,
                                     title: Text(
                                       'Cuota ${installment['installmentNumber'] ?? '-'}',
                                       style: const TextStyle(
@@ -462,7 +467,9 @@ class _SaleDetailDialog extends StatelessWidget {
                                       ),
                                     ),
                                     subtitle: Text(
-                                      'Vence ${_formatDate(installment['dueDate'])}  •  Pagado ${currency.format(_asNum(installment['paidAmount']))}',
+                                      compact
+                                          ? 'Vence ${_formatDate(installment['dueDate'])}\nPagado ${currency.format(_asNum(installment['paidAmount']))}'
+                                          : 'Vence ${_formatDate(installment['dueDate'])}  •  Pagado ${currency.format(_asNum(installment['paidAmount']))}',
                                     ),
                                     trailing: Text(
                                       currency.format(
@@ -492,6 +499,7 @@ class _SaleDetailDialog extends StatelessWidget {
                                 return DesktopCompactSurface(
                                   child: ListTile(
                                     dense: true,
+                                    isThreeLine: compact,
                                     title: Text(
                                       payment['method']?.toString() ?? 'Pago',
                                       style: const TextStyle(

@@ -309,133 +309,186 @@ class _UsersScreenState extends State<UsersScreen> {
     bool isCurrentUser,
     RealtimeController realtime,
   ) {
+    final compact = MediaQuery.sizeOf(context).width < 760;
+
     return showDialog<void>(
       context: context,
       builder: (dialogContext) => Dialog(
+        insetPadding: EdgeInsets.all(compact ? 10 : 24),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 720),
+          constraints: BoxConstraints(
+            maxWidth: compact ? 420 : 720,
+            maxHeight: compact ? MediaQuery.sizeOf(dialogContext).height - 20 : 760,
+          ),
           child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _UserAvatar(label: _initialFor(user.fullName), radius: 28),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            user.fullName,
-                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                  fontWeight: FontWeight.w800,
-                                ),
+            padding: EdgeInsets.all(compact ? 16 : 24),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (compact)
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Align(
+                          alignment: Alignment.topRight,
+                          child: IconButton(
+                            onPressed: () => Navigator.of(dialogContext).pop(),
+                            icon: const Icon(Icons.close_rounded),
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            '@${user.username}',
-                            style: const TextStyle(color: Color(0xFF6E7791)),
-                          ),
-                          const SizedBox(height: 10),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
+                        ),
+                        _UserAvatar(label: _initialFor(user.fullName), radius: 28),
+                        const SizedBox(height: 12),
+                        Text(
+                          user.fullName,
+                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                fontWeight: FontWeight.w800,
+                              ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '@${user.username}',
+                          style: const TextStyle(color: Color(0xFF6E7791)),
+                        ),
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            _StatusBadge(isActive: user.isActive),
+                            if (user.isOnline)
+                              _PresenceBadge(
+                                label: _presenceLabel(user, isCurrentUser),
+                                color: const Color(0xFF2BB673),
+                              )
+                            else if (isCurrentUser)
+                              const _PresenceBadge(
+                                label: 'Sesion actual sin conexion',
+                                color: Color(0xFF6B7682),
+                              ),
+                          ],
+                        ),
+                      ],
+                    )
+                  else
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _UserAvatar(label: _initialFor(user.fullName), radius: 28),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              _StatusBadge(isActive: user.isActive),
-                              if (user.isOnline)
-                                _PresenceBadge(
-                                  label: _presenceLabel(user, isCurrentUser),
-                                  color: const Color(0xFF2BB673),
-                                )
-                              else if (isCurrentUser)
-                                const _PresenceBadge(
-                                  label: 'Sesion actual sin conexion',
-                                  color: Color(0xFF6B7682),
-                                ),
+                              Text(
+                                user.fullName,
+                                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '@${user.username}',
+                                style: const TextStyle(color: Color(0xFF6E7791)),
+                              ),
+                              const SizedBox(height: 10),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  _StatusBadge(isActive: user.isActive),
+                                  if (user.isOnline)
+                                    _PresenceBadge(
+                                      label: _presenceLabel(user, isCurrentUser),
+                                      color: const Color(0xFF2BB673),
+                                    )
+                                  else if (isCurrentUser)
+                                    const _PresenceBadge(
+                                      label: 'Sesion actual sin conexion',
+                                      color: Color(0xFF6B7682),
+                                    ),
+                                ],
+                              ),
                             ],
                           ),
-                        ],
-                      ),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.of(dialogContext).pop(),
+                          icon: const Icon(Icons.close_rounded),
+                        ),
+                      ],
                     ),
-                    IconButton(
-                      onPressed: () => Navigator.of(dialogContext).pop(),
-                      icon: const Icon(Icons.close_rounded),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    _DetailTile(label: 'Correo', value: user.email),
-                    _DetailTile(label: 'Usuario', value: user.username),
-                    _DetailTile(label: 'ID', value: user.id),
-                    _DetailTile(
-                      label: 'Presencia',
-                      value: user.isOnline
-                          ? _presenceLabel(user, isCurrentUser)
-                          : (isCurrentUser ? 'Sesion sin conexion' : 'Fuera de linea'),
-                    ),
-                    _DetailTile(
-                      label: 'Conexiones activas',
-                      value: '${user.connectionCount}',
-                    ),
-                    _DetailTile(
-                      label: 'Cliente conectado',
-                      value: user.clientTypes.isEmpty ? '-' : user.clientTypes.join(', '),
-                    ),
-                    _DetailTile(
-                      label: 'Conectado desde',
-                      value: _formatPresenceDate(user.connectedAt),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                const Text(
-                  'Roles asignados',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
-                ),
-                const SizedBox(height: 10),
-                if (user.roles.isEmpty)
-                  const Text(
-                    'Este usuario no tiene roles visibles en la respuesta actual.',
-                    style: TextStyle(color: Color(0xFF6E7791)),
-                  )
-                else
+                  const SizedBox(height: 20),
                   Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: user.roles
-                        .map(
-                          (role) => DesktopTag(
-                            label: '${role.name} (${role.code})',
-                            background: const Color(0xFFF1F4FA),
-                          ),
-                        )
-                        .toList(),
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: [
+                      _DetailTile(label: 'Correo', value: user.email),
+                      _DetailTile(label: 'Usuario', value: user.username),
+                      _DetailTile(label: 'ID', value: user.id),
+                      _DetailTile(
+                        label: 'Presencia',
+                        value: user.isOnline
+                            ? _presenceLabel(user, isCurrentUser)
+                            : (isCurrentUser ? 'Sesion sin conexion' : 'Fuera de linea'),
+                      ),
+                      _DetailTile(
+                        label: 'Conexiones activas',
+                        value: '${user.connectionCount}',
+                      ),
+                      _DetailTile(
+                        label: 'Cliente conectado',
+                        value: user.clientTypes.isEmpty ? '-' : user.clientTypes.join(', '),
+                      ),
+                      _DetailTile(
+                        label: 'Conectado desde',
+                        value: _formatPresenceDate(user.connectedAt),
+                      ),
+                    ],
                   ),
-                const SizedBox(height: 20),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFAFBFC),
-                    border: Border.all(color: const Color(0xFFE4EAF2)),
-                    borderRadius: BorderRadius.circular(16),
+                  const SizedBox(height: 20),
+                  const Text(
+                    'Roles asignados',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
                   ),
-                  child: Text(
-                    isCurrentUser
-                        ? 'Esta es la sesion autenticada actualmente en el panel. El indicador de linea depende de la conexion realtime activa del navegador.'
-                        : 'La presencia ahora se basa en conexiones realtime activas reportadas por el backend. Si el usuario no tiene sockets activos, se muestra como fuera de linea.',
-                    style: const TextStyle(color: Color(0xFF536079), height: 1.45),
+                  const SizedBox(height: 10),
+                  if (user.roles.isEmpty)
+                    const Text(
+                      'Este usuario no tiene roles visibles en la respuesta actual.',
+                      style: TextStyle(color: Color(0xFF6E7791)),
+                    )
+                  else
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: user.roles
+                          .map(
+                            (role) => DesktopTag(
+                              label: '${role.name} (${role.code})',
+                              background: const Color(0xFFF1F4FA),
+                            ),
+                          )
+                          .toList(),
+                    ),
+                  const SizedBox(height: 20),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFAFBFC),
+                      border: Border.all(color: const Color(0xFFE4EAF2)),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Text(
+                      isCurrentUser
+                          ? 'Esta es la sesion autenticada actualmente en el panel. El indicador de linea depende de la conexion realtime activa del navegador.'
+                          : 'La presencia ahora se basa en conexiones realtime activas reportadas por el backend. Si el usuario no tiene sockets activos, se muestra como fuera de linea.',
+                      style: const TextStyle(color: Color(0xFF536079), height: 1.45),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -492,8 +545,9 @@ class _SummaryTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final compact = MediaQuery.sizeOf(context).width < 760;
     return Container(
-      constraints: const BoxConstraints(minWidth: 180),
+      constraints: BoxConstraints(minWidth: compact ? 140 : 180),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -531,61 +585,109 @@ class _CurrentSessionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final compact = MediaQuery.sizeOf(context).width < 760;
     return DesktopSurface(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const Expanded(
-                child: Text(
+          if (compact)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
                   'Sesion actual conectada',
                   style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
                 ),
-              ),
-              OutlinedButton(
-                onPressed: onViewDetails,
-                child: const Text('Ver detalle'),
-              ),
-            ],
-          ),
+                const SizedBox(height: 10),
+                OutlinedButton(
+                  onPressed: onViewDetails,
+                  child: const Text('Ver detalle'),
+                ),
+              ],
+            )
+          else
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Sesion actual conectada',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                  ),
+                ),
+                OutlinedButton(
+                  onPressed: onViewDetails,
+                  child: const Text('Ver detalle'),
+                ),
+              ],
+            ),
           const SizedBox(height: 14),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _UserAvatar(label: _initialFor(user.fullName), radius: 24),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+          if (compact)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _UserAvatar(label: _initialFor(user.fullName), radius: 24),
+                const SizedBox(height: 12),
+                Text(user.fullName, style: const TextStyle(fontWeight: FontWeight.w800)),
+                const SizedBox(height: 4),
+                Text(
+                  '${user.username} • ${user.email}',
+                  style: const TextStyle(color: Color(0xFF6E7791)),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
                   children: [
-                    Text(user.fullName, style: const TextStyle(fontWeight: FontWeight.w800)),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${user.username} • ${user.email}',
-                      style: const TextStyle(color: Color(0xFF6E7791)),
-                    ),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        _StatusBadge(isActive: user.isActive),
-                        _PresenceBadge(
-                          label: user.isOnline
-                              ? _presenceLabel(user, true)
-                              : 'Sin conexion realtime',
-                          color: user.isOnline
-                              ? const Color(0xFF2BB673)
-                              : const Color(0xFF6B7682),
-                        ),
-                      ],
+                    _StatusBadge(isActive: user.isActive),
+                    _PresenceBadge(
+                      label: user.isOnline
+                          ? _presenceLabel(user, true)
+                          : 'Sin conexion realtime',
+                      color: user.isOnline
+                          ? const Color(0xFF2BB673)
+                          : const Color(0xFF6B7682),
                     ),
                   ],
                 ),
-              ),
-            ],
-          ),
+              ],
+            )
+          else
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _UserAvatar(label: _initialFor(user.fullName), radius: 24),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(user.fullName, style: const TextStyle(fontWeight: FontWeight.w800)),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${user.username} • ${user.email}',
+                        style: const TextStyle(color: Color(0xFF6E7791)),
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _StatusBadge(isActive: user.isActive),
+                          _PresenceBadge(
+                            label: user.isOnline
+                                ? _presenceLabel(user, true)
+                                : 'Sin conexion realtime',
+                            color: user.isOnline
+                                ? const Color(0xFF2BB673)
+                                : const Color(0xFF6B7682),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
         ],
       ),
     );

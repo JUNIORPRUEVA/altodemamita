@@ -3,7 +3,7 @@
     "short_name": "Solares Panel",
     "start_url": "/",
     "display": "standalone",
-    "background_color": "#F4F7FB",
+    "background_color": "#00000000",
     "theme_color": "#12385F",
     "description": "Panel web PWA de supervision y administracion de Sistema Solares.",
     "orientation": "portrait-primary",
