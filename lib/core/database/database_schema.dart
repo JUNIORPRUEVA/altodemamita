@@ -166,11 +166,6 @@ class DatabaseSchema {
         'valor': '0',
         'fecha_actualizacion': now,
       },
-      {
-        'clave': 'sync.base_url',
-        'valor': defaultSyncBaseUrl,
-        'fecha_actualizacion': now,
-      },
     ];
 
     for (final item in defaults) {
@@ -182,12 +177,6 @@ class DatabaseSchema {
     }
 
     await batch.commit(noResult: true);
-    await db.rawUpdate(
-      'UPDATE $settingsTable '
-      'SET valor = ?, fecha_actualizacion = ? '
-      "WHERE clave = ? AND TRIM(COALESCE(valor, '')) = ''",
-      [defaultSyncBaseUrl, now, 'sync.base_url'],
-    );
     await _ensureAdminCredentials(db, now);
   }
 
