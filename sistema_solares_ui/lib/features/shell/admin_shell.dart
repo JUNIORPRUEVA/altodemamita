@@ -173,8 +173,6 @@ class _MobileShellAppBar extends StatelessWidget implements PreferredSizeWidget 
 
   @override
   Widget build(BuildContext context) {
-    final authController = context.watch<AuthController>();
-
     return AppBar(
       automaticallyImplyLeading: true,
       elevation: 0,
@@ -183,14 +181,31 @@ class _MobileShellAppBar extends StatelessWidget implements PreferredSizeWidget 
       surfaceTintColor: Colors.white,
       foregroundColor: const Color(0xFF173450),
       titleSpacing: 4,
-      title: Text(
-        title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              color: const Color(0xFF0D2640),
-              fontWeight: FontWeight.w800,
+      title: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: const Color(0xFF0D2640),
+                  fontWeight: FontWeight.w800,
+                ),
+          ),
+          const SizedBox(height: 2),
+          const Text(
+            'Sistema Solares',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: Color(0xFF7A8798),
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
             ),
+          ),
+        ],
       ),
       actions: [
         Padding(
@@ -200,43 +215,15 @@ class _MobileShellAppBar extends StatelessWidget implements PreferredSizeWidget 
             children: [
               _ConnectionIndicator(isConnected: realtimeController.isConnected),
               const SizedBox(width: 8),
-              PopupMenuButton<String>(
-                tooltip: 'Sesion',
-                onSelected: (value) async {
-                  if (value == 'logout') {
-                    await context.read<AuthController>().signOut();
-                    if (context.mounted) {
-                      context.go('/login');
-                    }
+              _MobileAppBarIconButton(
+                tooltip: 'Cerrar sesion',
+                icon: Icons.logout_rounded,
+                onPressed: () async {
+                  await context.read<AuthController>().signOut();
+                  if (context.mounted) {
+                    context.go('/login');
                   }
                 },
-                itemBuilder: (context) => const [
-                  PopupMenuItem<String>(
-                    value: 'logout',
-                    child: Text('Cerrar sesion'),
-                  ),
-                ],
-                child: Container(
-                  width: 42,
-                  height: 42,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF7F8FB),
-                    border: Border.all(color: const Color(0xFFE4EAF2)),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(
-                    (authController.user?.fullName.isNotEmpty == true
-                            ? authController.user!.fullName[0]
-                            : 'U')
-                        .toUpperCase(),
-                    style: const TextStyle(
-                      color: Color(0xFF173450),
-                      fontWeight: FontWeight.w800,
-                      fontSize: 16,
-                    ),
-                  ),
-                ),
               ),
             ],
           ),
@@ -245,6 +232,42 @@ class _MobileShellAppBar extends StatelessWidget implements PreferredSizeWidget 
       bottom: PreferredSize(
         preferredSize: const Size.fromHeight(1),
         child: Container(height: 1, color: const Color(0xFFECEFF3)),
+      ),
+    );
+  }
+}
+
+class _MobileAppBarIconButton extends StatelessWidget {
+  const _MobileAppBarIconButton({
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: onPressed,
+          child: Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF7F8FB),
+              border: Border.all(color: const Color(0xFFE4EAF2)),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(icon, color: const Color(0xFF173450), size: 20),
+          ),
+        ),
       ),
     );
   }

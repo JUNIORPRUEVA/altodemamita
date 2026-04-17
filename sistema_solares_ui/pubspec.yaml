@@ -35,3 +35,7 @@ flutter_launcher_icons:
     image_path: ../lib/assets/logo/logoprincipal_windows_icon.png
     background_color: "#00000000"
     theme_color: "#12385F"
+  windows:
+    generate: true
+    image_path: ../lib/assets/logo/logoprincipal_windows_icon.png
+    icon_size: 256

@@ -114,13 +114,14 @@ class _ClientsScreenState extends State<ClientsScreen> {
                           final phone =
                               item['phone']?.toString() ?? 'Sin telefono';
                           final code = item['code']?.toString() ?? '-';
+                          final email = item['email']?.toString() ?? 'Sin correo';
                           final subtitleText = compact
-                              ? '$documentId\n$phone\n${item['email']?.toString() ?? 'Sin correo'}'
-                              : '$documentId  •  $phone  •  ${item['email']?.toString() ?? 'Sin correo'}';
+                              ? '$documentId  •  $phone\n$email'
+                              : '$documentId  •  $phone  •  $email';
                           return DesktopListRow(
-                            height: compact ? 108 : 72,
+                            height: compact ? 92 : 72,
                             leading: CircleAvatar(
-                              radius: 22,
+                              radius: compact ? 18 : 22,
                               backgroundColor: const Color(0xFFEFF3FB),
                               child: Text(
                                 (fullName.isNotEmpty ? fullName[0] : 'C')
@@ -131,37 +132,71 @@ class _ClientsScreenState extends State<ClientsScreen> {
                                 ),
                               ),
                             ),
-                            title: Text(
-                              fullName.isEmpty ? 'Sin nombre' : fullName,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w800,
+                            title: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    fullName.isEmpty ? 'Sin nombre' : fullName,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: compact ? 14 : null,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                if (compact) ...[
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 9,
+                                      vertical: 5,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF6EFE3),
+                                      borderRadius: BorderRadius.circular(999),
+                                    ),
+                                    child: Text(
+                                      code,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 11,
+                                        color: Color(0xFF8C5A2C),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                            subtitle: Text(
+                              subtitleText,
+                              style: TextStyle(
+                                color: const Color(0xFF6E7791),
+                                fontSize: compact ? 12.5 : null,
+                                height: compact ? 1.35 : null,
                               ),
                               maxLines: compact ? 2 : 1,
                               overflow: TextOverflow.ellipsis,
                             ),
-                            subtitle: Text(
-                              subtitleText,
-                              style: const TextStyle(color: Color(0xFF6E7791)),
-                              maxLines: compact ? 3 : 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            trailing: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 8,
-                              ),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF6EFE3),
-                                borderRadius: BorderRadius.circular(999),
-                              ),
-                              child: Text(
-                                code,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  color: Color(0xFF8C5A2C),
-                                ),
-                              ),
-                            ),
+                            trailing: compact
+                                ? null
+                                : Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 8,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF6EFE3),
+                                      borderRadius: BorderRadius.circular(999),
+                                    ),
+                                    child: Text(
+                                      code,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFF8C5A2C),
+                                      ),
+                                    ),
+                                  ),
                           );
                         }).toList(),
                       ),
