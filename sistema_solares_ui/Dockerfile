@@ -7,7 +7,7 @@ RUN flutter pub get
 
 COPY . .
 
-RUN flutter build web --release --base-href / --dart-define=API_BASE_URL=http://localhost:3000/api
+RUN flutter build web --release --base-href / --dart-define=API_BASE_URL=https://altodemanita-altodemamita-backent.onqyr1.easypanel.host/api
 
 FROM nginx:alpine AS production
 
@@ -18,7 +18,7 @@ COPY --from=builder /app/build/web /usr/share/nginx/html
 
 RUN chmod +x /docker-entrypoint.d/40-env-config.sh
 
-ENV API_BASE_URL=http://localhost:3000/api
+ENV API_BASE_URL=https://altodemanita-altodemamita-backent.onqyr1.easypanel.host/api
 
 EXPOSE 80
 

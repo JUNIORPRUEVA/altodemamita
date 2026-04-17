@@ -6,6 +6,8 @@ import '../security/password_hasher.dart';
 class DatabaseSchema {
   static const String databaseName = 'sistema_solares.db';
   static const int databaseVersion = 17;
+  static const String defaultSyncBaseUrl =
+      'https://altodemanita-altodemamita-backent.onqyr1.easypanel.host/api';
 
   static const String clientsTable = 'clientes';
   static const String usersTable = 'usuarios';
@@ -164,6 +166,11 @@ class DatabaseSchema {
         'valor': '0',
         'fecha_actualizacion': now,
       },
+      {
+        'clave': 'sync.base_url',
+        'valor': defaultSyncBaseUrl,
+        'fecha_actualizacion': now,
+      },
     ];
 
     for (final item in defaults) {
@@ -175,6 +182,12 @@ class DatabaseSchema {
     }
 
     await batch.commit(noResult: true);
+    await db.rawUpdate(
+      'UPDATE $settingsTable '
+      'SET valor = ?, fecha_actualizacion = ? '
+      'WHERE clave = ? AND TRIM(COALESCE(valor, \"\")) = \"\"',
+      [defaultSyncBaseUrl, now, 'sync.base_url'],
+    );
     await _ensureAdminCredentials(db, now);
   }
 

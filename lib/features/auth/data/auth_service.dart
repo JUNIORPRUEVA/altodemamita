@@ -140,9 +140,7 @@ class AuthService {
     }
 
     return AuthBootstrapResult(
-      requiresInitialSetup: remoteStatus.isReachable
-          ? !remoteStatus.initialized
-          : localRequiresInitialSetup,
+      requiresInitialSetup: remoteStatus.isReachable && !remoteStatus.initialized,
       isOnline: remoteStatus.isReachable,
       isCloudInitialized: remoteStatus.isReachable
           ? remoteStatus.initialized
@@ -155,6 +153,7 @@ class AuthService {
     required String email,
     required String password,
   }) async {
+    final settings = await _syncConfigRepository.loadSettings();
     final remoteStatus = await _fetchRemoteSystemStatus();
     if (remoteStatus.isReachable) {
       if (!remoteStatus.initialized) {
@@ -172,10 +171,25 @@ class AuthService {
       );
     }
 
+    if (settings.baseUrl.trim().isEmpty) {
+      throw const AuthException(
+        'Configura la URL del backend para iniciar sesion contra el sistema central.',
+      );
+    }
+
     return AuthSignInResult(
       user: await loginOffline(email: email, password: password),
       mode: AuthSignInMode.offline,
     );
+  }
+
+  Future<String> loadBackendBaseUrl() async {
+    final settings = await _syncConfigRepository.loadSettings();
+    return settings.baseUrl.trim();
+  }
+
+  Future<void> saveBackendBaseUrl(String baseUrl) {
+    return _syncConfigRepository.saveBaseUrl(baseUrl.trim());
   }
 
   Future<UserModel> loginOnline({

@@ -18,6 +18,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   final _passwordFocusNode = FocusNode();
   bool _obscurePassword = true;
+  String? _configuredBackendUrl;
 
   Future<void> _prefillDebugCredentials() async {
     final auth = context.read<AuthProvider>();
@@ -38,6 +39,9 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadBackendUrl();
+    });
     if (kDebugMode) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _prefillDebugCredentials();
@@ -63,6 +67,83 @@ class _LoginScreenState extends State<LoginScreen> {
       email: _emailController.text,
       password: _passwordController.text,
     );
+  }
+
+  Future<void> _loadBackendUrl() async {
+    final auth = context.read<AuthProvider>();
+    final backendUrl = await auth.authService.loadBackendBaseUrl();
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _configuredBackendUrl = backendUrl.isEmpty ? null : backendUrl;
+    });
+  }
+
+  Future<void> _openBackendConfigDialog() async {
+    final controller = TextEditingController(text: _configuredBackendUrl ?? '');
+    final formKey = GlobalKey<FormState>();
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Configurar backend'),
+          content: SizedBox(
+            width: 520,
+            child: Form(
+              key: formKey,
+              child: TextFormField(
+                controller: controller,
+                decoration: const InputDecoration(
+                  labelText: 'URL base del backend',
+                  hintText: 'https://api.tudominio.com/api',
+                ),
+                validator: (value) {
+                  final trimmed = value?.trim() ?? '';
+                  if (trimmed.isEmpty) {
+                    return 'Ingresa la URL del backend';
+                  }
+                  final uri = Uri.tryParse(trimmed);
+                  if (uri == null ||
+                      uri.host.trim().isEmpty ||
+                      !(uri.scheme == 'http' || uri.scheme == 'https')) {
+                    return 'Ingresa una URL valida con http o https';
+                  }
+                  return null;
+                },
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (!formKey.currentState!.validate()) {
+                  return;
+                }
+                Navigator.of(dialogContext).pop(true);
+              },
+              child: const Text('Guardar'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (saved != true || !mounted) {
+      controller.dispose();
+      return;
+    }
+
+    final auth = context.read<AuthProvider>();
+    await auth.authService.saveBackendBaseUrl(controller.text);
+    await auth.initialize();
+    await _loadBackendUrl();
+    controller.dispose();
   }
 
   Future<void> _openRecoveryDialog() async {
@@ -170,6 +251,34 @@ class _LoginScreenState extends State<LoginScreen> {
                                       fontSize: 16,
                                       fontWeight: FontWeight.w500,
                                     ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Text(
+                                    _configuredBackendUrl == null
+                                        ? 'Backend sin configurar'
+                                        : _configuredBackendUrl!,
+                                    textAlign: TextAlign.center,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: Colors.white.withValues(alpha: 0.62),
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  TextButton.icon(
+                                    onPressed: auth.isSigningIn
+                                        ? null
+                                        : _openBackendConfigDialog,
+                                    style: TextButton.styleFrom(
+                                      foregroundColor: Colors.white,
+                                      textStyle: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    icon: const Icon(Icons.settings_ethernet, size: 16),
+                                    label: const Text('Configurar backend'),
                                   ),
                                 ],
                               ),
