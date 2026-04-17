@@ -44,8 +44,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
         return DesktopPageScaffold(
           title: 'Vista general',
-          subtitle:
-              'Resumen comercial y financiero con el mismo lenguaje de superficies y modulos del escritorio.',
+          subtitle: 'Resumen comercial y financiero del sistema.',
           child: ListView(
             children: [
               DesktopInfoStrip(
@@ -58,7 +57,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                     const SizedBox(height: 8),
                     const Text(
-                      'La PWA conserva un rol de supervision. Las operaciones criticas siguen deshabilitadas, pero la lectura de indicadores, ventas y pagos ya usa el mismo lenguaje visual del escritorio.',
+                      'Indicadores comerciales, cartera y actividad reciente en una vista consolidada.',
                       style: TextStyle(color: Color(0xFF657089), height: 1.5),
                     ),
                     const SizedBox(height: 18),

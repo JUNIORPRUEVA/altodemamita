@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
 
+const _desktopInk = Color(0xFF0D2640);
+const _desktopMuted = Color(0xFF6A7684);
+const _desktopOutline = Color(0xFFE4EAF2);
+const _desktopSurface = Colors.white;
+
 class DesktopPageScaffold extends StatelessWidget {
   const DesktopPageScaffold({
     super.key,
@@ -23,7 +28,7 @@ class DesktopPageScaffold extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
-          padding: EdgeInsets.fromLTRB(compact ? 0 : 6, 2, compact ? 0 : 6, compact ? 10 : 14),
+          padding: const EdgeInsets.fromLTRB(4, 4, 4, 16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -33,16 +38,16 @@ class DesktopPageScaffold extends StatelessWidget {
                         ? Theme.of(context).textTheme.titleLarge
                         : Theme.of(context).textTheme.headlineSmall)
                     ?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.4,
+                  fontWeight: FontWeight.w700,
+                  color: _desktopInk,
                 ),
               ),
               if (subtitle != null) ...[
-                SizedBox(height: compact ? 3 : 4),
+                const SizedBox(height: 4),
                 Text(
                   subtitle!,
                   style: TextStyle(
-                    color: Color(0xFF7B8794),
+                    color: _desktopMuted,
                     fontSize: compact ? 12 : 13,
                     fontWeight: FontWeight.w500,
                   ),
@@ -79,13 +84,20 @@ class DesktopSurface extends StatelessWidget {
 
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _desktopSurface,
         borderRadius: BorderRadius.circular(radius),
-        border: Border.all(color: const Color(0xFFE4EAF2)),
+        border: Border.all(color: _desktopOutline),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0D000000),
+            blurRadius: 20,
+            offset: Offset(0, 4),
+          ),
+        ],
       ),
       child: Padding(
         padding: compact
-            ? const EdgeInsets.all(14)
+            ? const EdgeInsets.all(16)
             : padding,
         child: child,
       ),
@@ -131,7 +143,7 @@ class DesktopToolbar extends StatelessWidget {
         }
 
         return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Row(
             children: [
               Expanded(child: searchField),
@@ -164,24 +176,16 @@ class DesktopSearchField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 40,
+      height: 46,
       child: TextField(
         controller: controller,
-        style: const TextStyle(fontSize: 14),
+        style: const TextStyle(fontSize: 14, color: _desktopInk),
         onSubmitted: onSubmitted,
         decoration: InputDecoration(
           hintText: hintText,
           prefixIcon: const Icon(Icons.search, size: 18),
           isDense: true,
-          contentPadding: const EdgeInsets.symmetric(vertical: 10),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-            borderSide: const BorderSide(color: Color(0xFFD0D7E4)),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-            borderSide: const BorderSide(color: Color(0xFFD0D7E4)),
-          ),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         ),
       ),
     );
@@ -216,10 +220,11 @@ class DesktopEmptyState extends StatelessWidget {
                 width: 72,
                 height: 72,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFEEF2FF),
+                  color: const Color(0xFFF0F3F9),
                   borderRadius: BorderRadius.circular(22),
+                  border: Border.all(color: const Color(0xFFD8E0EB)),
                 ),
-                child: Icon(icon, size: 36, color: const Color(0xFF3B5BDB)),
+                child: Icon(icon, size: 36, color: _desktopInk),
               ),
               const SizedBox(height: 18),
               Text(
@@ -228,7 +233,7 @@ class DesktopEmptyState extends StatelessWidget {
                 style: const TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w700,
-                  color: Color(0xFF1A2235),
+                  color: _desktopInk,
                 ),
               ),
               const SizedBox(height: 10),
@@ -237,7 +242,7 @@ class DesktopEmptyState extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   fontSize: 14,
-                  color: Color(0xFF6B7494),
+                  color: _desktopMuted,
                   height: 1.45,
                 ),
               ),
@@ -263,11 +268,18 @@ class DesktopModuleList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListView.separated(
-      padding: EdgeInsets.zero,
-      itemCount: children.length,
-      separatorBuilder: (_, _) => const Divider(height: 1, indent: 56, endIndent: 12),
-      itemBuilder: (context, index) => children[index],
+    return Container(
+      decoration: BoxDecoration(
+        color: _desktopSurface,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: _desktopOutline),
+      ),
+      child: ListView.separated(
+        padding: EdgeInsets.zero,
+        itemCount: children.length,
+        separatorBuilder: (_, _) => const Divider(height: 1, indent: 72, endIndent: 16),
+        itemBuilder: (context, index) => children[index],
+      ),
     );
   }
 }
@@ -291,7 +303,7 @@ class DesktopPlainSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: EdgeInsets.fromLTRB(compact ? 0 : 4, 0, compact ? 0 : 4, compact ? 10 : 12),
+          padding: EdgeInsets.fromLTRB(compact ? 0 : 4, 0, compact ? 0 : 4, compact ? 12 : 14),
           child: Row(
             children: [
               Expanded(
@@ -299,7 +311,8 @@ class DesktopPlainSection extends StatelessWidget {
                   title,
                   style: TextStyle(
                     fontSize: compact ? 18 : 20,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w700,
+                    color: _desktopInk,
                   ),
                 ),
               ),
@@ -337,9 +350,9 @@ class DesktopListRow extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: SizedBox(
-        height: compact ? height + 8 : height,
+        height: compact ? height + 10 : height,
         child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: compact ? 0 : 12, vertical: compact ? 8 : 0),
+          padding: EdgeInsets.symmetric(horizontal: compact ? 14 : 18, vertical: compact ? 8 : 0),
           child: compact
               ? Column(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -411,9 +424,9 @@ class DesktopFieldToolbar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFE4EAF2)),
+        color: const Color(0xFFFAFBFC),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: _desktopOutline),
       ),
       child: child,
     );
@@ -454,11 +467,14 @@ class DesktopInfoStrip extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFFFBFCFE),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFE4EAF2)),
+        color: const Color(0xFFFAFBFC),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: _desktopOutline),
       ),
-      child: child,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: child,
+      ),
     );
   }
 }
@@ -479,16 +495,19 @@ class DesktopStackedStat extends StatelessWidget {
       constraints: const BoxConstraints(minWidth: 150),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _desktopSurface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE6ECF3)),
+        border: Border.all(color: _desktopOutline),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(color: Color(0xFF6B7280))),
+          Text(label, style: const TextStyle(color: _desktopMuted)),
           const SizedBox(height: 6),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.w800)),
+          Text(
+            value,
+            style: const TextStyle(fontWeight: FontWeight.w800, color: _desktopInk),
+          ),
         ],
       ),
     );
@@ -513,6 +532,7 @@ class DesktopTag extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: background,
+        border: Border.all(color: foreground.withValues(alpha: 0.16)),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
@@ -554,9 +574,9 @@ class DesktopCompactSurface extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _desktopSurface,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFE4EAF2)),
+        border: Border.all(color: _desktopOutline),
       ),
       child: child,
     );
@@ -586,13 +606,17 @@ class DesktopTableCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   title,
-                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    color: _desktopInk,
+                  ),
                 ),
               ),
               ...(trailing != null ? <Widget>[trailing!] : const <Widget>[]),
             ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 16),
           child,
         ],
       ),
@@ -617,13 +641,9 @@ class DesktopMetricCard extends StatelessWidget {
     return Container(
       constraints: const BoxConstraints(minWidth: 210, maxWidth: 260),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Colors.white, color.withValues(alpha: 0.06)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFE7DFD2)),
+        color: _desktopSurface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: _desktopOutline),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -636,11 +656,15 @@ class DesktopMetricCard extends StatelessWidget {
               decoration: BoxDecoration(color: color, shape: BoxShape.circle),
             ),
             const SizedBox(height: 14),
-            Text(title, style: const TextStyle(color: Color(0xFF6B7280))),
+            Text(title, style: const TextStyle(color: _desktopMuted)),
             const SizedBox(height: 8),
             Text(
               value,
-              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
+              style: const TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.w800,
+                color: _desktopInk,
+              ),
             ),
           ],
         ),
@@ -670,7 +694,11 @@ class DesktopPageError extends StatelessWidget {
             children: [
               const Icon(Icons.error_outline, size: 40, color: Color(0xFFA53F2B)),
               const SizedBox(height: 16),
-              Text(message, textAlign: TextAlign.center),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: _desktopInk),
+              ),
               const SizedBox(height: 16),
               FilledButton(onPressed: onRetry, child: const Text('Reintentar')),
             ],

@@ -51,8 +51,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         final compact = MediaQuery.sizeOf(context).width < 760;
         return DesktopPageScaffold(
           title: 'Reportes',
-          subtitle:
-              'Consulta operativa con las mismas superficies limpias y jerarquia modular que la app de Windows.',
+          subtitle: 'Resumen operativo por periodo.',
           toolbar: DesktopFieldToolbar(
             child: Wrap(
               spacing: 10,

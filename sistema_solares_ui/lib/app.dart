@@ -11,6 +11,7 @@ import 'package:sistema_solares_ui/features/clients/clients_screen.dart';
 import 'package:sistema_solares_ui/features/dashboard/dashboard_screen.dart';
 import 'package:sistema_solares_ui/features/products/products_screen.dart';
 import 'package:sistema_solares_ui/features/reports/reports_screen.dart';
+import 'package:sistema_solares_ui/features/sales/sales_screen.dart';
 import 'package:sistema_solares_ui/features/settings/settings_screen.dart';
 import 'package:sistema_solares_ui/features/shell/admin_shell.dart';
 import 'package:sistema_solares_ui/features/users/users_screen.dart';
@@ -75,6 +76,10 @@ class _AppState extends State<App> {
           return '/dashboard';
         }
 
+        if (location == '/sales' && !authController.canAccessSales) {
+          return '/dashboard';
+        }
+
         if (
           location == '/products' &&
           !authController.hasPermission('products.read') &&
@@ -108,6 +113,10 @@ class _AppState extends State<App> {
             GoRoute(
               path: '/reports',
               builder: (context, state) => const ReportsScreen(),
+            ),
+            GoRoute(
+              path: '/sales',
+              builder: (context, state) => const SalesScreen(),
             ),
             GoRoute(
               path: '/clients',

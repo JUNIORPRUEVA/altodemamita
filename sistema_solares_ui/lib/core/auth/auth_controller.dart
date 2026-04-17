@@ -92,6 +92,7 @@ class AuthController extends ChangeNotifier {
   String? get errorMessage => _errorMessage;
   bool get canManageUsers => isPanelAdmin;
   bool get canAccessSettings => isPanelAdmin;
+  bool get canAccessSales => hasPermission('sales.read') || isPanelAdmin;
   bool get isPanelAdmin =>
       _user != null && _user!.type == 'panel' && _user!.panelRole == PanelRole.admin;
 

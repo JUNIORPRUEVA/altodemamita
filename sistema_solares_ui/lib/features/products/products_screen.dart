@@ -60,8 +60,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
         final data = snapshot.data!;
         return DesktopPageScaffold(
           title: 'Solares',
-          subtitle:
-              'Inventario sincronizado con el backend, presentado con filas modulares y controles de consulta equivalentes al escritorio.',
+          subtitle: 'Inventario disponible para consulta y verificacion.',
           toolbar: DesktopFieldToolbar(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -121,7 +120,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  'Esta vista sirve para auditar que los solares visibles no esten siendo ocultados por filtros de estado o borrado logico.',
+                  'Revisa disponibilidad, estado y valores del inventario.',
                   style: TextStyle(color: Color(0xFF66718A), height: 1.45),
                 ),
               ],

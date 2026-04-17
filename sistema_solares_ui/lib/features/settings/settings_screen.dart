@@ -49,8 +49,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
         return DesktopPageScaffold(
           title: 'Configuracion',
-          subtitle:
-              'Estado del sistema, roles y permisos mostrados con la misma jerarquia modular del panel de escritorio.',
+          subtitle: 'Estado general, roles y permisos del sistema.',
           child: ListView(
             children: [
               DesktopInfoStrip(

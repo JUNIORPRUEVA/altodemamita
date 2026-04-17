@@ -55,8 +55,7 @@ class _UsersScreenState extends State<UsersScreen> {
 
         return DesktopPageScaffold(
           title: 'Usuarios',
-          subtitle:
-              'Supervision de accesos, roles y estado de usuarios con la misma grilla limpia del entorno de escritorio.',
+          subtitle: 'Accesos, roles y estado de usuarios del sistema.',
           toolbar: DesktopFieldToolbar(
             child: DesktopToolbar(
               searchField: DesktopSearchField(

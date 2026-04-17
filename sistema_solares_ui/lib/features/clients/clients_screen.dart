@@ -53,8 +53,7 @@ class _ClientsScreenState extends State<ClientsScreen> {
         final data = snapshot.data!;
         return DesktopPageScaffold(
           title: 'Clientes',
-          subtitle:
-              'Consulta de clientes con el mismo patron de barra de trabajo, listado y estado vacio del escritorio.',
+          subtitle: 'Consulta y seguimiento de clientes registrados.',
           toolbar: DesktopFieldToolbar(
             child: DesktopToolbar(
               searchField: DesktopSearchField(
