@@ -30,6 +30,12 @@ class AdminShell extends StatelessWidget {
         icon: Icons.people_outline,
         label: 'Clientes',
       ),
+      if (authController.hasPermission('products.read') || authController.isPanelAdmin)
+        const _NavItem(
+          route: '/products',
+          icon: Icons.inventory_2_outlined,
+          label: 'Solares',
+        ),
       if (authController.canManageUsers)
         const _NavItem(
           route: '/users',

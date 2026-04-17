@@ -9,6 +9,7 @@ import 'package:sistema_solares_ui/core/theme/app_theme.dart';
 import 'package:sistema_solares_ui/features/auth/login_screen.dart';
 import 'package:sistema_solares_ui/features/clients/clients_screen.dart';
 import 'package:sistema_solares_ui/features/dashboard/dashboard_screen.dart';
+import 'package:sistema_solares_ui/features/products/products_screen.dart';
 import 'package:sistema_solares_ui/features/reports/reports_screen.dart';
 import 'package:sistema_solares_ui/features/settings/settings_screen.dart';
 import 'package:sistema_solares_ui/features/shell/admin_shell.dart';
@@ -74,6 +75,14 @@ class _AppState extends State<App> {
           return '/dashboard';
         }
 
+        if (
+          location == '/products' &&
+          !authController.hasPermission('products.read') &&
+          !authController.isPanelAdmin
+        ) {
+          return '/dashboard';
+        }
+
         if (location == '/settings' && !authController.canAccessSettings) {
           return '/dashboard';
         }
@@ -103,6 +112,10 @@ class _AppState extends State<App> {
             GoRoute(
               path: '/clients',
               builder: (context, state) => const ClientsScreen(),
+            ),
+            GoRoute(
+              path: '/products',
+              builder: (context, state) => const ProductsScreen(),
             ),
             GoRoute(
               path: '/users',

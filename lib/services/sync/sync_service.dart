@@ -30,6 +30,7 @@ class SyncService {
   final SyncConfigRepository _configRepository;
   final SyncApiClient _apiClient;
   final SyncQueueService _syncQueueService;
+  List<String> _lastScopeWarnings = const [];
   bool _isSyncing = false;
   SyncReport? _lastReport;
 
@@ -65,6 +66,7 @@ class SyncService {
 
       final uploadedCount = await uploadPendingData();
       final downloadedCount = await downloadUpdates();
+      final warnings = List<String>.of(_lastScopeWarnings);
       final pendingRecords = await _syncQueueService.pendingCount();
       final report = SyncReport(
         startedAt: startedAt,
@@ -72,11 +74,13 @@ class SyncService {
         uploadedRecords: uploadedCount,
         downloadedRecords: downloadedCount,
         pendingRecords: pendingRecords,
+        warnings: warnings,
       );
       await _configRepository.saveLastRun();
       _lastReport = report;
       return report;
     } on SocketException catch (error) {
+      _lastScopeWarnings = const [];
       final report = SyncReport(
         startedAt: startedAt,
         finishedAt: DateTime.now(),
@@ -88,6 +92,7 @@ class SyncService {
       _lastReport = report;
       return report;
     } on HttpException catch (error) {
+      _lastScopeWarnings = const [];
       final report = SyncReport(
         startedAt: startedAt,
         finishedAt: DateTime.now(),
@@ -97,6 +102,7 @@ class SyncService {
       _lastReport = report;
       return report;
     } on ReadOnlyModeException {
+      _lastScopeWarnings = const [];
       final report = SyncReport(
         startedAt: startedAt,
         finishedAt: DateTime.now(),
@@ -107,6 +113,7 @@ class SyncService {
       _lastReport = report;
       return report;
     } catch (error) {
+      _lastScopeWarnings = const [];
       final report = SyncReport(
         startedAt: startedAt,
         finishedAt: DateTime.now(),
@@ -131,6 +138,7 @@ class SyncService {
   Future<int> downloadUpdatesForScopes(Iterable<String> scopes) async {
     final settings = await _configRepository.loadSettings();
     final targetScopes = scopes.toSet();
+    _lastScopeWarnings = const [];
     if (targetScopes.isEmpty) {
       return 0;
     }
@@ -153,24 +161,34 @@ class SyncService {
     );
 
     var downloadedRecords = 0;
+    final scopeWarnings = <String>[];
 
     for (final repository in _repositories) {
       if (!targetScopes.contains(repository.scope)) {
         continue;
       }
-      final scopeRecords = response.recordsForScope(repository.scope);
 
-      if (scopeRecords.isNotEmpty) {
-        await repository.mergeRemoteRecords(scopeRecords);
-        downloadedRecords += scopeRecords.length;
-      }
+      try {
+        final scopeRecords = response.recordsForScope(repository.scope);
 
-      final nextCursor =
-          response.serverTime ?? _findLatestTimestamp(scopeRecords);
-      if (nextCursor != null) {
-        await _configRepository.saveCursor(repository.scope, nextCursor);
+        if (scopeRecords.isNotEmpty) {
+          await repository.mergeRemoteRecords(scopeRecords);
+          downloadedRecords += scopeRecords.length;
+        }
+
+        final nextCursor =
+            response.serverTime ?? _findLatestTimestamp(scopeRecords);
+        if (nextCursor != null) {
+          await _configRepository.saveCursor(repository.scope, nextCursor);
+        }
+      } catch (error) {
+        scopeWarnings.add(
+          'No se pudieron aplicar cambios remotos de ${repository.scope}: $error',
+        );
       }
     }
+
+    _lastScopeWarnings = scopeWarnings;
 
     return downloadedRecords;
   }

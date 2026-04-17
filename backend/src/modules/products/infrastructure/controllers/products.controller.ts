@@ -2,8 +2,8 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestj
 
 import { PERMISSIONS } from 'src/shared/constants/permissions.constants';
 import { RequirePermissions } from 'src/shared/decorators/permissions.decorator';
-import { PaginationQueryDto } from 'src/shared/dto/pagination-query.dto';
 import { CreateProductDto } from '../../application/dto/create-product.dto';
+import { ProductsQueryDto } from '../../application/dto/products-query.dto';
 import { UpdateProductDto } from '../../application/dto/update-product.dto';
 import { ProductsService } from '../../application/services/products.service';
 
@@ -19,7 +19,7 @@ export class ProductsController {
 
   @Get()
   @RequirePermissions(PERMISSIONS.productsRead)
-  findAll(@Query() query: PaginationQueryDto) {
+  findAll(@Query() query: ProductsQueryDto) {
     return this.productsService.findAll(query);
   }
 

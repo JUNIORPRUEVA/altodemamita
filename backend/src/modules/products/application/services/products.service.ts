@@ -1,14 +1,21 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma, SyncStatus } from '@prisma/client';
 
 import { PrismaService } from 'src/infrastructure/prisma/prisma.service';
-import { PaginationQueryDto } from 'src/shared/dto/pagination-query.dto';
 import { CreateProductDto } from '../dto/create-product.dto';
+import { ProductsQueryDto } from '../dto/products-query.dto';
 import { UpdateProductDto } from '../dto/update-product.dto';
 
 @Injectable()
 export class ProductsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private readonly logger = new Logger(ProductsService.name);
 
   async create(dto: CreateProductDto) {
     await this.ensureUniqueCode(dto.code);
@@ -27,8 +34,8 @@ export class ProductsService {
     });
   }
 
-  async findAll(query: PaginationQueryDto) {
-    const where = this.buildWhere(query.search);
+  async findAll(query: ProductsQueryDto) {
+    const where = this.buildWhere(query);
     const [total, items] = await this.prisma.$transaction([
       this.prisma.product.count({ where }),
       this.prisma.product.findMany({
@@ -38,6 +45,12 @@ export class ProductsService {
         take: query.limit,
       }),
     ]);
+
+    this.logger.debug(
+      `Listado products page=${query.page} limit=${query.limit} ` +
+        `includeInactive=${query.includeInactive} includeDeleted=${query.includeDeleted} ` +
+        `search="${query.search?.trim() ?? ''}" total=${total}`,
+    );
 
     return {
       items,
@@ -96,19 +109,37 @@ export class ProductsService {
     return { id, removed: true };
   }
 
-  private buildWhere(search?: string): Prisma.ProductWhereInput {
-    if (!search?.trim()) {
-      return { deletedAt: null };
+  private buildWhere(query: ProductsQueryDto): Prisma.ProductWhereInput {
+    const filters: Prisma.ProductWhereInput[] = [];
+    const normalizedSearch = query.search?.trim();
+
+    if (!query.includeDeleted) {
+      filters.push({ deletedAt: null });
     }
 
-    return {
-      deletedAt: null,
-      OR: [
-        { code: { contains: search, mode: 'insensitive' } },
-        { name: { contains: search, mode: 'insensitive' } },
-        { description: { contains: search, mode: 'insensitive' } },
-      ],
-    };
+    if (!query.includeInactive) {
+      filters.push({ isActive: true });
+    }
+
+    if (normalizedSearch?.isNotEmpty == true) {
+      filters.push({
+        OR: [
+          { code: { contains: normalizedSearch, mode: 'insensitive' } },
+          { name: { contains: normalizedSearch, mode: 'insensitive' } },
+          { description: { contains: normalizedSearch, mode: 'insensitive' } },
+        ],
+      });
+    }
+
+    if (filters.isEmpty) {
+      return {};
+    }
+
+    if (filters.length == 1) {
+      return filters.first;
+    }
+
+    return { AND: filters };
   }
 
   private async ensureUniqueCode(code: string, id?: string) {

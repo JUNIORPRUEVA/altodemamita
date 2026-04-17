@@ -197,16 +197,26 @@ class ClientRepository implements SyncRepository {
     final db = await _appDatabase.database;
     await db.transaction((txn) async {
       for (final record in records) {
+        final remoteSyncId = _normalizeSyncId(record['sync_id']?.toString());
         final remoteClient = Client.fromSyncMap(record).copyWith(
-          syncId: _normalizeSyncId(record['sync_id']?.toString()),
+          syncId: remoteSyncId,
           syncStatus: SyncStatus.synced,
         );
-        final existingRows = await txn.query(
+        var existingRows = await txn.query(
           DatabaseSchema.clientsTable,
           where: 'sync_id = ?',
           whereArgs: [remoteClient.syncId],
           limit: 1,
         );
+
+        if (existingRows.isEmpty && remoteClient.documentId.trim().isNotEmpty) {
+          existingRows = await txn.query(
+            DatabaseSchema.clientsTable,
+            where: 'cedula = ?',
+            whereArgs: [remoteClient.documentId.trim()],
+            limit: 1,
+          );
+        }
 
         if (existingRows.isEmpty) {
           await txn.insert(DatabaseSchema.clientsTable, remoteClient.toMap());
@@ -223,11 +233,12 @@ class ClientRepository implements SyncRepository {
           continue;
         }
 
+        final localId = existingRows.first['id'] as int?;
         await txn.update(
           DatabaseSchema.clientsTable,
           remoteClient.toMap()..remove('id'),
-          where: 'sync_id = ?',
-          whereArgs: [remoteClient.syncId],
+          where: localId != null ? 'id = ?' : 'sync_id = ?',
+          whereArgs: localId != null ? [localId] : [remoteSyncId],
         );
       }
     });

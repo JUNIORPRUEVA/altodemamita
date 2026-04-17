@@ -5,6 +5,7 @@ class SyncReport {
     this.uploadedRecords = 0,
     this.downloadedRecords = 0,
     this.pendingRecords = 0,
+    this.warnings = const [],
     this.wasSkipped = false,
     this.hadConnectivityError = false,
     this.errorMessage,
@@ -15,6 +16,7 @@ class SyncReport {
   final int uploadedRecords;
   final int downloadedRecords;
   final int pendingRecords;
+  final List<String> warnings;
   final bool wasSkipped;
   final bool hadConnectivityError;
   final String? errorMessage;
@@ -28,6 +30,9 @@ class SyncReport {
     }
     if (errorMessage != null) {
       return errorMessage!;
+    }
+    if (warnings.isNotEmpty) {
+      return 'Sincronizacion completada con advertencias. Subidos: $uploadedRecords, descargados: $downloadedRecords. ${warnings.join(' | ')}';
     }
     return 'Sincronizacion completada. Subidos: $uploadedRecords, descargados: $downloadedRecords.';
   }
