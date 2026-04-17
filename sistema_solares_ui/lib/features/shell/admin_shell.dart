@@ -14,7 +14,6 @@ class AdminShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scaffoldKey = GlobalKey<ScaffoldState>();
     final authController = context.watch<AuthController>();
     final realtimeController = context.watch<RealtimeController>();
     final location = GoRouterState.of(context).uri.path;
@@ -78,14 +77,35 @@ class AdminShell extends StatelessWidget {
           compact: !wide,
         );
 
+        if (compact) {
+          return Scaffold(
+            drawer: Drawer(
+              width: drawerWidth,
+              child: SafeArea(child: sidebar),
+            ),
+            backgroundColor: const Color(0xFFF0F3F8),
+            appBar: _MobileShellAppBar(
+              title: currentItem?.label ?? _companyName,
+              realtimeController: realtimeController,
+            ),
+            body: SafeArea(
+              top: false,
+              child: Column(
+                children: [
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 18),
+                      child: child,
+                    ),
+                  ),
+                  const _ShellFooter(),
+                ],
+              ),
+            ),
+          );
+        }
+
         return Scaffold(
-          key: scaffoldKey,
-          drawer: wide
-              ? null
-              : Drawer(
-                  width: drawerWidth,
-                  child: SafeArea(child: sidebar),
-                ),
           backgroundColor: const Color(0xFFF0F3F8),
           body: SafeArea(
             child: Row(
@@ -111,11 +131,7 @@ class AdminShell extends StatelessWidget {
                           _TopBar(
                             title: currentItem?.label ?? _companyName,
                             realtimeController: realtimeController,
-                            onOpenMenu: wide
-                                ? null
-                                : () {
-                                    scaffoldKey.currentState?.openDrawer();
-                                  },
+                            onOpenMenu: null,
                           ),
                           Expanded(
                             child: Padding(
@@ -139,6 +155,97 @@ class AdminShell extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _MobileShellAppBar extends StatelessWidget implements PreferredSizeWidget {
+  const _MobileShellAppBar({
+    required this.title,
+    required this.realtimeController,
+  });
+
+  final String title;
+  final RealtimeController realtimeController;
+
+  @override
+  Size get preferredSize => const Size.fromHeight(72);
+
+  @override
+  Widget build(BuildContext context) {
+    final authController = context.watch<AuthController>();
+
+    return AppBar(
+      automaticallyImplyLeading: true,
+      elevation: 0,
+      scrolledUnderElevation: 0,
+      backgroundColor: Colors.white,
+      surfaceTintColor: Colors.white,
+      foregroundColor: const Color(0xFF173450),
+      titleSpacing: 4,
+      title: Text(
+        title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              color: const Color(0xFF0D2640),
+              fontWeight: FontWeight.w800,
+            ),
+      ),
+      actions: [
+        Padding(
+          padding: const EdgeInsets.only(right: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _ConnectionIndicator(isConnected: realtimeController.isConnected),
+              const SizedBox(width: 8),
+              PopupMenuButton<String>(
+                tooltip: 'Sesion',
+                onSelected: (value) async {
+                  if (value == 'logout') {
+                    await context.read<AuthController>().signOut();
+                    if (context.mounted) {
+                      context.go('/login');
+                    }
+                  }
+                },
+                itemBuilder: (context) => const [
+                  PopupMenuItem<String>(
+                    value: 'logout',
+                    child: Text('Cerrar sesion'),
+                  ),
+                ],
+                child: Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF7F8FB),
+                    border: Border.all(color: const Color(0xFFE4EAF2)),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    (authController.user?.fullName.isNotEmpty == true
+                            ? authController.user!.fullName[0]
+                            : 'U')
+                        .toUpperCase(),
+                    style: const TextStyle(
+                      color: Color(0xFF173450),
+                      fontWeight: FontWeight.w800,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+      bottom: PreferredSize(
+        preferredSize: const Size.fromHeight(1),
+        child: Container(height: 1, color: const Color(0xFFECEFF3)),
+      ),
     );
   }
 }
