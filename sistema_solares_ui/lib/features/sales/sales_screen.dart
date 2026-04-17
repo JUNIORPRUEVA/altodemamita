@@ -35,9 +35,9 @@ class _SalesScreenState extends State<SalesScreen> {
 
     if (_future == null || refreshTick != _lastTick) {
       _lastTick = refreshTick;
-      _future = SalesService(context.read<ApiClient>()).fetch(
-        search: _searchController.text,
-      );
+      _future = SalesService(
+        context.read<ApiClient>(),
+      ).fetch(search: _searchController.text);
     }
 
     return FutureBuilder<SalesPageData>(
@@ -54,6 +54,7 @@ class _SalesScreenState extends State<SalesScreen> {
         }
 
         final data = snapshot.data!;
+        final compact = MediaQuery.sizeOf(context).width < 760;
         return DesktopPageScaffold(
           title: 'Ventas',
           subtitle: 'Consulta de ventas y detalle de operaciones registradas.',
@@ -125,23 +126,28 @@ class _SalesScreenState extends State<SalesScreen> {
                     ? const DesktopEmptyState(
                         icon: Icons.point_of_sale_outlined,
                         title: 'No hay ventas para este filtro',
-                        message: 'Prueba otra busqueda o espera a la siguiente sincronizacion del backend.',
+                        message:
+                            'Prueba otra busqueda o espera a la siguiente sincronizacion del backend.',
                       )
                     : DesktopModuleList(
                         children: data.items.map((item) {
                           final status = item['status']?.toString() ?? '-';
                           final client = _fullName(item['client']);
-                          final product = _readNested(item, ['product', 'name']) ?? 'Sin solar';
+                          final product =
+                              _readNested(item, ['product', 'name']) ??
+                              'Sin solar';
                           final contract = item['contractNumber']?.toString();
                           final subtitleParts = <String>[
-                            if (contract != null && contract.trim().isNotEmpty) contract,
+                            if (contract != null && contract.trim().isNotEmpty)
+                              contract,
                             product,
                             _formatDate(item['saleDate']),
                           ];
 
                           return DesktopListRow(
-                            height: 88,
-                            onTap: () => _openDetail(item['id']?.toString() ?? ''),
+                            height: compact ? 108 : 88,
+                            onTap: () =>
+                                _openDetail(item['id']?.toString() ?? ''),
                             leading: Container(
                               width: 44,
                               height: 44,
@@ -156,12 +162,16 @@ class _SalesScreenState extends State<SalesScreen> {
                             ),
                             title: Text(
                               client,
-                              style: const TextStyle(fontWeight: FontWeight.w800),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                              ),
+                              maxLines: compact ? 2 : 1,
                               overflow: TextOverflow.ellipsis,
                             ),
                             subtitle: Text(
-                              subtitleParts.join('  •  '),
+                              subtitleParts.join(compact ? '\n' : '  •  '),
                               style: const TextStyle(color: Color(0xFF6E7791)),
+                              maxLines: compact ? 3 : 1,
                               overflow: TextOverflow.ellipsis,
                             ),
                             trailing: Wrap(
@@ -170,7 +180,9 @@ class _SalesScreenState extends State<SalesScreen> {
                               children: [
                                 _StatusTag(status: status),
                                 DesktopTag(
-                                  label: currency.format(_asNum(item['totalAmount'])),
+                                  label: currency.format(
+                                    _asNum(item['totalAmount']),
+                                  ),
                                   background: const Color(0xFFF6EFE3),
                                   foreground: const Color(0xFF8C5A2C),
                                 ),
@@ -199,7 +211,9 @@ class _SalesScreenState extends State<SalesScreen> {
     );
 
     try {
-      final detail = await SalesService(context.read<ApiClient>()).fetchDetail(id);
+      final detail = await SalesService(
+        context.read<ApiClient>(),
+      ).fetchDetail(id);
       if (!mounted) {
         return;
       }
@@ -213,9 +227,9 @@ class _SalesScreenState extends State<SalesScreen> {
         return;
       }
       Navigator.of(context, rootNavigator: true).pop();
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text(error.toString())),
-      );
+      ScaffoldMessenger.maybeOf(
+        context,
+      )?.showSnackBar(SnackBar(content: Text(error.toString())));
     }
   }
 
@@ -314,9 +328,10 @@ class _SaleDetailDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final currency = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$ ');
-    final installments = (detail['installments'] as List<dynamic>? ?? const <dynamic>[])
-        .map(_asMap)
-        .toList();
+    final installments =
+        (detail['installments'] as List<dynamic>? ?? const <dynamic>[])
+            .map(_asMap)
+            .toList();
     final payments = (detail['payments'] as List<dynamic>? ?? const <dynamic>[])
         .map(_asMap)
         .toList();
@@ -335,9 +350,8 @@ class _SaleDetailDialog extends StatelessWidget {
                   Expanded(
                     child: Text(
                       'Detalle de venta',
-                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(fontWeight: FontWeight.w800),
                     ),
                   ),
                   IconButton(
@@ -360,7 +374,9 @@ class _SaleDetailDialog extends StatelessWidget {
                         ),
                         DesktopStackedStat(
                           label: 'Solar',
-                          value: _readNested(detail, ['product', 'name']) ?? 'Sin solar',
+                          value:
+                              _readNested(detail, ['product', 'name']) ??
+                              'Sin solar',
                         ),
                         DesktopStackedStat(
                           label: 'Contrato',
@@ -376,7 +392,9 @@ class _SaleDetailDialog extends StatelessWidget {
                         ),
                         DesktopStackedStat(
                           label: 'Saldo',
-                          value: currency.format(_asNum(detail['outstandingBalance'])),
+                          value: currency.format(
+                            _asNum(detail['outstandingBalance']),
+                          ),
                         ),
                       ],
                     ),
@@ -389,15 +407,21 @@ class _SaleDetailDialog extends StatelessWidget {
                         children: [
                           DesktopStackedStat(
                             label: 'Inicial',
-                            value: currency.format(_asNum(detail['downPayment'])),
+                            value: currency.format(
+                              _asNum(detail['downPayment']),
+                            ),
                           ),
                           DesktopStackedStat(
                             label: 'Monto financiado',
-                            value: currency.format(_asNum(detail['financedAmount'])),
+                            value: currency.format(
+                              _asNum(detail['financedAmount']),
+                            ),
                           ),
                           DesktopStackedStat(
                             label: 'Pagado',
-                            value: currency.format(_asNum(detail['paidAmount'])),
+                            value: currency.format(
+                              _asNum(detail['paidAmount']),
+                            ),
                           ),
                           DesktopStackedStat(
                             label: 'Plazo',
@@ -409,7 +433,9 @@ class _SaleDetailDialog extends StatelessWidget {
                           ),
                           DesktopStackedStat(
                             label: 'Responsable',
-                            value: _readNested(detail, ['user', 'fullName']) ?? '-',
+                            value:
+                                _readNested(detail, ['user', 'fullName']) ??
+                                '-',
                           ),
                         ],
                       ),
@@ -421,7 +447,8 @@ class _SaleDetailDialog extends StatelessWidget {
                           ? const DesktopEmptyState(
                               icon: Icons.event_note_outlined,
                               title: 'Sin cuotas registradas',
-                              message: 'Esta venta no tiene cuotas generadas en el backend.',
+                              message:
+                                  'Esta venta no tiene cuotas generadas en el backend.',
                             )
                           : Column(
                               children: installments.map((installment) {
@@ -430,14 +457,20 @@ class _SaleDetailDialog extends StatelessWidget {
                                     dense: true,
                                     title: Text(
                                       'Cuota ${installment['installmentNumber'] ?? '-'}',
-                                      style: const TextStyle(fontWeight: FontWeight.w700),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                      ),
                                     ),
                                     subtitle: Text(
                                       'Vence ${_formatDate(installment['dueDate'])}  •  Pagado ${currency.format(_asNum(installment['paidAmount']))}',
                                     ),
                                     trailing: Text(
-                                      currency.format(_asNum(installment['amount'])),
-                                      style: const TextStyle(fontWeight: FontWeight.w800),
+                                      currency.format(
+                                        _asNum(installment['amount']),
+                                      ),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                      ),
                                     ),
                                   ),
                                 );
@@ -451,7 +484,8 @@ class _SaleDetailDialog extends StatelessWidget {
                           ? const DesktopEmptyState(
                               icon: Icons.payments_outlined,
                               title: 'Sin pagos registrados',
-                              message: 'Esta venta aun no tiene pagos aplicados.',
+                              message:
+                                  'Esta venta aun no tiene pagos aplicados.',
                             )
                           : Column(
                               children: payments.map((payment) {
@@ -460,12 +494,20 @@ class _SaleDetailDialog extends StatelessWidget {
                                     dense: true,
                                     title: Text(
                                       payment['method']?.toString() ?? 'Pago',
-                                      style: const TextStyle(fontWeight: FontWeight.w700),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                      ),
                                     ),
-                                    subtitle: Text(_formatDate(payment['paymentDate'])),
+                                    subtitle: Text(
+                                      _formatDate(payment['paymentDate']),
+                                    ),
                                     trailing: Text(
-                                      currency.format(_asNum(payment['amount'])),
-                                      style: const TextStyle(fontWeight: FontWeight.w800),
+                                      currency.format(
+                                        _asNum(payment['amount']),
+                                      ),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                      ),
                                     ),
                                   ),
                                 );
@@ -492,8 +534,8 @@ class _SaleDetailDialog extends StatelessWidget {
     final map = value is Map<String, dynamic>
         ? value
         : value is Map
-            ? value.map((key, val) => MapEntry(key.toString(), val))
-            : const <String, dynamic>{};
+        ? value.map((key, val) => MapEntry(key.toString(), val))
+        : const <String, dynamic>{};
     final firstName = map['firstName']?.toString() ?? '';
     final lastName = map['lastName']?.toString() ?? '';
     final fullName = '$firstName $lastName'.trim();

@@ -46,6 +46,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         final data = snapshot.data!;
         final auth = context.watch<AuthController>();
         final realtime = context.watch<RealtimeController>();
+        final compact = MediaQuery.sizeOf(context).width < 760;
 
         return DesktopPageScaffold(
           title: 'Configuracion',
@@ -58,7 +59,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   children: [
                     const Text(
                       'Estado general del sistema',
-                      style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                     const SizedBox(height: 16),
                     Wrap(
@@ -75,7 +79,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                         _InfoTile(
                           title: 'Realtime',
-                          value: realtime.isConnected ? 'Conectado' : 'Desconectado',
+                          value: realtime.isConnected
+                              ? 'Conectado'
+                              : 'Desconectado',
                         ),
                         _InfoTile(
                           title: 'Usuario actual',
@@ -94,12 +100,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               const SizedBox(height: 16),
               DesktopSurface(
+                radius: compact ? 18 : 20,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
                       'Sesion actual',
-                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                     const SizedBox(height: 12),
                     Wrap(
@@ -120,7 +130,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                         _InfoTile(
                           title: 'Conexion realtime',
-                          value: realtime.isConnected ? 'En linea' : 'Sin conexion',
+                          value: realtime.isConnected
+                              ? 'En linea'
+                              : 'Sin conexion',
                         ),
                       ],
                     ),
@@ -134,9 +146,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ? const DesktopEmptyState(
                         icon: Icons.badge_outlined,
                         title: 'No hay roles configurados',
-                        message: 'El backend no devolvio roles para esta instalacion.',
+                        message:
+                            'El backend no devolvio roles para esta instalacion.',
                       )
                     : DesktopSurface(
+                        radius: compact ? 18 : 20,
                         padding: const EdgeInsets.all(16),
                         child: Wrap(
                           spacing: 8,
@@ -144,11 +158,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           children: data.roles
                               .map(
                                 (role) => Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 8,
+                                  ),
                                   decoration: BoxDecoration(
                                     color: const Color(0xFFF1F4FA),
                                     borderRadius: BorderRadius.circular(999),
-                                    border: Border.all(color: const Color(0xFFE4EAF2)),
+                                    border: Border.all(
+                                      color: const Color(0xFFE4EAF2),
+                                    ),
                                   ),
                                   child: Text('${role.name} (${role.code})'),
                                 ),
@@ -164,9 +183,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ? const DesktopEmptyState(
                         icon: Icons.verified_user_outlined,
                         title: 'No hay permisos vigentes',
-                        message: 'No se encontraron permisos asignados para la configuracion actual.',
+                        message:
+                            'No se encontraron permisos asignados para la configuracion actual.',
                       )
                     : DesktopSurface(
+                        radius: compact ? 18 : 20,
                         padding: const EdgeInsets.all(16),
                         child: Wrap(
                           spacing: 8,
@@ -174,11 +195,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           children: data.permissions
                               .map(
                                 (permission) => Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 8,
+                                  ),
                                   decoration: BoxDecoration(
                                     color: const Color(0xFFF6EFE3),
                                     borderRadius: BorderRadius.circular(999),
-                                    border: Border.all(color: const Color(0xFFE4EAF2)),
+                                    border: Border.all(
+                                      color: const Color(0xFFE4EAF2),
+                                    ),
                                   ),
                                   child: Text(permission),
                                 ),
@@ -203,9 +229,6 @@ class _InfoTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DesktopStackedStat(
-      label: title,
-      value: value,
-    );
+    return DesktopStackedStat(label: title, value: value);
   }
 }

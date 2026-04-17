@@ -58,6 +58,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
         }
 
         final data = snapshot.data!;
+        final compact = MediaQuery.sizeOf(context).width < 760;
         return DesktopPageScaffold(
           title: 'Solares',
           subtitle: 'Inventario disponible para consulta y verificacion.',
@@ -144,15 +145,21 @@ class _ProductsScreenState extends State<ProductsScreen> {
                     ? const DesktopEmptyState(
                         icon: Icons.domain_disabled_outlined,
                         title: 'No hay solares para estos filtros',
-                        message: 'Ajusta la busqueda o habilita mas estados para revisar el inventario sincronizado.',
+                        message:
+                            'Ajusta la busqueda o habilita mas estados para revisar el inventario sincronizado.',
                       )
                     : DesktopModuleList(
                         children: data.items.map((item) {
                           final code = item['code']?.toString() ?? '-';
                           final name = item['name']?.toString() ?? 'Sin nombre';
-                          final stock = _readNum(item['stock']).toStringAsFixed(0);
+                          final stock = _readNum(
+                            item['stock'],
+                          ).toStringAsFixed(0);
+                          final subtitleText = compact
+                              ? 'Contado ${currency.format(_readNum(item['price']))}\nFinanciado ${currency.format(_readNum(item['financingPrice']))}\nStock $stock'
+                              : 'Contado ${currency.format(_readNum(item['price']))}  •  Financiado ${currency.format(_readNum(item['financingPrice']))}  •  Stock $stock';
                           return DesktopListRow(
-                            height: 82,
+                            height: compact ? 116 : 82,
                             leading: Container(
                               width: 44,
                               height: 44,
@@ -160,16 +167,23 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                 color: const Color(0xFFEAF0F7),
                                 borderRadius: BorderRadius.circular(14),
                               ),
-                              child: const Icon(Icons.map_outlined, color: Color(0xFF2C4766)),
+                              child: const Icon(
+                                Icons.map_outlined,
+                                color: Color(0xFF2C4766),
+                              ),
                             ),
                             title: Text(
                               '$code  •  $name',
-                              style: const TextStyle(fontWeight: FontWeight.w800),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                              ),
+                              maxLines: compact ? 2 : 1,
                               overflow: TextOverflow.ellipsis,
                             ),
                             subtitle: Text(
-                              'Contado ${currency.format(_readNum(item['price']))}  •  Financiado ${currency.format(_readNum(item['financingPrice']))}  •  Stock $stock',
+                              subtitleText,
                               style: const TextStyle(color: Color(0xFF6E7791)),
+                              maxLines: compact ? 3 : 1,
                               overflow: TextOverflow.ellipsis,
                             ),
                             trailing: _StatusBadge(
@@ -203,6 +217,7 @@ class _StatusBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final compact = MediaQuery.sizeOf(context).width < 760;
     late final Color background;
     late final Color textColor;
     late final String label;
@@ -222,14 +237,21 @@ class _StatusBadge extends StatelessWidget {
     }
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 14 : 12,
+        vertical: compact ? 9 : 8,
+      ),
       decoration: BoxDecoration(
         color: background,
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
         label,
-        style: TextStyle(color: textColor, fontWeight: FontWeight.w700),
+        style: TextStyle(
+          color: textColor,
+          fontWeight: FontWeight.w700,
+          fontSize: compact ? 13 : 12,
+        ),
       ),
     );
   }

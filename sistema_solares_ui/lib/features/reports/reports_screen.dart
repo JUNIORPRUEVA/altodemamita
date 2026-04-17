@@ -30,7 +30,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
     final refreshTick = context.watch<RealtimeController>().refreshTick;
     if (_future == null || refreshTick != _lastTick) {
       _lastTick = refreshTick;
-      _future = ReportsService(context.read<ApiClient>()).fetchBundle(days: _days);
+      _future = ReportsService(
+        context.read<ApiClient>(),
+      ).fetchBundle(days: _days);
     }
 
     return FutureBuilder<ReportsBundle>(
@@ -86,7 +88,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   ];
                 }).toList(),
                 emptyTitle: 'Sin ventas en el periodo',
-                emptyMessage: 'Amplia el rango o espera nueva sincronizacion para ver ventas recientes.',
+                emptyMessage:
+                    'Amplia el rango o espera nueva sincronizacion para ver ventas recientes.',
               ),
               const SizedBox(height: 16),
               _ReportTable(
@@ -102,7 +105,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   ];
                 }).toList(),
                 emptyTitle: 'Sin pagos en el periodo',
-                emptyMessage: 'No hay pagos sincronizados dentro del rango seleccionado.',
+                emptyMessage:
+                    'No hay pagos sincronizados dentro del rango seleccionado.',
               ),
               const SizedBox(height: 16),
               _ReportTable(
@@ -118,7 +122,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   ];
                 }).toList(),
                 emptyTitle: 'Sin cuotas vencidas',
-                emptyMessage: 'La cartera no reporta morosidad para este corte.',
+                emptyMessage:
+                    'La cartera no reporta morosidad para este corte.',
               ),
             ],
           ),
@@ -159,8 +164,11 @@ class _ReportTable extends StatelessWidget {
                 ),
               ]
             : rows.map((row) {
-                final details = row.length > 2 ? row.sublist(1, row.length - 1).join('  •  ') : '';
+                final details = row.length > 2
+                    ? row.sublist(1, row.length - 1).join('\n')
+                    : '';
                 return DesktopListRow(
+                  height: 112,
                   leading: Container(
                     width: 40,
                     height: 40,
@@ -168,12 +176,20 @@ class _ReportTable extends StatelessWidget {
                       color: const Color(0xFFF1F4FA),
                       borderRadius: BorderRadius.circular(14),
                     ),
-                    child: const Icon(Icons.description_outlined, color: Color(0xFF223048)),
+                    child: const Icon(
+                      Icons.description_outlined,
+                      color: Color(0xFF223048),
+                    ),
                   ),
-                  title: Text(row.first, style: const TextStyle(fontWeight: FontWeight.w800)),
+                  title: Text(
+                    row.first,
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
                   subtitle: Text(
                     details,
                     style: const TextStyle(color: Color(0xFF6E7791)),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
                   ),
                   trailing: DesktopTag(
                     label: row.last,
@@ -196,7 +212,9 @@ class _ReportTable extends StatelessWidget {
           : SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: DataTable(
-                columns: columns.map((label) => DataColumn(label: Text(label))).toList(),
+                columns: columns
+                    .map((label) => DataColumn(label: Text(label)))
+                    .toList(),
                 rows: rows
                     .map(
                       (row) => DataRow(

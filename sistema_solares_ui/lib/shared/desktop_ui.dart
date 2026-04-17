@@ -23,12 +23,15 @@ class DesktopPageScaffold extends StatelessWidget {
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
     final compact = width < 760;
+    final headerPadding = compact
+        ? const EdgeInsets.fromLTRB(2, 0, 2, 12)
+        : const EdgeInsets.fromLTRB(4, 4, 4, 16);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(4, 4, 4, 16),
+          padding: headerPadding,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -180,19 +183,21 @@ class DesktopSearchField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final compact = MediaQuery.sizeOf(context).width < 760;
+
     return SizedBox(
-      height: 46,
+      height: compact ? 52 : 46,
       child: TextField(
         controller: controller,
-        style: const TextStyle(fontSize: 14, color: _desktopInk),
+        style: TextStyle(fontSize: compact ? 15 : 14, color: _desktopInk),
         onSubmitted: onSubmitted,
         decoration: InputDecoration(
           hintText: hintText,
-          prefixIcon: const Icon(Icons.search, size: 18),
+          prefixIcon: Icon(Icons.search, size: compact ? 20 : 18),
           isDense: true,
-          contentPadding: const EdgeInsets.symmetric(
+          contentPadding: EdgeInsets.symmetric(
             horizontal: 16,
-            vertical: 12,
+            vertical: compact ? 14 : 12,
           ),
         ),
       ),
@@ -270,17 +275,22 @@ class DesktopModuleList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final compact = MediaQuery.sizeOf(context).width < 760;
+
     return Container(
       decoration: BoxDecoration(
         color: _desktopSurface,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(compact ? 18 : 24),
         border: Border.all(color: _desktopOutline),
       ),
       child: ListView.separated(
         padding: EdgeInsets.zero,
         itemCount: children.length,
-        separatorBuilder: (_, _) =>
-            const Divider(height: 1, indent: 72, endIndent: 16),
+        separatorBuilder: (_, _) => Divider(
+          height: 1,
+          indent: compact ? 16 : 72,
+          endIndent: compact ? 16 : 16,
+        ),
         itemBuilder: (context, index) => children[index],
       ),
     );
@@ -302,6 +312,34 @@ class DesktopPlainSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final compact = MediaQuery.sizeOf(context).width < 760;
+
+    if (compact && trailing != null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: _desktopInk,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                trailing!,
+              ],
+            ),
+          ),
+          child,
+        ],
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -357,8 +395,8 @@ class DesktopListRow extends StatelessWidget {
     final compact = MediaQuery.sizeOf(context).width < 760;
     return InkWell(
       onTap: onTap,
-      child: SizedBox(
-        height: compact ? height + 10 : height,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(minHeight: compact ? height + 10 : height),
         child: Padding(
           padding: EdgeInsets.symmetric(
             horizontal: compact ? 14 : 18,
@@ -464,7 +502,35 @@ class DesktopDataListSection extends StatelessWidget {
     return DesktopPlainSection(
       title: title,
       trailing: trailing,
-      child: DesktopModuleList(children: children),
+      child: MediaQuery.sizeOf(context).width < 760
+          ? _StaticModuleList(children: children)
+          : DesktopModuleList(children: children),
+    );
+  }
+}
+
+class _StaticModuleList extends StatelessWidget {
+  const _StaticModuleList({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: _desktopSurface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: _desktopOutline),
+      ),
+      child: Column(
+        children: [
+          for (var index = 0; index < children.length; index++) ...[
+            children[index],
+            if (index != children.length - 1)
+              const Divider(height: 1, indent: 16, endIndent: 16),
+          ],
+        ],
+      ),
     );
   }
 }
@@ -505,8 +571,14 @@ class DesktopStackedStat extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final compact = MediaQuery.sizeOf(context).width < 760;
+    final compactWidth = (MediaQuery.sizeOf(context).width - 24)
+        .clamp(220.0, 640.0)
+        .toDouble();
+
     return Container(
-      constraints: const BoxConstraints(minWidth: 150),
+      width: compact ? compactWidth : null,
+      constraints: compact ? null : const BoxConstraints(minWidth: 150),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: _desktopSurface,
@@ -616,6 +688,8 @@ class DesktopTableCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final compact = MediaQuery.sizeOf(context).width < 760;
+
     return DesktopSurface(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -625,8 +699,8 @@ class DesktopTableCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   title,
-                  style: const TextStyle(
-                    fontSize: 20,
+                  style: TextStyle(
+                    fontSize: compact ? 18 : 20,
                     fontWeight: FontWeight.w700,
                     color: _desktopInk,
                   ),

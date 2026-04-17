@@ -393,72 +393,73 @@ class _TopBar extends StatelessWidget {
                         fontWeight: FontWeight.w700,
                         fontSize: 15.5,
                       ),
-                      const SizedBox(width: 10),
-                      sessionMenu,
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        authController.user?.fullName ?? 'Sin usuario',
-
-            class _TopBarActionButton extends StatelessWidget {
-              const _TopBarActionButton({
-                required this.icon,
-                required this.tooltip,
-                required this.onPressed,
-              });
-
-              final IconData icon;
-              final String tooltip;
-              final VoidCallback? onPressed;
-
-              @override
-              Widget build(BuildContext context) {
-                return Tooltip(
-                  message: tooltip,
-                  child: Material(
-                    color: const Color(0xFFF7F8FB),
-                    borderRadius: BorderRadius.circular(18),
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(18),
-                      onTap: onPressed,
-                      child: Container(
-                        width: 52,
-                        height: 52,
-                        decoration: BoxDecoration(
-                          border: Border.all(color: const Color(0xFFE4EAF2)),
-                          borderRadius: BorderRadius.circular(18),
-                        ),
-                        child: Icon(icon, size: 28, color: const Color(0xFF173450)),
-                      ),
-                    ),
+                ),
+                const SizedBox(height: 1),
+                Text(
+                  'Sistema Solares',
+                  style: TextStyle(
+                    color: const Color(0xFF0D2640).withValues(alpha: 0.32),
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w400,
                   ),
-                );
-              }
-            }
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF0D2640),
-                        ),
-                      ),
-                      if (!compact)
-                        Text(
-                          authController.user?.panelRole == PanelRole.admin
-                              ? 'Administrador'
-                              : 'Supervisor',
-                          style: const TextStyle(
-                            color: Color(0xFF6F7891),
-                            fontSize: 12,
-                          ),
-                        ),
-                    ],
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
-          ],
+          const SizedBox(width: 10),
+          _HeaderBadge(
+            icon: realtimeController.isConnected
+                ? Icons.wifi_tethering_rounded
+                : Icons.wifi_off_rounded,
+            label: realtimeController.isConnected
+                ? 'Realtime activo'
+                : 'Realtime desconectado',
+            color: realtimeController.isConnected
+                ? const Color(0xFF2BB673)
+                : const Color(0xFF6B7682),
+            fill: realtimeController.isConnected
+                ? const Color(0xFFE9F8F0)
+                : const Color(0xFFF1F4F8),
+          ),
+          const SizedBox(width: 10),
+          sessionMenu,
         ],
+      ),
+    );
+  }
+}
+
+class _TopBarActionButton extends StatelessWidget {
+  const _TopBarActionButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: const Color(0xFFF7F8FB),
+        borderRadius: BorderRadius.circular(18),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: onPressed,
+          child: Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              border: Border.all(color: const Color(0xFFE4EAF2)),
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: Icon(icon, size: 28, color: const Color(0xFF173450)),
+          ),
+        ),
       ),
     );
   }

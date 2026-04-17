@@ -32,9 +32,9 @@ class _ClientsScreenState extends State<ClientsScreen> {
     final refreshTick = context.watch<RealtimeController>().refreshTick;
     if (_future == null || refreshTick != _lastTick) {
       _lastTick = refreshTick;
-      _future = ClientsService(context.read<ApiClient>()).fetch(
-        search: _searchController.text,
-      );
+      _future = ClientsService(
+        context.read<ApiClient>(),
+      ).fetch(search: _searchController.text);
     }
 
     return FutureBuilder<ClientsPage>(
@@ -51,6 +51,7 @@ class _ClientsScreenState extends State<ClientsScreen> {
         }
 
         final data = snapshot.data!;
+        final compact = MediaQuery.sizeOf(context).width < 760;
         return DesktopPageScaffold(
           title: 'Clientes',
           subtitle: 'Consulta y seguimiento de clientes registrados.',
@@ -100,21 +101,30 @@ class _ClientsScreenState extends State<ClientsScreen> {
                     ? const DesktopEmptyState(
                         icon: Icons.people_outline_rounded,
                         title: 'No hay clientes para este filtro',
-                        message: 'Prueba otro termino de busqueda o espera a la siguiente sincronizacion.',
+                        message:
+                            'Prueba otro termino de busqueda o espera a la siguiente sincronizacion.',
                       )
                     : DesktopModuleList(
                         children: data.items.map((item) {
                           final fullName =
-                              '${item['firstName'] ?? ''} ${item['lastName'] ?? ''}'.trim();
-                          final documentId = item['documentId']?.toString() ?? 'Sin documento';
-                          final phone = item['phone']?.toString() ?? 'Sin telefono';
+                              '${item['firstName'] ?? ''} ${item['lastName'] ?? ''}'
+                                  .trim();
+                          final documentId =
+                              item['documentId']?.toString() ?? 'Sin documento';
+                          final phone =
+                              item['phone']?.toString() ?? 'Sin telefono';
                           final code = item['code']?.toString() ?? '-';
+                          final subtitleText = compact
+                              ? '$documentId\n$phone\n${item['email']?.toString() ?? 'Sin correo'}'
+                              : '$documentId  •  $phone  •  ${item['email']?.toString() ?? 'Sin correo'}';
                           return DesktopListRow(
+                            height: compact ? 108 : 72,
                             leading: CircleAvatar(
                               radius: 22,
                               backgroundColor: const Color(0xFFEFF3FB),
                               child: Text(
-                                (fullName.isNotEmpty ? fullName[0] : 'C').toUpperCase(),
+                                (fullName.isNotEmpty ? fullName[0] : 'C')
+                                    .toUpperCase(),
                                 style: const TextStyle(
                                   color: Color(0xFF223048),
                                   fontWeight: FontWeight.w800,
@@ -123,15 +133,23 @@ class _ClientsScreenState extends State<ClientsScreen> {
                             ),
                             title: Text(
                               fullName.isEmpty ? 'Sin nombre' : fullName,
-                              style: const TextStyle(fontWeight: FontWeight.w800),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                              ),
+                              maxLines: compact ? 2 : 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                             subtitle: Text(
-                              '$documentId  •  $phone  •  ${item['email']?.toString() ?? 'Sin correo'}',
+                              subtitleText,
                               style: const TextStyle(color: Color(0xFF6E7791)),
+                              maxLines: compact ? 3 : 1,
                               overflow: TextOverflow.ellipsis,
                             ),
                             trailing: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
                               decoration: BoxDecoration(
                                 color: const Color(0xFFF6EFE3),
                                 borderRadius: BorderRadius.circular(999),
