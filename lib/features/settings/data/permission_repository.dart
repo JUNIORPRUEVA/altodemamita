@@ -1,6 +1,7 @@
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:sistema_solares/core/database/database_schema.dart';
+import 'package:sistema_solares/core/system/system_config_service.dart';
 import '../domain/permission.dart';
 
 class PermissionRepository {
@@ -40,6 +41,8 @@ class PermissionRepository {
   }
 
   Future<Permission> savePermission(Permission permission) async {
+    SystemConfigService.instance.ensureWritable();
+
     final existing = await getPermission(permission.usuarioId, permission.modulo);
 
     if (existing != null) {
@@ -60,6 +63,8 @@ class PermissionRepository {
   }
 
   Future<void> deletePermissionsForUser(int usuarioId) async {
+    SystemConfigService.instance.ensureWritable();
+
     await database.delete(
       DatabaseSchema.permissionsTable,
       where: 'usuario_id = ?',

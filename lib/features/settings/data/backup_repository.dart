@@ -1,6 +1,7 @@
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:sistema_solares/core/database/database_schema.dart';
+import 'package:sistema_solares/core/system/system_config_service.dart';
 import '../domain/backup_info.dart';
 
 class BackupRepository {
@@ -40,6 +41,8 @@ class BackupRepository {
   }
 
   Future<BackupInfo> saveBackup(BackupInfo backup) async {
+    SystemConfigService.instance.ensureWritable();
+
     final id = await database.insert(
       DatabaseSchema.backupInfoTable,
       backup.toMap(),
@@ -49,6 +52,8 @@ class BackupRepository {
   }
 
   Future<void> deleteBackup(int id) async {
+    SystemConfigService.instance.ensureWritable();
+
     await database.delete(
       DatabaseSchema.backupInfoTable,
       where: 'id = ?',
@@ -57,6 +62,8 @@ class BackupRepository {
   }
 
   Future<void> deleteBackupByFileName(String fileName) async {
+    SystemConfigService.instance.ensureWritable();
+
     await database.delete(
       DatabaseSchema.backupInfoTable,
       where: 'nombre_archivo = ?',
@@ -73,7 +80,9 @@ class BackupRepository {
       );
 
       if (maps.isEmpty) {
-        await _initializePreferences();
+        if (!SystemConfigService.instance.isReadOnly) {
+          await _initializePreferences();
+        }
         return BackupPreferences.defaults();
       }
 
@@ -84,6 +93,8 @@ class BackupRepository {
   }
 
   Future<void> saveBackupPreferences(BackupPreferences prefs) async {
+    SystemConfigService.instance.ensureWritable();
+
     final existing = await getBackupPreferences();
 
     if (existing.id != null) {

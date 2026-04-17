@@ -1,6 +1,7 @@
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:sistema_solares/core/database/database_schema.dart';
+import 'package:sistema_solares/core/system/system_config_service.dart';
 import '../domain/settings_user.dart';
 
 class SettingsUserRepository {
@@ -39,6 +40,8 @@ class SettingsUserRepository {
   }
 
   Future<SettingsUser> createUser(SettingsUser user) async {
+    SystemConfigService.instance.ensureWritable();
+
     final id = await database.insert(
       DatabaseSchema.usersTable,
       user.toMap(),
@@ -47,6 +50,8 @@ class SettingsUserRepository {
   }
 
   Future<void> updateUser(SettingsUser user) async {
+    SystemConfigService.instance.ensureWritable();
+
     if (user.id == null) {
       throw Exception('User ID cannot be null');
     }
@@ -60,6 +65,8 @@ class SettingsUserRepository {
   }
 
   Future<void> deleteUser(int id) async {
+    SystemConfigService.instance.ensureWritable();
+
     await database.delete(
       DatabaseSchema.usersTable,
       where: 'id = ?',

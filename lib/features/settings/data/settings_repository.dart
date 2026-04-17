@@ -2,6 +2,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_schema.dart';
+import '../../../core/system/system_config_service.dart';
 import '../domain/app_setting.dart';
 
 class SettingsRepository {
@@ -49,11 +50,23 @@ class SettingsRepository {
   Future<Map<String, AppSetting>> fetchByKeysWithDefaults(
     Map<String, String> defaults,
   ) async {
-    await ensureDefaults(defaults);
-    return fetchByKeys(defaults.keys.toList());
+    final existing = await fetchByKeys(defaults.keys.toList());
+    return {
+      for (final entry in defaults.entries)
+        entry.key: existing[entry.key] ??
+            AppSetting(
+              key: entry.key,
+              value: entry.value,
+              updatedAt: DateTime.fromMillisecondsSinceEpoch(0),
+            ),
+    };
   }
 
   Future<void> ensureDefaults([Map<String, String> defaults = defaultSettings]) async {
+    if (SystemConfigService.instance.isReadOnly) {
+      return;
+    }
+
     final existing = await fetchByKeys(defaults.keys.toList());
     final missingEntries = defaults.entries
         .where((entry) => !existing.containsKey(entry.key))
@@ -79,6 +92,8 @@ class SettingsRepository {
   }
 
   Future<void> upsert(String key, String value) async {
+    SystemConfigService.instance.ensureWritable();
+
     final db = await _appDatabase.database;
     await db.insert(DatabaseSchema.settingsTable, {
       'clave': key,
@@ -89,6 +104,8 @@ class SettingsRepository {
 
   Future<void> saveMultiple(Map<String, String> keyValues) async {
     if (keyValues.isEmpty) return;
+    SystemConfigService.instance.ensureWritable();
+
     final db = await _appDatabase.database;
     final batch = db.batch();
     final now = DateTime.now().toIso8601String();

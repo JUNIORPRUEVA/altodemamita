@@ -391,10 +391,14 @@ class AuthService {
     if (currentCode != null && currentCode.isNotEmpty) {
       return currentCode;
     }
+
+    SystemConfigService.instance.ensureWritable();
     return _writeNewAdminRecoveryCode(db);
   }
 
   Future<String> regenerateAdminRecoveryCode() async {
+    SystemConfigService.instance.ensureWritable();
+
     final db = await _appDatabase.database;
     return _writeNewAdminRecoveryCode(db);
   }

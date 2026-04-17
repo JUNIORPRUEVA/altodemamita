@@ -7,7 +7,7 @@ class DatabaseSchema {
   static const String databaseName = 'sistema_solares.db';
   static const int databaseVersion = 17;
   static const String defaultSyncBaseUrl =
-      'https://altodemanita-altodemamita-backent.onqyr1.easypanel.host/api';
+  'https://altodemanita-altodemamita-backend.onqyr1.easypanel.host/api';
 
   static const String clientsTable = 'clientes';
   static const String usersTable = 'usuarios';

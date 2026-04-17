@@ -17,7 +17,9 @@ class FinancialParamsRepository {
       );
 
       if (maps.isEmpty) {
-        await _initializeDefaults();
+        if (!SystemConfigService.instance.isReadOnly) {
+          await _initializeDefaults();
+        }
         return FinancialParams.defaults();
       }
 

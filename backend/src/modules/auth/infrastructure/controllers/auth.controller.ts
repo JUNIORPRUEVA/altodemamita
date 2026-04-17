@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 
 import { CurrentUser } from 'src/shared/decorators/current-user.decorator';
+import { AllowInReadOnly } from 'src/shared/decorators/allow-in-read-only.decorator';
 import { Public } from 'src/shared/decorators/public.decorator';
 import { RequirePermissions } from 'src/shared/decorators/permissions.decorator';
 import { PERMISSIONS } from 'src/shared/constants/permissions.constants';
@@ -28,6 +29,7 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Public()
+  @AllowInReadOnly()
   @Post('login')
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);

@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/security/sensitive_storage.dart';
+import '../../core/system/system_config_service.dart';
 import '../../features/settings/data/settings_repository.dart';
 import '../../models/sync/sync_conflict_strategy.dart';
 import '../../models/sync/sync_settings.dart';
@@ -21,7 +22,7 @@ class SyncConfigRepository {
 
   static const syncBaseUrlKey = 'sync.base_url';
   static const defaultSyncBaseUrl =
-      'https://altodemanita-altodemamita-backent.onqyr1.easypanel.host/api';
+      'https://altodemanita-altodemamita-backend.onqyr1.easypanel.host/api';
   static const syncQueueRetrySecondsKey = 'sync.queue_retry_seconds';
   static const syncRealtimePollingSecondsKey = 'sync.realtime_polling_seconds';
   static const syncConflictStrategyKey = 'sync.conflict_strategy';
@@ -56,13 +57,6 @@ class SyncConfigRepository {
   final Future<SharedPreferences> Function() _preferencesFactory;
 
   Future<SyncSettings> loadSettings() async {
-    await _settingsRepository.ensureDefaults({
-      syncBaseUrlKey: defaultSyncBaseUrl,
-      syncQueueRetrySecondsKey: '10',
-      syncRealtimePollingSecondsKey: '5',
-      syncConflictStrategyKey: SyncConflictStrategy.manual.storageValue,
-    });
-
     final values = await _settingsRepository.fetchByKeys([
       syncBaseUrlKey,
       syncQueueRetrySecondsKey,
@@ -70,16 +64,13 @@ class SyncConfigRepository {
       syncConflictStrategyKey,
     ]);
     final prefs = await _preferencesFactory();
-    final storedBaseUrl = values[syncBaseUrlKey]?.value ?? '';
+    final storedBaseUrl = values[syncBaseUrlKey]?.value ?? defaultSyncBaseUrl;
     final baseUrl = normalizeBackendBaseUrl(storedBaseUrl);
-    if (storedBaseUrl.trim().isEmpty || storedBaseUrl.trim() != baseUrl) {
-      await _settingsRepository.upsert(syncBaseUrlKey, baseUrl);
-    }
     final token = await _sensitiveStorage.read(_jwtTokenPreferenceKey) ?? '';
     final retrySeconds =
-        int.tryParse(values[syncQueueRetrySecondsKey]?.value ?? '') ?? 10;
+      int.tryParse(values[syncQueueRetrySecondsKey]?.value ?? '10') ?? 10;
     final pollingSeconds =
-        int.tryParse(values[syncRealtimePollingSecondsKey]?.value ?? '') ?? 5;
+      int.tryParse(values[syncRealtimePollingSecondsKey]?.value ?? '5') ?? 5;
 
     return SyncSettings(
       baseUrl: baseUrl,
@@ -152,6 +143,10 @@ class SyncConfigRepository {
   }
 
   Future<void> saveLastRun({String? errorMessage}) async {
+    if (SystemConfigService.instance.isReadOnly) {
+      return;
+    }
+
     await _settingsRepository.saveMultiple({
       syncLastRunAtKey: DateTime.now().toIso8601String(),
       syncLastErrorKey: errorMessage ?? '',

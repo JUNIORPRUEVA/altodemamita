@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'dart:developer' as developer;
 import 'package:sistema_solares_ui/core/network/api_client.dart';
 import 'package:sistema_solares_ui/core/realtime/realtime_controller.dart';
 import 'package:sistema_solares_ui/core/security/secure_token_storage.dart';
@@ -100,6 +101,10 @@ class AuthController extends ChangeNotifier {
     try {
       final storedToken = await _tokenStorage.readToken(_jwtStorageKey);
       if (storedToken == null || storedToken.isEmpty) {
+        developer.log(
+          'No stored panel token found. Staying on login route.',
+          name: 'SistemaSolares.Auth',
+        );
         _initialized = true;
         notifyListeners();
         return;
@@ -114,7 +119,17 @@ class AuthController extends ChangeNotifier {
         throw ApiException('El token no corresponde a un cliente panel.');
       }
       await _realtimeController.connect(storedToken);
-    } catch (_) {
+      developer.log(
+        'Existing session restored for ${_user?.username ?? _user?.email ?? 'unknown-user'}.',
+        name: 'SistemaSolares.Auth',
+      );
+    } catch (error, stackTrace) {
+      developer.log(
+        'Failed to restore panel session. Signing out.',
+        name: 'SistemaSolares.Auth',
+        error: error,
+        stackTrace: stackTrace,
+      );
       await signOut(notify: false);
     } finally {
       _initialized = true;
@@ -157,8 +172,16 @@ class AuthController extends ChangeNotifier {
       await _tokenStorage.writeToken(_jwtStorageKey, token);
       await _systemConfigController.refresh();
       await _realtimeController.connect(token);
+      developer.log(
+        'Panel sign-in completed for ${_user?.username ?? _user?.email ?? 'unknown-user'}.',
+        name: 'SistemaSolares.Auth',
+      );
     } on ApiException catch (error) {
       _errorMessage = error.message;
+      developer.log(
+        'Panel sign-in rejected: ${error.message}',
+        name: 'SistemaSolares.Auth',
+      );
       rethrow;
     } finally {
       _busy = false;
@@ -189,6 +212,10 @@ class AuthController extends ChangeNotifier {
 
     _processingUnauthorized = true;
     try {
+      developer.log(
+        'Received 401 from backend. Clearing session and returning to login.',
+        name: 'SistemaSolares.Auth',
+      );
       await signOut();
     } finally {
       _processingUnauthorized = false;

@@ -4,15 +4,28 @@ import {
   ForbiddenException,
   Injectable,
 } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 
 import { SystemConfigService } from 'src/modules/system/application/services/system-config.service';
+import { ALLOW_IN_READ_ONLY_KEY } from '../decorators/allow-in-read-only.decorator';
 
 @Injectable()
 export class ReadOnlyGuard implements CanActivate {
-  constructor(private readonly systemConfigService: SystemConfigService) {}
+  constructor(
+    private readonly systemConfigService: SystemConfigService,
+    private readonly reflector: Reflector,
+  ) {}
 
   canActivate(context: ExecutionContext): boolean {
     if (context.getType<string>() !== 'http') {
+      return true;
+    }
+
+    const allowInReadOnly = this.reflector.getAllAndOverride<boolean>(
+      ALLOW_IN_READ_ONLY_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+    if (allowInReadOnly) {
       return true;
     }
 

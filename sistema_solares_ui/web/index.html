@@ -39,11 +39,25 @@
     (async function bootstrapApp() {
       const appSignatureKey = 'sistema_solares_ui.app_signature';
       const reloadGuardKey = 'sistema_solares_ui.reload_guard';
+      const runtimeConfigUrl = `app-config.json?v=${Date.now()}`;
+      const versionUrl = `version.json?v=${Date.now()}`;
+
+      function log(message, details) {
+        if (details === undefined) {
+          console.info('[SistemaSolares Bootstrap]', message);
+          return;
+        }
+        console.info('[SistemaSolares Bootstrap]', message, details);
+      }
 
       async function fetchJson(url) {
         const response = await fetch(url, {
           cache: 'no-store',
           credentials: 'same-origin',
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+          },
         });
 
         if (!response.ok) {
@@ -104,19 +118,28 @@
         script.src = `flutter_bootstrap.js?v=${encodeURIComponent(signature)}`;
         script.async = true;
         document.body.appendChild(script);
+        log('Loading Flutter bootstrap.', { signature });
       }
 
       try {
         const [versionInfo, appConfig] = await Promise.all([
-          fetchJson('version.json'),
-          fetchJson('app-config.json'),
+          fetchJson(versionUrl),
+          fetchJson(runtimeConfigUrl),
         ]);
 
         const signature = buildSignature(versionInfo, appConfig);
         const previousSignature = window.localStorage.getItem(appSignatureKey);
         const reloadGuard = window.sessionStorage.getItem(reloadGuardKey);
 
+        log('Resolved runtime configuration.', {
+          apiBaseUrl: appConfig.API_BASE_URL,
+          signature,
+          previousSignature,
+          reloadGuard,
+        });
+
         if (previousSignature && previousSignature !== signature && reloadGuard !== signature) {
+          log('Detected runtime signature change. Clearing browser state.');
           await clearBrowserState();
           window.localStorage.setItem(appSignatureKey, signature);
           window.sessionStorage.setItem(reloadGuardKey, signature);
@@ -127,7 +150,8 @@
         window.localStorage.setItem(appSignatureKey, signature);
         window.sessionStorage.removeItem(reloadGuardKey);
         await loadBootstrap(signature);
-      } catch (_) {
+      } catch (error) {
+        console.error('[SistemaSolares Bootstrap] Failed to load runtime configuration.', error);
         await loadBootstrap(Date.now().toString());
       }
     })();
