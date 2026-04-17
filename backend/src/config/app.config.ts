@@ -1,5 +1,14 @@
 import { ensureDerivedEnvironmentVariables } from './environment';
 
+function isValidHttpOrigin(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 function parsePanelOrigins(env: NodeJS.ProcessEnv): string[] {
   const candidates = [
     env.PANEL_WEB_ORIGIN,
@@ -10,6 +19,7 @@ function parsePanelOrigins(env: NodeJS.ProcessEnv): string[] {
     ...new Set(
       candidates
         .map((value) => value?.trim() ?? '')
+        .filter((value) => isValidHttpOrigin(value))
         .filter((value) => value.length > 0),
     ),
   ];
