@@ -107,6 +107,13 @@ El contenedor de producción:
 
 Si vas a desplegar en EasyPanel, puedes cargar esas variables directamente en el panel y usar el comando por defecto de la imagen.
 
+Para el panel web define al menos uno de estos valores:
+
+- `PANEL_WEB_ORIGIN=https://altodemanita.com`
+- `PANEL_WEB_ORIGINS=https://altodemanita.com,https://altodemanita-altodemamita-pwa.onqyr1.easypanel.host`
+
+`PANEL_WEB_ORIGINS` permite múltiples dominios del panel y mantiene REST + WebSocket autorizados al mismo tiempo.
+
 ## Endpoints principales
 
 - `POST /api/auth/login`

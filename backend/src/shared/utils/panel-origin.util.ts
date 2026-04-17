@@ -2,6 +2,19 @@ function normalizeOrigin(value: string): string {
   return value.trim().replace(/\/+$/, '');
 }
 
+function normalizeConfiguredOrigins(configuredOrigin: string | string[]): string[] {
+  const values = Array.isArray(configuredOrigin)
+    ? configuredOrigin
+    : configuredOrigin.split(',');
+
+  return [...new Set(
+    values
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0)
+      .map(normalizeOrigin),
+  )];
+}
+
 function isLoopbackHostname(hostname: string): boolean {
   const normalized = hostname.trim().toLowerCase();
   return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1';
@@ -9,16 +22,16 @@ function isLoopbackHostname(hostname: string): boolean {
 
 export function isAllowedPanelOrigin(
   origin: string | undefined | null,
-  configuredOrigin: string,
+  configuredOrigin: string | string[],
 ): boolean {
   if (typeof origin !== 'string' || origin.trim().length === 0) {
     return false;
   }
 
   const normalizedOrigin = normalizeOrigin(origin);
-  const normalizedConfiguredOrigin = normalizeOrigin(configuredOrigin);
+  const normalizedConfiguredOrigins = normalizeConfiguredOrigins(configuredOrigin);
 
-  if (normalizedOrigin === normalizedConfiguredOrigin) {
+  if (normalizedConfiguredOrigins.includes(normalizedOrigin)) {
     return true;
   }
 
@@ -32,7 +45,7 @@ export function isAllowedPanelOrigin(
 
 export function isCorsOriginAllowed(
   origin: string | undefined,
-  configuredOrigin: string,
+  configuredOrigin: string | string[],
 ): boolean {
   if (typeof origin !== 'string' || origin.trim().length === 0) {
     return true;

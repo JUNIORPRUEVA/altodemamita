@@ -17,6 +17,7 @@ const envSchema = Joi.object({
   JWT_EXPIRES_IN: Joi.string().default('1d'),
   APP_NAME: Joi.string().default('Sistema Solares Backend'),
   PANEL_WEB_ORIGIN: Joi.string().uri({ scheme: ['http', 'https'] }).default('http://localhost:8080'),
+  PANEL_WEB_ORIGINS: Joi.string().optional(),
   STORAGE_DRIVER: Joi.string().valid('local', 's3', 'r2').default('local'),
   R2_ENDPOINT: Joi.string().uri({ scheme: ['http', 'https'] }),
   R2_BUCKET: Joi.string(),

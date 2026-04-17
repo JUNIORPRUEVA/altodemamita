@@ -1,7 +1,21 @@
 import { ensureDerivedEnvironmentVariables } from './environment';
 
+function parsePanelOrigins(env: NodeJS.ProcessEnv): string[] {
+  const candidates = [
+    env.PANEL_WEB_ORIGIN,
+    ...(env.PANEL_WEB_ORIGINS ?? '').split(','),
+  ];
+
+  return [...new Set(
+    candidates
+      .map((value) => value?.trim() ?? '')
+      .where((value) => value.length > 0),
+  )];
+}
+
 export const appConfig = () => {
   const env = ensureDerivedEnvironmentVariables();
+  const panelWebOrigins = parsePanelOrigins(env);
 
   return ({
   app: {
@@ -22,7 +36,8 @@ export const appConfig = () => {
     expiresIn: env.JWT_EXPIRES_IN ?? '1d',
   },
   security: {
-    panelWebOrigin: env.PANEL_WEB_ORIGIN ?? 'http://localhost:8080',
+    panelWebOrigin: panelWebOrigins[0] ?? 'http://localhost:8080',
+    panelWebOrigins,
   },
   storage: {
     driver: env.STORAGE_DRIVER ?? 'local',

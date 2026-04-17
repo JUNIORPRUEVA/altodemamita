@@ -12,14 +12,14 @@ async function bootstrap(): Promise<void> {
   const configService = app.get(ConfigService);
   const apiPrefix = configService.get<string>('app.apiPrefix', 'api');
   const port = configService.get<number>('app.port', 3000);
-  const panelWebOrigin = configService.get<string>('security.panelWebOrigin', 'http://localhost:8080');
+  const panelWebOrigins = configService.get<string[]>('security.panelWebOrigins', ['http://localhost:8080']);
 
   app.enableCors({
     origin: (
       origin: string | undefined,
       callback: (error: Error | null, allow?: boolean) => void,
     ) => {
-      if (isCorsOriginAllowed(origin, panelWebOrigin)) {
+      if (isCorsOriginAllowed(origin, panelWebOrigins)) {
         callback(null, true);
         return;
       }
