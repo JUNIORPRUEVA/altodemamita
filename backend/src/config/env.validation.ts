@@ -1,5 +1,29 @@
 import * as Joi from 'joi';
 
+const httpUriSchema = Joi.string().uri({ scheme: ['http', 'https'] });
+
+function validatePanelOriginsList(value: string, helpers: Joi.CustomHelpers): string {
+  const candidates = value
+    .split(',')
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+
+  if (candidates.length === 0) {
+    return value;
+  }
+
+  for (const candidate of candidates) {
+    const { error } = httpUriSchema.validate(candidate);
+    if (error) {
+      return helpers.error('any.custom', {
+        message: `PANEL_WEB_ORIGINS contiene un origen invalido: ${candidate}`,
+      }) as never;
+    }
+  }
+
+  return value;
+}
+
 const envSchema = Joi.object({
   NODE_ENV: Joi.string()
     .valid('development', 'test', 'production')
@@ -16,8 +40,8 @@ const envSchema = Joi.object({
   JWT_SECRET: Joi.string().min(16).required(),
   JWT_EXPIRES_IN: Joi.string().default('1d'),
   APP_NAME: Joi.string().default('Sistema Solares Backend'),
-  PANEL_WEB_ORIGIN: Joi.string().uri({ scheme: ['http', 'https'] }).default('http://localhost:8080'),
-  PANEL_WEB_ORIGINS: Joi.string().optional(),
+  PANEL_WEB_ORIGIN: httpUriSchema.allow('').default('http://localhost:8080'),
+  PANEL_WEB_ORIGINS: Joi.string().custom(validatePanelOriginsList).allow('').optional(),
   STORAGE_DRIVER: Joi.string().valid('local', 's3', 'r2').default('local'),
   R2_ENDPOINT: Joi.string().uri({ scheme: ['http', 'https'] }),
   R2_BUCKET: Joi.string(),
