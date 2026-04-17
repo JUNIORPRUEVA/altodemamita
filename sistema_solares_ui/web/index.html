@@ -106,11 +106,14 @@
         const version = versionInfo && typeof versionInfo.version === 'string'
           ? versionInfo.version
           : 'unknown-version';
+        const buildId = versionInfo && typeof versionInfo.build === 'string'
+          ? versionInfo.build
+          : 'unknown-build';
         const apiBaseUrl = appConfig && typeof appConfig.API_BASE_URL === 'string'
           ? appConfig.API_BASE_URL
           : 'unknown-api';
 
-        return `${version}|${apiBaseUrl}`;
+        return `${version}|${buildId}|${apiBaseUrl}`;
       }
 
       async function loadBootstrap(signature) {
