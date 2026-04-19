@@ -99,12 +99,11 @@ export class ClientsService {
     }
 
     const tokens = normalizedSearch
-      .split(RegExp(r'\s+'))
+      .split(/\s+/)
       .map((value) => value.trim())
-      .where((value) => value.isNotEmpty)
-      .toList(growable: false);
+      .filter((value) => value.length > 0);
 
-    const tokenFilters = tokens.map<Prisma.ClientWhereInput>((token) {
+    const tokenFilters = tokens.map<Prisma.ClientWhereInput>((token) => {
       return {
         OR: [
           { firstName: { contains: token, mode: 'insensitive' } },
@@ -114,7 +113,7 @@ export class ClientsService {
           { phone: { contains: token, mode: 'insensitive' } },
         ],
       };
-    }).toList(growable: false);
+    });
 
     const broadFilter: Prisma.ClientWhereInput = {
       OR: [
@@ -130,8 +129,8 @@ export class ClientsService {
       AND: [
         { deletedAt: null },
         tokens.length > 1
-            ? { OR: [broadFilter, { AND: tokenFilters }] }
-            : broadFilter,
+          ? { OR: [broadFilter, { AND: tokenFilters }] }
+          : broadFilter,
       ],
     };
   }
