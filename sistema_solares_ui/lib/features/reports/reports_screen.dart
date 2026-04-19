@@ -69,7 +69,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
         final delinquencyCount = reports.delinquency.length;
         final salesTotal = _sumAmount(reports.sales, 'totalAmount');
         final paymentsTotal = _sumAmount(reports.payments, 'amount');
-        final delinquencyTotal = _sumAmount(reports.delinquency, 'amountDue');
+        final delinquencyTotal = reports.delinquency.fold<double>(
+          0,
+          (total, item) => total + _readDelinquencyAmount(item),
+        );
 
         final metrics = [
           _StatCardData(
@@ -260,28 +263,28 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
         final salesRows = reports.sales.map((item) {
           return [
-            item['client']?['firstName']?.toString() ?? '-',
-            item['product']?['name']?.toString() ?? '-',
+            _readClientName(item['client']),
+            _readNested(item, ['product', 'name']) ?? '-',
             item['status']?.toString() ?? '-',
-            currency.format(item['totalAmount'] ?? 0),
+            currency.format(_asNum(item['totalAmount'])),
           ];
         }).toList();
 
         final paymentsRows = reports.payments.map((item) {
           return [
-            item['sale']?['client']?['firstName']?.toString() ?? '-',
+            _readClientName(item['sale']?['client']),
             item['method']?.toString() ?? '-',
             item['paymentDate']?.toString().split('T').first ?? '-',
-            currency.format(item['amount'] ?? 0),
+            currency.format(_asNum(item['amount'])),
           ];
         }).toList();
 
         final delinquencyRows = reports.delinquency.map((item) {
           return [
-            item['sale']?['client']?['firstName']?.toString() ?? '-',
-            item['sale']?['product']?['name']?.toString() ?? '-',
+            _readClientName(item['sale']?['client']),
+            _readNested(item, ['sale', 'product', 'name']) ?? '-',
             item['dueDate']?.toString().split('T').first ?? '-',
-            currency.format(item['amountDue'] ?? 0),
+            currency.format(_readDelinquencyAmount(item)),
           ];
         }).toList();
 
@@ -572,6 +575,46 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   double _sumAmount(List<Map<String, dynamic>> items, String key) {
     return items.fold<double>(0, (total, item) => total + _asNum(item[key]));
+  }
+
+  String _readClientName(dynamic client) {
+    if (client is! Map) {
+      return '-';
+    }
+    final normalized = client.map(
+      (key, value) => MapEntry(key.toString(), value),
+    );
+    final firstName = normalized['firstName']?.toString().trim() ?? '';
+    final lastName = normalized['lastName']?.toString().trim() ?? '';
+    final fullName = [
+      firstName,
+      lastName,
+    ].where((value) => value.isNotEmpty).join(' ').trim();
+    return fullName.isEmpty ? '-' : fullName;
+  }
+
+  String? _readNested(Map<String, dynamic> source, List<String> path) {
+    Object? current = source;
+    for (final segment in path) {
+      if (current is! Map) {
+        return null;
+      }
+      current = current[segment];
+    }
+    final text = current?.toString().trim();
+    return text == null || text.isEmpty ? null : text;
+  }
+
+  double _readDelinquencyAmount(Map<String, dynamic> item) {
+    final amount = _asNum(item['amountDue']);
+    if (amount > 0) {
+      return amount;
+    }
+
+    final totalAmount = _asNum(item['amount']);
+    final paidAmount = _asNum(item['paidAmount']);
+    final outstanding = totalAmount - paidAmount;
+    return outstanding > 0 ? outstanding : totalAmount;
   }
 
   int _asInt(Object? value) {

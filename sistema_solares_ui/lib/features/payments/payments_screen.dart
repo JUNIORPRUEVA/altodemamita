@@ -3,7 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:sistema_solares_ui/core/network/api_client.dart';
 import 'package:sistema_solares_ui/core/realtime/realtime_controller.dart';
-import 'package:sistema_solares_ui/features/reports/reports_service.dart';
+import 'package:sistema_solares_ui/features/payments/payments_service.dart';
 import 'package:sistema_solares_ui/shared/desktop_ui.dart';
 
 class PaymentsScreen extends StatefulWidget {
@@ -14,13 +14,18 @@ class PaymentsScreen extends StatefulWidget {
 }
 
 class _PaymentsScreenState extends State<PaymentsScreen> {
-  int _days = 30;
-  Future<List<Map<String, dynamic>>>? _future;
+  final _searchController = TextEditingController();
+  Future<PaymentsPageData>? _future;
   int _lastTick = -1;
 
-  void _reloadFor(int days) {
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _reload() {
     setState(() {
-      _days = days;
       _future = null;
     });
   }
@@ -30,12 +35,12 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
     final refreshTick = context.watch<RealtimeController>().refreshTick;
     if (_future == null || refreshTick != _lastTick) {
       _lastTick = refreshTick;
-      _future = ReportsService(
+      _future = PaymentsService(
         context.read<ApiClient>(),
-      ).fetchPayments(days: _days);
+      ).fetch(search: _searchController.text);
     }
 
-    return FutureBuilder<List<Map<String, dynamic>>>(
+    return FutureBuilder<PaymentsPageData>(
       future: _future,
       builder: (context, snapshot) {
         if (snapshot.connectionState != ConnectionState.done) {
@@ -44,11 +49,12 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
         if (snapshot.hasError) {
           return DesktopPageError(
             message: snapshot.error.toString(),
-            onRetry: () => _reloadFor(_days),
+            onRetry: _reload,
           );
         }
 
-        final payments = snapshot.data!;
+        final data = snapshot.data!;
+        final payments = data.items;
         final compact = MediaQuery.sizeOf(context).width < 760;
         final currency = NumberFormat.currency(locale: 'es_DO', symbol: r'$');
         final totalCollected = payments.fold<double>(
@@ -75,31 +81,44 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
           title: 'Pagos',
           subtitle: compact
               ? 'Cobros clave del periodo con lectura rapida.'
-              : 'Seguimiento compacto de los pagos recibidos en el periodo seleccionado.',
+              : 'Seguimiento compacto de los pagos sincronizados y recibidos.',
           toolbar: DesktopFieldToolbar(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  if (!compact)
-                    const Text(
-                      'Corte de pagos:',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                  ...[7, 30, 90].map(
-                    (days) => ChoiceChip(
-                      label: Text(
-                        compact ? '$days dias' : 'Ultimos $days dias',
-                      ),
-                      selected: _days == days,
-                      onSelected: (_) => _reloadFor(days),
-                    ),
-                  ),
-                ],
+            child: DesktopToolbar(
+              searchField: DesktopSearchField(
+                controller: _searchController,
+                hintText: 'Buscar por cliente, referencia o contrato',
+                onSubmitted: (_) => _reload(),
               ),
+              actions: [
+                OutlinedButton.icon(
+                  onPressed: () {
+                    _searchController.clear();
+                    _reload();
+                  },
+                  icon: const Icon(Icons.cleaning_services_outlined),
+                  label: const Text('Limpiar'),
+                ),
+                FilledButton.icon(
+                  onPressed: _reload,
+                  icon: const Icon(Icons.search_rounded),
+                  label: const Text('Buscar'),
+                ),
+              ],
+              compactActions: [
+                OutlinedButton.icon(
+                  onPressed: () {
+                    _searchController.clear();
+                    _reload();
+                  },
+                  icon: const Icon(Icons.cleaning_services_outlined),
+                  label: const Text('Limpiar'),
+                ),
+                FilledButton.icon(
+                  onPressed: _reload,
+                  icon: const Icon(Icons.search_rounded),
+                  label: const Text('Buscar'),
+                ),
+              ],
             ),
           ),
           child: Column(
@@ -132,6 +151,11 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                         label: 'Metodos ${methods.length}',
                         background: const Color(0xFFF5EEF8),
                         foreground: const Color(0xFF7A4A97),
+                      ),
+                    if (!compact)
+                      DesktopTag(
+                        label: 'Pag. ${data.page}/${data.totalPages}',
+                        background: const Color(0xFFF1F4FA),
                       ),
                     if (lastPaymentDate != null)
                       DesktopTag(
@@ -166,8 +190,11 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                               payment['method']?.toString() ??
                               'Metodo no definido';
                           final date = _formatDate(payment['paymentDate']);
+                          final contract =
+                              sale?['contractNumber']?.toString().trim() ?? '';
                           final subtitleParts = <String>[
                             method,
+                            if (contract.isNotEmpty) contract,
                             if (!compact && product.trim().isNotEmpty) product,
                             date,
                           ];
