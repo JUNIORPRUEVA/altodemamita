@@ -112,8 +112,47 @@ export class SyncService {
       for (const client of records.clients) {
         const payload = client as Record<string, unknown>;
         const recordSyncId = this.readRecordSyncId(payload);
-        const { firstName, lastName } = this.resolveClientNames(payload);
+        const deletedAt = this.readDate(payload, ['deletedAt', 'deleted_at']);
         const incomingUpdatedAt = this.readDate(payload, ['updatedAt', 'updated_at']);
+        if (deletedAt != null) {
+          const existing = await tx.client.findUnique({
+            where: { syncId: recordSyncId },
+            select: { id: true, syncId: true, updatedAt: true },
+          });
+          if (this.shouldSkipWrite(existing?.updatedAt, incomingUpdatedAt)) {
+            continue;
+          }
+          if (!existing) {
+            continue;
+          }
+
+          const persisted = await tx.client.update({
+            where: { id: existing.id },
+            data: {
+              deletedAt,
+              ...(incomingUpdatedAt ? { updatedAt: incomingUpdatedAt } : {}),
+              syncStatus: SyncStatus.synced,
+            },
+            select: { id: true, syncId: true, updatedAt: true },
+          });
+          domainEvents.push({
+            channel: 'entity.updated',
+            id: persisted.id,
+            recordSyncId: persisted.syncId,
+            updatedAt: persisted.updatedAt.toISOString(),
+            payload: {
+              entity: 'client',
+              action: 'deleted',
+              id: persisted.id,
+              record_sync_id: persisted.syncId,
+              sync_id: persisted.syncId,
+              source: 'sync',
+            },
+          });
+          continue;
+        }
+
+        const { firstName, lastName } = this.resolveClientNames(payload);
         const existing = await this.findExistingClientRecord(tx, payload, recordSyncId, firstName, lastName);
         if (this.shouldSkipWrite(existing?.updatedAt, incomingUpdatedAt)) {
           continue;
@@ -129,7 +168,7 @@ export class SyncService {
           phone: this.readString(payload, ['phone']),
           address: this.readString(payload, ['address']),
           notes: this.readString(payload, ['notes']),
-          deletedAt: this.readDate(payload, ['deletedAt', 'deleted_at']),
+          deletedAt,
           syncStatus: SyncStatus.synced,
         };
 
@@ -170,12 +209,7 @@ export class SyncService {
         const payload = product as Record<string, unknown>;
         const recordSyncId = this.readRecordSyncId(payload);
         const incomingUpdatedAt = this.readDate(payload, ['updatedAt', 'updated_at']);
-        const blockNumber = this.readRequiredString(payload, ['block_number']);
-        const lotNumber = this.readRequiredString(payload, ['lot_number']);
-        const area = this.readRequiredNumber(payload, ['area']);
-        const pricePerSquareMeter = this.readRequiredNumber(payload, ['price_per_square_meter']);
-        const localStatus = this.readString(payload, ['status']) ?? 'disponible';
-        const totalPrice = this.roundCurrency(area * pricePerSquareMeter);
+        const deletedAt = this.readDate(payload, ['deletedAt', 'deleted_at']);
         const existing = await tx.product.findUnique({
           where: { syncId: recordSyncId },
           select: { id: true, syncId: true, updatedAt: true },
@@ -183,6 +217,45 @@ export class SyncService {
         if (this.shouldSkipWrite(existing?.updatedAt, incomingUpdatedAt)) {
           continue;
         }
+        if (deletedAt != null) {
+          if (!existing) {
+            continue;
+          }
+
+          const persisted = await tx.product.update({
+            where: { id: existing.id },
+            data: {
+              isActive: false,
+              stock: 0,
+              deletedAt,
+              ...(incomingUpdatedAt ? { updatedAt: incomingUpdatedAt } : {}),
+              syncStatus: SyncStatus.synced,
+            },
+            select: { id: true, syncId: true, updatedAt: true },
+          });
+          domainEvents.push({
+            channel: 'entity.updated',
+            id: persisted.id,
+            recordSyncId: persisted.syncId,
+            updatedAt: persisted.updatedAt.toISOString(),
+            payload: {
+              entity: 'product',
+              action: 'deleted',
+              id: persisted.id,
+              record_sync_id: persisted.syncId,
+              sync_id: persisted.syncId,
+              source: 'sync',
+            },
+          });
+          continue;
+        }
+
+        const blockNumber = this.readRequiredString(payload, ['block_number']);
+        const lotNumber = this.readRequiredString(payload, ['lot_number']);
+        const area = this.readRequiredNumber(payload, ['area']);
+        const pricePerSquareMeter = this.readRequiredNumber(payload, ['price_per_square_meter']);
+        const localStatus = this.readString(payload, ['status']) ?? 'disponible';
+        const totalPrice = this.roundCurrency(area * pricePerSquareMeter);
 
         const persisted = await tx.product.upsert({
           where: { syncId: recordSyncId },
@@ -206,7 +279,7 @@ export class SyncService {
             }),
             createdAt: this.readDate(payload, ['createdAt', 'created_at']) ?? undefined,
             updatedAt: incomingUpdatedAt ?? undefined,
-            deletedAt: this.readDate(payload, ['deletedAt', 'deleted_at']),
+            deletedAt,
             syncStatus: SyncStatus.synced,
           },
           update: {
@@ -226,7 +299,7 @@ export class SyncService {
               price_per_square_meter: pricePerSquareMeter,
               status: localStatus,
             }),
-            deletedAt: this.readDate(payload, ['deletedAt', 'deleted_at']),
+            deletedAt,
             ...(incomingUpdatedAt ? { updatedAt: incomingUpdatedAt } : {}),
             syncStatus: SyncStatus.synced,
           },
@@ -252,7 +325,7 @@ export class SyncService {
         const payload = seller as Record<string, unknown>;
         const recordSyncId = this.readRecordSyncId(payload);
         const incomingUpdatedAt = this.readDate(payload, ['updatedAt', 'updated_at']);
-        const name = this.readString(payload, ['name', 'full_name']) ?? 'Sin nombre';
+        const deletedAt = this.readDate(payload, ['deletedAt', 'deleted_at']);
         const existing = await tx.seller.findUnique({
           where: { syncId: recordSyncId },
           select: { id: true, syncId: true, updatedAt: true },
@@ -260,6 +333,38 @@ export class SyncService {
         if (this.shouldSkipWrite(existing?.updatedAt, incomingUpdatedAt)) {
           continue;
         }
+        if (deletedAt != null) {
+          if (!existing) {
+            continue;
+          }
+
+          const persisted = await tx.seller.update({
+            where: { id: existing.id },
+            data: {
+              deletedAt,
+              ...(incomingUpdatedAt ? { updatedAt: incomingUpdatedAt } : {}),
+              syncStatus: SyncStatus.synced,
+            },
+            select: { id: true, syncId: true, updatedAt: true },
+          });
+          domainEvents.push({
+            channel: 'entity.updated',
+            id: persisted.id,
+            recordSyncId: persisted.syncId,
+            updatedAt: persisted.updatedAt.toISOString(),
+            payload: {
+              entity: 'seller',
+              action: 'deleted',
+              id: persisted.id,
+              record_sync_id: persisted.syncId,
+              sync_id: persisted.syncId,
+              source: 'sync',
+            },
+          });
+          continue;
+        }
+
+        const name = this.readString(payload, ['name', 'full_name']) ?? 'Sin nombre';
 
         const persisted = await tx.seller.upsert({
           where: { syncId: recordSyncId },
@@ -270,14 +375,14 @@ export class SyncService {
             phone: this.readString(payload, ['phone']),
             createdAt: this.readDate(payload, ['createdAt', 'created_at']) ?? undefined,
             updatedAt: incomingUpdatedAt ?? undefined,
-            deletedAt: this.readDate(payload, ['deletedAt', 'deleted_at']),
+            deletedAt,
             syncStatus: SyncStatus.synced,
           },
           update: {
             name,
             documentId: this.readString(payload, ['document_id', 'documentId']),
             phone: this.readString(payload, ['phone']),
-            deletedAt: this.readDate(payload, ['deletedAt', 'deleted_at']),
+            deletedAt,
             ...(incomingUpdatedAt ? { updatedAt: incomingUpdatedAt } : {}),
             syncStatus: SyncStatus.synced,
           },
@@ -303,13 +408,7 @@ export class SyncService {
         const payload = sale as Record<string, unknown>;
         const recordSyncId = this.readRecordSyncId(payload);
         const incomingUpdatedAt = this.readDate(payload, ['updatedAt', 'updated_at']);
-        const salePrice = this.readRequiredNumber(payload, ['sale_price']);
-        const financedBalance = this.readRequiredNumber(payload, ['financed_balance']);
-        const downPaymentAmount = this.readRequiredNumber(payload, ['down_payment_amount']);
-        const pendingBalance = this.readRequiredNumber(payload, ['pending_balance']);
-        const monthlyInterest = this.readRequiredNumber(payload, ['monthly_interest']);
-        const installmentCount = this.readRequiredInt(payload, ['installment_count']);
-        const localStatus = this.readString(payload, ['status']) ?? 'activa';
+        const deletedAt = this.readDate(payload, ['deletedAt', 'deleted_at']);
         const existing = await tx.sale.findUnique({
           where: { syncId: recordSyncId },
           select: { id: true, syncId: true, updatedAt: true },
@@ -320,6 +419,44 @@ export class SyncService {
           }
           continue;
         }
+        if (deletedAt != null) {
+          if (!existing) {
+            continue;
+          }
+
+          const persisted = await tx.sale.update({
+            where: { id: existing.id },
+            data: {
+              deletedAt,
+              ...(incomingUpdatedAt ? { updatedAt: incomingUpdatedAt } : {}),
+              syncStatus: SyncStatus.synced,
+            },
+            select: { id: true, syncId: true, updatedAt: true },
+          });
+          domainEvents.push({
+            channel: 'entity.updated',
+            id: persisted.id,
+            recordSyncId: persisted.syncId,
+            updatedAt: persisted.updatedAt.toISOString(),
+            payload: {
+              entity: 'sale',
+              action: 'deleted',
+              id: persisted.id,
+              record_sync_id: persisted.syncId,
+              sync_id: persisted.syncId,
+              source: 'sync',
+            },
+          });
+          continue;
+        }
+
+        const salePrice = this.readRequiredNumber(payload, ['sale_price']);
+        const financedBalance = this.readRequiredNumber(payload, ['financed_balance']);
+        const downPaymentAmount = this.readRequiredNumber(payload, ['down_payment_amount']);
+        const pendingBalance = this.readRequiredNumber(payload, ['pending_balance']);
+        const monthlyInterest = this.readRequiredNumber(payload, ['monthly_interest']);
+        const installmentCount = this.readRequiredInt(payload, ['installment_count']);
+        const localStatus = this.readString(payload, ['status']) ?? 'activa';
 
         const client = await this.resolveClientReference(tx, payload);
         const user = await this.resolveSyncUser(tx, payload);
@@ -358,7 +495,7 @@ export class SyncService {
             }),
             createdAt: this.readDate(payload, ['createdAt', 'created_at']) ?? undefined,
             updatedAt: incomingUpdatedAt ?? undefined,
-            deletedAt: this.readDate(payload, ['deletedAt', 'deleted_at']),
+            deletedAt,
             syncStatus: SyncStatus.synced,
           },
           update: {
@@ -386,7 +523,7 @@ export class SyncService {
               seller_sync_id: seller?.syncId,
               status: localStatus,
             }),
-            deletedAt: this.readDate(payload, ['deletedAt', 'deleted_at']),
+            deletedAt,
             ...(incomingUpdatedAt ? { updatedAt: incomingUpdatedAt } : {}),
             syncStatus: SyncStatus.synced,
           },
@@ -423,6 +560,49 @@ export class SyncService {
         const payload = installment as Record<string, unknown>;
         const recordSyncId = this.readRecordSyncId(payload);
         const incomingUpdatedAt = this.readDate(payload, ['updatedAt', 'updated_at']);
+        const deletedAt = this.readDate(payload, ['deletedAt', 'deleted_at']);
+        const existing = await tx.installment.findUnique({
+          where: { syncId: recordSyncId },
+          select: { id: true, syncId: true, updatedAt: true, saleId: true },
+        });
+        if (this.shouldSkipWrite(existing?.updatedAt, incomingUpdatedAt)) {
+          if (existing?.saleId) {
+            affectedSales.add(existing.saleId);
+          }
+          continue;
+        }
+        if (deletedAt != null) {
+          if (!existing) {
+            continue;
+          }
+
+          affectedSales.add(existing.saleId);
+          const persisted = await tx.installment.update({
+            where: { id: existing.id },
+            data: {
+              deletedAt,
+              ...(incomingUpdatedAt ? { updatedAt: incomingUpdatedAt } : {}),
+              syncStatus: SyncStatus.synced,
+            },
+            select: { id: true, syncId: true, updatedAt: true },
+          });
+          domainEvents.push({
+            channel: 'entity.updated',
+            id: persisted.id,
+            recordSyncId: persisted.syncId,
+            updatedAt: persisted.updatedAt.toISOString(),
+            payload: {
+              entity: 'installment',
+              action: 'deleted',
+              id: persisted.id,
+              record_sync_id: persisted.syncId,
+              sync_id: persisted.syncId,
+              source: 'sync',
+            },
+          });
+          continue;
+        }
+
         const installmentNumber = this.readRequiredInt(payload, ['installment_number']);
         const dueDate = this.readRequiredDate(payload, ['due_date']);
         const totalAmount = this.readRequiredNumber(payload, ['total_amount']);
@@ -430,18 +610,11 @@ export class SyncService {
         const interestAmount = this.readRequiredNumber(payload, ['interest_amount']);
         const paidAmount = this.readNumber(payload, ['paid_amount']) ?? 0;
         const localStatus = this.readString(payload, ['status']) ?? 'pendiente';
-        const existing = await tx.installment.findUnique({
-          where: { syncId: recordSyncId },
-          select: { id: true, syncId: true, updatedAt: true },
-        });
         const saleRecord = await this.resolveSaleReference(tx, payload);
         if (!saleRecord) {
           throw new BadRequestException('No se pudo resolver la venta de la cuota.');
         }
         affectedSales.add(saleRecord.id);
-        if (this.shouldSkipWrite(existing?.updatedAt, incomingUpdatedAt)) {
-          continue;
-        }
 
         const persisted = await tx.installment.upsert({
           where: { syncId: recordSyncId },
@@ -463,7 +636,7 @@ export class SyncService {
             }),
             createdAt: this.readDate(payload, ['createdAt', 'created_at']) ?? undefined,
             updatedAt: incomingUpdatedAt ?? undefined,
-            deletedAt: this.readDate(payload, ['deletedAt', 'deleted_at']),
+            deletedAt,
             syncStatus: SyncStatus.synced,
           },
           update: {
@@ -481,7 +654,7 @@ export class SyncService {
               sale_sync_id: saleRecord.syncId,
               status: localStatus,
             }),
-            deletedAt: this.readDate(payload, ['deletedAt', 'deleted_at']),
+            deletedAt,
             ...(incomingUpdatedAt ? { updatedAt: incomingUpdatedAt } : {}),
             syncStatus: SyncStatus.synced,
           },
@@ -508,23 +681,60 @@ export class SyncService {
         const payload = payment as Record<string, unknown>;
         const recordSyncId = this.readRecordSyncId(payload);
         const incomingUpdatedAt = this.readDate(payload, ['updatedAt', 'updated_at']);
+        const deletedAt = this.readDate(payload, ['deletedAt', 'deleted_at']);
+        const existing = await tx.payment.findUnique({
+          where: { syncId: recordSyncId },
+          select: { id: true, syncId: true, updatedAt: true, saleId: true },
+        });
+        if (this.shouldSkipWrite(existing?.updatedAt, incomingUpdatedAt)) {
+          if (existing?.saleId) {
+            affectedSales.add(existing.saleId);
+          }
+          continue;
+        }
+        if (deletedAt != null) {
+          if (!existing) {
+            continue;
+          }
+
+          affectedSales.add(existing.saleId);
+          const persisted = await tx.payment.update({
+            where: { id: existing.id },
+            data: {
+              deletedAt,
+              ...(incomingUpdatedAt ? { updatedAt: incomingUpdatedAt } : {}),
+              syncStatus: SyncStatus.synced,
+            },
+            select: { id: true, syncId: true, updatedAt: true },
+          });
+          domainEvents.push({
+            channel: 'entity.updated',
+            id: persisted.id,
+            recordSyncId: persisted.syncId,
+            updatedAt: persisted.updatedAt.toISOString(),
+            payload: {
+              entity: 'payment',
+              action: 'deleted',
+              id: persisted.id,
+              record_sync_id: persisted.syncId,
+              sync_id: persisted.syncId,
+              saleId: existing.saleId,
+              source: 'sync',
+            },
+          });
+          continue;
+        }
+
         const paymentDate = this.readRequiredDate(payload, ['payment_date']);
         const amountPaid = this.readRequiredNumber(payload, ['amount_paid']);
         const paymentMethod = this.readString(payload, ['payment_method']) ?? 'efectivo';
         const paymentType = this.readString(payload, ['payment_type']) ?? 'cuota';
-        const existing = await tx.payment.findUnique({
-          where: { syncId: recordSyncId },
-          select: { id: true, syncId: true, updatedAt: true },
-        });
         const saleRecord = await this.resolveSaleReference(tx, payload);
         const installmentRecord = await this.resolveInstallmentReference(tx, payload, true);
         if (!saleRecord) {
           throw new BadRequestException('No se pudo resolver la venta del pago.');
         }
         affectedSales.add(saleRecord.id);
-        if (this.shouldSkipWrite(existing?.updatedAt, incomingUpdatedAt)) {
-          continue;
-        }
 
         const persisted = await tx.payment.upsert({
           where: { syncId: recordSyncId },
@@ -549,7 +759,7 @@ export class SyncService {
             }),
             createdAt: this.readDate(payload, ['createdAt', 'created_at']) ?? undefined,
             updatedAt: incomingUpdatedAt ?? undefined,
-            deletedAt: this.readDate(payload, ['deletedAt', 'deleted_at']),
+            deletedAt,
             syncStatus: SyncStatus.synced,
           },
           update: {
@@ -570,7 +780,7 @@ export class SyncService {
               payment_type: paymentType,
               payment_method: paymentMethod,
             }),
-            deletedAt: this.readDate(payload, ['deletedAt', 'deleted_at']),
+            deletedAt,
             ...(incomingUpdatedAt ? { updatedAt: incomingUpdatedAt } : {}),
             syncStatus: SyncStatus.synced,
           },
@@ -747,6 +957,10 @@ export class SyncService {
           errors.push(`${String(scope)}[${index}] requiere updatedAt o updated_at.`);
         }
 
+        if (this.isDeletePayload(record)) {
+          continue;
+        }
+
         for (const field of requiredFields) {
           const keys = Array.isArray(field) ? field : [field];
           if (!this.hasAnyValue(record, keys)) {
@@ -765,6 +979,9 @@ export class SyncService {
     validateCollection('clients', records.clients, [], []);
     for (const [index, client] of records.clients.entries()) {
       const payload = client as Record<string, unknown>;
+      if (this.isDeletePayload(payload)) {
+        continue;
+      }
       const hasSplitName =
         this.hasAnyValue(payload, ['firstName', 'first_name']) &&
         this.hasAnyValue(payload, ['lastName', 'last_name']);
@@ -854,6 +1071,10 @@ export class SyncService {
     const value = payload.record_sync_id ?? payload.sync_id;
     const normalized = value?.toString().trim();
     return normalized ? normalized : null;
+  }
+
+  private isDeletePayload(payload: Record<string, unknown>): boolean {
+    return this.hasAnyValue(payload, ['deletedAt', 'deleted_at']);
   }
 
   private readRecordSyncId(payload: Record<string, unknown>): string {
