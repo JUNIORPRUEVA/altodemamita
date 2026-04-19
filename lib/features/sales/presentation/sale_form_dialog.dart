@@ -1046,24 +1046,29 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
                           : null,
                       icon: const Icon(Icons.calendar_month_outlined),
                     )
-                  : Wrap(
-                      children: [
-                        IconButton(
-                          onPressed: _pickInitialDeadline,
-                          icon: const Icon(Icons.edit_calendar_outlined),
-                        ),
-                        IconButton(
-                          onPressed: () {
-                            setState(() {
-                              _isInitialDeadlineManuallyEdited = false;
-                              _initialPaymentDeadline = null;
-                              _initialDeadlineController.clear();
-                              _syncInitialDeadline();
-                            });
-                          },
-                          icon: const Icon(Icons.close_outlined),
-                        ),
-                      ],
+                  : SizedBox(
+                      width: 96,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          IconButton(
+                            onPressed: _pickInitialDeadline,
+                            icon: const Icon(Icons.edit_calendar_outlined),
+                          ),
+                          IconButton(
+                            onPressed: () {
+                              setState(() {
+                                _isInitialDeadlineManuallyEdited = false;
+                                _initialPaymentDeadline = null;
+                                _initialDeadlineController.clear();
+                                _syncInitialDeadline();
+                              });
+                            },
+                            icon: const Icon(Icons.close_outlined),
+                          ),
+                        ],
+                      ),
                     ),
             ),
           ),
