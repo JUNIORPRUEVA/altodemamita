@@ -92,6 +92,27 @@ void main() {
     expect(apiClient.uploadedScopes, ['sellers']);
     expect(queueRows.containsKey('sellers'), isFalse);
   });
+
+  test('elimina upserts huerfanos antes de sincronizar la cola', () async {
+    apiClient = _RecordingSyncApiClient();
+    service = SyncQueueService.test(
+      appDatabase: appDatabase,
+      configRepository: configRepository,
+      apiClient: apiClient,
+      conflictService: SyncConflictService(appDatabase: appDatabase),
+    );
+
+    service.registerRepository(_FakeSyncRepository('sellers'));
+
+    await _insertQueuedRecord(appDatabase, scope: 'sellers', syncId: 'seller-stale');
+
+    final processed = await service.processQueue();
+    final queueRows = await _readQueueRows(appDatabase);
+
+    expect(processed, 0);
+    expect(apiClient.uploadedScopes, isEmpty);
+    expect(queueRows.containsKey('sellers'), isFalse);
+  });
 }
 
 SyncSettings _buildSettings({required bool isConfigured}) {

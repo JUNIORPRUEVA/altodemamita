@@ -203,7 +203,7 @@ class SyncQueueService {
         });
 
       for (final scope in orderedScopes) {
-        final entryItems = grouped[scope] ?? const <SyncQueueItem>[];
+        var entryItems = grouped[scope] ?? const <SyncQueueItem>[];
         if (entryItems.isEmpty) {
           continue;
         }
@@ -215,6 +215,11 @@ class SyncQueueService {
 
         final repository = _repositoriesByScope[scope];
         if (repository == null) {
+          continue;
+        }
+
+        entryItems = await _pruneOrphanedUpserts(scope, entryItems, repository);
+        if (entryItems.isEmpty) {
           continue;
         }
 
@@ -463,6 +468,36 @@ class SyncQueueService {
     if (!_stateController.isClosed) {
       _stateController.add(nextState);
     }
+  }
+
+  Future<List<SyncQueueItem>> _pruneOrphanedUpserts(
+    String scope,
+    List<SyncQueueItem> entryItems,
+    SyncRepository repository,
+  ) async {
+    final pendingRecords = await repository.getPendingRecords();
+    final validUpsertIds = pendingRecords
+        .map((record) => record['sync_id']?.toString().trim() ?? '')
+        .where((value) => value.isNotEmpty)
+        .toSet();
+
+    final orphanedUpserts = entryItems
+        .where(
+          (item) =>
+              item.operation == 'upsert' &&
+              !validUpsertIds.contains(item.recordSyncId.trim()),
+        )
+        .map((item) => item.recordSyncId)
+        .toList(growable: false);
+
+    if (orphanedUpserts.isNotEmpty) {
+      await _deleteQueuedRecords(scope, orphanedUpserts);
+      entryItems = entryItems
+          .where((item) => !orphanedUpserts.contains(item.recordSyncId))
+          .toList(growable: false);
+    }
+
+    return entryItems;
   }
 
   DateTime? _findLatestTimestamp(List<Map<String, dynamic>> records) {
