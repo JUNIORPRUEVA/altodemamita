@@ -6,6 +6,7 @@ import '../../core/database/database_schema.dart';
 import '../../core/system/system_config_service.dart';
 import '../../models/sync/sync_conflict_strategy.dart';
 import '../../models/sync/sync_report.dart';
+import '../../models/sync/sync_settings.dart';
 import '../../repositories/sync_repository.dart';
 import 'sync_api_client.dart';
 import 'sync_config_repository.dart';
