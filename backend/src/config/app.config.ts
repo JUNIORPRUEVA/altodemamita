@@ -1,5 +1,13 @@
 import { ensureDerivedEnvironmentVariables } from './environment';
 
+const PROJECT_PANEL_DEFAULT_ORIGINS = [
+  'https://altodemamita.com',
+  'https://www.altodemamita.com',
+  'https://altodemanita.com',
+  'https://www.altodemanita.com',
+  'https://altodemanita-altodemamita-pwa.onqyr1.easypanel.host',
+];
+
 function isValidHttpOrigin(value: string): boolean {
   try {
     const parsed = new URL(value);
@@ -13,6 +21,7 @@ function parsePanelOrigins(env: NodeJS.ProcessEnv): string[] {
   const candidates = [
     env.PANEL_WEB_ORIGIN,
     ...(env.PANEL_WEB_ORIGINS ?? '').split(','),
+    ...PROJECT_PANEL_DEFAULT_ORIGINS,
   ];
 
   return [

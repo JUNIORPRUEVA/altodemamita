@@ -1,7 +1,7 @@
 FROM ghcr.io/cirruslabs/flutter:3.41.6 AS builder
 
 ARG API_BASE_URL=https://altodemanita-altodemamita-backent.onqyr1.easypanel.host/api
-ARG CANONICAL_HOST=altodemanita.com
+ARG CANONICAL_HOST=altodemamita.com
 ARG CANONICAL_SCHEME=https
 
 WORKDIR /app
@@ -17,7 +17,7 @@ RUN printf "self.addEventListener('install', function () { self.skipWaiting(); }
 FROM nginx:alpine AS production
 
 ARG API_BASE_URL=https://altodemanita-altodemamita-backent.onqyr1.easypanel.host/api
-ARG CANONICAL_HOST=altodemanita.com
+ARG CANONICAL_HOST=altodemamita.com
 ARG CANONICAL_SCHEME=https
 
 COPY nginx.conf /etc/nginx/templates/default.conf.template

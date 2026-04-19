@@ -71,7 +71,7 @@ La imagen:
 Variables recomendadas:
 
 - `API_BASE_URL=https://api.tudominio.com/api`
-- `CANONICAL_HOST=panel.tudominio.com`
+- `CANONICAL_HOST=altodemamita.com`
 - `CANONICAL_SCHEME=https`
 
 Puerto expuesto por la imagen:

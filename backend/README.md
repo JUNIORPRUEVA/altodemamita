@@ -112,8 +112,8 @@ Si tu despliegue ya estaba construido con una imagen anterior, debes reconstruir
 
 Para el panel web define al menos uno de estos valores:
 
-- `PANEL_WEB_ORIGIN=https://altodemanita.com`
-- `PANEL_WEB_ORIGINS=https://altodemanita.com,https://altodemanita-altodemamita-pwa.onqyr1.easypanel.host`
+- `PANEL_WEB_ORIGIN=https://altodemamita.com`
+- `PANEL_WEB_ORIGINS=https://altodemamita.com,https://www.altodemamita.com,https://altodemanita-altodemamita-pwa.onqyr1.easypanel.host`
 
 `PANEL_WEB_ORIGINS` permite múltiples dominios del panel y mantiene REST + WebSocket autorizados al mismo tiempo.
 

@@ -106,18 +106,27 @@ class AdminShell extends StatelessWidget {
         enabled: authController.canAccessGlobalSearch,
       ),
     ];
+    final mobileNavRoutes = mobileNavItems
+        .where((item) => item.enabled)
+        .map((item) => item.route)
+        .toSet();
 
     return LayoutBuilder(
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 1120;
         final compact = constraints.maxWidth < 760;
         final drawerWidth = math.min(constraints.maxWidth * 0.9, 348.0);
+        final drawerSummaryItems = compact
+            ? summaryItems
+                .where((item) => !mobileNavRoutes.contains(item.route))
+                .toList(growable: false)
+            : summaryItems;
         final currentItem = contextItems.cast<_NavItem?>().firstWhere(
           (item) => item?.matches(location) ?? false,
           orElse: () => summaryItems.isNotEmpty ? summaryItems.first : null,
         );
         final sidebar = _Sidebar(
-          summaryItems: summaryItems,
+          summaryItems: drawerSummaryItems,
           adminItems: adminItems,
           currentRoute: location,
           compact: !wide,
