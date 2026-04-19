@@ -55,6 +55,11 @@ class _SalesScreenState extends State<SalesScreen> {
 
         final data = snapshot.data!;
         final compact = MediaQuery.sizeOf(context).width < 760;
+        final statusCounts = _statusCounts(data.items);
+        final visibleRevenue = data.items.fold<double>(
+          0,
+          (total, item) => total + _asNum(item['totalAmount']),
+        );
         return DesktopPageScaffold(
           title: 'Ventas',
           subtitle: 'Consulta de ventas y detalle de operaciones registradas.',
@@ -100,27 +105,43 @@ class _SalesScreenState extends State<SalesScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(6, 0, 6, 12),
+              DesktopInfoStrip(
                 child: Wrap(
                   spacing: 10,
                   runSpacing: 10,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    Text(
-                      'Total visibles: ${data.total}',
-                      style: const TextStyle(
-                        color: Color(0xFF536079),
-                        fontWeight: FontWeight.w700,
-                      ),
+                    DesktopTag(
+                      label: 'Total visibles: ${data.total}',
+                      background: const Color(0xFFF1F4FA),
                     ),
                     DesktopTag(
                       label: 'Pag. ${data.page}/${data.totalPages}',
                       background: const Color(0xFFF1F4FA),
                     ),
+                    DesktopTag(
+                      label: 'Activas ${statusCounts.active}',
+                      background: const Color(0xFFEAF0F7),
+                    ),
+                    DesktopTag(
+                      label: 'Completadas ${statusCounts.completed}',
+                      background: const Color(0xFFE7F5EF),
+                      foreground: const Color(0xFF2F6F5C),
+                    ),
+                    DesktopTag(
+                      label: 'Canceladas ${statusCounts.cancelled}',
+                      background: const Color(0xFFFBE6E0),
+                      foreground: const Color(0xFFB05233),
+                    ),
+                    DesktopTag(
+                      label: currency.format(visibleRevenue),
+                      background: const Color(0xFFF6EFE3),
+                      foreground: const Color(0xFF8C5A2C),
+                    ),
                   ],
                 ),
               ),
+              const SizedBox(height: 16),
               Expanded(
                 child: data.items.isEmpty
                     ? const DesktopEmptyState(
@@ -280,6 +301,43 @@ class _SalesScreenState extends State<SalesScreen> {
     }
     return DateFormat('dd/MM/yyyy').format(parsed.toLocal());
   }
+
+  _SalesStatusCounts _statusCounts(List<Map<String, dynamic>> items) {
+    var active = 0;
+    var completed = 0;
+    var cancelled = 0;
+
+    for (final item in items) {
+      switch ((item['status']?.toString() ?? '').trim().toLowerCase()) {
+        case 'completed':
+          completed++;
+          break;
+        case 'cancelled':
+          cancelled++;
+          break;
+        default:
+          active++;
+      }
+    }
+
+    return _SalesStatusCounts(
+      active: active,
+      completed: completed,
+      cancelled: cancelled,
+    );
+  }
+}
+
+class _SalesStatusCounts {
+  const _SalesStatusCounts({
+    required this.active,
+    required this.completed,
+    required this.cancelled,
+  });
+
+  final int active;
+  final int completed;
+  final int cancelled;
 }
 
 class _StatusTag extends StatelessWidget {

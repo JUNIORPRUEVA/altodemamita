@@ -46,6 +46,19 @@ class DesktopPageScaffold extends StatelessWidget {
                           color: _desktopInk,
                         ),
               ),
+              if (subtitle != null && subtitle!.trim().isNotEmpty) ...[
+                SizedBox(height: compact ? 6 : 8),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 780),
+                  child: Text(
+                    subtitle!,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: _desktopMuted,
+                      height: 1.45,
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),

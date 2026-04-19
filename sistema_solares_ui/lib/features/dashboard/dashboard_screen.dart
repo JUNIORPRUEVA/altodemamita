@@ -17,6 +17,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<DashboardSnapshot>? _future;
   int _lastTick = -1;
 
+  void _reload() {
+    setState(() => _future = null);
+  }
+
   @override
   Widget build(BuildContext context) {
     final refreshTick = context.watch<RealtimeController>().refreshTick;
@@ -34,79 +38,213 @@ class _DashboardScreenState extends State<DashboardScreen> {
         if (snapshot.hasError) {
           return DesktopPageError(
             message: snapshot.error.toString(),
-            onRetry: () => setState(() => _future = null),
+            onRetry: _reload,
           );
         }
 
         final data = snapshot.data!;
         final currency = NumberFormat.currency(locale: 'es_DO', symbol: r'$');
         final compact = MediaQuery.sizeOf(context).width < 760;
+        final totalPortfolio = _asNum(data.summary['totalPortfolio']);
+        final totalCollected = _asNum(data.summary['totalCollected']);
+        final outstanding = _asNum(data.summary['outstanding']);
+        final products = _asInt(data.summary['products']);
+        final clients = _asInt(data.summary['clients']);
+        final activeSales = _asInt(data.summary['activeSales']);
+        final overdueInstallments = _asInt(data.summary['overdueInstallments']);
 
         return DesktopPageScaffold(
-          title: 'Vista general',
+          title: 'Panel principal',
+          subtitle: 'Vista operativa del inventario, las ventas y la cobranza sincronizada.',
           child: ListView(
             children: [
-              DesktopMetricStrip(
-                children: [
-                  DesktopMetricCard(
-                    title: 'Clientes',
-                    value: '${data.summary['clients'] ?? 0}',
-                    color: const Color(0xFF223048),
-                  ),
-                  DesktopMetricCard(
-                    title: 'Ventas activas',
-                    value: '${data.summary['activeSales'] ?? 0}',
-                    color: const Color(0xFF2F6F5C),
-                  ),
-                  DesktopMetricCard(
-                    title: 'Cartera total',
-                    value: currency.format(data.summary['totalPortfolio'] ?? 0),
-                    color: const Color(0xFFC78442),
-                  ),
-                  DesktopMetricCard(
-                    title: 'Cobrado',
-                    value: currency.format(data.summary['totalCollected'] ?? 0),
-                    color: const Color(0xFF59728D),
-                  ),
-                  DesktopMetricCard(
-                    title: 'Saldo pendiente',
-                    value: currency.format(data.summary['outstanding'] ?? 0),
-                    color: const Color(0xFFB05233),
-                  ),
-                  DesktopMetricCard(
-                    title: 'Cuotas vencidas',
-                    value: '${data.summary['overdueInstallments'] ?? 0}',
-                    color: const Color(0xFF7F5807),
-                  ),
-                ],
+              DesktopInfoStrip(
+                child: Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: [
+                    DesktopStackedStat(
+                      label: 'Clientes registrados',
+                      value: '$clients',
+                    ),
+                    DesktopStackedStat(
+                      label: 'Solares sincronizados',
+                      value: '$products',
+                    ),
+                    DesktopStackedStat(
+                      label: 'Ventas activas',
+                      value: '$activeSales',
+                    ),
+                    DesktopStackedStat(
+                      label: 'Cuotas vencidas',
+                      value: '$overdueInstallments',
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: 16),
               LayoutBuilder(
                 builder: (context, constraints) {
-                  if (compact) {
-                    return Column(
-                      children: [
+                  final wide = constraints.maxWidth >= 1100;
+                  final medium = constraints.maxWidth >= 860;
+                  final metrics = DesktopMetricStrip(
+                    children: [
+                      DesktopMetricCard(
+                        title: 'Clientes',
+                        value: '$clients',
+                        color: const Color(0xFF223048),
+                      ),
+                      DesktopMetricCard(
+                        title: 'Ventas activas',
+                        value: '$activeSales',
+                        color: const Color(0xFF2F6F5C),
+                      ),
+                      DesktopMetricCard(
+                        title: 'Cartera total',
+                        value: currency.format(totalPortfolio),
+                        color: const Color(0xFFC78442),
+                      ),
+                      DesktopMetricCard(
+                        title: 'Cobrado',
+                        value: currency.format(totalCollected),
+                        color: const Color(0xFF59728D),
+                      ),
+                      DesktopMetricCard(
+                        title: 'Saldo pendiente',
+                        value: currency.format(outstanding),
+                        color: const Color(0xFFB05233),
+                      ),
+                      DesktopMetricCard(
+                        title: 'Cuotas vencidas',
+                        value: '$overdueInstallments',
+                        color: const Color(0xFF7F5807),
+                      ),
+                    ],
+                  );
+
+                  final collectionsCard = _DashboardFocusCard(
+                    title: 'Seguimiento de cobros',
+                    icon: Icons.payments_outlined,
+                    accentColor: const Color(0xFF0D2844),
+                    items: [
+                      _FocusItem(
+                        label: 'Pendiente',
+                        value: currency.format(outstanding),
+                      ),
+                      _FocusItem(
+                        label: 'Cobrado',
+                        value: currency.format(totalCollected),
+                      ),
+                      _FocusItem(
+                        label: 'Vencidas',
+                        value: '$overdueInstallments',
+                      ),
+                    ],
+                  );
+
+                  final inventoryCard = _DashboardFocusCard(
+                    title: 'Inventario y actividad',
+                    icon: Icons.inventory_2_outlined,
+                    accentColor: const Color(0xFF173450),
+                    items: [
+                      _FocusItem(label: 'Solares', value: '$products'),
+                      _FocusItem(label: 'Clientes', value: '$clients'),
+                      _FocusItem(label: 'Ventas activas', value: '$activeSales'),
+                    ],
+                  );
+
+                  final overview = _DashboardOverviewCard(
+                    totalPortfolio: currency.format(totalPortfolio),
+                    totalCollected: currency.format(totalCollected),
+                    outstanding: currency.format(outstanding),
+                  );
+
+                  final tables = Column(
+                    children: [
+                      if (compact) ...[
                         _RecentSalesTable(rows: data.recentSales, compact: true),
                         const SizedBox(height: 16),
                         _RecentPaymentsTable(rows: data.recentPayments, compact: true),
-                      ],
-                    );
-                  }
-                  if (constraints.maxWidth < 1100) {
-                    return Column(
-                      children: [
+                      ] else if (constraints.maxWidth < 1100) ...[
                         _RecentSalesTable(rows: data.recentSales),
                         const SizedBox(height: 16),
                         _RecentPaymentsTable(rows: data.recentPayments),
+                      ] else ...[
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(child: _RecentSalesTable(rows: data.recentSales)),
+                            const SizedBox(width: 16),
+                            Expanded(child: _RecentPaymentsTable(rows: data.recentPayments)),
+                          ],
+                        ),
+                      ],
+                    ],
+                  );
+
+                  if (wide) {
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          flex: 7,
+                          child: Column(
+                            children: [
+                              metrics,
+                              const SizedBox(height: 16),
+                              tables,
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          flex: 3,
+                          child: Column(
+                            children: [
+                              overview,
+                              const SizedBox(height: 16),
+                              collectionsCard,
+                              const SizedBox(height: 16),
+                              inventoryCard,
+                            ],
+                          ),
+                        ),
                       ],
                     );
                   }
-                  return Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+
+                  if (medium) {
+                    return Column(
+                      children: [
+                        overview,
+                        const SizedBox(height: 16),
+                        metrics,
+                        const SizedBox(height: 16),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(child: collectionsCard),
+                            const SizedBox(width: 16),
+                            Expanded(child: inventoryCard),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        tables,
+                      ],
+                    );
+                  }
+
+                  return Column(
                     children: [
-                      Expanded(child: _RecentSalesTable(rows: data.recentSales)),
-                      const SizedBox(width: 16),
-                      Expanded(child: _RecentPaymentsTable(rows: data.recentPayments)),
+                      overview,
+                      const SizedBox(height: 16),
+                      metrics,
+                      const SizedBox(height: 16),
+                      collectionsCard,
+                      const SizedBox(height: 16),
+                      inventoryCard,
+                      const SizedBox(height: 16),
+                      tables,
                     ],
                   );
                 },
@@ -117,6 +255,242 @@ class _DashboardScreenState extends State<DashboardScreen> {
       },
     );
   }
+
+  int _asInt(Object? value) {
+    if (value is num) {
+      return value.toInt();
+    }
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  double _asNum(Object? value) {
+    if (value is num) {
+      return value.toDouble();
+    }
+    return double.tryParse(value?.toString() ?? '') ?? 0;
+  }
+}
+
+class _DashboardOverviewCard extends StatelessWidget {
+  const _DashboardOverviewCard({
+    required this.totalPortfolio,
+    required this.totalCollected,
+    required this.outstanding,
+  });
+
+  final String totalPortfolio;
+  final String totalCollected;
+  final String outstanding;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF0D2844), Color(0xFF071829)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x12000000),
+            blurRadius: 18,
+            offset: Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Icon(
+                    Icons.monitor_heart_outlined,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Resumen operativo',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                            ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Vista rapida del inventario, la cartera y la cobranza sincronizada.',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Colors.white.withValues(alpha: 0.74),
+                              height: 1.35,
+                            ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                _OverviewMetric(label: 'Cartera total', value: totalPortfolio),
+                _OverviewMetric(label: 'Cobrado', value: totalCollected),
+                _OverviewMetric(label: 'Pendiente', value: outstanding),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _OverviewMetric extends StatelessWidget {
+  const _OverviewMetric({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minWidth: 150),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(color: Color(0xB3FFFFFF)),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DashboardFocusCard extends StatelessWidget {
+  const _DashboardFocusCard({
+    required this.title,
+    required this.icon,
+    required this.accentColor,
+    required this.items,
+  });
+
+  final String title;
+  final IconData icon;
+  final Color accentColor;
+  final List<_FocusItem> items;
+
+  @override
+  Widget build(BuildContext context) {
+    return DesktopSurface(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: accentColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(icon, color: accentColor),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: items
+                .map(
+                  (item) => Container(
+                    constraints: const BoxConstraints(minWidth: 130),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8F5EE),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          item.label,
+                          style: const TextStyle(
+                            color: Color(0xFF6B7682),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          item.value,
+                          style: const TextStyle(
+                            color: Color(0xFF1D3550),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+                .toList(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FocusItem {
+  const _FocusItem({required this.label, required this.value});
+
+  final String label;
+  final String value;
 }
 
 class _RecentSalesTable extends StatelessWidget {

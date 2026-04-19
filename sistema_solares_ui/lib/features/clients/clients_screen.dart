@@ -52,6 +52,7 @@ class _ClientsScreenState extends State<ClientsScreen> {
 
         final data = snapshot.data!;
         final compact = MediaQuery.sizeOf(context).width < 760;
+        final hasFilter = _searchController.text.trim().isNotEmpty;
         return DesktopPageScaffold(
           title: 'Clientes',
           subtitle: 'Consulta y seguimiento de clientes registrados.',
@@ -64,9 +65,12 @@ class _ClientsScreenState extends State<ClientsScreen> {
               ),
               actions: [
                 OutlinedButton.icon(
-                  onPressed: _reload,
-                  icon: const Icon(Icons.refresh_rounded),
-                  label: const Text('Actualizar'),
+                  onPressed: () {
+                    _searchController.clear();
+                    _reload();
+                  },
+                  icon: const Icon(Icons.cleaning_services_outlined),
+                  label: const Text('Limpiar'),
                 ),
                 FilledButton.icon(
                   onPressed: _reload,
@@ -75,6 +79,14 @@ class _ClientsScreenState extends State<ClientsScreen> {
                 ),
               ],
               compactActions: [
+                OutlinedButton.icon(
+                  onPressed: () {
+                    _searchController.clear();
+                    _reload();
+                  },
+                  icon: const Icon(Icons.cleaning_services_outlined),
+                  label: const Text('Limpiar'),
+                ),
                 FilledButton.icon(
                   onPressed: _reload,
                   icon: const Icon(Icons.search_rounded),
@@ -86,16 +98,31 @@ class _ClientsScreenState extends State<ClientsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(6, 0, 6, 12),
-                child: Text(
-                  'Total visibles: ${data.total}',
-                  style: const TextStyle(
-                    color: Color(0xFF536079),
-                    fontWeight: FontWeight.w700,
-                  ),
+              DesktopInfoStrip(
+                child: Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    DesktopTag(
+                      label: 'Total visibles: ${data.total}',
+                      background: const Color(0xFFF1F4FA),
+                    ),
+                    DesktopTag(
+                      label: hasFilter
+                          ? 'Filtro activo'
+                          : 'Vista completa',
+                      background: hasFilter
+                          ? const Color(0xFFF6EFE3)
+                          : const Color(0xFFE7F5EF),
+                      foreground: hasFilter
+                          ? const Color(0xFF8C5A2C)
+                          : const Color(0xFF2F6F5C),
+                    ),
+                  ],
                 ),
               ),
+              const SizedBox(height: 16),
               Expanded(
                 child: data.items.isEmpty
                     ? const DesktopEmptyState(

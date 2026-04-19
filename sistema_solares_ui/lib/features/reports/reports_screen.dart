@@ -51,30 +51,72 @@ class _ReportsScreenState extends State<ReportsScreen> {
         final data = snapshot.data!;
         final currency = NumberFormat.currency(locale: 'es_DO', symbol: r'$');
         final compact = MediaQuery.sizeOf(context).width < 760;
+        final salesTotal = _sumAmount(data.sales, 'totalAmount');
+        final paymentsTotal = _sumAmount(data.payments, 'amount');
+        final delinquencyTotal = _sumAmount(data.delinquency, 'amountDue');
         return DesktopPageScaffold(
           title: 'Reportes',
           subtitle: 'Resumen operativo por periodo.',
           toolbar: DesktopFieldToolbar(
-            child: Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                const Text(
-                  'Rango:',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-                ...[7, 30, 90].map(
-                  (days) => ChoiceChip(
-                    label: Text('Ultimos $days dias'),
-                    selected: _days == days,
-                    onSelected: (_) => _reloadFor(days),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  const Text(
+                    'Periodo operativo:',
+                    style: TextStyle(fontWeight: FontWeight.w700),
                   ),
-                ),
-              ],
+                  ...[7, 30, 90].map(
+                    (days) => ChoiceChip(
+                      label: Text('Ultimos $days dias'),
+                      selected: _days == days,
+                      onSelected: (_) => _reloadFor(days),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
           child: ListView(
             children: [
+              DesktopMetricStrip(
+                children: [
+                  DesktopMetricCard(
+                    title: 'Ventas en periodo',
+                    value: '${data.sales.length}',
+                    color: const Color(0xFF223048),
+                  ),
+                  DesktopMetricCard(
+                    title: 'Pagos recibidos',
+                    value: '${data.payments.length}',
+                    color: const Color(0xFF2F6F5C),
+                  ),
+                  DesktopMetricCard(
+                    title: 'Monto vendido',
+                    value: currency.format(salesTotal),
+                    color: const Color(0xFFC78442),
+                  ),
+                  DesktopMetricCard(
+                    title: 'Monto cobrado',
+                    value: currency.format(paymentsTotal),
+                    color: const Color(0xFF59728D),
+                  ),
+                  DesktopMetricCard(
+                    title: 'Cuotas vencidas',
+                    value: '${data.delinquency.length}',
+                    color: const Color(0xFFB05233),
+                  ),
+                  DesktopMetricCard(
+                    title: 'Saldo vencido',
+                    value: currency.format(delinquencyTotal),
+                    color: const Color(0xFF7F5807),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
               _ReportTable(
                 title: 'Ventas',
                 compact: compact,
@@ -130,6 +172,20 @@ class _ReportsScreenState extends State<ReportsScreen> {
         );
       },
     );
+  }
+
+  double _sumAmount(List<Map<String, dynamic>> items, String key) {
+    return items.fold<double>(
+      0,
+      (total, item) => total + _asNum(item[key]),
+    );
+  }
+
+  double _asNum(Object? value) {
+    if (value is num) {
+      return value.toDouble();
+    }
+    return double.tryParse(value?.toString() ?? '') ?? 0;
   }
 }
 
