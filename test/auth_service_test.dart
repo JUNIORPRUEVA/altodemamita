@@ -447,6 +447,36 @@ void main() {
     },
   );
 
+  test(
+    'ignora snapshots protegidos ilegibles al preparar el prefill debug',
+    () async {
+      await authService.completeInitialSetup(
+        nombre: 'Admin General',
+        email: 'admin@local.test',
+        password: 'AdminLocalSegura123',
+        recoveryCode: recoveryCode,
+      );
+
+      final db = await appDatabase.database;
+      await db.update(
+        DatabaseSchema.settingsTable,
+        {
+          'valor': 'snapshot-corrupto',
+          'fecha_actualizacion': DateTime.now().toIso8601String(),
+        },
+        where: 'clave = ?',
+        whereArgs: ['admin_recovery_credentials_snapshot'],
+      );
+
+      final credentials = await authService.getDebugAdminPrefillCredentials();
+
+      expect(credentials, isNotNull);
+      expect(credentials?.nombre, 'Admin General');
+      expect(credentials?.email, 'admin@local.test');
+      expect(credentials?.password, isEmpty);
+    },
+  );
+
   test('permite regenerar la clave de recuperacion', () async {
     await authService.completeInitialSetup(
       nombre: 'Admin General',

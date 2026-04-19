@@ -22,8 +22,12 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _prefillDebugCredentials() async {
     final auth = context.read<AuthProvider>();
-    final credentials = await auth.authService
-        .getDebugAdminPrefillCredentials();
+    AdminRecoveryCredentials? credentials;
+    try {
+      credentials = await auth.authService.getDebugAdminPrefillCredentials();
+    } catch (_) {
+      return;
+    }
     if (!mounted || credentials == null) {
       return;
     }

@@ -437,7 +437,7 @@ class AuthService {
 
     final recoveryCode = await _getSettingValue(db, _adminRecoveryCodeKey);
     if (recoveryCode != null && recoveryCode.isNotEmpty) {
-      final snapshot = await _readAdminRecoverySnapshot(db, recoveryCode);
+      final snapshot = await _tryReadAdminRecoverySnapshot(db, recoveryCode);
       if (snapshot != null) {
         return snapshot;
       }
@@ -1209,6 +1209,19 @@ class AuthService {
     }
   }
 
+  Future<AdminRecoveryCredentials?> _tryReadAdminRecoverySnapshot(
+    DatabaseExecutor db,
+    String recoveryCode,
+  ) async {
+    try {
+      return await _readAdminRecoverySnapshot(db, recoveryCode);
+    } on AuthException {
+      return null;
+    } on FormatException {
+      return null;
+    }
+  }
+
   Future<void> _syncAdminRecoverySnapshot(
     DatabaseExecutor db, {
     required int userId,
@@ -1228,7 +1241,7 @@ class AuthService {
 
     var resolvedPassword = plainPassword?.trim();
     if (resolvedPassword == null || resolvedPassword.isEmpty) {
-      final currentSnapshot = await _readAdminRecoverySnapshot(
+      final currentSnapshot = await _tryReadAdminRecoverySnapshot(
         db,
         recoveryCode,
       );
