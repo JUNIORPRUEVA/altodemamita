@@ -24,7 +24,7 @@ class DesktopPageScaffold extends StatelessWidget {
     final width = MediaQuery.sizeOf(context).width;
     final compact = width < 760;
     final headerPadding = compact
-        ? const EdgeInsets.fromLTRB(2, 0, 2, 12)
+        ? const EdgeInsets.fromLTRB(2, 0, 2, 10)
         : const EdgeInsets.fromLTRB(4, 4, 4, 16);
 
     return Column(
@@ -52,9 +52,12 @@ class DesktopPageScaffold extends StatelessWidget {
                   constraints: const BoxConstraints(maxWidth: 780),
                   child: Text(
                     subtitle!,
+                    maxLines: compact ? 2 : null,
+                    overflow: compact ? TextOverflow.ellipsis : null,
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: _desktopMuted,
-                      height: 1.45,
+                      height: compact ? 1.3 : 1.45,
+                      fontSize: compact ? 12.5 : null,
                     ),
                   ),
                 ),
@@ -130,20 +133,25 @@ class DesktopToolbar extends StatelessWidget {
         if (compact) {
           return Padding(
             padding: EdgeInsets.symmetric(
-              horizontal: veryCompact ? 12 : 16,
-              vertical: 12,
+              horizontal: veryCompact ? 0 : 2,
+              vertical: 2,
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 searchField,
                 if (rowActions.isNotEmpty) ...[
-                  const SizedBox(height: 10),
-                  ...rowActions.map(
-                    (action) => Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: SizedBox(width: double.infinity, child: action),
-                    ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: rowActions
+                        .map(
+                          (action) => veryCompact
+                              ? SizedBox(width: double.infinity, child: action)
+                              : action,
+                        )
+                        .toList(),
                   ),
                 ],
               ],
@@ -188,18 +196,18 @@ class DesktopSearchField extends StatelessWidget {
     final compact = MediaQuery.sizeOf(context).width < 760;
 
     return SizedBox(
-      height: compact ? 52 : 46,
+      height: 46,
       child: TextField(
         controller: controller,
-        style: TextStyle(fontSize: compact ? 15 : 14, color: _desktopInk),
+        style: TextStyle(fontSize: compact ? 13.5 : 14, color: _desktopInk),
         onSubmitted: onSubmitted,
         decoration: InputDecoration(
           hintText: hintText,
-          prefixIcon: Icon(Icons.search, size: compact ? 20 : 18),
+          prefixIcon: Icon(Icons.search, size: compact ? 18 : 18),
           isDense: true,
           contentPadding: EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: compact ? 14 : 12,
+            horizontal: compact ? 14 : 16,
+            vertical: compact ? 11 : 12,
           ),
         ),
       ),
@@ -282,7 +290,7 @@ class DesktopModuleList extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: _desktopSurface,
-        borderRadius: BorderRadius.circular(compact ? 18 : 24),
+        borderRadius: BorderRadius.circular(compact ? 16 : 24),
         border: Border.all(color: _desktopOutline),
       ),
       child: ListView.separated(
@@ -398,11 +406,11 @@ class DesktopListRow extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: ConstrainedBox(
-        constraints: BoxConstraints(minHeight: compact ? height + 10 : height),
+        constraints: BoxConstraints(minHeight: height),
         child: Padding(
           padding: EdgeInsets.symmetric(
-            horizontal: compact ? 14 : 18,
-            vertical: compact ? 8 : 0,
+            horizontal: compact ? 12 : 18,
+            vertical: compact ? 7 : 0,
           ),
           child: compact
               ? Column(
@@ -429,7 +437,7 @@ class DesktopListRow extends StatelessWidget {
                       ],
                     ),
                     if (trailing != null) ...[
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 8),
                       Align(alignment: Alignment.centerLeft, child: trailing!),
                     ],
                   ],
@@ -473,7 +481,17 @@ class DesktopFieldToolbar extends StatelessWidget {
     final compact = MediaQuery.sizeOf(context).width < 760;
 
     if (compact) {
-      return child;
+      return Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFD),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFE8EDF4)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: child,
+        ),
+      );
     }
 
     return Container(
@@ -622,8 +640,8 @@ class DesktopTag extends StatelessWidget {
     final compact = MediaQuery.sizeOf(context).width < 760;
     return Container(
       padding: EdgeInsets.symmetric(
-        horizontal: compact ? 12 : 10,
-        vertical: compact ? 8 : 6,
+        horizontal: compact ? 10 : 10,
+        vertical: compact ? 6 : 6,
       ),
       decoration: BoxDecoration(
         color: background,
@@ -635,7 +653,7 @@ class DesktopTag extends StatelessWidget {
         style: TextStyle(
           color: foreground,
           fontWeight: FontWeight.w700,
-          fontSize: compact ? 13 : 12,
+          fontSize: compact ? 11.5 : 12,
         ),
       ),
     );

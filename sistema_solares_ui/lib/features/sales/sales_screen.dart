@@ -62,7 +62,9 @@ class _SalesScreenState extends State<SalesScreen> {
         );
         return DesktopPageScaffold(
           title: 'Ventas',
-          subtitle: 'Consulta de ventas y detalle de operaciones registradas.',
+          subtitle: compact
+              ? 'Vista limpia de ventas activas y monto visible.'
+              : 'Consulta de ventas y detalle de operaciones registradas.',
           toolbar: DesktopFieldToolbar(
             child: DesktopToolbar(
               searchField: DesktopSearchField(
@@ -112,32 +114,39 @@ class _SalesScreenState extends State<SalesScreen> {
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     DesktopTag(
-                      label: 'Total visibles: ${data.total}',
+                      label: compact
+                          ? '${data.total} visibles'
+                          : 'Total visibles: ${data.total}',
                       background: const Color(0xFFF1F4FA),
                     ),
                     DesktopTag(
-                      label: 'Pag. ${data.page}/${data.totalPages}',
-                      background: const Color(0xFFF1F4FA),
-                    ),
-                    DesktopTag(
-                      label: 'Activas ${statusCounts.active}',
+                      label: compact
+                          ? 'Activas ${statusCounts.active}'
+                          : 'Activas ${statusCounts.active}',
                       background: const Color(0xFFEAF0F7),
                     ),
-                    DesktopTag(
-                      label: 'Completadas ${statusCounts.completed}',
-                      background: const Color(0xFFE7F5EF),
-                      foreground: const Color(0xFF2F6F5C),
-                    ),
-                    DesktopTag(
-                      label: 'Canceladas ${statusCounts.cancelled}',
-                      background: const Color(0xFFFBE6E0),
-                      foreground: const Color(0xFFB05233),
-                    ),
+                    if (!compact)
+                      DesktopTag(
+                        label: 'Completadas ${statusCounts.completed}',
+                        background: const Color(0xFFE7F5EF),
+                        foreground: const Color(0xFF2F6F5C),
+                      ),
+                    if (!compact)
+                      DesktopTag(
+                        label: 'Canceladas ${statusCounts.cancelled}',
+                        background: const Color(0xFFFBE6E0),
+                        foreground: const Color(0xFFB05233),
+                      ),
                     DesktopTag(
                       label: currency.format(visibleRevenue),
                       background: const Color(0xFFF6EFE3),
                       foreground: const Color(0xFF8C5A2C),
                     ),
+                    if (!compact)
+                      DesktopTag(
+                        label: 'Pag. ${data.page}/${data.totalPages}',
+                        background: const Color(0xFFF1F4FA),
+                      ),
                   ],
                 ),
               ),
@@ -159,7 +168,9 @@ class _SalesScreenState extends State<SalesScreen> {
                               'Sin solar';
                           final contract = item['contractNumber']?.toString();
                           final subtitleParts = <String>[
-                            if (contract != null && contract.trim().isNotEmpty)
+                            if (!compact &&
+                                contract != null &&
+                                contract.trim().isNotEmpty)
                               contract,
                             product,
                             _formatDate(item['saleDate']),
@@ -199,7 +210,7 @@ class _SalesScreenState extends State<SalesScreen> {
                               spacing: 8,
                               runSpacing: 8,
                               children: [
-                                _StatusTag(status: status),
+                                if (!compact) _StatusTag(status: status),
                                 DesktopTag(
                                   label: currency.format(
                                     _asNum(item['totalAmount']),
@@ -207,6 +218,7 @@ class _SalesScreenState extends State<SalesScreen> {
                                   background: const Color(0xFFF6EFE3),
                                   foreground: const Color(0xFF8C5A2C),
                                 ),
+                                if (compact) _StatusTag(status: status),
                               ],
                             ),
                           );

@@ -52,12 +52,6 @@ class AdminShell extends StatelessWidget {
           icon: Icons.badge_outlined,
           label: 'Vendedores',
         ),
-      if (authController.canAccessSales)
-        const _NavItem(
-          route: '/payments',
-          icon: Icons.payments_outlined,
-          label: 'Pagos',
-        ),
       if (authController.hasPermission('products.read') ||
           authController.isPanelAdmin)
         const _NavItem(
@@ -87,39 +81,39 @@ class AdminShell extends StatelessWidget {
         ),
       ...adminItems,
     ];
+    final mobileNavItems = <_NavItem>[
+      const _NavItem(
+        route: '/reports',
+        icon: Icons.query_stats_rounded,
+        label: 'Reportes',
+      ),
+      _NavItem(
+        route: '/sales',
+        icon: Icons.point_of_sale_outlined,
+        label: 'Ventas',
+        enabled: authController.canAccessSales,
+      ),
+      _NavItem(
+        route: '/payments',
+        icon: Icons.payments_outlined,
+        label: 'Pagos',
+        enabled: authController.canAccessPayments,
+      ),
+      _NavItem(
+        route: '/search',
+        icon: Icons.travel_explore_outlined,
+        label: 'Buscador',
+        enabled: authController.canAccessGlobalSearch,
+      ),
+    ];
 
-        final mobileNavItems = <_NavItem>[
-          const _NavItem(
-            route: '/reports',
-            icon: Icons.query_stats_rounded,
-            label: 'Reportes',
-          ),
-          _NavItem(
-            route: '/sales',
-            icon: Icons.point_of_sale_outlined,
-            label: 'Ventas',
-            enabled: authController.canAccessSales,
-          ),
-          _NavItem(
-            route: '/payments',
-            icon: Icons.payments_outlined,
-            label: 'Pagos',
-            enabled: authController.canAccessSales,
-          ),
-          _NavItem(
-            route: '/search',
-            icon: Icons.travel_explore_outlined,
-            label: 'Buscador',
-            enabled: authController.canAccessGlobalSearch,
-          ),
-        ];
     return LayoutBuilder(
-          (item) => item?.matches(location) ?? false,
+      builder: (context, constraints) {
         final wide = constraints.maxWidth >= 1120;
         final compact = constraints.maxWidth < 760;
         final drawerWidth = math.min(constraints.maxWidth * 0.9, 348.0);
         final currentItem = contextItems.cast<_NavItem?>().firstWhere(
-          (item) => item?.route == location,
+          (item) => item?.matches(location) ?? false,
           orElse: () => summaryItems.isNotEmpty ? summaryItems.first : null,
         );
         final sidebar = _Sidebar(
@@ -987,10 +981,7 @@ class _ConnectionIndicator extends StatelessWidget {
 }
 
 class _MobileBottomNav extends StatelessWidget {
-  const _MobileBottomNav({
-    required this.items,
-    required this.currentRoute,
-  });
+  const _MobileBottomNav({required this.items, required this.currentRoute});
 
   final List<_NavItem> items;
   final String currentRoute;
@@ -1037,10 +1028,7 @@ class _MobileBottomNav extends StatelessWidget {
 }
 
 class _MobileBottomNavItem extends StatelessWidget {
-  const _MobileBottomNavItem({
-    required this.item,
-    required this.selected,
-  });
+  const _MobileBottomNavItem({required this.item, required this.selected});
 
   final _NavItem item;
   final bool selected;
@@ -1068,9 +1056,7 @@ class _MobileBottomNavItem extends StatelessWidget {
             duration: const Duration(milliseconds: 180),
             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
             decoration: BoxDecoration(
-              color: selected
-                  ? const Color(0xFFEFF4FA)
-                  : Colors.transparent,
+              color: selected ? const Color(0xFFEFF4FA) : Colors.transparent,
               borderRadius: BorderRadius.circular(18),
             ),
             child: Column(

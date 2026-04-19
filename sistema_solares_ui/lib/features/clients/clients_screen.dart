@@ -55,7 +55,9 @@ class _ClientsScreenState extends State<ClientsScreen> {
         final hasFilter = _searchController.text.trim().isNotEmpty;
         return DesktopPageScaffold(
           title: 'Clientes',
-          subtitle: 'Consulta y seguimiento de clientes registrados.',
+          subtitle: compact
+              ? 'Lista limpia de clientes para consulta rapida.'
+              : 'Consulta y seguimiento de clientes registrados.',
           toolbar: DesktopFieldToolbar(
             child: DesktopToolbar(
               searchField: DesktopSearchField(
@@ -105,13 +107,13 @@ class _ClientsScreenState extends State<ClientsScreen> {
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     DesktopTag(
-                      label: 'Total visibles: ${data.total}',
+                      label: compact
+                          ? '${data.total} visibles'
+                          : 'Total visibles: ${data.total}',
                       background: const Color(0xFFF1F4FA),
                     ),
                     DesktopTag(
-                      label: hasFilter
-                          ? 'Filtro activo'
-                          : 'Vista completa',
+                      label: hasFilter ? 'Filtro activo' : 'Vista completa',
                       background: hasFilter
                           ? const Color(0xFFF6EFE3)
                           : const Color(0xFFE7F5EF),
@@ -141,9 +143,10 @@ class _ClientsScreenState extends State<ClientsScreen> {
                           final phone =
                               item['phone']?.toString() ?? 'Sin telefono';
                           final code = item['code']?.toString() ?? '-';
-                          final email = item['email']?.toString() ?? 'Sin correo';
+                          final email =
+                              item['email']?.toString() ?? 'Sin correo';
                           final subtitleText = compact
-                              ? '$documentId  •  $phone\n$email'
+                              ? '$documentId  •  $phone'
                               : '$documentId  •  $phone  •  $email';
                           return DesktopListRow(
                             height: compact ? 92 : 72,
@@ -166,9 +169,9 @@ class _ClientsScreenState extends State<ClientsScreen> {
                                     fullName.isEmpty ? 'Sin nombre' : fullName,
                                     style: TextStyle(
                                       fontWeight: FontWeight.w800,
-                                      fontSize: compact ? 14 : null,
+                                      fontSize: compact ? 13.5 : null,
                                     ),
-                                    maxLines: 1,
+                                    maxLines: compact ? 2 : 1,
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
@@ -199,10 +202,10 @@ class _ClientsScreenState extends State<ClientsScreen> {
                               subtitleText,
                               style: TextStyle(
                                 color: const Color(0xFF6E7791),
-                                fontSize: compact ? 12.5 : null,
+                                fontSize: compact ? 12 : null,
                                 height: compact ? 1.35 : null,
                               ),
-                              maxLines: compact ? 2 : 1,
+                              maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
                             trailing: compact

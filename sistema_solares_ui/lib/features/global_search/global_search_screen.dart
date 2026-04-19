@@ -38,11 +38,9 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
   @override
   Widget build(BuildContext context) {
     final refreshTick = context.watch<RealtimeController>().refreshTick;
-    if (
-      _future != null &&
-      _lastSubmittedQuery.isNotEmpty &&
-      refreshTick != _lastTick
-    ) {
+    if (_future != null &&
+        _lastSubmittedQuery.isNotEmpty &&
+        refreshTick != _lastTick) {
       _lastTick = refreshTick;
       _future = GlobalSearchService(
         context.read<ApiClient>(),
@@ -51,7 +49,9 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
 
     return DesktopPageScaffold(
       title: 'Buscador global',
-      subtitle: 'Busca por cliente, contrato o solar para ver todo su historial en la nube.',
+      subtitle: MediaQuery.sizeOf(context).width < 760
+          ? 'Busca clientes y ventas sin ruido visual.'
+          : 'Busca por cliente, contrato o solar para ver todo su historial en la nube.',
       toolbar: DesktopFieldToolbar(
         child: DesktopToolbar(
           searchField: DesktopSearchField(
@@ -144,14 +144,17 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
                 runSpacing: 10,
                 children: [
                   DesktopTag(
-                    label: 'Resultados: ${results.length}',
+                    label: compact
+                        ? '${results.length} resultados'
+                        : 'Resultados: ${results.length}',
                     background: const Color(0xFFF1F4FA),
                   ),
-                  DesktopTag(
-                    label: 'Consulta: $_lastSubmittedQuery',
-                    background: const Color(0xFFF6EFE3),
-                    foreground: const Color(0xFF8C5A2C),
-                  ),
+                  if (!compact)
+                    DesktopTag(
+                      label: 'Consulta: $_lastSubmittedQuery',
+                      background: const Color(0xFFF6EFE3),
+                      foreground: const Color(0xFF8C5A2C),
+                    ),
                 ],
               ),
             ),
@@ -162,10 +165,11 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
                   final client = result.client;
                   final fullName = _fullName(client);
                   final phone = client['phone']?.toString() ?? 'Sin telefono';
-                  final document = client['documentId']?.toString() ?? 'Sin cedula';
+                  final document =
+                      client['documentId']?.toString() ?? 'Sin cedula';
                   final email = client['email']?.toString() ?? 'Sin correo';
                   final subtitle = compact
-                      ? '$document  •  $phone\n$email'
+                      ? '$document  •  $phone\n${result.sales.length} venta(s)'
                       : '$document  •  $phone  •  $email';
                   final totalOutstanding = result.sales.fold<double>(
                     0,
@@ -202,15 +206,17 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
                       spacing: 8,
                       runSpacing: 8,
                       children: [
-                        DesktopTag(
-                          label: '${result.sales.length} venta(s)',
-                          background: const Color(0xFFEAF0F7),
-                        ),
-                        DesktopTag(
-                          label: _matchLabel(result.matchTypes),
-                          background: const Color(0xFFE7F5EF),
-                          foreground: const Color(0xFF2F6F5C),
-                        ),
+                        if (!compact)
+                          DesktopTag(
+                            label: '${result.sales.length} venta(s)',
+                            background: const Color(0xFFEAF0F7),
+                          ),
+                        if (!compact)
+                          DesktopTag(
+                            label: _matchLabel(result.matchTypes),
+                            background: const Color(0xFFE7F5EF),
+                            foreground: const Color(0xFF2F6F5C),
+                          ),
                         DesktopTag(
                           label: _currency.format(totalOutstanding),
                           background: const Color(0xFFF6EFE3),
@@ -274,8 +280,10 @@ class _GlobalSearchDetailDialog extends StatelessWidget {
     final sales = detail.sales;
     final installments = sales
         .expand(
-          (sale) => (sale['installments'] as List<dynamic>? ?? const <dynamic>[])
-              .map(_asMap),
+          (sale) =>
+              (sale['installments'] as List<dynamic>? ?? const <dynamic>[]).map(
+                _asMap,
+              ),
         )
         .toList();
     final payments = sales
@@ -302,9 +310,8 @@ class _GlobalSearchDetailDialog extends StatelessWidget {
                   Expanded(
                     child: Text(
                       _fullName(detail.client),
-                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(fontWeight: FontWeight.w800),
                     ),
                   ),
                   IconButton(
@@ -354,36 +361,58 @@ class _GlobalSearchDetailDialog extends StatelessWidget {
                           ? const DesktopEmptyState(
                               icon: Icons.point_of_sale_outlined,
                               title: 'Sin ventas relacionadas',
-                              message: 'El cliente aparece en la nube, pero todavia no tiene ventas registradas.',
+                              message:
+                                  'El cliente aparece en la nube, pero todavia no tiene ventas registradas.',
                             )
                           : Column(
                               children: sales.map((sale) {
-                                final product = _readNested(sale, ['product', 'name']) ?? 'Sin solar';
-                                final seller = _readNested(sale, ['seller', 'name']) ?? 'Sin vendedor';
-                                final status = sale['status']?.toString() ?? '-';
+                                final product =
+                                    _readNested(sale, ['product', 'name']) ??
+                                    'Sin solar';
+                                final seller =
+                                    _readNested(sale, ['seller', 'name']) ??
+                                    'Sin vendedor';
+                                final status =
+                                    sale['status']?.toString() ?? '-';
                                 return Padding(
                                   padding: const EdgeInsets.only(bottom: 12),
                                   child: DesktopCompactSurface(
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         Wrap(
                                           spacing: 8,
                                           runSpacing: 8,
                                           children: [
                                             DesktopTag(
-                                              label: sale['contractNumber']?.toString() ?? 'Sin contrato',
-                                              background: const Color(0xFFEAF0F7),
+                                              label:
+                                                  sale['contractNumber']
+                                                      ?.toString() ??
+                                                  'Sin contrato',
+                                              background: const Color(
+                                                0xFFEAF0F7,
+                                              ),
                                             ),
                                             DesktopTag(
                                               label: status,
-                                              background: const Color(0xFFE7F5EF),
-                                              foreground: const Color(0xFF2F6F5C),
+                                              background: const Color(
+                                                0xFFE7F5EF,
+                                              ),
+                                              foreground: const Color(
+                                                0xFF2F6F5C,
+                                              ),
                                             ),
                                             DesktopTag(
-                                              label: _currency.format(_asNum(sale['totalAmount'])),
-                                              background: const Color(0xFFF6EFE3),
-                                              foreground: const Color(0xFF8C5A2C),
+                                              label: _currency.format(
+                                                _asNum(sale['totalAmount']),
+                                              ),
+                                              background: const Color(
+                                                0xFFF6EFE3,
+                                              ),
+                                              foreground: const Color(
+                                                0xFF8C5A2C,
+                                              ),
                                             ),
                                           ],
                                         ),
@@ -398,12 +427,16 @@ class _GlobalSearchDetailDialog extends StatelessWidget {
                                         const SizedBox(height: 6),
                                         Text(
                                           'Fecha ${_formatDate(sale['saleDate'])}  •  Saldo ${_currency.format(_asNum(sale['outstandingBalance']))}',
-                                          style: const TextStyle(color: Color(0xFF6E7791)),
+                                          style: const TextStyle(
+                                            color: Color(0xFF6E7791),
+                                          ),
                                         ),
                                         const SizedBox(height: 10),
                                         Text(
                                           'Cuotas: ${((sale['installments'] as List<dynamic>?) ?? const <dynamic>[]).length}  •  Pagos: ${((sale['payments'] as List<dynamic>?) ?? const <dynamic>[]).length}',
-                                          style: const TextStyle(color: Color(0xFF6E7791)),
+                                          style: const TextStyle(
+                                            color: Color(0xFF6E7791),
+                                          ),
                                         ),
                                       ],
                                     ),
@@ -428,15 +461,21 @@ class _GlobalSearchDetailDialog extends StatelessWidget {
                                     child: ListTile(
                                       contentPadding: EdgeInsets.zero,
                                       title: Text(
-                                        _currency.format(_asNum(payment['amount'])),
-                                        style: const TextStyle(fontWeight: FontWeight.w800),
+                                        _currency.format(
+                                          _asNum(payment['amount']),
+                                        ),
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                        ),
                                       ),
                                       subtitle: Text(
                                         '${payment['method'] ?? 'Metodo no indicado'}  •  ${_formatDate(payment['paymentDate'])}',
                                       ),
                                       trailing: Text(
                                         payment['reference']?.toString() ?? '-',
-                                        style: const TextStyle(color: Color(0xFF6E7791)),
+                                        style: const TextStyle(
+                                          color: Color(0xFF6E7791),
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -455,7 +494,10 @@ class _GlobalSearchDetailDialog extends StatelessWidget {
   }
 }
 
-final NumberFormat _currency = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$ ');
+final NumberFormat _currency = NumberFormat.currency(
+  locale: 'es_DO',
+  symbol: 'RD\$ ',
+);
 
 Map<String, dynamic> _asMap(Object? value) {
   if (value is Map<String, dynamic>) {

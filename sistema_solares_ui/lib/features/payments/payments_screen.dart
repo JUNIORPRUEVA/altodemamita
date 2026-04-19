@@ -74,7 +74,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
         return DesktopPageScaffold(
           title: 'Pagos',
           subtitle: compact
-              ? 'Cobros recientes con lectura rapida para telefono.'
+              ? 'Cobros clave del periodo con lectura rapida.'
               : 'Seguimiento compacto de los pagos recibidos en el periodo seleccionado.',
           toolbar: DesktopFieldToolbar(
             child: Padding(
@@ -111,7 +111,9 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                   runSpacing: 10,
                   children: [
                     DesktopTag(
-                      label: 'Cobros ${payments.length}',
+                      label: compact
+                          ? '${payments.length} cobros'
+                          : 'Cobros ${payments.length}',
                       background: const Color(0xFFF1F4FA),
                     ),
                     DesktopTag(
@@ -119,16 +121,18 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                       background: const Color(0xFFEAF4ED),
                       foreground: const Color(0xFF2F6F5C),
                     ),
-                    DesktopTag(
-                      label: 'Ticket ${currency.format(averageTicket)}',
-                      background: const Color(0xFFF6EFE3),
-                      foreground: const Color(0xFF8C5A2C),
-                    ),
-                    DesktopTag(
-                      label: 'Metodos ${methods.length}',
-                      background: const Color(0xFFF5EEF8),
-                      foreground: const Color(0xFF7A4A97),
-                    ),
+                    if (!compact)
+                      DesktopTag(
+                        label: 'Ticket ${currency.format(averageTicket)}',
+                        background: const Color(0xFFF6EFE3),
+                        foreground: const Color(0xFF8C5A2C),
+                      ),
+                    if (!compact)
+                      DesktopTag(
+                        label: 'Metodos ${methods.length}',
+                        background: const Color(0xFFF5EEF8),
+                        foreground: const Color(0xFF7A4A97),
+                      ),
                     if (lastPaymentDate != null)
                       DesktopTag(
                         label: DateFormat(
@@ -158,16 +162,13 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                                       as Map<String, dynamic>?)?['name']
                                   ?.toString() ??
                               'Sin solar';
-                          final contract =
-                              sale?['contractNumber']?.toString() ?? '';
                           final method =
                               payment['method']?.toString() ??
                               'Metodo no definido';
                           final date = _formatDate(payment['paymentDate']);
                           final subtitleParts = <String>[
                             method,
-                            if (product.trim().isNotEmpty) product,
-                            if (contract.trim().isNotEmpty) contract,
+                            if (!compact && product.trim().isNotEmpty) product,
                             date,
                           ];
 

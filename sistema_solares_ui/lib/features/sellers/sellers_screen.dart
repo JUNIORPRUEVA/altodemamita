@@ -55,7 +55,9 @@ class _SellersScreenState extends State<SellersScreen> {
         final compact = MediaQuery.sizeOf(context).width < 760;
         return DesktopPageScaffold(
           title: 'Vendedores',
-          subtitle: 'Consulta la tabla de vendedores y sus ventas asociadas desde la nube.',
+          subtitle: compact
+              ? 'Directorio compacto de vendedores.'
+              : 'Consulta la tabla de vendedores y sus ventas asociadas desde la nube.',
           toolbar: DesktopFieldToolbar(
             child: DesktopToolbar(
               searchField: DesktopSearchField(
@@ -104,13 +106,16 @@ class _SellersScreenState extends State<SellersScreen> {
                   runSpacing: 10,
                   children: [
                     DesktopTag(
-                      label: 'Total visibles: ${data.total}',
+                      label: compact
+                          ? '${data.total} visibles'
+                          : 'Total visibles: ${data.total}',
                       background: const Color(0xFFF1F4FA),
                     ),
-                    DesktopTag(
-                      label: 'Pag. ${data.page}/${data.totalPages}',
-                      background: const Color(0xFFEAF0F7),
-                    ),
+                    if (!compact)
+                      DesktopTag(
+                        label: 'Pag. ${data.page}/${data.totalPages}',
+                        background: const Color(0xFFEAF0F7),
+                      ),
                   ],
                 ),
               ),
@@ -120,19 +125,23 @@ class _SellersScreenState extends State<SellersScreen> {
                     ? const DesktopEmptyState(
                         icon: Icons.badge_outlined,
                         title: 'No hay vendedores para este filtro',
-                        message: 'Prueba otra busqueda o espera a la siguiente sincronizacion desde el escritorio.',
+                        message:
+                            'Prueba otra busqueda o espera a la siguiente sincronizacion desde el escritorio.',
                       )
                     : DesktopModuleList(
                         children: data.items.map((item) {
                           final name = item['name']?.toString() ?? 'Sin nombre';
-                          final document = item['documentId']?.toString() ?? 'Sin cedula';
-                          final phone = item['phone']?.toString() ?? 'Sin telefono';
+                          final document =
+                              item['documentId']?.toString() ?? 'Sin cedula';
+                          final phone =
+                              item['phone']?.toString() ?? 'Sin telefono';
                           final subtitle = compact
                               ? '$document\n$phone'
                               : '$document  •  $phone';
                           return DesktopListRow(
                             height: compact ? 98 : 76,
-                            onTap: () => _openDetail(item['id']?.toString() ?? ''),
+                            onTap: () =>
+                                _openDetail(item['id']?.toString() ?? ''),
                             leading: CircleAvatar(
                               radius: compact ? 18 : 22,
                               backgroundColor: const Color(0xFFEAF0F7),
@@ -146,7 +155,9 @@ class _SellersScreenState extends State<SellersScreen> {
                             ),
                             title: Text(
                               name,
-                              style: const TextStyle(fontWeight: FontWeight.w800),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                              ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -156,11 +167,13 @@ class _SellersScreenState extends State<SellersScreen> {
                               maxLines: compact ? 2 : 1,
                               overflow: TextOverflow.ellipsis,
                             ),
-                            trailing: const DesktopTag(
-                              label: 'Ver detalle',
-                              background: Color(0xFFF6EFE3),
-                              foreground: Color(0xFF8C5A2C),
-                            ),
+                            trailing: compact
+                                ? null
+                                : const DesktopTag(
+                                    label: 'Ver detalle',
+                                    background: Color(0xFFF6EFE3),
+                                    foreground: Color(0xFF8C5A2C),
+                                  ),
                           );
                         }).toList(),
                       ),
@@ -184,7 +197,9 @@ class _SellersScreenState extends State<SellersScreen> {
     );
 
     try {
-      final detail = await SellersService(context.read<ApiClient>()).fetchDetail(id);
+      final detail = await SellersService(
+        context.read<ApiClient>(),
+      ).fetchDetail(id);
       if (!mounted) {
         return;
       }
@@ -238,9 +253,8 @@ class _SellerDetailDialog extends StatelessWidget {
                   Expanded(
                     child: Text(
                       detail['name']?.toString() ?? 'Detalle de vendedor',
-                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(fontWeight: FontWeight.w800),
                     ),
                   ),
                   IconButton(
@@ -282,12 +296,17 @@ class _SellerDetailDialog extends StatelessWidget {
                           ? const DesktopEmptyState(
                               icon: Icons.point_of_sale_outlined,
                               title: 'Sin ventas asociadas',
-                              message: 'Este vendedor todavia no tiene ventas visibles en la nube.',
+                              message:
+                                  'Este vendedor todavia no tiene ventas visibles en la nube.',
                             )
                           : Column(
                               children: sales.map((sale) {
-                                final client = _fullName(_asMap(sale['client']));
-                                final product = _readNested(sale, ['product', 'name']) ?? 'Sin solar';
+                                final client = _fullName(
+                                  _asMap(sale['client']),
+                                );
+                                final product =
+                                    _readNested(sale, ['product', 'name']) ??
+                                    'Sin solar';
                                 return Padding(
                                   padding: const EdgeInsets.only(bottom: 12),
                                   child: DesktopCompactSurface(
@@ -295,17 +314,23 @@ class _SellerDetailDialog extends StatelessWidget {
                                       contentPadding: EdgeInsets.zero,
                                       title: Text(
                                         client,
-                                        style: const TextStyle(fontWeight: FontWeight.w800),
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                        ),
                                       ),
                                       subtitle: Text(
                                         '$product  •  ${sale['contractNumber'] ?? 'Sin contrato'}\n${_formatDate(sale['saleDate'])}',
                                       ),
                                       trailing: Column(
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        crossAxisAlignment: CrossAxisAlignment.end,
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.end,
                                         children: [
                                           Text(
-                                            _currency.format(_asNum(sale['totalAmount'])),
+                                            _currency.format(
+                                              _asNum(sale['totalAmount']),
+                                            ),
                                             style: const TextStyle(
                                               fontWeight: FontWeight.w800,
                                               color: Color(0xFF8C5A2C),
@@ -314,7 +339,9 @@ class _SellerDetailDialog extends StatelessWidget {
                                           const SizedBox(height: 4),
                                           Text(
                                             sale['status']?.toString() ?? '-',
-                                            style: const TextStyle(color: Color(0xFF6E7791)),
+                                            style: const TextStyle(
+                                              color: Color(0xFF6E7791),
+                                            ),
                                           ),
                                         ],
                                       ),
@@ -335,7 +362,10 @@ class _SellerDetailDialog extends StatelessWidget {
   }
 }
 
-final NumberFormat _currency = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$ ');
+final NumberFormat _currency = NumberFormat.currency(
+  locale: 'es_DO',
+  symbol: 'RD\$ ',
+);
 
 Map<String, dynamic> _asMap(Object? value) {
   if (value is Map<String, dynamic>) {
