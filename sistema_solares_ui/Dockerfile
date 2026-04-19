@@ -12,7 +12,7 @@ RUN flutter pub get
 COPY . .
 
 RUN flutter build web --release --base-href / --dart-define=API_BASE_URL=${API_BASE_URL}
-RUN printf "self.addEventListener('install', function () { self.skipWaiting(); });\nself.addEventListener('activate', function (event) { event.waitUntil(self.clients.claim()); });\n" > build/web/flutter_service_worker.js
+RUN printf "self.addEventListener('install', function () { self.skipWaiting(); });\nself.addEventListener('activate', function (event) { event.waitUntil((async function () { const cacheKeys = await caches.keys(); await Promise.all(cacheKeys.map(function (cacheKey) { return caches.delete(cacheKey); })); await self.registration.unregister(); if (self.clients && self.clients.claim) { await self.clients.claim(); } })()); });\nself.addEventListener('fetch', function () {});\n" > build/web/flutter_service_worker.js
 
 FROM nginx:alpine AS production
 

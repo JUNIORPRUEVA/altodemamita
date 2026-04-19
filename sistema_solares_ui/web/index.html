@@ -39,6 +39,7 @@
     (async function bootstrapApp() {
       const appSignatureKey = 'sistema_solares_ui.app_signature';
       const reloadGuardKey = 'sistema_solares_ui.reload_guard';
+      const preflightResetKey = 'sistema_solares_ui.preflight_cache_reset.v2';
       const runtimeConfigUrl = `app-config.json?v=${Date.now()}`;
       const versionUrl = `version.json?v=${Date.now()}`;
 
@@ -102,6 +103,38 @@
         }
       }
 
+      async function runPreflightCacheReset() {
+        const expectedMarker = `${window.location.origin}|cache-reset-v2`;
+        const previousMarker = window.sessionStorage
+          ? window.sessionStorage.getItem(preflightResetKey)
+          : null;
+
+        if (previousMarker === expectedMarker) {
+          return false;
+        }
+
+        const hasController = 'serviceWorker' in navigator && !!navigator.serviceWorker.controller;
+        const hasCacheStorage = 'caches' in window;
+
+        if (!hasController && !hasCacheStorage) {
+          if (window.sessionStorage) {
+            window.sessionStorage.setItem(preflightResetKey, expectedMarker);
+          }
+          return false;
+        }
+
+        log('Running preflight cache reset.', {
+          origin: window.location.origin,
+          hasController,
+          hasCacheStorage,
+        });
+        await clearBrowserState();
+        if (window.sessionStorage) {
+          window.sessionStorage.setItem(preflightResetKey, expectedMarker);
+        }
+        return true;
+      }
+
       function buildSignature(versionInfo, appConfig) {
         const version = versionInfo && typeof versionInfo.version === 'string'
           ? versionInfo.version
@@ -125,6 +158,12 @@
       }
 
       try {
+        const preflightResetApplied = await runPreflightCacheReset();
+        if (preflightResetApplied) {
+          window.location.replace(window.location.pathname + window.location.search + window.location.hash);
+          return;
+        }
+
         const [versionInfo, appConfig] = await Promise.all([
           fetchJson(versionUrl),
           fetchJson(runtimeConfigUrl),
