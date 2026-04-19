@@ -18,6 +18,11 @@ class AdminShell extends StatelessWidget {
     final realtimeController = context.watch<RealtimeController>();
     final location = GoRouterState.of(context).uri.path;
     final summaryItems = <_NavItem>[
+      const _NavItem(
+        route: '/reports',
+        icon: Icons.query_stats_rounded,
+        label: 'Reporte',
+      ),
       if (authController.canAccessGlobalSearch)
         const _NavItem(
           route: '/search',
@@ -36,11 +41,6 @@ class AdminShell extends StatelessWidget {
           icon: Icons.payments_outlined,
           label: 'Pagos',
         ),
-      const _NavItem(
-        route: '/reports',
-        icon: Icons.query_stats_rounded,
-        label: 'Reporte',
-      ),
       const _NavItem(
         route: '/clients',
         icon: Icons.people_alt_outlined,
@@ -85,7 +85,13 @@ class AdminShell extends StatelessWidget {
       const _NavItem(
         route: '/reports',
         icon: Icons.query_stats_rounded,
-        label: 'Reportes',
+        label: 'Reporte',
+      ),
+      _NavItem(
+        route: '/search',
+        icon: Icons.travel_explore_outlined,
+        label: 'Buscador',
+        enabled: authController.canAccessGlobalSearch,
       ),
       _NavItem(
         route: '/sales',
@@ -98,12 +104,6 @@ class AdminShell extends StatelessWidget {
         icon: Icons.payments_outlined,
         label: 'Pagos',
         enabled: authController.canAccessPayments,
-      ),
-      _NavItem(
-        route: '/search',
-        icon: Icons.travel_explore_outlined,
-        label: 'Buscador',
-        enabled: authController.canAccessGlobalSearch,
       ),
     ];
     final mobileNavRoutes = mobileNavItems
@@ -118,8 +118,8 @@ class AdminShell extends StatelessWidget {
         final drawerWidth = math.min(constraints.maxWidth * 0.9, 348.0);
         final drawerSummaryItems = compact
             ? summaryItems
-                .where((item) => !mobileNavRoutes.contains(item.route))
-                .toList(growable: false)
+                  .where((item) => !mobileNavRoutes.contains(item.route))
+                  .toList(growable: false)
             : summaryItems;
         final currentItem = contextItems.cast<_NavItem?>().firstWhere(
           (item) => item?.matches(location) ?? false,

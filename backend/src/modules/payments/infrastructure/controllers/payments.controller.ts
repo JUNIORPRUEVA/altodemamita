@@ -3,6 +3,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestj
 import { PERMISSIONS } from 'src/shared/constants/permissions.constants';
 import { CurrentUser } from 'src/shared/decorators/current-user.decorator';
 import { RequirePermissions } from 'src/shared/decorators/permissions.decorator';
+import { PaginationQueryDto } from 'src/shared/dto/pagination-query.dto';
 import { assertOperationalAccess } from 'src/shared/utils/panel-access.util';
 import { CreatePaymentDto } from '../../application/dto/create-payment.dto';
 import { ListPaymentsDto } from '../../application/dto/list-payments.dto';
@@ -27,6 +28,18 @@ export class PaymentsController {
   @RequirePermissions(PERMISSIONS.paymentsRead)
   findAll(@Query() query: ListPaymentsDto) {
     return this.paymentsService.findAll(query);
+  }
+
+  @Get('sales')
+  @RequirePermissions(PERMISSIONS.paymentsRead)
+  findSalesReadModel(@Query() query: PaginationQueryDto) {
+    return this.paymentsService.findSalesReadModel(query);
+  }
+
+  @Get('sales/:id')
+  @RequirePermissions(PERMISSIONS.paymentsRead)
+  findSaleReadModel(@Param('id') id: string) {
+    return this.paymentsService.findSaleReadModel(id);
   }
 
   @Get(':id')

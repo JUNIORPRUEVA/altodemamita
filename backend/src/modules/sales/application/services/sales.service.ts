@@ -174,6 +174,9 @@ export class SalesService {
         payments: {
           where: { deletedAt: null },
           orderBy: { paymentDate: 'desc' },
+          include: {
+            installment: true,
+          },
         },
       },
     });

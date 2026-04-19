@@ -1,8 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, SyncStatus } from '@prisma/client';
+import { Prisma, SaleStatus, SyncStatus } from '@prisma/client';
 
 import { PrismaService } from 'src/infrastructure/prisma/prisma.service';
 import { RealtimeEventsService } from 'src/modules/realtime/realtime-events.service';
+import { PaginationQueryDto } from 'src/shared/dto/pagination-query.dto';
 import { LoanAccountingService } from 'src/shared/services/loan-accounting.service';
 import { CreatePaymentDto } from '../dto/create-payment.dto';
 import { ListPaymentsDto } from '../dto/list-payments.dto';
@@ -100,6 +101,65 @@ export class PaymentsService {
         totalPages: Math.ceil(total / query.limit),
       },
     };
+  }
+
+  async findSalesReadModel(query: PaginationQueryDto) {
+    const where = this.buildPaymentSalesWhere(query.search);
+
+    const [total, items] = await this.prisma.$transaction([
+      this.prisma.sale.count({ where }),
+      this.prisma.sale.findMany({
+        where,
+        include: {
+          client: true,
+          user: true,
+          product: true,
+          seller: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+      }),
+    ]);
+
+    return {
+      items,
+      meta: {
+        total,
+        page: query.page,
+        limit: query.limit,
+        totalPages: Math.ceil(total / query.limit),
+      },
+    };
+  }
+
+  async findSaleReadModel(id: string) {
+    const sale = await this.prisma.sale.findFirst({
+      where: { id, deletedAt: null },
+      include: {
+        client: true,
+        user: true,
+        product: true,
+        seller: true,
+        installments: {
+          where: { deletedAt: null },
+          orderBy: { installmentNumber: 'asc' },
+        },
+        payments: {
+          where: { deletedAt: null },
+          orderBy: { paymentDate: 'desc' },
+          include: {
+            installment: true,
+          },
+        },
+      },
+    });
+
+    if (!sale) {
+      throw new NotFoundException('Venta no encontrada para el panel de pagos.');
+    }
+
+    return sale;
   }
 
   async findOne(id: string) {
@@ -252,5 +312,60 @@ export class PaymentsService {
 
   private round(value: number) {
     return Math.round((value + Number.EPSILON) * 100) / 100;
+  }
+
+  private buildPaymentSalesWhere(search?: string): Prisma.SaleWhereInput {
+    const normalizedSearch = search?.trim();
+    if (!normalizedSearch) {
+      return { deletedAt: null };
+    }
+
+    const normalizedStatus = this.parseSaleStatus(normalizedSearch);
+
+    return {
+      deletedAt: null,
+      OR: [
+        { contractNumber: { contains: normalizedSearch, mode: 'insensitive' } },
+        { notes: { contains: normalizedSearch, mode: 'insensitive' } },
+        ...(normalizedStatus ? [{ status: { equals: normalizedStatus } }] : []),
+        { client: { firstName: { contains: normalizedSearch, mode: 'insensitive' } } },
+        { client: { lastName: { contains: normalizedSearch, mode: 'insensitive' } } },
+        { client: { documentId: { contains: normalizedSearch, mode: 'insensitive' } } },
+        { client: { phone: { contains: normalizedSearch, mode: 'insensitive' } } },
+        { product: { code: { contains: normalizedSearch, mode: 'insensitive' } } },
+        { product: { name: { contains: normalizedSearch, mode: 'insensitive' } } },
+        { product: { description: { contains: normalizedSearch, mode: 'insensitive' } } },
+        { seller: { name: { contains: normalizedSearch, mode: 'insensitive' } } },
+        { seller: { documentId: { contains: normalizedSearch, mode: 'insensitive' } } },
+        { seller: { phone: { contains: normalizedSearch, mode: 'insensitive' } } },
+      ],
+    };
+  }
+
+  private parseSaleStatus(search: string): SaleStatus | null {
+    const normalized = search.trim().toLowerCase();
+    switch (normalized) {
+      case 'draft':
+      case 'borrador':
+      case 'apartado':
+        return SaleStatus.draft;
+      case 'active':
+      case 'activa':
+      case 'activo':
+        return SaleStatus.active;
+      case 'completed':
+      case 'completada':
+      case 'pagada':
+      case 'vendida':
+        return SaleStatus.completed;
+      case 'cancelled':
+      case 'cancelada':
+        return SaleStatus.cancelled;
+      case 'overdue':
+      case 'vencida':
+        return SaleStatus.overdue;
+      default:
+        return null;
+    }
   }
 }
