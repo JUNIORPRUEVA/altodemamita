@@ -188,6 +188,16 @@ class SyncQueueService {
         grouped.putIfAbsent(item.scope, () => []).add(item);
       }
 
+      final unsupportedScopes = grouped.keys
+          .where((scope) => !_repositoriesByScope.containsKey(scope))
+          .toSet();
+      if (unsupportedScopes.isNotEmpty) {
+        await _deleteQueuedScopes(unsupportedScopes);
+        for (final scope in unsupportedScopes) {
+          grouped.remove(scope);
+        }
+      }
+
       final unavailableScopes = <String>{};
       final orderedScopes = grouped.keys.toList(growable: false)
         ..sort((left, right) {
@@ -423,6 +433,25 @@ class SyncQueueService {
       'DELETE FROM ${DatabaseSchema.syncQueueTable} '
       'WHERE scope = ? AND record_sync_id IN ($placeholders)',
       [scope, ...ids],
+    );
+    await _refreshState();
+  }
+
+  Future<void> _deleteQueuedScopes(Iterable<String> scopes) async {
+    final normalizedScopes = scopes
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toList(growable: false);
+    if (normalizedScopes.isEmpty) {
+      return;
+    }
+
+    final db = await _appDatabase.database;
+    final placeholders = List.filled(normalizedScopes.length, '?').join(', ');
+    await db.rawDelete(
+      'DELETE FROM ${DatabaseSchema.syncQueueTable} '
+      'WHERE scope IN ($placeholders)',
+      normalizedScopes,
     );
     await _refreshState();
   }

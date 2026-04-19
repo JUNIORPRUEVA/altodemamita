@@ -41,8 +41,17 @@ void main() {
       conflictService: SyncConflictService(appDatabase: appDatabase),
     );
 
-    for (final scope in ['clients', 'products', 'sellers', 'sales', 'payments']) {
-      service.registerRepository(_FakeSyncRepository(scope));
+    for (final scope in [
+      'clients',
+      'products',
+      'sellers',
+      'sales',
+      'installments',
+      'payments',
+    ]) {
+      service.registerRepository(
+        _FakeSyncRepository(scope, pendingSyncIds: const {}),
+      );
     }
   });
 
@@ -58,6 +67,31 @@ void main() {
     await _insertQueuedRecord(appDatabase, scope: 'products', syncId: 'p-1');
     await _insertQueuedRecord(appDatabase, scope: 'sales', syncId: 's-1');
     await _insertQueuedRecord(appDatabase, scope: 'payments', syncId: 'py-1');
+
+    service = SyncQueueService.test(
+      appDatabase: appDatabase,
+      configRepository: configRepository,
+      apiClient: apiClient,
+      conflictService: SyncConflictService(appDatabase: appDatabase),
+    );
+    service.registerRepository(
+      _FakeSyncRepository('clients', pendingSyncIds: {'c-1'}),
+    );
+    service.registerRepository(
+      _FakeSyncRepository('products', pendingSyncIds: {'p-1'}),
+    );
+    service.registerRepository(
+      _FakeSyncRepository('sellers', pendingSyncIds: const {}),
+    );
+    service.registerRepository(
+      _FakeSyncRepository('sales', pendingSyncIds: {'s-1'}),
+    );
+    service.registerRepository(
+      _FakeSyncRepository('installments', pendingSyncIds: const {}),
+    );
+    service.registerRepository(
+      _FakeSyncRepository('payments', pendingSyncIds: {'py-1'}),
+    );
 
     final processed = await service.processQueue();
     final queueRows = await _readQueueRows(appDatabase);
@@ -79,9 +113,20 @@ void main() {
       conflictService: SyncConflictService(appDatabase: appDatabase),
     );
 
-    for (final scope in ['clients', 'products', 'sellers', 'sales', 'payments']) {
-      service.registerRepository(_FakeSyncRepository(scope));
+    for (final scope in [
+      'clients',
+      'products',
+      'sales',
+      'installments',
+      'payments',
+    ]) {
+      service.registerRepository(
+        _FakeSyncRepository(scope, pendingSyncIds: const {}),
+      );
     }
+    service.registerRepository(
+      _FakeSyncRepository('sellers', pendingSyncIds: {'seller-1'}),
+    );
 
     await _insertQueuedRecord(appDatabase, scope: 'sellers', syncId: 'seller-1');
 
@@ -102,7 +147,9 @@ void main() {
       conflictService: SyncConflictService(appDatabase: appDatabase),
     );
 
-    service.registerRepository(_FakeSyncRepository('sellers'));
+    service.registerRepository(
+      _FakeSyncRepository('sellers', pendingSyncIds: const {}),
+    );
 
     await _insertQueuedRecord(appDatabase, scope: 'sellers', syncId: 'seller-stale');
 
@@ -112,6 +159,31 @@ void main() {
     expect(processed, 0);
     expect(apiClient.uploadedScopes, isEmpty);
     expect(queueRows.containsKey('sellers'), isFalse);
+  });
+
+  test('elimina scopes no soportados de la cola', () async {
+    apiClient = _RecordingSyncApiClient();
+    service = SyncQueueService.test(
+      appDatabase: appDatabase,
+      configRepository: configRepository,
+      apiClient: apiClient,
+      conflictService: SyncConflictService(appDatabase: appDatabase),
+    );
+
+    service.registerRepository(
+      _FakeSyncRepository('clients', pendingSyncIds: {'c-1'}),
+    );
+
+    await _insertQueuedRecord(appDatabase, scope: 'usuarios', syncId: 'u-1');
+    await _insertQueuedRecord(appDatabase, scope: 'clients', syncId: 'c-1');
+
+    final processed = await service.processQueue();
+    final queueRows = await _readQueueRows(appDatabase);
+
+    expect(processed, 1);
+    expect(apiClient.uploadedScopes, ['clients']);
+    expect(queueRows.containsKey('usuarios'), isFalse);
+    expect(queueRows.containsKey('clients'), isFalse);
   });
 }
 
@@ -192,10 +264,12 @@ class _RecordingSyncApiClient extends SyncApiClient {
 }
 
 class _FakeSyncRepository implements SyncRepository {
-  _FakeSyncRepository(this.scope);
+  _FakeSyncRepository(this.scope, {required Set<String> pendingSyncIds})
+    : _pendingSyncIds = pendingSyncIds;
 
   @override
   final String scope;
+  final Set<String> _pendingSyncIds;
 
   @override
   String get downloadPath => '/sync/$scope';
@@ -204,7 +278,11 @@ class _FakeSyncRepository implements SyncRepository {
   String get uploadPath => '/sync/$scope';
 
   @override
-  Future<List<Map<String, Object?>>> getPendingRecords() async => const [];
+  Future<List<Map<String, Object?>>> getPendingRecords() async {
+    return _pendingSyncIds
+        .map((syncId) => {'sync_id': syncId})
+        .toList(growable: false);
+  }
 
   @override
   Future<void> markAsConflict(Iterable<String> syncIds) async {}

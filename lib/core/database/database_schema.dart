@@ -40,7 +40,7 @@ class DatabaseSchema {
     paymentsTable,
     settingsTable,
   };
-  static const List<String> syncEnabledTables = [
+  static const List<String> syncMetadataTables = [
     clientsTable,
     usersTable,
     sellersTable,
@@ -55,6 +55,14 @@ class DatabaseSchema {
     backupInfoTable,
     backupPreferencesTable,
     authSessionsTable,
+  ];
+  static const List<String> syncEnabledTables = [
+    clientsTable,
+    sellersTable,
+    lotsTable,
+    salesTable,
+    installmentsTable,
+    paymentsTable,
   ];
 
   static Future<void> configure(Database db) async {
@@ -336,7 +344,7 @@ class DatabaseSchema {
   }
 
   static Future<void> _migrateToVersion16(DatabaseExecutor db) async {
-    for (final tableName in syncEnabledTables) {
+    for (final tableName in syncMetadataTables) {
       if (!await _tableExists(db, tableName)) {
         continue;
       }
@@ -428,7 +436,7 @@ class DatabaseSchema {
   }
 
   static Future<void> _migrateToVersion14(DatabaseExecutor db) async {
-    for (final tableName in syncEnabledTables) {
+    for (final tableName in syncMetadataTables) {
       if (!await _tableExists(db, tableName)) {
         continue;
       }
