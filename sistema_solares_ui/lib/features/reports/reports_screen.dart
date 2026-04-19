@@ -60,7 +60,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
         final products = _asInt(summary.summary['products']);
         final clients = _asInt(summary.summary['clients']);
         final activeSales = _asInt(summary.summary['activeSales']);
-        final overdueInstallments = _asInt(summary.summary['overdueInstallments']);
+        final overdueInstallments = _asInt(
+          summary.summary['overdueInstallments'],
+        );
 
         final salesCount = reports.sales.length;
         final paymentsCount = reports.payments.length;
@@ -112,10 +114,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 label: 'Monto vendido',
                 value: currency.format(salesTotal),
               ),
-              _ReportSegment(
-                label: 'Ventas activas',
-                value: '$activeSales',
-              ),
+              _ReportSegment(label: 'Ventas activas', value: '$activeSales'),
             ],
           ),
           _ReportCard(
@@ -150,6 +149,115 @@ class _ReportsScreenState extends State<ReportsScreen> {
           ),
         ];
 
+        final mobileSummaryCards = [
+          _StatCardData(
+            label: 'Cartera',
+            value: currency.format(totalPortfolio),
+            icon: Icons.account_balance_wallet_outlined,
+            accentColor: const Color(0xFF173450),
+          ),
+          _StatCardData(
+            label: 'Cobrado',
+            value: currency.format(totalCollected),
+            icon: Icons.task_alt_outlined,
+            accentColor: const Color(0xFF2E7D5B),
+          ),
+          _StatCardData(
+            label: 'Pendiente',
+            value: currency.format(outstanding),
+            icon: Icons.schedule_outlined,
+            accentColor: const Color(0xFFB66A12),
+          ),
+          _StatCardData(
+            label: 'Ventas',
+            value: '$salesCount',
+            icon: Icons.point_of_sale_outlined,
+            accentColor: const Color(0xFF204A71),
+          ),
+          _StatCardData(
+            label: 'Pagos',
+            value: '$paymentsCount',
+            icon: Icons.payments_outlined,
+            accentColor: const Color(0xFF94611A),
+          ),
+          _StatCardData(
+            label: 'Vencidas',
+            value: '$overdueInstallments',
+            icon: Icons.warning_amber_rounded,
+            accentColor: const Color(0xFF8E3A59),
+          ),
+        ];
+
+        if (compact) {
+          return DesktopPageScaffold(
+            title: 'Reportes',
+            subtitle:
+                'Resumen prioritario del periodo con foco en ventas y cobranza.',
+            toolbar: DesktopFieldToolbar(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    ...[7, 30, 90].map(
+                      (days) => ChoiceChip(
+                        label: Text('$days dias'),
+                        selected: _days == days,
+                        onSelected: (_) => _reloadFor(days),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            child: ListView(
+              children: [
+                _CompactMetricsPanel(cards: mobileSummaryCards),
+                const SizedBox(height: 12),
+                _CompactFocusCard(
+                  title: 'Actividad comercial',
+                  accentColor: const Color(0xFF173450),
+                  items: [
+                    _CompactFocusItem(
+                      label: 'Ventas del periodo',
+                      value: currency.format(salesTotal),
+                    ),
+                    _CompactFocusItem(
+                      label: 'Ventas activas',
+                      value: '$activeSales',
+                    ),
+                    _CompactFocusItem(
+                      label: 'Clientes activos',
+                      value: '$clients',
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                _CompactFocusCard(
+                  title: 'Cobranza prioritaria',
+                  accentColor: const Color(0xFF8E3A59),
+                  items: [
+                    _CompactFocusItem(
+                      label: 'Cobrado',
+                      value: currency.format(paymentsTotal),
+                    ),
+                    _CompactFocusItem(
+                      label: 'Saldo vencido',
+                      value: currency.format(delinquencyTotal),
+                    ),
+                    _CompactFocusItem(
+                      label: 'Cuotas vencidas',
+                      value: '$overdueInstallments',
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        }
+
         final salesRows = reports.sales.map((item) {
           return [
             item['client']?['firstName']?.toString() ?? '-',
@@ -179,7 +287,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
         return DesktopPageScaffold(
           title: 'Reporte',
-          subtitle: 'Vista unificada y ordenada del resumen general y la operacion del periodo.',
+          subtitle:
+              'Vista unificada y ordenada del resumen general y la operacion del periodo.',
           toolbar: DesktopFieldToolbar(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -212,7 +321,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
                   final metricsPanel = _MetricsPanel(
                     cards: metrics,
-                    columns: wide ? 3 : medium ? 2 : 1,
+                    columns: wide
+                        ? 3
+                        : medium
+                        ? 2
+                        : 1,
                   );
 
                   final activityCard = _ReportCard(
@@ -223,7 +336,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     segments: [
                       _ReportSegment(label: 'Clientes', value: '$clients'),
                       _ReportSegment(label: 'Solares', value: '$products'),
-                      _ReportSegment(label: 'Ventas periodo', value: '$salesCount'),
+                      _ReportSegment(
+                        label: 'Ventas periodo',
+                        value: '$salesCount',
+                      ),
                     ],
                   );
 
@@ -431,7 +547,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 columns: const ['Cliente', 'Solar', 'Vencimiento', 'Saldo'],
                 rows: delinquencyRows,
                 emptyTitle: 'Sin cuotas vencidas',
-                emptyMessage: 'La cartera no reporta morosidad para este corte.',
+                emptyMessage:
+                    'La cartera no reporta morosidad para este corte.',
               ),
             ],
           ),
@@ -473,20 +590,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
 }
 
 class _ReportsScreenData {
-  const _ReportsScreenData({
-    required this.dashboard,
-    required this.reports,
-  });
+  const _ReportsScreenData({required this.dashboard, required this.reports});
 
   final DashboardSnapshot dashboard;
   final ReportsBundle reports;
 }
 
 class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({
-    required this.title,
-    required this.subtitle,
-  });
+  const _SectionHeader({required this.title, required this.subtitle});
 
   final String title;
   final String subtitle;
@@ -499,17 +610,17 @@ class _SectionHeader extends StatelessWidget {
         Text(
           title,
           style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                color: const Color(0xFF173450),
-                fontWeight: FontWeight.w800,
-              ),
+            color: const Color(0xFF173450),
+            fontWeight: FontWeight.w800,
+          ),
         ),
         const SizedBox(height: 4),
         Text(
           subtitle,
           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: const Color(0xFF6B7682),
-                height: 1.35,
-              ),
+            color: const Color(0xFF6B7682),
+            height: 1.35,
+          ),
         ),
       ],
     );
@@ -517,10 +628,7 @@ class _SectionHeader extends StatelessWidget {
 }
 
 class _MetricsPanel extends StatelessWidget {
-  const _MetricsPanel({
-    required this.cards,
-    required this.columns,
-  });
+  const _MetricsPanel({required this.cards, required this.columns});
 
   final List<_StatCardData> cards;
   final int columns;
@@ -547,7 +655,45 @@ class _MetricsPanel extends StatelessWidget {
           runSpacing: gap,
           children: [
             for (final card in cards)
-              SizedBox(width: itemWidth, child: _StatCard(data: card)),
+              SizedBox(
+                width: itemWidth,
+                child: _StatCard(data: card),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _CompactMetricsPanel extends StatelessWidget {
+  const _CompactMetricsPanel({required this.cards});
+
+  final List<_StatCardData> cards;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const columns = 3;
+        const gap = 10.0;
+        final availableWidth = constraints.maxWidth.isFinite
+            ? constraints.maxWidth
+            : MediaQuery.sizeOf(context).width;
+        final itemWidth = math.max(
+          (availableWidth - (gap * (columns - 1))) / columns,
+          92.0,
+        );
+
+        return Wrap(
+          spacing: gap,
+          runSpacing: gap,
+          children: [
+            for (final card in cards)
+              SizedBox(
+                width: itemWidth,
+                child: _CompactStatCard(data: card),
+              ),
           ],
         );
       },
@@ -567,6 +713,158 @@ class _StatCardData {
   final String value;
   final IconData icon;
   final Color accentColor;
+}
+
+class _CompactStatCard extends StatelessWidget {
+  const _CompactStatCard({required this.data});
+
+  final _StatCardData data;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE5EBF3)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0810263D),
+            blurRadius: 14,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 11),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 30,
+              height: 30,
+              decoration: BoxDecoration(
+                color: data.accentColor.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(11),
+              ),
+              child: Icon(data.icon, size: 16, color: data.accentColor),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              data.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Color(0xFF6B7682),
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              data.value,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: data.accentColor,
+                fontSize: 14.5,
+                fontWeight: FontWeight.w800,
+                height: 1.1,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CompactFocusItem {
+  const _CompactFocusItem({required this.label, required this.value});
+
+  final String label;
+  final String value;
+}
+
+class _CompactFocusCard extends StatelessWidget {
+  const _CompactFocusCard({
+    required this.title,
+    required this.accentColor,
+    required this.items,
+  });
+
+  final String title;
+  final Color accentColor;
+  final List<_CompactFocusItem> items;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: EdgeInsets.zero,
+      elevation: 0,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: const BorderSide(color: Color(0xFFE4EAF2)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    color: accentColor,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: const Color(0xFF173450),
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            for (var index = 0; index < items.length; index++) ...[
+              if (index > 0)
+                Divider(height: 16, color: accentColor.withValues(alpha: 0.12)),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      items[index].label,
+                      style: const TextStyle(
+                        color: Color(0xFF6B7682),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    items[index].value,
+                    style: TextStyle(
+                      color: accentColor,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _StatCard extends StatelessWidget {
@@ -603,17 +901,17 @@ class _StatCard extends StatelessWidget {
             const SizedBox(height: 12),
             Text(
               data.label,
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 4),
             Text(
               data.value,
               style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    color: data.accentColor,
-                  ),
+                fontWeight: FontWeight.w800,
+                color: data.accentColor,
+              ),
             ),
           ],
         ),
@@ -679,7 +977,8 @@ class _ExecutiveOverviewCard extends StatelessWidget {
                     children: [
                       Text(
                         'Resumen operativo',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
                               color: Colors.white,
                               fontWeight: FontWeight.w700,
                             ),
@@ -688,9 +987,9 @@ class _ExecutiveOverviewCard extends StatelessWidget {
                       Text(
                         'Vista rapida del inventario, la cobranza y las ventas que requieren seguimiento.',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Colors.white.withValues(alpha: 0.74),
-                              height: 1.35,
-                            ),
+                          color: Colors.white.withValues(alpha: 0.74),
+                          height: 1.35,
+                        ),
                       ),
                     ],
                   ),
@@ -715,10 +1014,7 @@ class _ExecutiveOverviewCard extends StatelessWidget {
 }
 
 class _OverviewMetric extends StatelessWidget {
-  const _OverviewMetric({
-    required this.label,
-    required this.value,
-  });
+  const _OverviewMetric({required this.label, required this.value});
 
   final String label;
   final String value;
@@ -782,24 +1078,24 @@ class _CollectionPriorityCard extends StatelessWidget {
             Text(
               title,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: const Color(0xFF173450),
-                  ),
+                fontWeight: FontWeight.w700,
+                color: const Color(0xFF173450),
+              ),
             ),
             const SizedBox(height: 6),
             Text(
               summary,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: const Color(0xFF6B7682),
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: const Color(0xFF6B7682)),
             ),
             const SizedBox(height: 4),
             Text(
               description,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: const Color(0xFF8A94A3),
-                    height: 1.35,
-                  ),
+                color: const Color(0xFF8A94A3),
+                height: 1.35,
+              ),
             ),
             const SizedBox(height: 12),
             SizedBox(
@@ -808,7 +1104,9 @@ class _CollectionPriorityCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   for (var index = 0; index < bars.length; index++) ...[
-                    Expanded(child: _PriorityBarView(bar: bars[index], bars: bars)),
+                    Expanded(
+                      child: _PriorityBarView(bar: bars[index], bars: bars),
+                    ),
                     if (index != bars.length - 1) const SizedBox(width: 12),
                   ],
                 ],
@@ -834,17 +1132,17 @@ class _PriorityBar {
 }
 
 class _PriorityBarView extends StatelessWidget {
-  const _PriorityBarView({
-    required this.bar,
-    required this.bars,
-  });
+  const _PriorityBarView({required this.bar, required this.bars});
 
   final _PriorityBar bar;
   final List<_PriorityBar> bars;
 
   @override
   Widget build(BuildContext context) {
-    final maxValue = bars.fold<int>(1, (max, item) => item.value > max ? item.value : max);
+    final maxValue = bars.fold<int>(
+      1,
+      (max, item) => item.value > max ? item.value : max,
+    );
     final heightFactor = bar.value <= 0 ? 0.08 : bar.value / maxValue;
 
     return Column(
@@ -935,17 +1233,17 @@ class _ReportCard extends StatelessWidget {
             Text(
               title,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: const Color(0xFF5B6672),
-                    fontWeight: FontWeight.w600,
-                  ),
+                color: const Color(0xFF5B6672),
+                fontWeight: FontWeight.w600,
+              ),
             ),
             const SizedBox(height: 8),
             Text(
               value,
               style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    color: accentColor,
-                    fontWeight: FontWeight.w800,
-                  ),
+                color: accentColor,
+                fontWeight: FontWeight.w800,
+              ),
             ),
             const SizedBox(height: 14),
             Wrap(
@@ -954,7 +1252,11 @@ class _ReportCard extends StatelessWidget {
               children: [
                 for (final segment in segments)
                   SizedBox(
-                    width: segments.length == 2 ? null : compact ? 98 : 110,
+                    width: segments.length == 2
+                        ? null
+                        : compact
+                        ? 98
+                        : 110,
                     child: _ReportMetricTile(segment: segment),
                   ),
               ],
@@ -967,10 +1269,7 @@ class _ReportCard extends StatelessWidget {
 }
 
 class _ReportSegment {
-  const _ReportSegment({
-    required this.label,
-    required this.value,
-  });
+  const _ReportSegment({required this.label, required this.value});
 
   final String label;
   final String value;
@@ -996,17 +1295,17 @@ class _ReportMetricTile extends StatelessWidget {
             Text(
               segment.label,
               style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    color: const Color(0xFF6B7682),
-                    fontWeight: FontWeight.w600,
-                  ),
+                color: const Color(0xFF6B7682),
+                fontWeight: FontWeight.w600,
+              ),
             ),
             const SizedBox(height: 4),
             Text(
               segment.value,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: const Color(0xFF1D3550),
-                    fontWeight: FontWeight.w700,
-                  ),
+                color: const Color(0xFF1D3550),
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ],
         ),
@@ -1046,7 +1345,9 @@ class _ReportTable extends StatelessWidget {
                 ),
               ]
             : rows.map((row) {
-                final details = row.length > 2 ? row.sublist(1, row.length - 1).join('\n') : '';
+                final details = row.length > 2
+                    ? row.sublist(1, row.length - 1).join('\n')
+                    : '';
                 return DesktopListRow(
                   height: 112,
                   leading: Container(
@@ -1092,7 +1393,9 @@ class _ReportTable extends StatelessWidget {
           : SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: DataTable(
-                columns: columns.map((label) => DataColumn(label: Text(label))).toList(),
+                columns: columns
+                    .map((label) => DataColumn(label: Text(label)))
+                    .toList(),
                 rows: rows
                     .map(
                       (row) => DataRow(

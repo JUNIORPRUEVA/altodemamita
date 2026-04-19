@@ -46,7 +46,7 @@ class AuthUser {
       email: json['email']?.toString() ?? '',
       username: json['username']?.toString() ?? '',
       fullName: json['fullName']?.toString() ?? '',
-        type: json['type']?.toString() == 'panel' ? 'panel' : 'desktop',
+      type: json['type']?.toString() == 'panel' ? 'panel' : 'desktop',
       roles: (json['roles'] as List<dynamic>? ?? const <dynamic>[])
           .map((item) => item.toString())
           .toList(),
@@ -94,15 +94,19 @@ class AuthController extends ChangeNotifier {
   bool get canManageUsers => isPanelAdmin;
   bool get canAccessSettings => isPanelAdmin;
   bool get canAccessSales => hasPermission('sales.read') || isPanelAdmin;
-    bool get canAccessSellers => hasPermission('sellers.read') || isPanelAdmin;
-    bool get canAccessGlobalSearch =>
+  bool get canAccessPayments => hasPermission('payments.read') || isPanelAdmin;
+  bool get canAccessSellers => hasPermission('sellers.read') || isPanelAdmin;
+  bool get canAccessGlobalSearch =>
       hasPermission('clients.read') ||
       hasPermission('sales.read') ||
       hasPermission('products.read') ||
+      canAccessPayments ||
       canAccessSellers ||
       isPanelAdmin;
   bool get isPanelAdmin =>
-      _user != null && _user!.type == 'panel' && _user!.panelRole == PanelRole.admin;
+      _user != null &&
+      _user!.type == 'panel' &&
+      _user!.panelRole == PanelRole.admin;
 
   Future<void> initialize() async {
     try {
@@ -153,15 +157,17 @@ class AuthController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final response = await _apiClient.post(
-        '/auth/login',
-        authorized: false,
-        body: {
-          'identifier': identifier.trim(),
-          'password': password,
-          'clientType': 'panel',
-        },
-      ) as Map<String, dynamic>;
+      final response =
+          await _apiClient.post(
+                '/auth/login',
+                authorized: false,
+                body: {
+                  'identifier': identifier.trim(),
+                  'password': password,
+                  'clientType': 'panel',
+                },
+              )
+              as Map<String, dynamic>;
 
       final token = response['accessToken']?.toString() ?? '';
       final userMap = response['user'] as Map<String, dynamic>? ?? const {};

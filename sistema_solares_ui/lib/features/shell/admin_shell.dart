@@ -30,6 +30,12 @@ class AdminShell extends StatelessWidget {
           icon: Icons.point_of_sale_outlined,
           label: 'Ventas',
         ),
+      if (authController.canAccessPayments)
+        const _NavItem(
+          route: '/payments',
+          icon: Icons.payments_outlined,
+          label: 'Pagos',
+        ),
       const _NavItem(
         route: '/reports',
         icon: Icons.query_stats_rounded,
@@ -45,6 +51,12 @@ class AdminShell extends StatelessWidget {
           route: '/sellers',
           icon: Icons.badge_outlined,
           label: 'Vendedores',
+        ),
+      if (authController.canAccessSales)
+        const _NavItem(
+          route: '/payments',
+          icon: Icons.payments_outlined,
+          label: 'Pagos',
         ),
       if (authController.hasPermission('products.read') ||
           authController.isPanelAdmin)
@@ -76,8 +88,33 @@ class AdminShell extends StatelessWidget {
       ...adminItems,
     ];
 
+        final mobileNavItems = <_NavItem>[
+          const _NavItem(
+            route: '/reports',
+            icon: Icons.query_stats_rounded,
+            label: 'Reportes',
+          ),
+          _NavItem(
+            route: '/sales',
+            icon: Icons.point_of_sale_outlined,
+            label: 'Ventas',
+            enabled: authController.canAccessSales,
+          ),
+          _NavItem(
+            route: '/payments',
+            icon: Icons.payments_outlined,
+            label: 'Pagos',
+            enabled: authController.canAccessSales,
+          ),
+          _NavItem(
+            route: '/search',
+            icon: Icons.travel_explore_outlined,
+            label: 'Buscador',
+            enabled: authController.canAccessGlobalSearch,
+          ),
+        ];
     return LayoutBuilder(
-      builder: (context, constraints) {
+          (item) => item?.matches(location) ?? false,
         final wide = constraints.maxWidth >= 1120;
         final compact = constraints.maxWidth < 760;
         final drawerWidth = math.min(constraints.maxWidth * 0.9, 348.0);
@@ -105,17 +142,15 @@ class AdminShell extends StatelessWidget {
             ),
             body: SafeArea(
               top: false,
-              child: Column(
-                children: [
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 14),
-                      child: child,
-                    ),
-                  ),
-                  const _ShellFooter(),
-                ],
+              bottom: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+                child: child,
               ),
+            ),
+            bottomNavigationBar: _MobileBottomNav(
+              items: mobileNavItems,
+              currentRoute: location,
             ),
           );
         }
@@ -951,18 +986,142 @@ class _ConnectionIndicator extends StatelessWidget {
   }
 }
 
+class _MobileBottomNav extends StatelessWidget {
+  const _MobileBottomNav({
+    required this.items,
+    required this.currentRoute,
+  });
+
+  final List<_NavItem> items;
+  final String currentRoute;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFFF8FAFD),
+      elevation: 14,
+      child: SafeArea(
+        top: false,
+        minimum: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: const Color(0xFFE5EBF3)),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x1210263D),
+                blurRadius: 22,
+                offset: Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+            child: Row(
+              children: [
+                for (final item in items)
+                  Expanded(
+                    child: _MobileBottomNavItem(
+                      item: item,
+                      selected: item.matches(currentRoute),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MobileBottomNavItem extends StatelessWidget {
+  const _MobileBottomNavItem({
+    required this.item,
+    required this.selected,
+  });
+
+  final _NavItem item;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final foreground = item.enabled
+        ? (selected ? const Color(0xFF123A5D) : const Color(0xFF637186))
+        : const Color(0xFFB7C0CC);
+
+    return Opacity(
+      opacity: item.enabled ? 1 : 0.72,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: item.enabled
+              ? () {
+                  if (!selected) {
+                    context.go(item.route);
+                  }
+                }
+              : null,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+            decoration: BoxDecoration(
+              color: selected
+                  ? const Color(0xFFEFF4FA)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? const Color(0xFFDCE8F4)
+                        : const Color(0xFFF6F8FB),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(item.icon, size: 18, color: foreground),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  item.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: foreground,
+                    fontSize: 10.5,
+                    fontWeight: selected ? FontWeight.w800 : FontWeight.w700,
+                    letterSpacing: -0.1,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _NavItem {
   const _NavItem({
     required this.route,
     required this.icon,
     required this.label,
     this.activeRoutes = const [],
+    this.enabled = true,
   });
 
   final String route;
   final IconData icon;
   final String label;
   final List<String> activeRoutes;
+  final bool enabled;
 
   bool matches(String route) =>
       route == this.route || activeRoutes.contains(route);

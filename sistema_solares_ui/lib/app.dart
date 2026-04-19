@@ -10,6 +10,7 @@ import 'package:sistema_solares_ui/features/auth/login_screen.dart';
 import 'package:sistema_solares_ui/features/clients/clients_screen.dart';
 import 'package:sistema_solares_ui/features/global_search/global_search_screen.dart';
 import 'package:sistema_solares_ui/features/products/products_screen.dart';
+import 'package:sistema_solares_ui/features/payments/payments_screen.dart';
 import 'package:sistema_solares_ui/features/reports/reports_screen.dart';
 import 'package:sistema_solares_ui/features/sales/sales_screen.dart';
 import 'package:sistema_solares_ui/features/sellers/sellers_screen.dart';
@@ -85,11 +86,13 @@ class _AppState extends State<App> {
           return '/reports';
         }
 
-        if (
-          location == '/products' &&
-          !authController.hasPermission('products.read') &&
-          !authController.isPanelAdmin
-        ) {
+        if (location == '/payments' && !authController.canAccessPayments) {
+          return '/reports';
+        }
+
+        if (location == '/products' &&
+            !authController.hasPermission('products.read') &&
+            !authController.isPanelAdmin) {
           return '/reports';
         }
 
@@ -130,6 +133,10 @@ class _AppState extends State<App> {
             GoRoute(
               path: '/sales',
               builder: (context, state) => const SalesScreen(),
+            ),
+            GoRoute(
+              path: '/payments',
+              builder: (context, state) => const PaymentsScreen(),
             ),
             GoRoute(
               path: '/clients',
@@ -175,9 +182,8 @@ class _AppState extends State<App> {
         debugShowCheckedModeBanner: false,
         theme: buildAppTheme(),
         routerConfig: _router,
-        builder: (context, child) => _ReadOnlyShell(
-          child: child ?? const SizedBox.shrink(),
-        ),
+        builder: (context, child) =>
+            _ReadOnlyShell(child: child ?? const SizedBox.shrink()),
       ),
     );
   }

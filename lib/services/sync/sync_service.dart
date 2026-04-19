@@ -98,6 +98,20 @@ class SyncService {
       return report;
     } on HttpException catch (error) {
       _lastScopeWarnings = const [];
+      if (_isUnauthorizedSyncError(error)) {
+        await _configRepository.clearJwtToken();
+        final report = SyncReport(
+          startedAt: startedAt,
+          finishedAt: DateTime.now(),
+          wasSkipped: true,
+          errorMessage:
+              'La sesion con la nube vencio o ya no es valida. Inicia sesion en linea nuevamente para reactivar la sincronizacion.',
+        );
+        await _configRepository.saveLastRun(errorMessage: report.errorMessage);
+        _lastReport = report;
+        return report;
+      }
+
       final report = SyncReport(
         startedAt: startedAt,
         finishedAt: DateTime.now(),
@@ -271,6 +285,11 @@ class SyncService {
   }
 
   void dispose() {}
+
+  bool _isUnauthorizedSyncError(HttpException error) {
+    final message = error.message.toLowerCase();
+    return message.contains('401') || message.contains('unauthorized');
+  }
 
   DateTime? _findLatestTimestamp(List<Map<String, dynamic>> records) {
     DateTime? latest;
