@@ -3,6 +3,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_schema.dart';
 import '../../../core/system/system_config_service.dart';
+import '../../../core/utils/sync_id_generator.dart';
 import '../../../services/sync/sync_queue_service.dart';
 import '../../installments/domain/installment.dart';
 import '../../sales/domain/sale_calculator.dart';
@@ -1058,7 +1059,7 @@ class PaymentsRepository {
   }
 
   String _newSyncId(String scope) {
-    return '$scope-${DateTime.now().microsecondsSinceEpoch}';
+    return SyncIdGenerator.next(scope);
   }
 
   Map<String, Object?> _buildDeletePayload(

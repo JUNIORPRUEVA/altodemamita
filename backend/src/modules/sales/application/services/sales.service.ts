@@ -349,20 +349,57 @@ export class SalesService {
   }
 
   private buildWhere(search?: string): Prisma.SaleWhereInput {
-    if (!search?.trim()) {
+    const normalizedSearch = search?.trim();
+    if (!normalizedSearch) {
       return { deletedAt: null };
     }
+
+    const normalizedStatus = this.parseSaleStatus(normalizedSearch);
 
     return {
       deletedAt: null,
       OR: [
-        { contractNumber: { contains: search, mode: 'insensitive' } },
-        { notes: { contains: search, mode: 'insensitive' } },
-        { status: { equals: search as SaleStatus } },
-        { client: { firstName: { contains: search, mode: 'insensitive' } } },
-        { client: { lastName: { contains: search, mode: 'insensitive' } } },
-        { product: { name: { contains: search, mode: 'insensitive' } } },
+        { contractNumber: { contains: normalizedSearch, mode: 'insensitive' } },
+        { notes: { contains: normalizedSearch, mode: 'insensitive' } },
+        ...(normalizedStatus ? [{ status: { equals: normalizedStatus } }] : []),
+        { client: { firstName: { contains: normalizedSearch, mode: 'insensitive' } } },
+        { client: { lastName: { contains: normalizedSearch, mode: 'insensitive' } } },
+        { client: { documentId: { contains: normalizedSearch, mode: 'insensitive' } } },
+        { client: { phone: { contains: normalizedSearch, mode: 'insensitive' } } },
+        { product: { code: { contains: normalizedSearch, mode: 'insensitive' } } },
+        { product: { name: { contains: normalizedSearch, mode: 'insensitive' } } },
+        { product: { description: { contains: normalizedSearch, mode: 'insensitive' } } },
+        { seller: { name: { contains: normalizedSearch, mode: 'insensitive' } } },
+        { seller: { documentId: { contains: normalizedSearch, mode: 'insensitive' } } },
+        { seller: { phone: { contains: normalizedSearch, mode: 'insensitive' } } },
       ],
     };
+  }
+
+  private parseSaleStatus(search: string): SaleStatus | null {
+    const normalized = search.trim().toLowerCase();
+    switch (normalized) {
+      case 'draft':
+      case 'borrador':
+      case 'apartado':
+        return SaleStatus.draft;
+      case 'active':
+      case 'activa':
+      case 'activo':
+        return SaleStatus.active;
+      case 'completed':
+      case 'completada':
+      case 'pagada':
+      case 'vendida':
+        return SaleStatus.completed;
+      case 'cancelled':
+      case 'cancelada':
+        return SaleStatus.cancelled;
+      case 'overdue':
+      case 'vencida':
+        return SaleStatus.overdue;
+      default:
+        return null;
+    }
   }
 }

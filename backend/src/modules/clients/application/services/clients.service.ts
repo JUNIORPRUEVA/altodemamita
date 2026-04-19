@@ -93,18 +93,45 @@ export class ClientsService {
   }
 
   private buildWhere(search?: string): Prisma.ClientWhereInput {
-    if (!search?.trim()) {
+    const normalizedSearch = search?.trim();
+    if (!normalizedSearch) {
       return { deletedAt: null };
     }
 
-    return {
-      deletedAt: null,
+    const tokens = normalizedSearch
+      .split(RegExp(r'\s+'))
+      .map((value) => value.trim())
+      .where((value) => value.isNotEmpty)
+      .toList(growable: false);
+
+    const tokenFilters = tokens.map<Prisma.ClientWhereInput>((token) {
+      return {
+        OR: [
+          { firstName: { contains: token, mode: 'insensitive' } },
+          { lastName: { contains: token, mode: 'insensitive' } },
+          { documentId: { contains: token, mode: 'insensitive' } },
+          { email: { contains: token, mode: 'insensitive' } },
+          { phone: { contains: token, mode: 'insensitive' } },
+        ],
+      };
+    }).toList(growable: false);
+
+    const broadFilter: Prisma.ClientWhereInput = {
       OR: [
-        { firstName: { contains: search, mode: 'insensitive' } },
-        { lastName: { contains: search, mode: 'insensitive' } },
-        { documentId: { contains: search, mode: 'insensitive' } },
-        { email: { contains: search, mode: 'insensitive' } },
-        { phone: { contains: search, mode: 'insensitive' } },
+        { firstName: { contains: normalizedSearch, mode: 'insensitive' } },
+        { lastName: { contains: normalizedSearch, mode: 'insensitive' } },
+        { documentId: { contains: normalizedSearch, mode: 'insensitive' } },
+        { email: { contains: normalizedSearch, mode: 'insensitive' } },
+        { phone: { contains: normalizedSearch, mode: 'insensitive' } },
+      ],
+    };
+
+    return {
+      AND: [
+        { deletedAt: null },
+        tokens.length > 1
+            ? { OR: [broadFilter, { AND: tokenFilters }] }
+            : broadFilter,
       ],
     };
   }

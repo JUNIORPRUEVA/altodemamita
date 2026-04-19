@@ -650,6 +650,7 @@ export class SyncService {
       uploaded: {
         clients: records.clients.length,
         products: records.products.length,
+        sellers: records.sellers.length,
         sales: records.sales.length,
         installments: records.installments.length,
         payments: records.payments.length,
@@ -1121,10 +1122,9 @@ export class SyncService {
 
     const entity = await delegate.findFirst({
       where: {
-        OR: [
-          { syncId: reference },
-          { id: reference },
-        ],
+        OR: this.isUuid(reference)
+          ? [{ syncId: reference }, { id: reference }]
+          : [{ syncId: reference }],
       },
       select: { id: true, syncId: true },
     });
@@ -1134,6 +1134,10 @@ export class SyncService {
     }
 
     return entity;
+  }
+
+  private isUuid(value: string): boolean {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
   }
 
   private extractCounts(records: SyncRecordCollections): Record<string, number> {
