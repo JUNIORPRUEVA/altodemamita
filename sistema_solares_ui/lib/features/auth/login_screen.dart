@@ -59,83 +59,49 @@ class _LoginScreenState extends State<LoginScreen> {
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFF102C46), Color(0xFF16324F), Color(0xFF214A69)],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFFFFFFFF), Color(0xFFF5F7FA)],
           ),
         ),
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final width = constraints.maxWidth;
-            final isMobile = width < 760;
-            final maxCardWidth = isMobile ? 440.0 : 520.0;
-            final horizontalPadding = isMobile ? 20.0 : 32.0;
-            final cardPadding = isMobile
-                ? const EdgeInsets.fromLTRB(22, 26, 22, 22)
-                : const EdgeInsets.fromLTRB(34, 36, 34, 30);
+            final isMobile = constraints.maxWidth < 760;
 
-            return Stack(
-              children: [
-                const Positioned(
-                  top: -120,
-                  left: -40,
-                  child: _BackgroundOrb(
-                    size: 280,
-                    colors: [Color(0x3DE7F2FF), Color(0x00E7F2FF)],
-                  ),
-                ),
-                const Positioned(
-                  right: -80,
-                  bottom: -120,
-                  child: _BackgroundOrb(
-                    size: 360,
-                    colors: [Color(0x262CC06B), Color(0x002CC06B)],
-                  ),
-                ),
-                SingleChildScrollView(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: horizontalPadding,
-                    vertical: 24,
-                  ),
+            return SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: Center(
                   child: ConstrainedBox(
-                    constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                    child: Center(
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(maxWidth: maxCardWidth),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF8F6F1),
-                            borderRadius: BorderRadius.circular(30),
-                            border: Border.all(color: const Color(0xFFE6DECF)),
-                            boxShadow: const [
-                              BoxShadow(
-                                color: Color(0x28000000),
-                                blurRadius: 42,
-                                offset: Offset(0, 22),
-                              ),
-                            ],
+                    constraints: const BoxConstraints(maxWidth: 430),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0D2844),
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0x18000000),
+                            blurRadius: 28,
+                            offset: Offset(0, 10),
                           ),
-                          child: Padding(
-                            padding: cardPadding,
-                            child: Form(
-                              key: _formKey,
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  const _BrandMark(),
-                                  SizedBox(height: isMobile ? 20 : 24),
-                                  Text(
-                                    'Iniciar sesion',
-                                    textAlign: TextAlign.center,
-                                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                                      color: const Color(0xFF16324F),
-                                      fontSize: isMobile ? 30 : 34,
-                                      fontWeight: FontWeight.w800,
-                                      letterSpacing: -0.6,
-                                    ),
-                                  ),
-                                  SizedBox(height: isMobile ? 22 : 26),
+                        ],
+                      ),
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(
+                          isMobile ? 24 : 28,
+                          isMobile ? 28 : 30,
+                          isMobile ? 24 : 28,
+                          isMobile ? 24 : 28,
+                        ),
+                        child: Form(
+                          key: _formKey,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              const _BrandMark(),
+                              const SizedBox(height: 24),
                                   AnimatedSwitcher(
                                     duration: const Duration(milliseconds: 180),
                                     child: errorMessage == null
@@ -148,25 +114,22 @@ class _LoginScreenState extends State<LoginScreen> {
                                               vertical: 12,
                                             ),
                                             decoration: BoxDecoration(
-                                              color: const Color(0xFFFFEEF1),
-                                              borderRadius: BorderRadius.circular(16),
-                                              border: Border.all(
-                                                color: const Color(0xFFF2BCC5),
-                                              ),
+                                              color: const Color(0xFF8F2436),
+                                              borderRadius: BorderRadius.circular(14),
                                             ),
                                             child: Row(
                                               children: [
                                                 const Icon(
                                                   Icons.error_outline,
                                                   size: 18,
-                                                  color: Color(0xFFB42318),
+                                                  color: Colors.white,
                                                 ),
                                                 const SizedBox(width: 10),
                                                 Expanded(
                                                   child: Text(
                                                     errorMessage,
                                                     style: const TextStyle(
-                                                      color: Color(0xFF8F2436),
+                                                      color: Colors.white,
                                                       fontSize: 13,
                                                       fontWeight: FontWeight.w600,
                                                       height: 1.4,
@@ -227,7 +190,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                       backgroundColor: const Color(0xFF16324F),
                                       foregroundColor: Colors.white,
                                       shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(18),
+                                        borderRadius: BorderRadius.circular(16),
                                       ),
                                     ),
                                     child: authController.isBusy
@@ -255,34 +218,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
                   ),
-                ),
-              ],
-            );
+                );
           },
-        ),
-      ),
-    );
-  }
-}
-
-class _BackgroundOrb extends StatelessWidget {
-  const _BackgroundOrb({
-    required this.size,
-    required this.colors,
-  });
-
-  final double size;
-  final List<Color> colors;
-
-  @override
-  Widget build(BuildContext context) {
-    return IgnorePointer(
-      child: Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: RadialGradient(colors: colors),
         ),
       ),
     );
@@ -297,37 +234,37 @@ class _BrandMark extends StatelessWidget {
     return Column(
       children: [
         Container(
-          width: 72,
-          height: 72,
+          width: 62,
+          height: 62,
           decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Color(0xFF214A69), Color(0xFF16324F)],
-            ),
-            borderRadius: BorderRadius.circular(22),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x1E16324F),
-                blurRadius: 18,
-                offset: Offset(0, 10),
-              ),
-            ],
+            color: Colors.white.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
           ),
           child: const Icon(
             Icons.wb_sunny_rounded,
             color: Colors.white,
-            size: 34,
+            size: 30,
           ),
         ),
         const SizedBox(height: 18),
         Text(
           'Sistema Solares',
           textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-            color: const Color(0xFF16324F),
-            fontSize: 22,
-            fontWeight: FontWeight.w800,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 24,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'Iniciar sesion',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.88),
+            fontSize: 16,
+            fontWeight: FontWeight.w500,
           ),
         ),
       ],
@@ -374,8 +311,8 @@ class _LoginField extends StatelessWidget {
         hintStyle: const TextStyle(color: Color(0xFF8B97A7)),
         prefixIcon: Icon(icon, color: const Color(0xFF6A7684)),
         filled: true,
-        fillColor: const Color(0xFFFFFCF7),
-        errorStyle: const TextStyle(color: Color(0xFFB42318)),
+        fillColor: const Color(0xFFFCFBF8),
+        errorStyle: const TextStyle(color: Colors.white),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
           borderSide: const BorderSide(color: Color(0xFFD8D1C4)),

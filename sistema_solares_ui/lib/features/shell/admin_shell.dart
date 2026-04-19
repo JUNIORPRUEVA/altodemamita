@@ -169,52 +169,32 @@ class _MobileShellAppBar extends StatelessWidget implements PreferredSizeWidget 
   final RealtimeController realtimeController;
 
   @override
-  Size get preferredSize => const Size.fromHeight(72);
+  Size get preferredSize => const Size.fromHeight(46);
 
   @override
   Widget build(BuildContext context) {
     return AppBar(
       automaticallyImplyLeading: true,
+      centerTitle: true,
+      toolbarHeight: 46,
       elevation: 0,
       scrolledUnderElevation: 0,
       backgroundColor: Colors.white,
       surfaceTintColor: Colors.white,
       foregroundColor: const Color(0xFF173450),
-      titleSpacing: 4,
-      title: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: const Color(0xFF0D2640),
-                  fontWeight: FontWeight.w800,
-                ),
-          ),
-          const SizedBox(height: 2),
-          const Text(
-            'Sistema Solares',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: Color(0xFF7A8798),
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
+      title: const Text(
+        'Sistema Solares',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
       ),
       actions: [
         Padding(
-          padding: const EdgeInsets.only(right: 8),
+          padding: const EdgeInsets.only(right: 6),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _ConnectionIndicator(isConnected: realtimeController.isConnected),
-              const SizedBox(width: 8),
+              _MobileStatusIcon(isConnected: realtimeController.isConnected),
+              const SizedBox(width: 6),
               _MobileAppBarIconButton(
                 tooltip: 'Cerrar sesion',
                 icon: Icons.logout_rounded,
@@ -268,6 +248,26 @@ class _MobileAppBarIconButton extends StatelessWidget {
             child: Icon(icon, color: const Color(0xFF173450), size: 20),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _MobileStatusIcon extends StatelessWidget {
+  const _MobileStatusIcon({required this.isConnected});
+
+  final bool isConnected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 28,
+      height: 28,
+      alignment: Alignment.center,
+      child: Icon(
+        isConnected ? Icons.sync_rounded : Icons.sync_disabled_rounded,
+        size: 18,
+        color: isConnected ? const Color(0xFF2BB673) : const Color(0xFF6B7682),
       ),
     );
   }
@@ -343,76 +343,8 @@ class _TopBar extends StatelessWidget {
         ),
       ],
       child: compact
-          ? Container(
-              width: 52,
-              height: 52,
-              decoration: BoxDecoration(
-                color: const Color(0xFFF7F8FB),
-                border: Border.all(color: const Color(0xFFE4EAF2)),
-                borderRadius: BorderRadius.circular(18),
-              ),
-              alignment: Alignment.center,
-              child: Text(
-                (authController.user?.fullName.isNotEmpty == true
-                        ? authController.user!.fullName[0]
-                        : 'U')
-                    .toUpperCase(),
-                style: const TextStyle(
-                  color: Color(0xFF173450),
-                  fontWeight: FontWeight.w800,
-                  fontSize: 18,
-                ),
-              ),
-            )
-          : Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF7F8FB),
-                border: Border.all(color: const Color(0xFFE4EAF2)),
-                borderRadius: BorderRadius.circular(18),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircleAvatar(
-                    radius: 22,
-                    backgroundColor: const Color(0xFF173450),
-                    child: Text(
-                      (authController.user?.fullName.isNotEmpty == true
-                              ? authController.user!.fullName[0]
-                              : 'U')
-                          .toUpperCase(),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        authController.user?.fullName ?? 'Sin usuario',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF0D2640),
-                        ),
-                      ),
-                      Text(
-                        authController.user?.panelRole == PanelRole.admin
-                            ? 'Administrador'
-                            : 'Supervisor',
-                        style: const TextStyle(
-                          color: Color(0xFF6F7891),
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
+          ? const SizedBox.shrink()
+          : const _DesktopProfileMenuButton(),
     );
 
     if (compact) {
@@ -510,13 +442,117 @@ class _TopBar extends StatelessWidget {
                         fontSize: 15.5,
                       ),
                 ),
+                const SizedBox(height: 1),
+                Text(
+                  'Sistema Solares',
+                  style: TextStyle(
+                    color: const Color(0xFF0D2640).withValues(alpha: 0.32),
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w400,
+                    letterSpacing: 0.1,
+                  ),
+                ),
               ],
             ),
           ),
           const SizedBox(width: 10),
-          _ConnectionIndicator(isConnected: realtimeController.isConnected),
+          _DesktopConnectionBadge(isConnected: realtimeController.isConnected),
           const SizedBox(width: 10),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                authController.user?.fullName ?? 'Sin usuario',
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF0D2640),
+                ),
+              ),
+              Text(
+                authController.user?.panelRole == PanelRole.admin
+                    ? 'Administrador'
+                    : 'Supervisor',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  color: const Color(0xFF0D2640).withValues(alpha: 0.45),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(width: 12),
           sessionMenu,
+        ],
+      ),
+    );
+  }
+}
+
+class _DesktopProfileMenuButton extends StatelessWidget {
+  const _DesktopProfileMenuButton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Ink(
+      width: 42,
+      height: 42,
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF12385F), Color(0xFF0A2037)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE4EAF2)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x12000000),
+            blurRadius: 16,
+            offset: Offset(0, 8),
+          ),
+        ],
+      ),
+      child: const Icon(
+        Icons.person_rounded,
+        size: 20,
+        color: Colors.white,
+      ),
+    );
+  }
+}
+
+class _DesktopConnectionBadge extends StatelessWidget {
+  const _DesktopConnectionBadge({required this.isConnected});
+
+  final bool isConnected;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isConnected ? const Color(0xFF2BB673) : const Color(0xFF6B7682);
+    final label = isConnected ? 'Realtime activo' : 'Realtime desconectado';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.24)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.circle, size: 10, color: color),
+          const SizedBox(width: 7),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF0D2640),
+            ),
+          ),
         ],
       ),
     );
@@ -632,41 +668,135 @@ class _Sidebar extends StatelessWidget {
                         ),
                         const SizedBox(width: 12),
                         const Expanded(
-                          child: Text(
-                            'Sistema Solares',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: 0.1,
-                            ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                'Sistema Solares',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 0.1,
+                                ),
+                              ),
+                              SizedBox(height: 2),
+                              Text(
+                                'Navegacion ejecutiva',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: Color(0x8AFFFFFF),
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w500,
+                                  letterSpacing: 0.35,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],
                     ),
                   ),
                   const SizedBox(height: 18),
+                  if (!drawerMode)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 8, bottom: 10),
+                      child: Text(
+                        'DESTACADOS',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.34),
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1.8,
+                        ),
+                      ),
+                    ),
                   ...summaryItems.map((item) => _NavTile(
                         item: item,
                         selected: currentRoute == item.route,
                         compact: compact,
                       )),
                   if (adminItems.isNotEmpty) ...[
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      child: Divider(
-                        height: 1,
-                        color: Colors.white.withValues(alpha: 0.10),
+                    SizedBox(height: drawerMode ? 8 : 16),
+                    if (!drawerMode)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 8, bottom: 10),
+                        child: Text(
+                          'ADMINISTRACION',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.34),
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 1.8,
+                          ),
+                        ),
                       ),
-                    ),
                     ...adminItems.map((item) => _NavTile(
                           item: item,
                           selected: currentRoute == item.route,
                           compact: compact,
                         )),
                   ],
+                  const SizedBox(height: 10),
+                  if (!drawerMode)
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.05),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.08),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 38,
+                            height: 38,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF5BAEE8).withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Icon(
+                              Icons.auto_awesome_rounded,
+                              size: 20,
+                              color: Color(0xFF83CAFF),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Acceso rapido',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                SizedBox(height: 2),
+                                Text(
+                                  'Resumen, reportes, clientes y ajustes primero.',
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: Color(0x91FFFFFF),
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   const SizedBox(height: 12),
                 ],
               ),
@@ -788,10 +918,20 @@ class _ShellFooter extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      height: 12,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 7),
       decoration: const BoxDecoration(
         color: Color(0xFFF7F9FC),
         border: Border(top: BorderSide(color: Color(0xFFE8EDF4))),
+      ),
+      child: Text(
+        '© 2026 Sistema Solares · Todos los derechos reservados',
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+          color: const Color(0xFFABB5C3),
+          fontWeight: FontWeight.w400,
+          fontSize: 10.5,
+          letterSpacing: 0.1,
+        ),
+        textAlign: TextAlign.right,
       ),
     );
   }

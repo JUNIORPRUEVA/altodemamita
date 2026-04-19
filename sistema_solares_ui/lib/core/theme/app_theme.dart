@@ -7,55 +7,34 @@ ThemeData buildAppTheme() {
   const primary = Color(0xFF16324F);
   const secondary = Color(0xFF2B6B4A);
   const outline = Color(0xFFD8D1C4);
-  const ink = Color(0xFF1D2733);
+  const text = Color(0xFF1D2733);
 
-  final base = ThemeData(
+  return ThemeData(
+    useMaterial3: true,
     colorScheme: ColorScheme.fromSeed(
       seedColor: seedColor,
-      brightness: Brightness.light,
       primary: primary,
       secondary: secondary,
       surface: surface,
       outline: outline,
     ),
     scaffoldBackgroundColor: background,
-    useMaterial3: true,
     fontFamily: 'Segoe UI',
-  );
-
-  return base.copyWith(
-    textTheme: base.textTheme.copyWith(
-      headlineSmall: const TextStyle(
-        fontSize: 28,
-        fontWeight: FontWeight.w700,
-        color: ink,
-      ),
-      titleLarge: const TextStyle(
+    appBarTheme: const AppBarTheme(
+      centerTitle: false,
+      backgroundColor: Colors.white,
+      elevation: 0,
+      scrolledUnderElevation: 0,
+      iconTheme: IconThemeData(color: text),
+      titleTextStyle: TextStyle(
+        color: text,
         fontSize: 22,
         fontWeight: FontWeight.w700,
-        color: ink,
-      ),
-      titleMedium: const TextStyle(
-        fontSize: 16,
-        fontWeight: FontWeight.w700,
-        color: ink,
-      ),
-      bodyMedium: const TextStyle(
-        fontSize: 14,
-        color: ink,
-      ),
-      bodySmall: const TextStyle(
-        fontSize: 12,
-        color: Color(0xFF6A7684),
       ),
     ),
-    cardTheme: const CardThemeData(
-      color: surface,
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.all(Radius.circular(24)),
-        side: BorderSide(color: outline),
-      ),
+    snackBarTheme: const SnackBarThemeData(
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: secondary,
     ),
     dialogTheme: DialogThemeData(
       backgroundColor: surface,
@@ -64,34 +43,16 @@ ThemeData buildAppTheme() {
         side: const BorderSide(color: outline),
       ),
       titleTextStyle: const TextStyle(
-        color: ink,
+        color: text,
         fontSize: 22,
         fontWeight: FontWeight.w700,
       ),
       contentTextStyle: const TextStyle(
-        color: ink,
+        color: text,
         fontSize: 14,
         height: 1.45,
       ),
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-    ),
-    appBarTheme: const AppBarTheme(
-      centerTitle: false,
-      backgroundColor: Colors.white,
-      surfaceTintColor: Colors.white,
-      foregroundColor: ink,
-      elevation: 0,
-      scrolledUnderElevation: 0,
-      iconTheme: IconThemeData(color: ink),
-      titleTextStyle: TextStyle(
-        fontSize: 20,
-        fontWeight: FontWeight.w700,
-        color: ink,
-      ),
-    ),
-    snackBarTheme: const SnackBarThemeData(
-      behavior: SnackBarBehavior.floating,
-      backgroundColor: secondary,
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
@@ -110,6 +71,15 @@ ThemeData buildAppTheme() {
         borderSide: BorderSide(color: primary, width: 1.4),
       ),
       isDense: true,
+    ),
+    cardTheme: const CardThemeData(
+      color: surface,
+      elevation: 0,
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(24)),
+        side: BorderSide(color: outline),
+      ),
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
@@ -140,17 +110,45 @@ ThemeData buildAppTheme() {
         ),
       ),
     ),
-    chipTheme: base.chipTheme.copyWith(
-      backgroundColor: const Color(0xFFF0F3F9),
-      side: const BorderSide(color: outline),
-      labelStyle: const TextStyle(
-        color: ink,
-        fontWeight: FontWeight.w600,
+    dividerColor: outline,
+    switchTheme: SwitchThemeData(
+      thumbColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.selected)) {
+          return secondary;
+        }
+        return const Color(0xFFFDFBF7);
+      }),
+      trackColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.selected)) {
+          return const Color(0xFFB7D3C1);
+        }
+        return const Color(0xFFE7E0D5);
+      }),
+    ),
+    textTheme: const TextTheme(
+      headlineSmall: TextStyle(
+        fontSize: 28,
+        fontWeight: FontWeight.w700,
+        color: text,
       ),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(999),
+      titleLarge: TextStyle(
+        fontSize: 22,
+        fontWeight: FontWeight.w700,
+        color: text,
+      ),
+      titleMedium: TextStyle(
+        fontSize: 16,
+        fontWeight: FontWeight.w700,
+        color: text,
+      ),
+      bodyMedium: TextStyle(
+        fontSize: 14,
+        color: text,
+      ),
+      bodySmall: TextStyle(
+        fontSize: 12,
+        color: Color(0xFF6A7684),
       ),
     ),
-    dividerColor: outline,
   );
 }
