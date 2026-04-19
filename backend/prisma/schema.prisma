@@ -179,12 +179,29 @@ model Product {
   @@map("products")
 }
 
+model Seller {
+  id            String      @id @default(uuid()) @db.Uuid
+  syncId        String      @unique @default(uuid()) @map("sync_id")
+  name          String
+  documentId    String?     @map("document_id")
+  phone         String?
+  syncStatus    SyncStatus  @default(pending) @map("sync_status")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+  deletedAt     DateTime?   @map("deleted_at")
+  sales         Sale[]
+
+  @@index([documentId])
+  @@map("sellers")
+}
+
 model Sale {
   id                  String             @id @default(uuid()) @db.Uuid
   syncId              String             @unique @default(uuid()) @map("sync_id")
   clientId            String             @map("client_id") @db.Uuid
   userId              String             @map("user_id") @db.Uuid
   productId           String             @map("product_id") @db.Uuid
+  sellerId            String?            @map("seller_id") @db.Uuid
   contractNumber      String?            @unique @map("contract_number")
   saleDate            DateTime           @map("sale_date")
   principalAmount     Decimal            @map("principal_amount") @db.Decimal(18, 2)
@@ -205,12 +222,14 @@ model Sale {
   client              Client             @relation(fields: [clientId], references: [id])
   user                User               @relation(fields: [userId], references: [id])
   product             Product            @relation(fields: [productId], references: [id])
+  seller              Seller?            @relation(fields: [sellerId], references: [id])
   payments            Payment[]
   installments        Installment[]
 
   @@index([clientId])
   @@index([userId])
   @@index([productId])
+  @@index([sellerId])
   @@index([status])
   @@map("sales")
 }

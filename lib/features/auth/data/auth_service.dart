@@ -14,6 +14,7 @@ import '../../../features/clients/data/client_repository.dart';
 import '../../../features/settings/data/company_repository.dart';
 import '../../../features/settings/data/settings_repository.dart';
 import '../../../features/settings/domain/company_info.dart';
+import '../../../features/sales/data/seller_repository.dart';
 import '../../../repositories/installments_sync_repository.dart';
 import '../../../repositories/payments_sync_repository.dart';
 import '../../../repositories/products_sync_repository.dart';
@@ -108,10 +109,8 @@ class AuthService {
        _syncConfigRepository = syncConfigRepository ?? SyncConfigRepository(),
        _httpClient = httpClient ?? HttpClient(),
        _sensitiveStorage =
-           sensitiveStorage ??
-           SensitiveStorage(preferencesFactory: preferencesFactory),
-       _preferencesFactory =
-           preferencesFactory ?? SharedPreferences.getInstance;
+         sensitiveStorage ??
+         SensitiveStorage(preferencesFactory: preferencesFactory);
 
   static const String _sessionSelectorKey = 'auth.session.selector';
   static const String _sessionTokenKey = 'auth.session.token';
@@ -128,7 +127,6 @@ class AuthService {
   final SyncConfigRepository _syncConfigRepository;
   final HttpClient _httpClient;
   final SensitiveStorage _sensitiveStorage;
-  final Future<SharedPreferences> Function() _preferencesFactory;
 
   Future<AuthBootstrapResult> bootstrap() async {
     final remoteStatus = await _fetchRemoteSystemStatus();
@@ -168,7 +166,8 @@ class AuthService {
           remoteStatus.statusAvailable &&
           !remoteStatus.initialized,
       isOnline: remoteStatus.isReachable,
-      isCloudInitialized: remoteStatus.isReachable && remoteStatus.statusAvailable
+      isCloudInitialized:
+          remoteStatus.isReachable && remoteStatus.statusAvailable
           ? remoteStatus.initialized
           : !localRequiresInitialSetup,
       backendStatus: remoteStatus.connectionStatus,
@@ -1281,7 +1280,9 @@ class AuthService {
           connectionStatus: BackendConnectionStatus.connected,
         );
       } on AuthException catch (error) {
-        final healthUri = Uri.parse('${settings.normalizedBaseUrl}/system/config');
+        final healthUri = Uri.parse(
+          '${settings.normalizedBaseUrl}/system/config',
+        );
         try {
           await _sendJsonRequest(method: 'GET', uri: healthUri);
           return _RemoteSystemStatus(
@@ -1333,7 +1334,9 @@ class AuthService {
 
     final response = await request.close();
     final body = await utf8.decoder.bind(response).join();
-    final decoded = body.trim().isEmpty ? const <String, dynamic>{} : jsonDecode(body);
+    final decoded = body.trim().isEmpty
+        ? const <String, dynamic>{}
+        : jsonDecode(body);
     final responsePayload = decoded is Map<String, dynamic>
         ? _unwrapResponseEnvelope(decoded)
         : (decoded is Map
@@ -1482,10 +1485,9 @@ class AuthService {
         fechaActualizacion: now,
       ),
     );
-    await SettingsRepository(appDatabase: _appDatabase).upsert(
-      SettingsRepository.businessNameKey,
-      companyName,
-    );
+    await SettingsRepository(
+      appDatabase: _appDatabase,
+    ).upsert(SettingsRepository.businessNameKey, companyName);
   }
 
   UserRole _mapRemoteRole(Object? rawRoles) {
@@ -1650,13 +1652,14 @@ class AuthService {
       repositories: [
         ClientRepository(syncQueueService: syncQueueService),
         ProductsSyncRepository(),
+        SellerRepository(syncQueueService: syncQueueService),
         SalesSyncRepository(),
         InstallmentsSyncRepository(),
         PaymentsSyncRepository(),
       ],
       syncQueueService: syncQueueService,
     );
-    final report = await syncService.syncNow();
+    final report = await syncService.syncNow(forceFullDownload: true);
     return !report.wasSkipped;
   }
 

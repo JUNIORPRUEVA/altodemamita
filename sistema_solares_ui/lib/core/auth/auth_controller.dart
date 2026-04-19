@@ -94,6 +94,13 @@ class AuthController extends ChangeNotifier {
   bool get canManageUsers => isPanelAdmin;
   bool get canAccessSettings => isPanelAdmin;
   bool get canAccessSales => hasPermission('sales.read') || isPanelAdmin;
+    bool get canAccessSellers => hasPermission('sellers.read') || isPanelAdmin;
+    bool get canAccessGlobalSearch =>
+      hasPermission('clients.read') ||
+      hasPermission('sales.read') ||
+      hasPermission('products.read') ||
+      canAccessSellers ||
+      isPanelAdmin;
   bool get isPanelAdmin =>
       _user != null && _user!.type == 'panel' && _user!.panelRole == PanelRole.admin;
 

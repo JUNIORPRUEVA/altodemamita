@@ -12,6 +12,8 @@ const permissions = [
   'clients.write',
   'products.read',
   'products.write',
+  'sellers.read',
+  'sellers.write',
   'sales.read',
   'sales.write',
   'payments.read',
@@ -25,6 +27,7 @@ const permissions = [
 const panelViewerPermissions = [
   'clients.read',
   'products.read',
+  'sellers.read',
   'sales.read',
   'payments.read',
   'installments.read',
@@ -37,6 +40,7 @@ const panelAdminPermissions = [
   'users.write',
   'auth.manage',
   'system.config',
+  'sellers.write',
 ];
 
 async function main(): Promise<void> {

@@ -7,6 +7,8 @@ export const PERMISSIONS = {
   clientsWrite: 'clients.write',
   productsRead: 'products.read',
   productsWrite: 'products.write',
+  sellersRead: 'sellers.read',
+  sellersWrite: 'sellers.write',
   salesRead: 'sales.read',
   salesWrite: 'sales.write',
   paymentsRead: 'payments.read',

@@ -101,6 +101,7 @@ export class RealtimeEventsService {
       this.gateway.buildPermissionRoom(PERMISSIONS.reportsRead),
       this.gateway.buildPermissionRoom(PERMISSIONS.clientsRead),
       this.gateway.buildPermissionRoom(PERMISSIONS.productsRead),
+      this.gateway.buildPermissionRoom(PERMISSIONS.sellersRead),
       this.gateway.buildPermissionRoom(PERMISSIONS.salesRead),
       this.gateway.buildPermissionRoom(PERMISSIONS.paymentsRead),
       this.gateway.buildPermissionRoom(PERMISSIONS.installmentsRead),

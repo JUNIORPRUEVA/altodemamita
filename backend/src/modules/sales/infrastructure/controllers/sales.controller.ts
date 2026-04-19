@@ -3,9 +3,9 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestj
 import { PERMISSIONS } from 'src/shared/constants/permissions.constants';
 import { CurrentUser } from 'src/shared/decorators/current-user.decorator';
 import { RequirePermissions } from 'src/shared/decorators/permissions.decorator';
-import { PaginationQueryDto } from 'src/shared/dto/pagination-query.dto';
 import { assertOperationalAccess } from 'src/shared/utils/panel-access.util';
 import { CreateSaleDto } from '../../application/dto/create-sale.dto';
+import { SalesQueryDto } from '../../application/dto/sales-query.dto';
 import { UpdateSaleDto } from '../../application/dto/update-sale.dto';
 import { SalesService } from '../../application/services/sales.service';
 
@@ -25,7 +25,7 @@ export class SalesController {
 
   @Get()
   @RequirePermissions(PERMISSIONS.salesRead)
-  findAll(@Query() query: PaginationQueryDto) {
+  findAll(@Query() query: SalesQueryDto) {
     return this.salesService.findAll(query);
   }
 

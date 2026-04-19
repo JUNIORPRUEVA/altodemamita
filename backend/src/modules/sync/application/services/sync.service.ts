@@ -24,6 +24,7 @@ interface SyncDomainEvent {
 interface SyncRecordCollections {
   clients: Record<string, unknown>[];
   products: Record<string, unknown>[];
+  sellers: Record<string, unknown>[];
   sales: Record<string, unknown>[];
   installments: Record<string, unknown>[];
   payments: Record<string, unknown>[];
@@ -251,6 +252,57 @@ export class SyncService {
         });
       }
 
+      for (const seller of records.sellers) {
+        const payload = seller as Record<string, unknown>;
+        const recordSyncId = this.readRecordSyncId(payload);
+        const incomingUpdatedAt = this.readDate(payload, ['updatedAt', 'updated_at']);
+        const name = this.readString(payload, ['name', 'full_name']) ?? 'Sin nombre';
+        const existing = await tx.seller.findUnique({
+          where: { syncId: recordSyncId },
+          select: { id: true, syncId: true, updatedAt: true },
+        });
+        if (this.shouldSkipWrite(existing?.updatedAt, incomingUpdatedAt)) {
+          continue;
+        }
+
+        const persisted = await tx.seller.upsert({
+          where: { syncId: recordSyncId },
+          create: {
+            syncId: recordSyncId,
+            name,
+            documentId: this.readString(payload, ['document_id', 'documentId']),
+            phone: this.readString(payload, ['phone']),
+            createdAt: this.readDate(payload, ['createdAt', 'created_at']) ?? undefined,
+            updatedAt: incomingUpdatedAt ?? undefined,
+            deletedAt: this.readDate(payload, ['deletedAt', 'deleted_at']),
+            syncStatus: SyncStatus.synced,
+          },
+          update: {
+            name,
+            documentId: this.readString(payload, ['document_id', 'documentId']),
+            phone: this.readString(payload, ['phone']),
+            deletedAt: this.readDate(payload, ['deletedAt', 'deleted_at']),
+            ...(incomingUpdatedAt ? { updatedAt: incomingUpdatedAt } : {}),
+            syncStatus: SyncStatus.synced,
+          },
+          select: { id: true, syncId: true, updatedAt: true },
+        });
+        domainEvents.push({
+          channel: 'entity.updated',
+          id: persisted.id,
+          recordSyncId: persisted.syncId,
+          updatedAt: persisted.updatedAt.toISOString(),
+          payload: {
+            entity: 'seller',
+            action: existing ? 'updated' : 'created',
+            id: persisted.id,
+            record_sync_id: persisted.syncId,
+            sync_id: persisted.syncId,
+            source: 'sync',
+          },
+        });
+      }
+
       for (const sale of records.sales) {
         const payload = sale as Record<string, unknown>;
         const recordSyncId = this.readRecordSyncId(payload);
@@ -276,6 +328,7 @@ export class SyncService {
         const client = await this.resolveClientReference(tx, payload);
         const user = await this.resolveSyncUser(tx, payload);
         const product = await this.resolveProductReference(tx, payload);
+        const seller = await this.resolveSellerReference(tx, payload);
         if (!client || !user || !product) {
           throw new BadRequestException('No se pudieron resolver las referencias de la venta.');
         }
@@ -286,6 +339,7 @@ export class SyncService {
             clientId: client.id,
             userId: user.id,
             productId: product.id,
+            sellerId: seller?.id,
             contractNumber: recordSyncId,
             saleDate: this.readRequiredDate(payload, ['sale_date']),
             principalAmount: salePrice,
@@ -303,6 +357,7 @@ export class SyncService {
               sync_id: recordSyncId,
               client_sync_id: client.syncId,
               product_sync_id: product.syncId,
+              seller_sync_id: seller?.syncId,
               status: localStatus,
             }),
             createdAt: this.readDate(payload, ['createdAt', 'created_at']) ?? undefined,
@@ -314,6 +369,7 @@ export class SyncService {
             clientId: client.id,
             userId: user.id,
             productId: product.id,
+            sellerId: seller?.id,
             contractNumber: recordSyncId,
             saleDate: this.readRequiredDate(payload, ['sale_date']),
             principalAmount: salePrice,
@@ -331,6 +387,7 @@ export class SyncService {
               sync_id: recordSyncId,
               client_sync_id: client.syncId,
               product_sync_id: product.syncId,
+              seller_sync_id: seller?.syncId,
               status: localStatus,
             }),
             deletedAt: this.readDate(payload, ['deletedAt', 'deleted_at']),
@@ -611,17 +668,19 @@ export class SyncService {
       ? { updatedAt: { gt: updatedSince } }
       : {};
 
-    const [users, roles, permissions, clients, products, sales, installments, payments] = await this.prisma.$transaction([
+    const [users, roles, permissions, clients, products, sellers, sales, installments, payments] = await this.prisma.$transaction([
       this.prisma.user.findMany({ where }),
       this.prisma.role.findMany({ where }),
       this.prisma.permission.findMany({ where }),
       this.prisma.client.findMany({ where }),
       this.prisma.product.findMany({ where }),
+      this.prisma.seller.findMany({ where }),
       this.prisma.sale.findMany({
         where,
         include: {
           client: { select: { syncId: true } },
           product: { select: { syncId: true } },
+          seller: { select: { syncId: true } },
         },
       }),
       this.prisma.installment.findMany({
@@ -651,6 +710,7 @@ export class SyncService {
       records: {
         clients: clients.map((item) => this.serializeClientRecord(item)),
         products: products.map((item) => this.serializeProductRecord(item)),
+        sellers: sellers.map((item) => this.serializeSellerRecord(item)),
         sales: sales.map((item) => this.serializeSaleRecord(item)),
         installments: installments.map((item) => this.serializeInstallmentRecord(item)),
         payments: payments.map((item) => this.serializePaymentRecord(item)),
@@ -723,6 +783,11 @@ export class SyncService {
       ['block_number', 'lot_number', 'area', 'price_per_square_meter'],
     );
     validateCollection(
+      'sellers',
+      records.sellers,
+      [['name', 'full_name']],
+    );
+    validateCollection(
       'sales',
       records.sales,
       [
@@ -770,6 +835,7 @@ export class SyncService {
     return {
       clients: records?.clients ?? [],
       products: records?.products ?? [],
+      sellers: records?.sellers ?? [],
       sales: records?.sales ?? [],
       installments: records?.installments ?? [],
       payments: records?.payments ?? [],
@@ -780,6 +846,7 @@ export class SyncService {
     return {
       clients: [],
       products: [],
+      sellers: [],
       sales: [],
       installments: [],
       payments: [],
@@ -937,6 +1004,10 @@ export class SyncService {
     return this.resolveReference(tx.product, payload, ['product_sync_id'], ['productId', 'product_id'], 'producto');
   }
 
+  private async resolveSellerReference(tx: Prisma.TransactionClient, payload: Record<string, unknown>) {
+    return this.resolveReference(tx.seller, payload, ['seller_sync_id'], ['sellerId', 'seller_id'], 'vendedor', true);
+  }
+
   private async resolveSaleReference(tx: Prisma.TransactionClient, payload: Record<string, unknown>) {
     return this.resolveReference(tx.sale, payload, ['sale_sync_id'], ['saleId', 'sale_id'], 'venta');
   }
@@ -998,6 +1069,7 @@ export class SyncService {
     return {
       clients: records.clients.length,
       products: records.products.length,
+      sellers: records.sellers.length,
       sales: records.sales.length,
       installments: records.installments.length,
       payments: records.payments.length,
@@ -1180,6 +1252,32 @@ export class SyncService {
     };
   }
 
+  private serializeSellerRecord(seller: {
+    id: string;
+    syncId: string;
+    name: string;
+    documentId: string | null;
+    phone: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+    deletedAt: Date | null;
+    syncStatus: SyncStatus;
+  }) {
+    return {
+      id: seller.id,
+      sync_id: seller.syncId,
+      version: 1,
+      name: seller.name,
+      full_name: seller.name,
+      document_id: seller.documentId ?? '',
+      phone: seller.phone,
+      created_at: seller.createdAt.toISOString(),
+      updated_at: seller.updatedAt.toISOString(),
+      deleted_at: seller.deletedAt?.toISOString(),
+      sync_status: seller.syncStatus,
+    };
+  }
+
   private serializeSaleRecord(sale: {
     id: string;
     syncId: string;
@@ -1198,6 +1296,7 @@ export class SyncService {
     syncPayload: Prisma.JsonValue | null;
     client: { syncId: string };
     product: { syncId: string };
+    seller: { syncId: string } | null;
   }) {
     const payload = this.readJsonRecord(sale.syncPayload);
     const salePrice = Number(payload?.['sale_price'] ?? sale.principalAmount);
@@ -1219,6 +1318,7 @@ export class SyncService {
       version: Number(payload?.['version'] ?? 1),
       client_sync_id: payload?.['client_sync_id']?.toString() ?? sale.client.syncId,
       product_sync_id: payload?.['product_sync_id']?.toString() ?? sale.product.syncId,
+      seller_sync_id: payload?.['seller_sync_id']?.toString() ?? sale.seller?.syncId,
       sale_date: payload?.['sale_date']?.toString() ?? sale.saleDate.toISOString(),
       sale_price: salePrice,
       financed_balance: Number(payload?.['financed_balance'] ?? sale.financedAmount),

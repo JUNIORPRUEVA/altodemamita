@@ -136,7 +136,6 @@ class _RecordingSyncApiClient extends SyncApiClient {
     required Map<String, List<Map<String, Object?>>> recordsByScope,
   }) async {
     final scope = recordsByScope.keys.single;
-    final records = recordsByScope[scope] ?? const <Map<String, Object?>>[];
     uploadedScopes.add(scope);
     if (failingScopes.contains(scope)) {
       throw HttpException('Fallo simulado para $scope');

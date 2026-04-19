@@ -226,16 +226,6 @@ class SyncApiClient {
     }
   }
 
-  List<String> _readStringList(Object? value) {
-    if (value is! List) {
-      return const [];
-    }
-    return value
-        .map((item) => item.toString())
-        .where((item) => item.trim().isNotEmpty)
-        .toList();
-  }
-
   List<Map<String, dynamic>> _readRecordList(Object? value) {
     if (value is! List) {
       return const [];

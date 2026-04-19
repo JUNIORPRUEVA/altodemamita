@@ -8,7 +8,7 @@ class AppConfig {
   static const String _defaultApiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
     defaultValue:
-      'https://altodemanita-altodemamita-backent.onqyr1.easypanel.host/api',
+        'https://altodemanita-altodemamita-backend.onqyr1.easypanel.host/api',
   );
 
   static String _apiBaseUrl = _defaultApiBaseUrl;
@@ -55,7 +55,10 @@ class AppConfig {
 
       final runtimeApiBaseUrl = decoded['API_BASE_URL']?.toString();
       _apiBaseUrl = _normalizeBaseUrl(runtimeApiBaseUrl ?? _defaultApiBaseUrl);
-      _logConfig(runtimeApiBaseUrl == null ? 'dart_define_fallback' : 'runtime_config', _apiBaseUrl);
+      _logConfig(
+        runtimeApiBaseUrl == null ? 'dart_define_fallback' : 'runtime_config',
+        _apiBaseUrl,
+      );
     } catch (error, stackTrace) {
       _apiBaseUrl = _defaultApiBaseUrl;
       developer.log(
@@ -97,11 +100,16 @@ class AppConfig {
       return trimmed.replaceAll(RegExp(r'/$'), '');
     }
 
-    final pathSegments = uri.pathSegments.where((segment) => segment.isNotEmpty).toList();
+    final pathSegments = uri.pathSegments
+        .where((segment) => segment.isNotEmpty)
+        .toList();
     if (pathSegments.isEmpty || pathSegments.last.toLowerCase() != 'api') {
       pathSegments.add('api');
     }
 
-    return uri.replace(pathSegments: pathSegments).toString().replaceAll(RegExp(r'/$'), '');
+    return uri
+        .replace(pathSegments: pathSegments)
+        .toString()
+        .replaceAll(RegExp(r'/$'), '');
   }
 }

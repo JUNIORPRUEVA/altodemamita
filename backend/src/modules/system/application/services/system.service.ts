@@ -161,6 +161,7 @@ export class SystemService {
       [
         PERMISSIONS.clientsRead,
         PERMISSIONS.productsRead,
+        PERMISSIONS.sellersRead,
         PERMISSIONS.salesRead,
         PERMISSIONS.paymentsRead,
         PERMISSIONS.installmentsRead,
@@ -175,6 +176,7 @@ export class SystemService {
       [
         PERMISSIONS.clientsRead,
         PERMISSIONS.productsRead,
+        PERMISSIONS.sellersRead,
         PERMISSIONS.salesRead,
         PERMISSIONS.paymentsRead,
         PERMISSIONS.installmentsRead,
@@ -183,6 +185,7 @@ export class SystemService {
         PERMISSIONS.usersWrite,
         PERMISSIONS.authManage,
         PERMISSIONS.systemConfig,
+        PERMISSIONS.sellersWrite,
       ],
     );
   }

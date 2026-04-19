@@ -44,12 +44,17 @@ class SyncConfigRepository {
       return trimmed.replaceAll(RegExp(r'/$'), '');
     }
 
-    final pathSegments = uri.pathSegments.where((segment) => segment.isNotEmpty).toList();
+    final pathSegments = uri.pathSegments
+        .where((segment) => segment.isNotEmpty)
+        .toList();
     if (pathSegments.isEmpty || pathSegments.last.toLowerCase() != 'api') {
       pathSegments.add('api');
     }
 
-    return uri.replace(pathSegments: pathSegments).toString().replaceAll(RegExp(r'/$'), '');
+    return uri
+        .replace(pathSegments: pathSegments)
+        .toString()
+        .replaceAll(RegExp(r'/$'), '');
   }
 
   final SettingsRepository _settingsRepository;
@@ -63,14 +68,13 @@ class SyncConfigRepository {
       syncRealtimePollingSecondsKey,
       syncConflictStrategyKey,
     ]);
-    final prefs = await _preferencesFactory();
     final storedBaseUrl = values[syncBaseUrlKey]?.value ?? defaultSyncBaseUrl;
     final baseUrl = normalizeBackendBaseUrl(storedBaseUrl);
     final token = await _sensitiveStorage.read(_jwtTokenPreferenceKey) ?? '';
     final retrySeconds =
-      int.tryParse(values[syncQueueRetrySecondsKey]?.value ?? '10') ?? 10;
+        int.tryParse(values[syncQueueRetrySecondsKey]?.value ?? '10') ?? 10;
     final pollingSeconds =
-      int.tryParse(values[syncRealtimePollingSecondsKey]?.value ?? '5') ?? 5;
+        int.tryParse(values[syncRealtimePollingSecondsKey]?.value ?? '5') ?? 5;
 
     return SyncSettings(
       baseUrl: baseUrl,
@@ -140,6 +144,22 @@ class SyncConfigRepository {
   Future<void> clearCursor(String scope) async {
     final prefs = await _preferencesFactory();
     await prefs.remove('$_cursorPreferencePrefix$scope');
+  }
+
+  Future<void> clearCursors(Iterable<String> scopes) async {
+    final normalizedScopes = scopes
+        .map((scope) => scope.trim())
+        .where((scope) => scope.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+    if (normalizedScopes.isEmpty) {
+      return;
+    }
+
+    final prefs = await _preferencesFactory();
+    for (final scope in normalizedScopes) {
+      await prefs.remove('$_cursorPreferencePrefix$scope');
+    }
   }
 
   Future<void> saveLastRun({String? errorMessage}) async {

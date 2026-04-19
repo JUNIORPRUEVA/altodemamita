@@ -8,10 +8,11 @@ import 'package:sistema_solares_ui/core/system/system_config_controller.dart';
 import 'package:sistema_solares_ui/core/theme/app_theme.dart';
 import 'package:sistema_solares_ui/features/auth/login_screen.dart';
 import 'package:sistema_solares_ui/features/clients/clients_screen.dart';
-import 'package:sistema_solares_ui/features/dashboard/dashboard_screen.dart';
+import 'package:sistema_solares_ui/features/global_search/global_search_screen.dart';
 import 'package:sistema_solares_ui/features/products/products_screen.dart';
 import 'package:sistema_solares_ui/features/reports/reports_screen.dart';
 import 'package:sistema_solares_ui/features/sales/sales_screen.dart';
+import 'package:sistema_solares_ui/features/sellers/sellers_screen.dart';
 import 'package:sistema_solares_ui/features/settings/settings_screen.dart';
 import 'package:sistema_solares_ui/features/shell/admin_shell.dart';
 import 'package:sistema_solares_ui/features/users/users_screen.dart';
@@ -69,15 +70,19 @@ class _AppState extends State<App> {
         }
 
         if (location == '/loading' || location == '/login' || location == '/') {
-          return '/dashboard';
+          return '/reports';
+        }
+
+        if (location == '/search' && !authController.canAccessGlobalSearch) {
+          return '/reports';
         }
 
         if (location == '/users' && !authController.canManageUsers) {
-          return '/dashboard';
+          return '/reports';
         }
 
         if (location == '/sales' && !authController.canAccessSales) {
-          return '/dashboard';
+          return '/reports';
         }
 
         if (
@@ -85,11 +90,15 @@ class _AppState extends State<App> {
           !authController.hasPermission('products.read') &&
           !authController.isPanelAdmin
         ) {
-          return '/dashboard';
+          return '/reports';
+        }
+
+        if (location == '/sellers' && !authController.canAccessSellers) {
+          return '/reports';
         }
 
         if (location == '/settings' && !authController.canAccessSettings) {
-          return '/dashboard';
+          return '/reports';
         }
 
         return null;
@@ -108,7 +117,11 @@ class _AppState extends State<App> {
           routes: [
             GoRoute(
               path: '/dashboard',
-              builder: (context, state) => const DashboardScreen(),
+              redirect: (context, state) => '/reports',
+            ),
+            GoRoute(
+              path: '/search',
+              builder: (context, state) => const GlobalSearchScreen(),
             ),
             GoRoute(
               path: '/reports',
@@ -121,6 +134,10 @@ class _AppState extends State<App> {
             GoRoute(
               path: '/clients',
               builder: (context, state) => const ClientsScreen(),
+            ),
+            GoRoute(
+              path: '/sellers',
+              builder: (context, state) => const SellersScreen(),
             ),
             GoRoute(
               path: '/products',

@@ -13,6 +13,7 @@ import { ReadOnlyGuard } from './shared/guards/read-only.guard';
 import { AuthModule } from './modules/auth/auth.module';
 import { ClientsModule } from './modules/clients/clients.module';
 import { ProductsModule } from './modules/products/products.module';
+import { SellersModule } from './modules/sellers/sellers.module';
 import { SalesModule } from './modules/sales/sales.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { InstallmentsModule } from './modules/installments/installments.module';
@@ -33,6 +34,7 @@ import { SystemModule } from './modules/system/system.module';
     AuthModule,
     ClientsModule,
     ProductsModule,
+    SellersModule,
     SalesModule,
     PaymentsModule,
     InstallmentsModule,

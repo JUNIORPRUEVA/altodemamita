@@ -12,6 +12,10 @@ export class SyncRecordsDto {
 
   @IsOptional()
   @IsArray()
+  sellers?: Record<string, unknown>[];
+
+  @IsOptional()
+  @IsArray()
   sales?: Record<string, unknown>[];
 
   @IsOptional()

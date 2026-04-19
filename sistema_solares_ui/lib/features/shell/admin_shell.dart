@@ -18,11 +18,12 @@ class AdminShell extends StatelessWidget {
     final realtimeController = context.watch<RealtimeController>();
     final location = GoRouterState.of(context).uri.path;
     final summaryItems = <_NavItem>[
-      const _NavItem(
-        route: '/dashboard',
-        icon: Icons.grid_view_rounded,
-        label: 'Resumen general',
-      ),
+      if (authController.canAccessGlobalSearch)
+        const _NavItem(
+          route: '/search',
+          icon: Icons.travel_explore_outlined,
+          label: 'Buscador',
+        ),
       if (authController.canAccessSales)
         const _NavItem(
           route: '/sales',
@@ -32,14 +33,21 @@ class AdminShell extends StatelessWidget {
       const _NavItem(
         route: '/reports',
         icon: Icons.query_stats_rounded,
-        label: 'Reportes',
+        label: 'Reporte',
       ),
       const _NavItem(
         route: '/clients',
         icon: Icons.people_alt_outlined,
         label: 'Clientes',
       ),
-      if (authController.hasPermission('products.read') || authController.isPanelAdmin)
+      if (authController.canAccessSellers)
+        const _NavItem(
+          route: '/sellers',
+          icon: Icons.badge_outlined,
+          label: 'Vendedores',
+        ),
+      if (authController.hasPermission('products.read') ||
+          authController.isPanelAdmin)
         const _NavItem(
           route: '/products',
           icon: Icons.domain_outlined,
@@ -47,29 +55,36 @@ class AdminShell extends StatelessWidget {
         ),
     ];
     final adminItems = <_NavItem>[
+      if (authController.canAccessSettings)
+        _NavItem(
+          route: '/settings',
+          icon: Icons.settings_outlined,
+          label: 'Configuracion',
+          activeRoutes: authController.canManageUsers
+              ? const ['/settings', '/users']
+              : const ['/settings'],
+        ),
+    ];
+    final contextItems = <_NavItem>[
+      ...summaryItems,
       if (authController.canManageUsers)
         const _NavItem(
           route: '/users',
           icon: Icons.manage_accounts_outlined,
           label: 'Usuarios',
         ),
-      if (authController.canAccessSettings)
-        const _NavItem(
-          route: '/settings',
-          icon: Icons.settings_outlined,
-          label: 'Configuracion',
-        ),
+      ...adminItems,
     ];
 
     return LayoutBuilder(
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 1120;
         final compact = constraints.maxWidth < 760;
-        final drawerWidth = math.min(constraints.maxWidth * 0.92, 364.0);
-        final currentItem = [...summaryItems, ...adminItems].cast<_NavItem?>().firstWhere(
-              (item) => item?.route == location,
-              orElse: () => summaryItems.isNotEmpty ? summaryItems.first : null,
-            );
+        final drawerWidth = math.min(constraints.maxWidth * 0.9, 348.0);
+        final currentItem = contextItems.cast<_NavItem?>().firstWhere(
+          (item) => item?.route == location,
+          orElse: () => summaryItems.isNotEmpty ? summaryItems.first : null,
+        );
         final sidebar = _Sidebar(
           summaryItems: summaryItems,
           adminItems: adminItems,
@@ -94,7 +109,7 @@ class AdminShell extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 18),
+                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 14),
                       child: child,
                     ),
                   ),
@@ -111,18 +126,18 @@ class AdminShell extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                if (wide)
-                  SizedBox(
-                    width: 264,
-                    child: sidebar,
-                  ),
+                if (wide) SizedBox(width: 264, child: sidebar),
                 Expanded(
                   child: Padding(
                     padding: EdgeInsets.fromLTRB(
-                      wide ? 0 : compact ? 0 : 14,
-                      compact ? 0 : 16,
-                      compact ? 0 : 16,
-                      compact ? 0 : 16,
+                      wide
+                          ? 0
+                          : compact
+                          ? 0
+                          : 14,
+                      compact ? 0 : 14,
+                      compact ? 0 : 14,
+                      compact ? 0 : 14,
                     ),
                     child: _ShellContentFrame(
                       decorated: !compact,
@@ -136,10 +151,10 @@ class AdminShell extends StatelessWidget {
                           Expanded(
                             child: Padding(
                               padding: EdgeInsets.fromLTRB(
-                                compact ? 12 : 16,
-                                compact ? 12 : 16,
-                                compact ? 12 : 16,
-                                compact ? 18 : 16,
+                                compact ? 12 : 18,
+                                compact ? 10 : 14,
+                                compact ? 12 : 18,
+                                compact ? 14 : 14,
                               ),
                               child: child,
                             ),
@@ -159,7 +174,8 @@ class AdminShell extends StatelessWidget {
   }
 }
 
-class _MobileShellAppBar extends StatelessWidget implements PreferredSizeWidget {
+class _MobileShellAppBar extends StatelessWidget
+    implements PreferredSizeWidget {
   const _MobileShellAppBar({
     required this.title,
     required this.realtimeController,
@@ -169,23 +185,51 @@ class _MobileShellAppBar extends StatelessWidget implements PreferredSizeWidget 
   final RealtimeController realtimeController;
 
   @override
-  Size get preferredSize => const Size.fromHeight(46);
+  Size get preferredSize => const Size.fromHeight(42);
 
   @override
   Widget build(BuildContext context) {
+    final authController = context.watch<AuthController>();
+
     return AppBar(
       automaticallyImplyLeading: true,
-      centerTitle: true,
-      toolbarHeight: 46,
+      centerTitle: false,
+      toolbarHeight: 42,
+      titleSpacing: 0,
       elevation: 0,
       scrolledUnderElevation: 0,
       backgroundColor: Colors.white,
       surfaceTintColor: Colors.white,
       foregroundColor: const Color(0xFF173450),
-      title: const Text(
-        'Sistema Solares',
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
+      title: Row(
+        children: [
+          Container(
+            width: 26,
+            height: 26,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(9),
+              gradient: const LinearGradient(
+                colors: [Color(0xFF1A4D73), Color(0xFF214C68)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+            child: const Icon(
+              Icons.wb_sunny_rounded,
+              color: Colors.white,
+              size: 15,
+            ),
+          ),
+          const SizedBox(width: 8),
+          const Expanded(
+            child: Text(
+              'Sistema Solares',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800),
+            ),
+          ),
+        ],
       ),
       actions: [
         Padding(
@@ -194,16 +238,33 @@ class _MobileShellAppBar extends StatelessWidget implements PreferredSizeWidget 
             mainAxisSize: MainAxisSize.min,
             children: [
               _MobileStatusIcon(isConnected: realtimeController.isConnected),
-              const SizedBox(width: 6),
-              _MobileAppBarIconButton(
-                tooltip: 'Cerrar sesion',
-                icon: Icons.logout_rounded,
-                onPressed: () async {
-                  await context.read<AuthController>().signOut();
-                  if (context.mounted) {
-                    context.go('/login');
+              const SizedBox(width: 4),
+              PopupMenuButton<String>(
+                tooltip: 'Sesion',
+                onSelected: (value) async {
+                  if (value == 'settings') {
+                    context.go('/settings');
+                    return;
+                  }
+                  if (value == 'logout') {
+                    await context.read<AuthController>().signOut();
+                    if (context.mounted) {
+                      context.go('/login');
+                    }
                   }
                 },
+                itemBuilder: (context) => [
+                  if (authController.canAccessSettings)
+                    const PopupMenuItem<String>(
+                      value: 'settings',
+                      child: Text('Configuracion'),
+                    ),
+                  const PopupMenuItem<String>(
+                    value: 'logout',
+                    child: Text('Cerrar sesion'),
+                  ),
+                ],
+                child: const _MobileSessionMenuButton(),
               ),
             ],
           ),
@@ -238,17 +299,30 @@ class _MobileAppBarIconButton extends StatelessWidget {
           borderRadius: BorderRadius.circular(14),
           onTap: onPressed,
           child: Container(
-            width: 42,
-            height: 42,
+            width: 36,
+            height: 36,
             decoration: BoxDecoration(
               color: const Color(0xFFF7F8FB),
               border: Border.all(color: const Color(0xFFE4EAF2)),
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(icon, color: const Color(0xFF173450), size: 20),
+            child: Icon(icon, color: const Color(0xFF173450), size: 18),
           ),
         ),
       ),
+    );
+  }
+}
+
+class _MobileSessionMenuButton extends StatelessWidget {
+  const _MobileSessionMenuButton();
+
+  @override
+  Widget build(BuildContext context) {
+    return _MobileAppBarIconButton(
+      tooltip: 'Opciones de sesion',
+      icon: Icons.more_horiz_rounded,
+      onPressed: () {},
     );
   }
 }
@@ -261,12 +335,12 @@ class _MobileStatusIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 28,
-      height: 28,
+      width: 24,
+      height: 24,
       alignment: Alignment.center,
       child: Icon(
         isConnected ? Icons.sync_rounded : Icons.sync_disabled_rounded,
-        size: 18,
+        size: 16,
         color: isConnected ? const Color(0xFF2BB673) : const Color(0xFF6B7682),
       ),
     );
@@ -274,10 +348,7 @@ class _MobileStatusIcon extends StatelessWidget {
 }
 
 class _ShellContentFrame extends StatelessWidget {
-  const _ShellContentFrame({
-    required this.decorated,
-    required this.child,
-  });
+  const _ShellContentFrame({required this.decorated, required this.child});
 
   final bool decorated;
   final Widget child;
@@ -289,16 +360,16 @@ class _ShellContentFrame extends StatelessWidget {
     }
 
     return ClipRRect(
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(24),
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: Colors.white,
           border: Border.all(color: const Color(0xFFE4EAF2)),
           boxShadow: const [
             BoxShadow(
-              color: Color(0x0D000000),
-              blurRadius: 20,
-              offset: Offset(0, 4),
+              color: Color(0x0A10263D),
+              blurRadius: 28,
+              offset: Offset(0, 8),
             ),
           ],
         ),
@@ -325,10 +396,18 @@ class _TopBar extends StatelessWidget {
     final width = MediaQuery.sizeOf(context).width;
     final compact = width < 760;
     final veryCompact = width < 420;
+    final roleLabel = authController.user?.panelRole == PanelRole.admin
+        ? 'Administrador'
+        : 'Supervisor';
+    final fullName = authController.user?.fullName ?? 'Sin usuario';
 
     final sessionMenu = PopupMenuButton<String>(
       tooltip: 'Sesion',
       onSelected: (value) async {
+        if (value == 'settings') {
+          context.go('/settings');
+          return;
+        }
         if (value == 'logout') {
           await context.read<AuthController>().signOut();
           if (context.mounted) {
@@ -336,23 +415,30 @@ class _TopBar extends StatelessWidget {
           }
         }
       },
-      itemBuilder: (context) => const [
-        PopupMenuItem<String>(
+      itemBuilder: (context) => [
+        if (authController.canAccessSettings)
+          const PopupMenuItem<String>(
+            value: 'settings',
+            child: Text('Configuracion'),
+          ),
+        const PopupMenuItem<String>(
           value: 'logout',
           child: Text('Cerrar sesion'),
         ),
       ],
       child: compact
-          ? const SizedBox.shrink()
-          : const _DesktopProfileMenuButton(),
+          ? const _MobileSessionMenuButton()
+          : _DesktopProfileMenuButton(fullName: fullName, roleLabel: roleLabel),
     );
 
     if (compact) {
       return Container(
-        padding: EdgeInsets.fromLTRB(12, veryCompact ? 10 : 12, 12, 14),
+        padding: EdgeInsets.fromLTRB(12, veryCompact ? 8 : 10, 12, 10),
         decoration: const BoxDecoration(
           color: Colors.white,
-          border: Border(bottom: BorderSide(color: Color(0xFFECEFF3), width: 1)),
+          border: Border(
+            bottom: BorderSide(color: Color(0xFFECEFF3), width: 1),
+          ),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -373,25 +459,39 @@ class _TopBar extends StatelessWidget {
                     children: [
                       Text(
                         title,
-                        maxLines: 2,
+                        maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
                               color: const Color(0xFF0D2640),
                               fontWeight: FontWeight.w800,
-                              fontSize: veryCompact ? 16 : 17,
+                              fontSize: veryCompact ? 15 : 15.5,
                             ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Panel administrativo',
+                        style: TextStyle(
+                          color: const Color(
+                            0xFF0D2640,
+                          ).withValues(alpha: 0.42),
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 10),
                 sessionMenu,
               ],
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
             Row(
               children: [
-                _ConnectionIndicator(isConnected: realtimeController.isConnected),
+                _ConnectionIndicator(
+                  isConnected: realtimeController.isConnected,
+                ),
                 if (!veryCompact) ...[
                   const SizedBox(width: 8),
                   Text(
@@ -400,7 +500,7 @@ class _TopBar extends StatelessWidget {
                         : 'Supervisor',
                     style: const TextStyle(
                       color: Color(0xFF6F7891),
-                      fontSize: 12,
+                      fontSize: 11.5,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -413,7 +513,10 @@ class _TopBar extends StatelessWidget {
     }
 
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: compact ? 12 : 20, vertical: compact ? 12 : 14),
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 12 : 18,
+        vertical: compact ? 10 : 11,
+      ),
       decoration: const BoxDecoration(
         color: Color(0xFFFAFBFC),
         border: Border(bottom: BorderSide(color: Color(0xFFECEFF3), width: 1)),
@@ -437,51 +540,25 @@ class _TopBar extends StatelessWidget {
                 Text(
                   title,
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: const Color(0xFF0D2640),
-                        fontWeight: FontWeight.w700,
-                        fontSize: 15.5,
-                      ),
+                    color: const Color(0xFF0D2640),
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
+                  ),
                 ),
-                const SizedBox(height: 1),
+                const SizedBox(height: 2),
                 Text(
-                  'Sistema Solares',
+                  'Panel web administrativo',
                   style: TextStyle(
-                    color: const Color(0xFF0D2640).withValues(alpha: 0.32),
+                    color: const Color(0xFF0D2640).withValues(alpha: 0.42),
                     fontSize: 10.5,
-                    fontWeight: FontWeight.w400,
-                    letterSpacing: 0.1,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
               ],
             ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 12),
           _DesktopConnectionBadge(isConnected: realtimeController.isConnected),
-          const SizedBox(width: 10),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                authController.user?.fullName ?? 'Sin usuario',
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF0D2640),
-                ),
-              ),
-              Text(
-                authController.user?.panelRole == PanelRole.admin
-                    ? 'Administrador'
-                    : 'Supervisor',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                  color: const Color(0xFF0D2640).withValues(alpha: 0.45),
-                ),
-              ),
-            ],
-          ),
           const SizedBox(width: 12),
           sessionMenu,
         ],
@@ -491,33 +568,95 @@ class _TopBar extends StatelessWidget {
 }
 
 class _DesktopProfileMenuButton extends StatelessWidget {
-  const _DesktopProfileMenuButton();
+  const _DesktopProfileMenuButton({
+    required this.fullName,
+    required this.roleLabel,
+  });
+
+  final String fullName;
+  final String roleLabel;
 
   @override
   Widget build(BuildContext context) {
     return Ink(
-      width: 42,
       height: 42,
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF12385F), Color(0xFF0A2037)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
+        color: const Color(0xFFF7F9FC),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFFE4EAF2)),
         boxShadow: const [
           BoxShadow(
-            color: Color(0x12000000),
+            color: Color(0x0810263D),
             blurRadius: 16,
-            offset: Offset(0, 8),
+            offset: Offset(0, 6),
           ),
         ],
       ),
-      child: const Icon(
-        Icons.person_rounded,
-        size: 20,
-        color: Colors.white,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF12385F), Color(0xFF0A2037)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(11),
+              ),
+              child: Center(
+                child: Text(
+                  _initialsFor(fullName),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 148),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    fullName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF10263D),
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  Text(
+                    roleLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF6B7682),
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 4),
+            const Icon(
+              Icons.keyboard_arrow_down_rounded,
+              size: 18,
+              color: Color(0xFF556273),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -530,11 +669,13 @@ class _DesktopConnectionBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = isConnected ? const Color(0xFF2BB673) : const Color(0xFF6B7682);
+    final color = isConnected
+        ? const Color(0xFF2BB673)
+        : const Color(0xFF6B7682);
     final label = isConnected ? 'Realtime activo' : 'Realtime desconectado';
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(999),
@@ -548,7 +689,7 @@ class _DesktopConnectionBadge extends StatelessWidget {
           Text(
             label,
             style: const TextStyle(
-              fontSize: 11.5,
+              fontSize: 11,
               fontWeight: FontWeight.w700,
               color: Color(0xFF0D2640),
             ),
@@ -581,13 +722,13 @@ class _TopBarActionButton extends StatelessWidget {
           borderRadius: BorderRadius.circular(18),
           onTap: onPressed,
           child: Container(
-            width: 52,
-            height: 52,
+            width: 40,
+            height: 40,
             decoration: BoxDecoration(
               border: Border.all(color: const Color(0xFFE4EAF2)),
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(14),
             ),
-            child: Icon(icon, size: 28, color: const Color(0xFF173450)),
+            child: Icon(icon, size: 21, color: const Color(0xFF173450)),
           ),
         ),
       ),
@@ -616,190 +757,67 @@ class _Sidebar extends StatelessWidget {
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFF0D2844), Color(0xFF071829)],
+          colors: [Color(0xFF0C263E), Color(0xFF081A2B)],
         ),
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          return SingleChildScrollView(
+          return Padding(
             padding: EdgeInsets.fromLTRB(
               drawerMode ? 16 : 18,
-              drawerMode ? 18 : 16,
+              drawerMode ? 18 : 18,
               drawerMode ? 16 : 18,
-              drawerMode ? 20 : 16,
+              drawerMode ? 18 : 18,
             ),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(minHeight: constraints.maxHeight),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Container(
-                    padding: EdgeInsets.fromLTRB(drawerMode ? 14 : 12, drawerMode ? 14 : 12, drawerMode ? 14 : 12, drawerMode ? 12 : 10),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.08),
-                      border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
-                      borderRadius: BorderRadius.circular(18),
+            child: CustomScrollView(
+              slivers: [
+                SliverToBoxAdapter(
+                  child: _SidebarBrandHeader(drawerMode: drawerMode),
+                ),
+                SliverToBoxAdapter(
+                  child: SizedBox(height: drawerMode ? 20 : 24),
+                ),
+                if (!drawerMode)
+                  const SliverToBoxAdapter(
+                    child: _SidebarSectionLabel(label: 'NAVEGACION'),
+                  ),
+                SliverList.list(
+                  children: [
+                    ...summaryItems.map(
+                      (item) => _NavTile(
+                        item: item,
+                        selected: item.matches(currentRoute),
+                        compact: compact,
+                      ),
                     ),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 42,
-                          height: 42,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(14),
-                            gradient: const LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [Color(0xFF59B6FF), Color(0xFF1B5BA8)],
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: const Color(0xFF4B9EE8).withValues(alpha: 0.32),
-                                blurRadius: 14,
-                                offset: const Offset(0, 6),
-                              ),
-                            ],
+                  ],
+                ),
+                SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const Spacer(),
+                      if (adminItems.isNotEmpty) ...[
+                        if (!drawerMode)
+                          const Padding(
+                            padding: EdgeInsets.only(left: 8, bottom: 10),
+                            child: _SidebarSectionLabel(label: 'CONFIGURACION'),
                           ),
-                          child: const Icon(
-                            Icons.wb_sunny_rounded,
-                            size: 21,
-                            color: Colors.white,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        const Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                'Sistema Solares',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: 0.1,
-                                ),
-                              ),
-                              SizedBox(height: 2),
-                              Text(
-                                'Navegacion ejecutiva',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: Color(0x8AFFFFFF),
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w500,
-                                  letterSpacing: 0.35,
-                                ),
-                              ),
-                            ],
+                        ...adminItems.map(
+                          (item) => _NavTile(
+                            item: item,
+                            selected: item.matches(currentRoute),
+                            compact: compact,
                           ),
                         ),
                       ],
-                    ),
+                      const SizedBox(height: 8),
+                      const _SidebarFooterNote(),
+                    ],
                   ),
-                  const SizedBox(height: 18),
-                  if (!drawerMode)
-                    Padding(
-                      padding: const EdgeInsets.only(left: 8, bottom: 10),
-                      child: Text(
-                        'DESTACADOS',
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.34),
-                          fontSize: 9.5,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 1.8,
-                        ),
-                      ),
-                    ),
-                  ...summaryItems.map((item) => _NavTile(
-                        item: item,
-                        selected: currentRoute == item.route,
-                        compact: compact,
-                      )),
-                  if (adminItems.isNotEmpty) ...[
-                    SizedBox(height: drawerMode ? 8 : 16),
-                    if (!drawerMode)
-                      Padding(
-                        padding: const EdgeInsets.only(left: 8, bottom: 10),
-                        child: Text(
-                          'ADMINISTRACION',
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.34),
-                            fontSize: 9.5,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 1.8,
-                          ),
-                        ),
-                      ),
-                    ...adminItems.map((item) => _NavTile(
-                          item: item,
-                          selected: currentRoute == item.route,
-                          compact: compact,
-                        )),
-                  ],
-                  const SizedBox(height: 10),
-                  if (!drawerMode)
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.05),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.08),
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 38,
-                            height: 38,
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF5BAEE8).withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: const Icon(
-                              Icons.auto_awesome_rounded,
-                              size: 20,
-                              color: Color(0xFF83CAFF),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          const Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Acceso rapido',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 12.5,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                                SizedBox(height: 2),
-                                Text(
-                                  'Resumen, reportes, clientes y ajustes primero.',
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: Color(0x91FFFFFF),
-                                    fontSize: 10.5,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  const SizedBox(height: 12),
-                ],
-              ),
+                ),
+              ],
             ),
           );
         },
@@ -835,29 +853,57 @@ class _NavTile extends StatelessWidget {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
           padding: EdgeInsets.symmetric(
-            horizontal: drawerMode ? 16 : 14,
-            vertical: drawerMode ? 16 : 14,
+            horizontal: drawerMode ? 12 : 10,
+            vertical: 10,
           ),
           decoration: BoxDecoration(
-            color: selected ? Colors.white.withValues(alpha: 0.16) : Colors.transparent,
+            color: selected
+                ? Colors.white.withValues(alpha: 0.12)
+                : Colors.white.withValues(alpha: 0.025),
             border: Border.all(
               color: selected
                   ? Colors.white.withValues(alpha: 0.18)
-                  : Colors.transparent,
+                  : Colors.white.withValues(alpha: 0.05),
             ),
             borderRadius: BorderRadius.circular(18),
           ),
           child: Row(
             children: [
-              Icon(item.icon, color: Colors.white, size: drawerMode ? 26 : 22),
-              SizedBox(width: drawerMode ? 14 : 12),
+              Container(
+                width: drawerMode ? 40 : 36,
+                height: drawerMode ? 40 : 36,
+                decoration: BoxDecoration(
+                  color: selected
+                      ? Colors.white.withValues(alpha: 0.14)
+                      : Colors.white.withValues(alpha: 0.05),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  item.icon,
+                  color: Colors.white,
+                  size: drawerMode ? 22 : 20,
+                ),
+              ),
+              SizedBox(width: drawerMode ? 12 : 10),
               Expanded(
                 child: Text(
                   item.label,
                   style: TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w700,
-                    fontSize: drawerMode ? 15 : 14,
+                    fontSize: drawerMode ? 14.5 : 13.5,
+                  ),
+                ),
+              ),
+              AnimatedOpacity(
+                opacity: selected ? 1 : 0.24,
+                duration: const Duration(milliseconds: 180),
+                child: Container(
+                  width: 7,
+                  height: 7,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF8FCFFF),
+                    shape: BoxShape.circle,
                   ),
                 ),
               ),
@@ -876,22 +922,28 @@ class _ConnectionIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = isConnected ? const Color(0xFF2BB673) : const Color(0xFF8B96A7);
-    final fill = isConnected ? const Color(0xFFEAF8F0) : const Color(0xFFF1F4F8);
+    final color = isConnected
+        ? const Color(0xFF2BB673)
+        : const Color(0xFF8B96A7);
+    final fill = isConnected
+        ? const Color(0xFFEAF8F0)
+        : const Color(0xFFF1F4F8);
 
     return Tooltip(
-      message: isConnected ? 'Sincronizacion activa' : 'Sincronizacion inactiva',
+      message: isConnected
+          ? 'Sincronizacion activa'
+          : 'Sincronizacion inactiva',
       child: Container(
-        width: 42,
-        height: 42,
+        width: 34,
+        height: 34,
         decoration: BoxDecoration(
           color: fill,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(12),
           border: Border.all(color: color.withValues(alpha: 0.18)),
         ),
         child: Icon(
           isConnected ? Icons.wifi_tethering_rounded : Icons.wifi_off_rounded,
-          size: 18,
+          size: 16,
           color: color,
         ),
       ),
@@ -904,11 +956,151 @@ class _NavItem {
     required this.route,
     required this.icon,
     required this.label,
+    this.activeRoutes = const [],
   });
 
   final String route;
   final IconData icon;
   final String label;
+  final List<String> activeRoutes;
+
+  bool matches(String route) =>
+      route == this.route || activeRoutes.contains(route);
+}
+
+class _SidebarBrandHeader extends StatelessWidget {
+  const _SidebarBrandHeader({required this.drawerMode});
+
+  final bool drawerMode;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.fromLTRB(
+        drawerMode ? 14 : 12,
+        drawerMode ? 14 : 12,
+        drawerMode ? 14 : 12,
+        drawerMode ? 12 : 10,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.08),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFF59B6FF), Color(0xFF1B5BA8)],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF4B9EE8).withValues(alpha: 0.24),
+                  blurRadius: 14,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: const Icon(
+              Icons.wb_sunny_rounded,
+              size: 21,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Sistema Solares',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                SizedBox(height: 2),
+                Text(
+                  'Panel PWA administrativo',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Color(0x8AFFFFFF),
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SidebarSectionLabel extends StatelessWidget {
+  const _SidebarSectionLabel({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      label,
+      style: TextStyle(
+        color: Colors.white.withValues(alpha: 0.34),
+        fontSize: 9.5,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 1.8,
+      ),
+    );
+  }
+}
+
+class _SidebarFooterNote extends StatelessWidget {
+  const _SidebarFooterNote();
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      'Navegacion limpia y enfocada',
+      textAlign: TextAlign.center,
+      style: TextStyle(
+        color: Colors.white.withValues(alpha: 0.42),
+        fontSize: 10.5,
+        fontWeight: FontWeight.w500,
+      ),
+    );
+  }
+}
+
+String _initialsFor(String fullName) {
+  final parts = fullName
+      .trim()
+      .split(RegExp(r'\s+'))
+      .where((part) => part.isNotEmpty)
+      .toList(growable: false);
+  if (parts.isEmpty) {
+    return 'SS';
+  }
+  if (parts.length == 1) {
+    return parts.first
+        .substring(0, parts.first.length.clamp(0, 2))
+        .toUpperCase();
+  }
+  return (parts.first.characters.first + parts.last.characters.first)
+      .toUpperCase();
 }
 
 class _ShellFooter extends StatelessWidget {
@@ -916,23 +1108,67 @@ class _ShellFooter extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 7),
-      decoration: const BoxDecoration(
-        color: Color(0xFFF7F9FC),
-        border: Border(top: BorderSide(color: Color(0xFFE8EDF4))),
-      ),
-      child: Text(
-        '© 2026 Sistema Solares · Todos los derechos reservados',
-        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-          color: const Color(0xFFABB5C3),
-          fontWeight: FontWeight.w400,
-          fontSize: 10.5,
-          letterSpacing: 0.1,
-        ),
-        textAlign: TextAlign.right,
-      ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 620;
+
+        return Container(
+          width: double.infinity,
+          padding: EdgeInsets.symmetric(
+            horizontal: compact ? 14 : 18,
+            vertical: 5,
+          ),
+          decoration: const BoxDecoration(
+            color: Color(0xFFFAFBFD),
+            border: Border(top: BorderSide(color: Color(0xFFE8EDF4))),
+          ),
+          child: compact
+              ? Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Sistema Solares · Panel PWA',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFF96A0AE),
+                        fontWeight: FontWeight.w600,
+                        fontSize: 10,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '© 2026',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFFB0B8C4),
+                        fontWeight: FontWeight.w500,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
+                )
+              : Row(
+                  children: [
+                    Text(
+                      'Sistema Solares · Panel PWA',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFF96A0AE),
+                        fontWeight: FontWeight.w600,
+                        fontSize: 10,
+                      ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      '© 2026',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFFB0B8C4),
+                        fontWeight: FontWeight.w500,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
+                ),
+        );
+      },
     );
   }
 }

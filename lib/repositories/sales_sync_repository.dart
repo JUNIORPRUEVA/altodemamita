@@ -25,10 +25,12 @@ class SalesSyncRepository implements SyncRepository {
       SELECT
         v.*,
         c.sync_id AS client_sync_id,
-        s.sync_id AS product_sync_id
+        s.sync_id AS product_sync_id,
+        vd.sync_id AS seller_sync_id
       FROM ${DatabaseSchema.salesTable} v
       INNER JOIN ${DatabaseSchema.clientsTable} c ON c.id = v.cliente_id
       INNER JOIN ${DatabaseSchema.lotsTable} s ON s.id = v.solar_id
+      LEFT JOIN ${DatabaseSchema.sellersTable} vd ON vd.id = v.vendedor_id
       WHERE v.sync_status = ?
       ORDER BY v.fecha_actualizacion ASC
     ''',
@@ -86,6 +88,11 @@ class SalesSyncRepository implements SyncRepository {
           DatabaseSchema.lotsTable,
           _readRequiredString(record['product_sync_id']),
         );
+        final sellerId = await _resolveIdBySyncId(
+          txn,
+          DatabaseSchema.sellersTable,
+          _readRequiredString(record['seller_sync_id']),
+        );
         if (clientId == null || productId == null) {
           continue;
         }
@@ -110,7 +117,7 @@ class SalesSyncRepository implements SyncRepository {
           'cliente_id': clientId,
           'solar_id': productId,
           'usuario_id': 1,
-          'vendedor_id': null,
+          'vendedor_id': sellerId,
           'fecha_venta': _readDate(record['sale_date']),
           'precio_venta': _readDouble(record['sale_price']),
           'inicial_porcentaje': _readDouble(record['down_payment_percentage']),
@@ -161,6 +168,7 @@ class SalesSyncRepository implements SyncRepository {
       'version': row['version'],
       'client_sync_id': row['client_sync_id'],
       'product_sync_id': row['product_sync_id'],
+      'seller_sync_id': row['seller_sync_id'],
       'sale_date': row['fecha_venta'],
       'sale_price': row['precio_venta'],
       'down_payment_percentage': row['inicial_porcentaje'],

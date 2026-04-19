@@ -14,6 +14,10 @@ export class CreateSaleDto {
   userId?: string;
 
   @IsOptional()
+  @IsUUID('4')
+  sellerId?: string;
+
+  @IsOptional()
   @IsString()
   contractNumber?: string;
 

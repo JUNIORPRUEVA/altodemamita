@@ -1,4 +1,3 @@
-
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -256,7 +255,7 @@ class SyncQueueService {
             unavailableScopes.add(scope);
           }
 
-          final cursor = response.serverTime;
+          final cursor = _findLatestTimestamp(returnedRecords);
           if (cursor != null) {
             await _configRepository.saveCursor(scope, cursor);
           }
@@ -264,8 +263,9 @@ class SyncQueueService {
           if (error.returnedRecords.isNotEmpty) {
             await repository.mergeRemoteRecords(error.returnedRecords);
           }
-          if (error.serverTime != null) {
-            await _configRepository.saveCursor(scope, error.serverTime!);
+          final cursor = _findLatestTimestamp(error.returnedRecords);
+          if (cursor != null) {
+            await _configRepository.saveCursor(scope, cursor);
           }
 
           final conflictIds = error.conflicts
@@ -454,6 +454,23 @@ class SyncQueueService {
     if (!_stateController.isClosed) {
       _stateController.add(nextState);
     }
+  }
+
+  DateTime? _findLatestTimestamp(List<Map<String, dynamic>> records) {
+    DateTime? latest;
+    for (final record in records) {
+      final rawValue = record['updated_at'];
+      final parsed = rawValue == null
+          ? null
+          : DateTime.tryParse(rawValue.toString());
+      if (parsed == null) {
+        continue;
+      }
+      if (latest == null || parsed.isAfter(latest)) {
+        latest = parsed;
+      }
+    }
+    return latest;
   }
 }
 

@@ -3,9 +3,9 @@ import { Prisma, SaleStatus, SyncStatus } from '@prisma/client';
 
 import { PrismaService } from 'src/infrastructure/prisma/prisma.service';
 import { RealtimeEventsService } from 'src/modules/realtime/realtime-events.service';
-import { PaginationQueryDto } from 'src/shared/dto/pagination-query.dto';
 import { LoanAccountingService } from 'src/shared/services/loan-accounting.service';
 import { CreateSaleDto } from '../dto/create-sale.dto';
+import { SalesQueryDto } from '../dto/sales-query.dto';
 import { UpdateSaleDto } from '../dto/update-sale.dto';
 
 @Injectable()
@@ -62,6 +62,7 @@ export class SalesService {
           clientId: dto.clientId,
           productId: dto.productId,
           userId: resolvedUserId,
+          sellerId: dto.sellerId,
           contractNumber: dto.contractNumber,
           saleDate,
           principalAmount,
@@ -123,8 +124,14 @@ export class SalesService {
     return created;
   }
 
-  async findAll(query: PaginationQueryDto) {
+  async findAll(query: SalesQueryDto) {
     const where = this.buildWhere(query.search);
+    if (query.sellerId) {
+      where.sellerId = query.sellerId;
+    }
+    if (query.clientId) {
+      where.clientId = query.clientId;
+    }
     const [total, items] = await this.prisma.$transaction([
       this.prisma.sale.count({ where }),
       this.prisma.sale.findMany({
@@ -133,6 +140,7 @@ export class SalesService {
           client: true,
           user: true,
           product: true,
+          seller: true,
         },
         orderBy: { createdAt: 'desc' },
         skip: (query.page - 1) * query.limit,
@@ -158,6 +166,7 @@ export class SalesService {
         client: true,
         user: true,
         product: true,
+        seller: true,
         installments: {
           where: { deletedAt: null },
           orderBy: { installmentNumber: 'asc' },
@@ -234,6 +243,7 @@ export class SalesService {
           clientId: dto.clientId,
           productId: dto.productId,
           userId: dto.userId,
+          sellerId: dto.sellerId,
           contractNumber: dto.contractNumber,
           saleDate: dto.saleDate ? new Date(dto.saleDate) : undefined,
           principalAmount,

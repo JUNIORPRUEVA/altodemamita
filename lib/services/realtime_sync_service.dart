@@ -277,67 +277,6 @@ class RealtimeSyncService {
     return null;
   }
 
-  List<Map<String, dynamic>> _extractRecordsForScope(
-    String scope,
-    dynamic payload,
-  ) {
-    if (payload is Map) {
-      final normalized = payload.map(
-        (key, value) => MapEntry(key.toString(), value),
-      );
-      final explicitScope = _inferScope(normalized);
-      final records = normalized['records'];
-      if (records is List) {
-        return records
-            .whereType<Map>()
-            .map((record) {
-              return record.map(
-                (key, value) => MapEntry(key.toString(), value),
-              );
-            })
-            .toList(growable: false);
-      }
-
-      final record = normalized['record'] ?? normalized['data'];
-      if (record is Map && (explicitScope == null || explicitScope == scope)) {
-        return [record.map((key, value) => MapEntry(key.toString(), value))];
-      }
-
-      if ((explicitScope == null || explicitScope == scope) &&
-          (normalized.containsKey('sync_id') || normalized.containsKey('id'))) {
-        return [normalized];
-      }
-    }
-
-    return const [];
-  }
-
-  DateTime? _extractCursor(dynamic payload) {
-    if (payload is! Map) {
-      return null;
-    }
-    final normalized = payload.map(
-      (key, value) => MapEntry(key.toString(), value),
-    );
-    final value = normalized['server_time'] ?? normalized['updated_at'];
-    return DateTime.tryParse(value?.toString() ?? '');
-  }
-
-  bool _canApplyInlineRecords(List<Map<String, dynamic>> records) {
-    if (records.isEmpty) {
-      return false;
-    }
-
-    return records.every((record) {
-      final syncId =
-          record['sync_id']?.toString().trim() ??
-          record['record_sync_id']?.toString().trim() ??
-          '';
-      final updatedAt = record['updated_at']?.toString().trim() ?? '';
-      return syncId.isNotEmpty && updatedAt.isNotEmpty;
-    });
-  }
-
   String _buildEventKey(String eventName, dynamic payload) {
     final buffer = StringBuffer(eventName);
     if (payload is Map) {

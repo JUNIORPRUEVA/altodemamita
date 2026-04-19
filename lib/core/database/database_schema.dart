@@ -7,7 +7,7 @@ class DatabaseSchema {
   static const String databaseName = 'sistema_solares.db';
   static const int databaseVersion = 17;
   static const String defaultSyncBaseUrl =
-  'https://altodemanita-altodemamita-backend.onqyr1.easypanel.host/api';
+      'https://altodemanita-altodemamita-backend.onqyr1.easypanel.host/api';
 
   static const String clientsTable = 'clientes';
   static const String usersTable = 'usuarios';
@@ -159,11 +159,6 @@ class DatabaseSchema {
       {
         'clave': 'sale_default_installment_count',
         'valor': '12',
-        'fecha_actualizacion': now,
-      },
-      {
-        'clave': 'debug_test_data_enabled',
-        'valor': '0',
         'fecha_actualizacion': now,
       },
     ];

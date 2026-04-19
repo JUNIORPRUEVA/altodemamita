@@ -98,6 +98,7 @@ class _AppShellState extends State<AppShell> {
     repositories: [
       _clientRepository,
       _productsSyncRepository,
+      _sellerRepository,
       _salesSyncRepository,
       _installmentsSyncRepository,
       _paymentsSyncRepository,

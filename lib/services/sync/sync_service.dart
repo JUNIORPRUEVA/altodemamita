@@ -40,7 +40,7 @@ class SyncService {
   bool get isSyncing => _isSyncing;
   SyncReport? get lastReport => _lastReport;
 
-  Future<SyncReport> syncNow() async {
+  Future<SyncReport> syncNow({bool forceFullDownload = false}) async {
     if (_isSyncing) {
       return _lastReport ??
           SyncReport(
@@ -68,7 +68,9 @@ class SyncService {
       }
 
       final uploadedCount = await uploadPendingData();
-      final downloadedCount = await downloadUpdates();
+      final downloadedCount = await downloadUpdates(
+        forceFullDownload: forceFullDownload,
+      );
       final warnings = List<String>.of(_lastScopeWarnings);
       final pendingRecords = await _syncQueueService.pendingCount();
       final report = SyncReport(
@@ -134,11 +136,17 @@ class SyncService {
     return _syncQueueService.processQueue();
   }
 
-  Future<int> downloadUpdates() async {
-    return downloadUpdatesForScopes(_repositoriesByScope.keys);
+  Future<int> downloadUpdates({bool forceFullDownload = false}) async {
+    return downloadUpdatesForScopes(
+      _repositoriesByScope.keys,
+      forceFullDownload: forceFullDownload,
+    );
   }
 
-  Future<int> downloadUpdatesForScopes(Iterable<String> scopes) async {
+  Future<int> downloadUpdatesForScopes(
+    Iterable<String> scopes, {
+    bool forceFullDownload = false,
+  }) async {
     final settings = await _configRepository.loadSettings();
     final targetScopes = scopes.toSet();
     _lastScopeWarnings = const [];
@@ -146,8 +154,17 @@ class SyncService {
       return 0;
     }
 
+    if (forceFullDownload) {
+      await _configRepository.clearCursors(targetScopes);
+    }
+
     if (await _shouldForceFullBusinessDownload(targetScopes)) {
-      for (final scope in const ['products', 'sales', 'installments', 'payments']) {
+      for (final scope in const [
+        'products',
+        'sales',
+        'installments',
+        'payments',
+      ]) {
         if (targetScopes.contains(scope)) {
           await _configRepository.clearCursor(scope);
         }
@@ -187,8 +204,7 @@ class SyncService {
           downloadedRecords += scopeRecords.length;
         }
 
-        final nextCursor =
-            response.serverTime ?? _findLatestTimestamp(scopeRecords);
+        final nextCursor = _findLatestTimestamp(scopeRecords);
         if (nextCursor != null) {
           await _configRepository.saveCursor(repository.scope, nextCursor);
         }
@@ -215,9 +231,6 @@ class SyncService {
     }
 
     if (records.isEmpty) {
-      if (cursor != null) {
-        await _configRepository.saveCursor(scope, cursor);
-      }
       return 0;
     }
 
@@ -276,7 +289,9 @@ class SyncService {
     return latest;
   }
 
-  Future<bool> _shouldForceFullBusinessDownload(Set<String> targetScopes) async {
+  Future<bool> _shouldForceFullBusinessDownload(
+    Set<String> targetScopes,
+  ) async {
     final touchesBusinessData =
         targetScopes.contains('products') ||
         targetScopes.contains('sales') ||
