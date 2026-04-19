@@ -1277,9 +1277,16 @@ export class SyncService {
   }
 
   private async resolveSyncUser(tx: Prisma.TransactionClient, payload: Record<string, unknown>) {
-    const explicitUser = await this.resolveUserReference(tx, payload);
-    if (explicitUser) {
-      return explicitUser;
+    const hasExplicitUserReference = this.hasAnyValue(payload, [
+      'user_sync_id',
+      'userId',
+      'user_id',
+    ]);
+    if (hasExplicitUserReference) {
+      const explicitUser = await this.resolveUserReference(tx, payload);
+      if (explicitUser) {
+        return explicitUser;
+      }
     }
 
     const fallbackUser = await tx.user.findFirst({
