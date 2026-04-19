@@ -146,7 +146,7 @@ class SyncService {
   }
 
   Future<int> uploadPendingData() async {
-    return _syncQueueService.processQueue();
+    return _syncQueueService.processQueue(includeDeferred: true);
   }
 
   Future<int> downloadUpdates({bool forceFullDownload = false}) async {
@@ -173,6 +173,7 @@ class SyncService {
 
     if (await _shouldForceFullBusinessDownload(targetScopes)) {
       for (final scope in const [
+        'sellers',
         'products',
         'sales',
         'installments',

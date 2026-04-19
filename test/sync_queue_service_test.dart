@@ -41,7 +41,7 @@ void main() {
       conflictService: SyncConflictService(appDatabase: appDatabase),
     );
 
-    for (final scope in ['clients', 'products', 'sales', 'payments']) {
+    for (final scope in ['clients', 'products', 'sellers', 'sales', 'payments']) {
       service.registerRepository(_FakeSyncRepository(scope));
     }
   });
@@ -68,6 +68,29 @@ void main() {
     expect(queueRows['products']?['attempt_count'], 0);
     expect(queueRows['sales']?['attempt_count'], 0);
     expect(queueRows['payments']?['attempt_count'], 0);
+  });
+
+  test('procesa vendedores como scope valido de sincronizacion', () async {
+    apiClient = _RecordingSyncApiClient();
+    service = SyncQueueService.test(
+      appDatabase: appDatabase,
+      configRepository: configRepository,
+      apiClient: apiClient,
+      conflictService: SyncConflictService(appDatabase: appDatabase),
+    );
+
+    for (final scope in ['clients', 'products', 'sellers', 'sales', 'payments']) {
+      service.registerRepository(_FakeSyncRepository(scope));
+    }
+
+    await _insertQueuedRecord(appDatabase, scope: 'sellers', syncId: 'seller-1');
+
+    final processed = await service.processQueue();
+    final queueRows = await _readQueueRows(appDatabase);
+
+    expect(processed, 1);
+    expect(apiClient.uploadedScopes, ['sellers']);
+    expect(queueRows.containsKey('sellers'), isFalse);
   });
 }
 

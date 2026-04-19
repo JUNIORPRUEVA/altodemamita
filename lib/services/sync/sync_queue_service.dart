@@ -48,6 +48,7 @@ class SyncQueueService {
   static const List<String> _syncOrder = [
     'clients',
     'products',
+    'sellers',
     'sales',
     'installments',
     'payments',
@@ -55,6 +56,7 @@ class SyncQueueService {
   static const Map<String, List<String>> _scopeDependencies = {
     'clients': [],
     'products': ['clients'],
+    'sellers': [],
     'sales': ['clients', 'products'],
     'installments': ['sales'],
     'payments': ['sales'],
@@ -154,7 +156,7 @@ class SyncQueueService {
     return int.tryParse(value.toString()) ?? 0;
   }
 
-  Future<int> processQueue({int limit = 100}) async {
+  Future<int> processQueue({int limit = 100, bool includeDeferred = false}) async {
     if (SystemConfigService.instance.isReadOnly) {
       await _refreshState();
       return 0;
@@ -172,7 +174,10 @@ class SyncQueueService {
         return 0;
       }
 
-      final items = await _loadDueItems(limit: limit);
+      final items = await _loadDueItems(
+        limit: limit,
+        includeDeferred: includeDeferred,
+      );
       if (items.isEmpty) {
         return 0;
       }
@@ -381,13 +386,17 @@ class SyncQueueService {
     );
   }
 
-  Future<List<SyncQueueItem>> _loadDueItems({required int limit}) async {
+  Future<List<SyncQueueItem>> _loadDueItems({
+    required int limit,
+    required bool includeDeferred,
+  }) async {
     final db = await _appDatabase.database;
-    final now = DateTime.now().toIso8601String();
     final rows = await db.query(
       DatabaseSchema.syncQueueTable,
-      where: 'next_attempt_at <= ?',
-      whereArgs: [now],
+      where: includeDeferred ? null : 'next_attempt_at <= ?',
+      whereArgs: includeDeferred
+          ? null
+          : [DateTime.now().toIso8601String()],
       orderBy: 'updated_at ASC',
       limit: limit,
     );

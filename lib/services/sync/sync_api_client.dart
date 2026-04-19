@@ -96,6 +96,7 @@ class SyncApiClient {
   static const List<String> _scopes = [
     'clients',
     'products',
+    'sellers',
     'sales',
     'installments',
     'payments',
