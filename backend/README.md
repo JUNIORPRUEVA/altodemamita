@@ -103,9 +103,12 @@ El contenedor de producción:
 - compila en una etapa separada
 - elimina `devDependencies` de la imagen final
 - ejecuta como usuario no root
+- ejecuta `prisma migrate deploy` antes de arrancar la API
 - arranca con `node dist/main.js`
 
 Si vas a desplegar en EasyPanel, puedes cargar esas variables directamente en el panel y usar el comando por defecto de la imagen.
+
+Si tu despliegue ya estaba construido con una imagen anterior, debes reconstruir y redeplegar para que las migraciones pendientes se apliquen en la base remota al iniciar.
 
 Para el panel web define al menos uno de estos valores:
 
