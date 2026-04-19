@@ -180,12 +180,10 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                     : DesktopModuleList(
                         children: payments.map((payment) {
                           final client = _readClientName(payment);
-                          final sale = payment['sale'] as Map<String, dynamic>?;
+                          final sale = _readMap(payment['sale']);
                           final product =
-                              (sale?['product']
-                                      as Map<String, dynamic>?)?['name']
-                                  ?.toString() ??
-                              'Sin solar';
+                            _readMap(sale?['product'])?['name']?.toString() ??
+                            'Sin solar';
                           final method =
                               payment['method']?.toString() ??
                               'Metodo no definido';
@@ -244,8 +242,8 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
   }
 
   String _readClientName(Map<String, dynamic> payment) {
-    final sale = payment['sale'] as Map<String, dynamic>?;
-    final client = sale?['client'] as Map<String, dynamic>?;
+    final sale = _readMap(payment['sale']);
+    final client = _readMap(sale?['client']);
     final firstName = client?['firstName']?.toString().trim() ?? '';
     final lastName = client?['lastName']?.toString().trim() ?? '';
     final fullName = [
@@ -276,5 +274,15 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
       return value.toDouble();
     }
     return double.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  Map<String, dynamic>? _readMap(Object? value) {
+    if (value is Map<String, dynamic>) {
+      return value;
+    }
+    if (value is Map) {
+      return value.map((key, item) => MapEntry(key.toString(), item));
+    }
+    return null;
   }
 }

@@ -80,6 +80,7 @@ export class PaymentsService {
           sale: {
             include: {
               client: true,
+              product: true,
             },
           },
           installment: true,

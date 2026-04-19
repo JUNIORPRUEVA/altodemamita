@@ -48,7 +48,7 @@ class PaymentsService {
       total: _asInt(meta['total']),
       page: _asInt(meta['page'], fallback: page),
       limit: _asInt(meta['limit'], fallback: limit),
-      totalPages: _asInt(meta['totalPages'], fallback: 1),
+      totalPages: _resolveTotalPages(meta['totalPages'], total: _asInt(meta['total']), limit: limit),
     );
   }
 
@@ -60,8 +60,18 @@ class PaymentsService {
 
   Map<String, dynamic> _asMap(dynamic value) {
     return (value as Map<dynamic, dynamic>).map(
-      (key, val) => MapEntry(key.toString(), val),
+      (key, val) => MapEntry(key.toString(), _normalize(val)),
     );
+  }
+
+  Object? _normalize(dynamic value) {
+    if (value is Map<dynamic, dynamic>) {
+      return _asMap(value);
+    }
+    if (value is List) {
+      return value.map(_normalize).toList(growable: false);
+    }
+    return value;
   }
 
   int _asInt(Object? value, {int fallback = 0}) {
@@ -72,5 +82,17 @@ class PaymentsService {
       return value.toInt();
     }
     return int.tryParse(value?.toString() ?? '') ?? fallback;
+  }
+
+  int _resolveTotalPages(Object? value, {required int total, required int limit}) {
+    final parsed = _asInt(value);
+    if (parsed > 0) {
+      return parsed;
+    }
+    if (total <= 0) {
+      return 1;
+    }
+    final safeLimit = limit <= 0 ? 1 : limit;
+    return (total / safeLimit).ceil();
   }
 }

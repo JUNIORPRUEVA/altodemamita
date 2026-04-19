@@ -56,7 +56,17 @@ class ReportsService {
 
   Map<String, dynamic> _asMap(dynamic value) {
     return (value as Map<dynamic, dynamic>).map(
-      (key, val) => MapEntry(key.toString(), val),
+      (key, val) => MapEntry(key.toString(), _normalize(val)),
     );
+  }
+
+  Object? _normalize(dynamic value) {
+    if (value is Map<dynamic, dynamic>) {
+      return _asMap(value);
+    }
+    if (value is List) {
+      return value.map(_normalize).toList(growable: false);
+    }
+    return value;
   }
 }
