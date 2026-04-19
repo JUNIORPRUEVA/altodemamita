@@ -168,6 +168,10 @@ class _SalesScreenState extends State<SalesScreen> {
                               'Sin solar';
                           final contract = item['contractNumber']?.toString();
                           final subtitleParts = <String>[
+                            if (compact &&
+                                contract != null &&
+                                contract.trim().isNotEmpty)
+                              contract,
                             if (!compact &&
                                 contract != null &&
                                 contract.trim().isNotEmpty)
@@ -177,33 +181,41 @@ class _SalesScreenState extends State<SalesScreen> {
                           ];
 
                           return DesktopListRow(
-                            height: compact ? 108 : 88,
+                            height: compact ? 92 : 82,
                             onTap: () =>
                                 _openDetail(item['id']?.toString() ?? ''),
                             leading: Container(
-                              width: 44,
-                              height: 44,
+                              width: compact ? 38 : 42,
+                              height: compact ? 38 : 42,
                               decoration: BoxDecoration(
                                 color: const Color(0xFFF1F4FA),
-                                borderRadius: BorderRadius.circular(14),
+                                borderRadius: BorderRadius.circular(
+                                  compact ? 12 : 14,
+                                ),
                               ),
-                              child: const Icon(
+                              child: Icon(
                                 Icons.point_of_sale_outlined,
                                 color: Color(0xFF223048),
+                                size: compact ? 18 : 20,
                               ),
                             ),
                             title: Text(
                               client,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontWeight: FontWeight.w800,
+                                fontSize: compact ? 13.5 : null,
                               ),
-                              maxLines: compact ? 2 : 1,
+                              maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
                             subtitle: Text(
                               subtitleParts.join(compact ? '\n' : '  •  '),
-                              style: const TextStyle(color: Color(0xFF6E7791)),
-                              maxLines: compact ? 3 : 1,
+                              style: TextStyle(
+                                color: const Color(0xFF6E7791),
+                                fontSize: compact ? 11.5 : null,
+                                height: compact ? 1.25 : null,
+                              ),
+                              maxLines: compact ? 2 : 1,
                               overflow: TextOverflow.ellipsis,
                             ),
                             trailing: Wrap(

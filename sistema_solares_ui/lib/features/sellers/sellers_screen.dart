@@ -139,11 +139,11 @@ class _SellersScreenState extends State<SellersScreen> {
                               ? '$document\n$phone'
                               : '$document  •  $phone';
                           return DesktopListRow(
-                            height: compact ? 98 : 76,
+                            height: compact ? 82 : 76,
                             onTap: () =>
                                 _openDetail(item['id']?.toString() ?? ''),
                             leading: CircleAvatar(
-                              radius: compact ? 18 : 22,
+                              radius: compact ? 16 : 22,
                               backgroundColor: const Color(0xFFEAF0F7),
                               child: Text(
                                 name.isEmpty ? 'V' : name[0].toUpperCase(),
@@ -155,15 +155,20 @@ class _SellersScreenState extends State<SellersScreen> {
                             ),
                             title: Text(
                               name,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontWeight: FontWeight.w800,
+                                fontSize: compact ? 13 : null,
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
                             subtitle: Text(
                               subtitle,
-                              style: const TextStyle(color: Color(0xFF6E7791)),
+                              style: TextStyle(
+                                color: const Color(0xFF6E7791),
+                                fontSize: compact ? 11.5 : null,
+                                height: compact ? 1.2 : null,
+                              ),
                               maxLines: compact ? 2 : 1,
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -204,9 +209,10 @@ class _SellersScreenState extends State<SellersScreen> {
         return;
       }
       Navigator.of(context, rootNavigator: true).pop();
-      await showDialog<void>(
-        context: context,
-        builder: (context) => _SellerDetailDialog(detail: detail),
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (context) => _SellerDetailPage(detail: detail),
+        ),
       );
     } catch (error) {
       if (!mounted) {
@@ -220,8 +226,8 @@ class _SellersScreenState extends State<SellersScreen> {
   }
 }
 
-class _SellerDetailDialog extends StatelessWidget {
-  const _SellerDetailDialog({required this.detail});
+class _SellerDetailPage extends StatelessWidget {
+  const _SellerDetailPage({required this.detail});
 
   final Map<String, dynamic> detail;
 
@@ -236,61 +242,55 @@ class _SellerDetailDialog extends StatelessWidget {
       (sum, sale) => sum + _asNum(sale['totalAmount']),
     );
 
-    return Dialog(
-      insetPadding: EdgeInsets.all(compact ? 10 : 18),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: compact ? 420 : 860,
-          maxHeight: compact ? MediaQuery.sizeOf(context).height - 20 : 760,
-        ),
-        child: Padding(
-          padding: EdgeInsets.all(compact ? 16 : 20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      detail['name']?.toString() ?? 'Detalle de vendedor',
-                      style: Theme.of(context).textTheme.headlineSmall
-                          ?.copyWith(fontWeight: FontWeight.w800),
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close),
-                  ),
-                ],
+    return Scaffold(
+      backgroundColor: const Color(0xFFF0F3F8),
+      appBar: AppBar(
+        title: Text(detail['name']?.toString() ?? 'Detalle de vendedor'),
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        backgroundColor: Colors.white,
+        foregroundColor: const Color(0xFF173450),
+      ),
+      body: SafeArea(
+        top: false,
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 980),
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                compact ? 10 : 18,
+                compact ? 10 : 18,
+                compact ? 10 : 18,
+                compact ? 12 : 18,
               ),
-              const SizedBox(height: 12),
-              Expanded(
-                child: ListView(
-                  children: [
-                    Wrap(
-                      spacing: 12,
-                      runSpacing: 12,
-                      children: [
-                        DesktopStackedStat(
-                          label: 'Cedula',
-                          value: detail['documentId']?.toString() ?? '-',
-                        ),
-                        DesktopStackedStat(
-                          label: 'Telefono',
-                          value: detail['phone']?.toString() ?? '-',
-                        ),
-                        DesktopStackedStat(
-                          label: 'Ventas',
-                          value: '${sales.length}',
-                        ),
-                        DesktopStackedStat(
-                          label: 'Monto vendido',
-                          value: _currency.format(totalSold),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 18),
-                    DesktopPlainSection(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: [
+                      DesktopStackedStat(
+                        label: 'Cedula',
+                        value: detail['documentId']?.toString() ?? '-',
+                      ),
+                      DesktopStackedStat(
+                        label: 'Telefono',
+                        value: detail['phone']?.toString() ?? '-',
+                      ),
+                      DesktopStackedStat(
+                        label: 'Ventas',
+                        value: '${sales.length}',
+                      ),
+                      DesktopStackedStat(
+                        label: 'Monto vendido',
+                        value: _currency.format(totalSold),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  Expanded(
+                    child: DesktopPlainSection(
                       title: 'Ventas asociadas',
                       child: sales.isEmpty
                           ? const DesktopEmptyState(
@@ -299,62 +299,83 @@ class _SellerDetailDialog extends StatelessWidget {
                               message:
                                   'Este vendedor todavia no tiene ventas visibles en la nube.',
                             )
-                          : Column(
-                              children: sales.map((sale) {
+                          : ListView.separated(
+                              itemCount: sales.length,
+                              separatorBuilder: (_, _) =>
+                                  const SizedBox(height: 10),
+                              itemBuilder: (context, index) {
+                                final sale = sales[index];
                                 final client = _fullName(
                                   _asMap(sale['client']),
                                 );
                                 final product =
                                     _readNested(sale, ['product', 'name']) ??
                                     'Sin solar';
-                                return Padding(
-                                  padding: const EdgeInsets.only(bottom: 12),
-                                  child: DesktopCompactSurface(
-                                    child: ListTile(
-                                      contentPadding: EdgeInsets.zero,
-                                      title: Text(
-                                        client,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w800,
+                                return DesktopCompactSurface(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(12),
+                                    child: Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                client,
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.w800,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                compact
+                                                    ? '$product\n${_formatDate(sale['saleDate'])}'
+                                                    : '$product  •  ${sale['contractNumber'] ?? 'Sin contrato'}  •  ${_formatDate(sale['saleDate'])}',
+                                                style: const TextStyle(
+                                                  color: Color(0xFF6E7791),
+                                                  height: 1.3,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
                                         ),
-                                      ),
-                                      subtitle: Text(
-                                        '$product  •  ${sale['contractNumber'] ?? 'Sin contrato'}\n${_formatDate(sale['saleDate'])}',
-                                      ),
-                                      trailing: Column(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.center,
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.end,
-                                        children: [
-                                          Text(
-                                            _currency.format(
-                                              _asNum(sale['totalAmount']),
+                                        const SizedBox(width: 12),
+                                        Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.end,
+                                          children: [
+                                            Text(
+                                              _currency.format(
+                                                _asNum(sale['totalAmount']),
+                                              ),
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.w800,
+                                                color: Color(0xFF8C5A2C),
+                                              ),
                                             ),
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.w800,
-                                              color: Color(0xFF8C5A2C),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              sale['status']?.toString() ?? '-',
+                                              style: const TextStyle(
+                                                color: Color(0xFF6E7791),
+                                              ),
                                             ),
-                                          ),
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            sale['status']?.toString() ?? '-',
-                                            style: const TextStyle(
-                                              color: Color(0xFF6E7791),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
+                                          ],
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 );
-                              }).toList(),
+                              },
                             ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),

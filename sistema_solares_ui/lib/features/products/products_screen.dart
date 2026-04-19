@@ -61,7 +61,9 @@ class _ProductsScreenState extends State<ProductsScreen> {
         final compact = MediaQuery.sizeOf(context).width < 760;
         return DesktopPageScaffold(
           title: 'Solares',
-          subtitle: 'Inventario disponible para consulta y verificacion.',
+          subtitle: compact
+              ? 'Inventario compacto de solares y precios clave.'
+              : 'Inventario disponible para consulta y verificacion.',
           toolbar: DesktopFieldToolbar(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -132,16 +134,27 @@ class _ProductsScreenState extends State<ProductsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(6, 0, 6, 12),
-                child: Text(
-                  'Total visibles: ${data.total}',
-                  style: const TextStyle(
-                    color: Color(0xFF536079),
-                    fontWeight: FontWeight.w700,
-                  ),
+              DesktopInfoStrip(
+                child: Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    DesktopTag(
+                      label: compact
+                          ? '${data.total} visibles'
+                          : 'Total visibles: ${data.total}',
+                      background: const Color(0xFFF1F4FA),
+                    ),
+                    if (_includeInactive)
+                      const DesktopTag(
+                        label: 'Inactivos',
+                        background: Color(0xFFF6EFE3),
+                        foreground: Color(0xFF8C5A2C),
+                      ),
+                  ],
                 ),
               ),
+              const SizedBox(height: 16),
               Expanded(
                 child: data.items.isEmpty
                     ? const DesktopEmptyState(
@@ -158,34 +171,42 @@ class _ProductsScreenState extends State<ProductsScreen> {
                             item['stock'],
                           ).toStringAsFixed(0);
                           final subtitleText = compact
-                              ? 'Contado ${currency.format(_readNum(item['price']))}\nFinanciado ${currency.format(_readNum(item['financingPrice']))}\nStock $stock'
+                              ? 'Contado ${currency.format(_readNum(item['price']))}\nStock $stock'
                               : 'Contado ${currency.format(_readNum(item['price']))}  •  Financiado ${currency.format(_readNum(item['financingPrice']))}  •  Stock $stock';
                           return DesktopListRow(
-                            height: compact ? 116 : 82,
+                            height: compact ? 94 : 82,
                             leading: Container(
-                              width: 44,
-                              height: 44,
+                              width: compact ? 38 : 44,
+                              height: compact ? 38 : 44,
                               decoration: BoxDecoration(
                                 color: const Color(0xFFEAF0F7),
-                                borderRadius: BorderRadius.circular(14),
+                                borderRadius: BorderRadius.circular(
+                                  compact ? 12 : 14,
+                                ),
                               ),
-                              child: const Icon(
+                              child: Icon(
                                 Icons.map_outlined,
                                 color: Color(0xFF2C4766),
+                                size: compact ? 18 : 20,
                               ),
                             ),
                             title: Text(
                               '$code  •  $name',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontWeight: FontWeight.w800,
+                                fontSize: compact ? 13 : null,
                               ),
-                              maxLines: compact ? 2 : 1,
+                              maxLines: compact ? 1 : 1,
                               overflow: TextOverflow.ellipsis,
                             ),
                             subtitle: Text(
                               subtitleText,
-                              style: const TextStyle(color: Color(0xFF6E7791)),
-                              maxLines: compact ? 3 : 1,
+                              style: TextStyle(
+                                color: const Color(0xFF6E7791),
+                                fontSize: compact ? 11.5 : null,
+                                height: compact ? 1.2 : null,
+                              ),
+                              maxLines: compact ? 2 : 1,
                               overflow: TextOverflow.ellipsis,
                             ),
                             trailing: _StatusBadge(
@@ -240,8 +261,8 @@ class _StatusBadge extends StatelessWidget {
 
     return Container(
       padding: EdgeInsets.symmetric(
-        horizontal: compact ? 14 : 12,
-        vertical: compact ? 9 : 8,
+        horizontal: compact ? 10 : 12,
+        vertical: compact ? 6 : 8,
       ),
       decoration: BoxDecoration(
         color: background,
@@ -252,7 +273,7 @@ class _StatusBadge extends StatelessWidget {
         style: TextStyle(
           color: textColor,
           fontWeight: FontWeight.w700,
-          fontSize: compact ? 13 : 12,
+          fontSize: compact ? 11.5 : 12,
         ),
       ),
     );

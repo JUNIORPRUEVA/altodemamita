@@ -149,9 +149,9 @@ class _ClientsScreenState extends State<ClientsScreen> {
                               ? '$documentId  •  $phone'
                               : '$documentId  •  $phone  •  $email';
                           return DesktopListRow(
-                            height: compact ? 92 : 72,
+                            height: compact ? 78 : 72,
                             leading: CircleAvatar(
-                              radius: compact ? 18 : 22,
+                              radius: compact ? 16 : 22,
                               backgroundColor: const Color(0xFFEFF3FB),
                               child: Text(
                                 (fullName.isNotEmpty ? fullName[0] : 'C')
@@ -169,18 +169,18 @@ class _ClientsScreenState extends State<ClientsScreen> {
                                     fullName.isEmpty ? 'Sin nombre' : fullName,
                                     style: TextStyle(
                                       fontWeight: FontWeight.w800,
-                                      fontSize: compact ? 13.5 : null,
+                                      fontSize: compact ? 13 : null,
                                     ),
-                                    maxLines: compact ? 2 : 1,
+                                    maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
                                 if (compact) ...[
-                                  const SizedBox(width: 8),
+                                  const SizedBox(width: 6),
                                   Container(
                                     padding: const EdgeInsets.symmetric(
-                                      horizontal: 9,
-                                      vertical: 5,
+                                      horizontal: 8,
+                                      vertical: 4,
                                     ),
                                     decoration: BoxDecoration(
                                       color: const Color(0xFFF6EFE3),
@@ -190,7 +190,7 @@ class _ClientsScreenState extends State<ClientsScreen> {
                                       code,
                                       style: const TextStyle(
                                         fontWeight: FontWeight.w700,
-                                        fontSize: 11,
+                                        fontSize: 10.5,
                                         color: Color(0xFF8C5A2C),
                                       ),
                                     ),
@@ -202,8 +202,8 @@ class _ClientsScreenState extends State<ClientsScreen> {
                               subtitleText,
                               style: TextStyle(
                                 color: const Color(0xFF6E7791),
-                                fontSize: compact ? 12 : null,
-                                height: compact ? 1.35 : null,
+                                fontSize: compact ? 11.5 : null,
+                                height: compact ? 1.2 : null,
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,

@@ -60,8 +60,7 @@ class SyncService {
           startedAt: startedAt,
           finishedAt: DateTime.now(),
           wasSkipped: true,
-          errorMessage:
-              'Configura sync.base_url y el token JWT antes de sincronizar.',
+          errorMessage: _buildMissingConfigurationMessage(settings),
         );
         _lastReport = skipped;
         return skipped;
@@ -99,13 +98,12 @@ class SyncService {
     } on HttpException catch (error) {
       _lastScopeWarnings = const [];
       if (_isUnauthorizedSyncError(error)) {
-        await _configRepository.clearJwtToken();
         final report = SyncReport(
           startedAt: startedAt,
           finishedAt: DateTime.now(),
           wasSkipped: true,
           errorMessage:
-              'La sesion con la nube vencio o ya no es valida. Inicia sesion en linea nuevamente para reactivar la sincronizacion.',
+              'La nube rechazo la sincronizacion con la credencial actual. Inicia sesion en linea nuevamente para reactivar la sincronizacion y reunificar los datos.',
         );
         await _configRepository.saveLastRun(errorMessage: report.errorMessage);
         _lastReport = report;
@@ -289,6 +287,22 @@ class SyncService {
   bool _isUnauthorizedSyncError(HttpException error) {
     final message = error.message.toLowerCase();
     return message.contains('401') || message.contains('unauthorized');
+  }
+
+  String _buildMissingConfigurationMessage(SyncSettings settings) {
+    final hasBaseUrl = settings.baseUrl.trim().isNotEmpty;
+    final hasJwtToken = settings.jwtToken.trim().isNotEmpty;
+
+    if (!hasBaseUrl && !hasJwtToken) {
+      return 'Configura sync.base_url e inicia sesion en linea antes de sincronizar.';
+    }
+    if (!hasBaseUrl) {
+      return 'Configura sync.base_url antes de sincronizar.';
+    }
+    if (!hasJwtToken) {
+      return 'La app local necesita reautenticarse con la nube. Inicia sesion en linea nuevamente para reunificar la sincronizacion.';
+    }
+    return 'La sincronizacion no esta configurada correctamente.';
   }
 
   DateTime? _findLatestTimestamp(List<Map<String, dynamic>> records) {

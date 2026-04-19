@@ -156,6 +156,18 @@ class AuthService {
     if (!localRequiresInitialSetup) {
       currentUser = await restoreSession();
       if (currentUser != null && remoteStatus.isReachable) {
+        if (await _requiresOnlineReauthentication(currentUser)) {
+          await clearSession();
+          return AuthBootstrapResult(
+            requiresInitialSetup: false,
+            isOnline: true,
+            isCloudInitialized:
+                remoteStatus.statusAvailable ? remoteStatus.initialized : true,
+            backendStatus: BackendConnectionStatus.connected,
+            backendStatusMessage:
+                'La sesion local sigue activa, pero la credencial de sincronizacion ya no es valida. Inicia sesion en linea nuevamente para reunificar la app local con la nube.',
+          );
+        }
         await _runFullSyncIfPossible();
       }
     }
@@ -1661,6 +1673,15 @@ class AuthService {
     );
     final report = await syncService.syncNow(forceFullDownload: true);
     return !report.wasSkipped;
+  }
+
+  Future<bool> _requiresOnlineReauthentication(UserModel user) async {
+    if (user.authSource != AuthSource.cloud) {
+      return false;
+    }
+
+    final settings = await _syncConfigRepository.loadSettings();
+    return settings.jwtToken.trim().isEmpty;
   }
 
   String _normalizeRecoveryCode(String value) {
