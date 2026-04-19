@@ -114,46 +114,42 @@ export class SyncService {
         const recordSyncId = this.readRecordSyncId(payload);
         const { firstName, lastName } = this.resolveClientNames(payload);
         const incomingUpdatedAt = this.readDate(payload, ['updatedAt', 'updated_at']);
-        const existing = await tx.client.findUnique({
-          where: { syncId: recordSyncId },
-          select: { id: true, syncId: true, updatedAt: true },
-        });
+        const existing = await this.findExistingClientRecord(tx, payload, recordSyncId, firstName, lastName);
         if (this.shouldSkipWrite(existing?.updatedAt, incomingUpdatedAt)) {
           continue;
         }
 
-        const persisted = await tx.client.upsert({
-          where: { syncId: recordSyncId },
-          create: {
-            syncId: recordSyncId,
-            code: this.readString(payload, ['code']),
-            firstName,
-            lastName,
-            documentId: this.readString(payload, ['documentId', 'document_id']),
-            email: this.readString(payload, ['email']),
-            phone: this.readString(payload, ['phone']),
-            address: this.readString(payload, ['address']),
-            notes: this.readString(payload, ['notes']),
-            createdAt: this.readDate(payload, ['createdAt', 'created_at']) ?? undefined,
-            updatedAt: incomingUpdatedAt ?? undefined,
-            deletedAt: this.readDate(payload, ['deletedAt', 'deleted_at']),
-            syncStatus: SyncStatus.synced,
-          },
-          update: {
-            code: this.readString(payload, ['code']),
-            firstName,
-            lastName,
-            documentId: this.readString(payload, ['documentId', 'document_id']),
-            email: this.readString(payload, ['email']),
-            phone: this.readString(payload, ['phone']),
-            address: this.readString(payload, ['address']),
-            notes: this.readString(payload, ['notes']),
-            deletedAt: this.readDate(payload, ['deletedAt', 'deleted_at']),
-            ...(incomingUpdatedAt ? { updatedAt: incomingUpdatedAt } : {}),
-            syncStatus: SyncStatus.synced,
-          },
-          select: { id: true, syncId: true, updatedAt: true },
-        });
+        const clientData = {
+          syncId: recordSyncId,
+          code: this.readString(payload, ['code']),
+          firstName,
+          lastName,
+          documentId: this.readString(payload, ['documentId', 'document_id']),
+          email: this.readString(payload, ['email']),
+          phone: this.readString(payload, ['phone']),
+          address: this.readString(payload, ['address']),
+          notes: this.readString(payload, ['notes']),
+          deletedAt: this.readDate(payload, ['deletedAt', 'deleted_at']),
+          syncStatus: SyncStatus.synced,
+        };
+
+        const persisted = existing
+          ? await tx.client.update({
+              where: { id: existing.id },
+              data: {
+                ...clientData,
+                ...(incomingUpdatedAt ? { updatedAt: incomingUpdatedAt } : {}),
+              },
+              select: { id: true, syncId: true, updatedAt: true },
+            })
+          : await tx.client.create({
+              data: {
+                ...clientData,
+                createdAt: this.readDate(payload, ['createdAt', 'created_at']) ?? undefined,
+                updatedAt: incomingUpdatedAt ?? undefined,
+              },
+              select: { id: true, syncId: true, updatedAt: true },
+            });
         domainEvents.push({
           channel: 'entity.updated',
           id: persisted.id,
@@ -973,6 +969,81 @@ export class SyncService {
       firstName: parts.shift() ?? fullName,
       lastName: parts.join(' '),
     };
+  }
+
+  private async findExistingClientRecord(
+    tx: Prisma.TransactionClient,
+    payload: Record<string, unknown>,
+    recordSyncId: string,
+    firstName: string,
+    lastName: string,
+  ) {
+    const bySyncId = await tx.client.findUnique({
+      where: { syncId: recordSyncId },
+      select: { id: true, syncId: true, updatedAt: true },
+    });
+    if (bySyncId) {
+      return bySyncId;
+    }
+
+    const documentId = this.normalizeIdentityValue(
+      this.readString(payload, ['documentId', 'document_id']),
+    );
+    if (documentId) {
+      const byDocumentId = await tx.client.findFirst({
+        where: {
+          deletedAt: null,
+          documentId: {
+            equals: documentId,
+            mode: 'insensitive',
+          },
+        },
+        orderBy: [
+          { updatedAt: 'desc' },
+          { createdAt: 'desc' },
+        ],
+        select: { id: true, syncId: true, updatedAt: true },
+      });
+      if (byDocumentId) {
+        return byDocumentId;
+      }
+    }
+
+    const phone = this.normalizeIdentityValue(this.readString(payload, ['phone']));
+    if (!phone) {
+      return null;
+    }
+
+    return tx.client.findFirst({
+      where: {
+        deletedAt: null,
+        firstName: {
+          equals: firstName.trim(),
+          mode: 'insensitive',
+        },
+        lastName: {
+          equals: lastName.trim(),
+          mode: 'insensitive',
+        },
+        phone: {
+          equals: phone,
+          mode: 'insensitive',
+        },
+      },
+      orderBy: [
+        { updatedAt: 'desc' },
+        { createdAt: 'desc' },
+      ],
+      select: { id: true, syncId: true, updatedAt: true },
+    });
+  }
+
+  private normalizeIdentityValue(value?: string): string | undefined {
+    const normalized = value?.trim();
+    if (!normalized) {
+      return undefined;
+    }
+    return normalized;
   }
 
   private async resolveClientReference(tx: Prisma.TransactionClient, payload: Record<string, unknown>) {

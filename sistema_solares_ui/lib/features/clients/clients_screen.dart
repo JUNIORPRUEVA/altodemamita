@@ -16,6 +16,7 @@ class _ClientsScreenState extends State<ClientsScreen> {
   final _searchController = TextEditingController();
   Future<ClientsPage>? _future;
   int _lastTick = -1;
+  int _page = 1;
 
   @override
   void dispose() {
@@ -23,7 +24,10 @@ class _ClientsScreenState extends State<ClientsScreen> {
     super.dispose();
   }
 
-  void _reload() {
+  void _reload({bool resetPage = false}) {
+    if (resetPage) {
+      _page = 1;
+    }
     setState(() => _future = null);
   }
 
@@ -34,7 +38,7 @@ class _ClientsScreenState extends State<ClientsScreen> {
       _lastTick = refreshTick;
       _future = ClientsService(
         context.read<ApiClient>(),
-      ).fetch(search: _searchController.text);
+      ).fetch(search: _searchController.text, page: _page);
     }
 
     return FutureBuilder<ClientsPage>(
@@ -46,7 +50,7 @@ class _ClientsScreenState extends State<ClientsScreen> {
         if (snapshot.hasError) {
           return DesktopPageError(
             message: snapshot.error.toString(),
-            onRetry: _reload,
+            onRetry: () => _reload(),
           );
         }
 
@@ -63,19 +67,19 @@ class _ClientsScreenState extends State<ClientsScreen> {
               searchField: DesktopSearchField(
                 controller: _searchController,
                 hintText: 'Buscar por nombre, cedula, correo o telefono',
-                onSubmitted: (_) => _reload(),
+                onSubmitted: (_) => _reload(resetPage: true),
               ),
               actions: [
                 OutlinedButton.icon(
                   onPressed: () {
                     _searchController.clear();
-                    _reload();
+                    _reload(resetPage: true);
                   },
                   icon: const Icon(Icons.cleaning_services_outlined),
                   label: const Text('Limpiar'),
                 ),
                 FilledButton.icon(
-                  onPressed: _reload,
+                  onPressed: () => _reload(resetPage: true),
                   icon: const Icon(Icons.search_rounded),
                   label: const Text('Buscar'),
                 ),
@@ -84,13 +88,13 @@ class _ClientsScreenState extends State<ClientsScreen> {
                 OutlinedButton.icon(
                   onPressed: () {
                     _searchController.clear();
-                    _reload();
+                    _reload(resetPage: true);
                   },
                   icon: const Icon(Icons.cleaning_services_outlined),
                   label: const Text('Limpiar'),
                 ),
                 FilledButton.icon(
-                  onPressed: _reload,
+                  onPressed: () => _reload(resetPage: true),
                   icon: const Icon(Icons.search_rounded),
                   label: const Text('Buscar'),
                 ),
@@ -108,9 +112,14 @@ class _ClientsScreenState extends State<ClientsScreen> {
                   children: [
                     DesktopTag(
                       label: compact
-                          ? '${data.total} visibles'
-                          : 'Total visibles: ${data.total}',
+                          ? '${data.visibleFrom}-${data.visibleTo} de ${data.total}'
+                          : 'Mostrando ${data.visibleFrom}-${data.visibleTo} de ${data.total}',
                       background: const Color(0xFFF1F4FA),
+                    ),
+                    DesktopTag(
+                      label: 'Pagina ${data.page} de ${data.totalPages}',
+                      background: const Color(0xFFEAF2EC),
+                      foreground: const Color(0xFF2F6F5C),
                     ),
                     DesktopTag(
                       label: hasFilter ? 'Filtro activo' : 'Vista completa',
@@ -123,6 +132,34 @@ class _ClientsScreenState extends State<ClientsScreen> {
                     ),
                   ],
                 ),
+              ),
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                alignment: WrapAlignment.end,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: data.hasPreviousPage
+                        ? () {
+                            _page = data.page - 1;
+                            _reload();
+                          }
+                        : null,
+                    icon: const Icon(Icons.chevron_left_rounded),
+                    label: const Text('Anterior'),
+                  ),
+                  FilledButton.icon(
+                    onPressed: data.hasNextPage
+                        ? () {
+                            _page = data.page + 1;
+                            _reload();
+                          }
+                        : null,
+                    icon: const Icon(Icons.chevron_right_rounded),
+                    label: const Text('Siguiente'),
+                  ),
+                ],
               ),
               const SizedBox(height: 16),
               Expanded(

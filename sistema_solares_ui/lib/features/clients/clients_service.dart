@@ -1,10 +1,33 @@
 import 'package:sistema_solares_ui/core/network/api_client.dart';
 
 class ClientsPage {
-  ClientsPage({required this.items, required this.total});
+  ClientsPage({
+    required this.items,
+    required this.total,
+    required this.page,
+    required this.limit,
+    required this.totalPages,
+  });
 
   final List<Map<String, dynamic>> items;
   final int total;
+  final int page;
+  final int limit;
+  final int totalPages;
+
+  int get visibleFrom => total == 0 ? 0 : ((page - 1) * limit) + 1;
+
+  int get visibleTo {
+    if (total == 0) {
+      return 0;
+    }
+    final lastVisible = ((page - 1) * limit) + items.length;
+    return lastVisible > total ? total : lastVisible;
+  }
+
+  bool get hasPreviousPage => page > 1;
+
+  bool get hasNextPage => page < totalPages;
 }
 
 class ClientsService {
@@ -31,6 +54,18 @@ class ClientsService {
         .toList();
 
     final meta = response['meta'] as Map<String, dynamic>? ?? const {};
-    return ClientsPage(items: items, total: meta['total'] as int? ?? items.length);
+    final total = meta['total'] as int? ?? items.length;
+    final resolvedPage = meta['page'] as int? ?? page;
+    final limit = meta['limit'] as int? ?? 20;
+    final totalPages = meta['totalPages'] as int? ??
+        (total == 0 ? 1 : ((total + limit - 1) ~/ limit));
+
+    return ClientsPage(
+      items: items,
+      total: total,
+      page: resolvedPage,
+      limit: limit,
+      totalPages: totalPages,
+    );
   }
 }

@@ -21,15 +21,28 @@ class DashboardService {
     final now = DateTime.now();
     final from = now.subtract(const Duration(days: 30)).toIso8601String();
 
-    final summary = await _apiClient.get('/reports/summary') as Map<String, dynamic>;
-    final sales = await _apiClient.get(
-      '/reports/sales',
-      queryParameters: {'from': from, 'to': now.toIso8601String()},
-    ) as List<dynamic>;
-    final payments = await _apiClient.get(
-      '/reports/payments',
-      queryParameters: {'from': from, 'to': now.toIso8601String()},
-    ) as List<dynamic>;
+    final results = await Future.wait<dynamic>([
+      _apiClient.get('/reports/summary'),
+      _apiClient.get(
+        '/reports/sales',
+        queryParameters: {'from': from, 'to': now.toIso8601String()},
+      ),
+      _apiClient.get(
+        '/reports/payments',
+        queryParameters: {'from': from, 'to': now.toIso8601String()},
+      ),
+      _apiClient.get(
+        '/clients',
+        queryParameters: {'page': '1', 'limit': '1'},
+      ),
+    ]);
+
+    final summary = Map<String, dynamic>.from(results[0] as Map<String, dynamic>);
+    final sales = results[1] as List<dynamic>;
+    final payments = results[2] as List<dynamic>;
+    final clientsPage = results[3] as Map<String, dynamic>;
+    final clientsMeta = clientsPage['meta'] as Map<String, dynamic>? ?? const {};
+    summary['clients'] = clientsMeta['total'] as int? ?? summary['clients'];
 
     return DashboardSnapshot(
       summary: summary,
