@@ -17,6 +17,7 @@ class PaymentsScreen extends StatefulWidget {
 
 class _PaymentsScreenState extends State<PaymentsScreen> {
   final _searchController = TextEditingController();
+  final _inspectorScrollController = ScrollController();
   Future<PaymentsReadOnlyData>? _future;
   int _lastTick = -1;
   int _page = 1;
@@ -26,6 +27,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
   @override
   void dispose() {
     _searchController.dispose();
+    _inspectorScrollController.dispose();
     super.dispose();
   }
 
@@ -754,30 +756,36 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
     return _PaymentsPanelSurface(
       child: LayoutBuilder(
         builder: (context, constraints) {
-          return ListView(
-            padding: EdgeInsets.zero,
-            children: [
-              _buildSummaryPanel(detail, currency),
-              const SizedBox(height: 12),
-              const Divider(height: 1),
-              const SizedBox(height: 12),
-              ConstrainedBox(
-                constraints: BoxConstraints(
-                  minHeight: constraints.maxHeight > 280
-                      ? constraints.maxHeight - 280
-                      : 0,
+          return Scrollbar(
+            controller: _inspectorScrollController,
+            thumbVisibility: true,
+            child: ListView(
+              controller: _inspectorScrollController,
+              primary: false,
+              padding: EdgeInsets.zero,
+              children: [
+                _buildSummaryPanel(detail, currency),
+                const SizedBox(height: 12),
+                const Divider(height: 1),
+                const SizedBox(height: 12),
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minHeight: constraints.maxHeight > 280
+                        ? constraints.maxHeight - 280
+                        : 0,
+                  ),
+                  child: _buildHistoryPanel(
+                    detail,
+                    currency,
+                    averageTicket,
+                    methodsCount,
+                    compact,
+                    scrollable: false,
+                    embedded: true,
+                  ),
                 ),
-                child: _buildHistoryPanel(
-                  detail,
-                  currency,
-                  averageTicket,
-                  methodsCount,
-                  compact,
-                  scrollable: false,
-                  embedded: true,
-                ),
-              ),
-            ],
+              ],
+            ),
           );
         },
       ),
