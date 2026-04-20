@@ -102,26 +102,25 @@ class _SellersScreenState extends State<SellersScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              DesktopInfoStrip(
-                child: Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: [
-                    DesktopTag(
-                      label: compact
-                          ? '${data.total} visibles'
-                          : 'Total visibles: ${data.total}',
-                      background: const Color(0xFFF1F4FA),
-                    ),
-                    if (!compact)
+              if (!compact) ...[
+                DesktopInfoStrip(
+                  child: Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      DesktopTag(
+                        label: 'Total visibles: ${data.total}',
+                        background: const Color(0xFFF1F4FA),
+                      ),
                       DesktopTag(
                         label: 'Pag. ${data.page}/${data.totalPages}',
                         background: const Color(0xFFEAF0F7),
                       ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 16),
+                const SizedBox(height: 16),
+              ],
               Expanded(
                 child: data.items.isEmpty
                     ? const DesktopEmptyState(
@@ -137,15 +136,13 @@ class _SellersScreenState extends State<SellersScreen> {
                               item['documentId']?.toString() ?? 'Sin cedula';
                           final phone =
                               item['phone']?.toString() ?? 'Sin telefono';
-                          final subtitle = compact
-                              ? '$document\n$phone'
-                              : '$document  •  $phone';
+                          final subtitle = '$document  •  $phone';
                           return DesktopListRow(
-                            height: compact ? 68 : 76,
+                            height: compact ? 62 : 76,
                             onTap: () =>
                                 _openDetail(item['id']?.toString() ?? ''),
                             leading: CircleAvatar(
-                              radius: compact ? 15 : 22,
+                              radius: compact ? 14 : 22,
                               backgroundColor: const Color(0xFFEAF0F7),
                               child: Text(
                                 name.isEmpty ? 'V' : name[0].toUpperCase(),
@@ -159,7 +156,7 @@ class _SellersScreenState extends State<SellersScreen> {
                               name,
                               style: TextStyle(
                                 fontWeight: FontWeight.w800,
-                                fontSize: compact ? 12.4 : null,
+                                fontSize: compact ? 12.2 : null,
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
@@ -168,14 +165,18 @@ class _SellersScreenState extends State<SellersScreen> {
                               subtitle,
                               style: TextStyle(
                                 color: const Color(0xFF6E7791),
-                                fontSize: compact ? 10.8 : null,
-                                height: compact ? 1.1 : null,
+                                fontSize: compact ? 10.6 : null,
+                                height: compact ? 1.0 : null,
                               ),
-                              maxLines: compact ? 2 : 1,
+                              maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
                             trailing: compact
-                                ? null
+                                ? const Icon(
+                                    Icons.chevron_right_rounded,
+                                    size: 18,
+                                    color: Color(0xFF9AA6B8),
+                                  )
                                 : const DesktopTag(
                                     label: 'Ver detalle',
                                     background: Color(0xFFF6EFE3),
@@ -268,111 +269,163 @@ class _SellerDetailPage extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: [
-                      DesktopStackedStat(
-                        label: 'Cedula',
-                        value: detail['documentId']?.toString() ?? '-',
-                      ),
-                      DesktopStackedStat(
-                        label: 'Telefono',
-                        value: detail['phone']?.toString() ?? '-',
-                      ),
-                      DesktopStackedStat(
-                        label: 'Ventas',
-                        value: '${sales.length}',
-                      ),
-                      DesktopStackedStat(
-                        label: 'Monto vendido',
-                        value: _currency.format(totalSold),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 18),
+                  compact
+                      ? _SellerCompactHeader(
+                          documentId: detail['documentId']?.toString() ?? '-',
+                          phone: detail['phone']?.toString() ?? '-',
+                          salesCount: sales.length,
+                          totalSold: _currency.format(totalSold),
+                        )
+                      : Wrap(
+                          spacing: 12,
+                          runSpacing: 12,
+                          children: [
+                            DesktopStackedStat(
+                              label: 'Cedula',
+                              value: detail['documentId']?.toString() ?? '-',
+                            ),
+                            DesktopStackedStat(
+                              label: 'Telefono',
+                              value: detail['phone']?.toString() ?? '-',
+                            ),
+                            DesktopStackedStat(
+                              label: 'Ventas',
+                              value: '${sales.length}',
+                            ),
+                            DesktopStackedStat(
+                              label: 'Monto vendido',
+                              value: _currency.format(totalSold),
+                            ),
+                          ],
+                        ),
+                  SizedBox(height: compact ? 14 : 18),
                   Expanded(
-                    child: DesktopPlainSection(
-                      title: 'Ventas asociadas',
-                      child: sales.isEmpty
-                          ? const DesktopEmptyState(
-                              icon: Icons.point_of_sale_outlined,
-                              title: 'Sin ventas asociadas',
-                              message:
-                                  'Este vendedor todavia no tiene ventas visibles en la nube.',
-                            )
-                          : ListView.separated(
-                              itemCount: sales.length,
-                              separatorBuilder: (_, _) =>
-                                  const SizedBox(height: 10),
-                              itemBuilder: (context, index) {
-                                final sale = sales[index];
-                                final client = _fullName(
-                                  _asMap(sale['client']),
-                                );
-                                final product =
-                                    _readNested(sale, ['product', 'name']) ??
-                                    'Sin solar';
-                                return DesktopCompactSurface(
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(12),
-                                    child: Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Expanded(
-                                          child: Column(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Ventas asociadas',
+                          style: TextStyle(
+                            fontSize: compact ? 16 : 20,
+                            fontWeight: FontWeight.w800,
+                            color: const Color(0xFF173450),
+                          ),
+                        ),
+                        SizedBox(height: compact ? 10 : 14),
+                        Expanded(
+                          child: sales.isEmpty
+                              ? const DesktopEmptyState(
+                                  icon: Icons.point_of_sale_outlined,
+                                  title: 'Sin ventas asociadas',
+                                  message:
+                                      'Este vendedor todavia no tiene ventas visibles en la nube.',
+                                )
+                              : ListView.separated(
+                                  itemCount: sales.length,
+                                  separatorBuilder: (_, _) => Divider(
+                                    height: compact ? 14 : 18,
+                                    color: const Color(0xFFE6EBF2),
+                                  ),
+                                  itemBuilder: (context, index) {
+                                    final sale = sales[index];
+                                    final client = _fullName(
+                                      _asMap(sale['client']),
+                                    );
+                                    final product =
+                                        _readNested(sale, [
+                                          'product',
+                                          'name',
+                                        ]) ??
+                                        'Sin solar';
+                                    final meta = compact
+                                        ? '$product  •  ${_formatDate(sale['saleDate'])}'
+                                        : '$product  •  ${sale['contractNumber'] ?? 'Sin contrato'}  •  ${_formatDate(sale['saleDate'])}';
+                                    return Padding(
+                                      padding: EdgeInsets.symmetric(
+                                        horizontal: compact ? 2 : 4,
+                                        vertical: compact ? 2 : 4,
+                                      ),
+                                      child: Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  client,
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.w800,
+                                                    fontSize: compact
+                                                        ? 12.8
+                                                        : 14,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 3),
+                                                Text(
+                                                  meta,
+                                                  maxLines: compact ? 2 : 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: TextStyle(
+                                                    color: const Color(
+                                                      0xFF6E7791,
+                                                    ),
+                                                    height: compact
+                                                        ? 1.15
+                                                        : 1.3,
+                                                    fontSize: compact
+                                                        ? 10.8
+                                                        : 12.5,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Column(
                                             crossAxisAlignment:
-                                                CrossAxisAlignment.start,
+                                                CrossAxisAlignment.end,
                                             children: [
                                               Text(
-                                                client,
-                                                style: const TextStyle(
+                                                _currency.format(
+                                                  _asNum(sale['totalAmount']),
+                                                ),
+                                                style: TextStyle(
                                                   fontWeight: FontWeight.w800,
+                                                  color: const Color(
+                                                    0xFF8C5A2C,
+                                                  ),
+                                                  fontSize: compact
+                                                      ? 12.2
+                                                      : 13.5,
                                                 ),
                                               ),
-                                              const SizedBox(height: 4),
+                                              const SizedBox(height: 3),
                                               Text(
-                                                compact
-                                                    ? '$product\n${_formatDate(sale['saleDate'])}'
-                                                    : '$product  •  ${sale['contractNumber'] ?? 'Sin contrato'}  •  ${_formatDate(sale['saleDate'])}',
-                                                style: const TextStyle(
-                                                  color: Color(0xFF6E7791),
-                                                  height: 1.3,
+                                                sale['status']?.toString() ??
+                                                    '-',
+                                                style: TextStyle(
+                                                  color: const Color(
+                                                    0xFF6E7791,
+                                                  ),
+                                                  fontSize: compact ? 10.6 : 12,
                                                 ),
                                               ),
                                             ],
                                           ),
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.end,
-                                          children: [
-                                            Text(
-                                              _currency.format(
-                                                _asNum(sale['totalAmount']),
-                                              ),
-                                              style: const TextStyle(
-                                                fontWeight: FontWeight.w800,
-                                                color: Color(0xFF8C5A2C),
-                                              ),
-                                            ),
-                                            const SizedBox(height: 4),
-                                            Text(
-                                              sale['status']?.toString() ?? '-',
-                                              style: const TextStyle(
-                                                color: Color(0xFF6E7791),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -381,6 +434,53 @@ class _SellerDetailPage extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _SellerCompactHeader extends StatelessWidget {
+  const _SellerCompactHeader({
+    required this.documentId,
+    required this.phone,
+    required this.salesCount,
+    required this.totalSold,
+  });
+
+  final String documentId;
+  final String phone;
+  final int salesCount;
+  final String totalSold;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '$documentId  •  $phone',
+          style: const TextStyle(
+            fontSize: 11.2,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF6E7791),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            DesktopTag(
+              label: '$salesCount ventas',
+              background: const Color(0xFFF1F4FA),
+            ),
+            DesktopTag(
+              label: totalSold,
+              background: const Color(0xFFF6EFE3),
+              foreground: const Color(0xFF8C5A2C),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }

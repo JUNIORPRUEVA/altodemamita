@@ -22,7 +22,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
   int _lastTick = -1;
 
   static DateTimeRange _defaultRange() {
-    return _todayRange();
+    final now = DateTime.now();
+    return DateTimeRange(
+      start: _startOfDay(now.subtract(const Duration(days: 29))),
+      end: _endOfDay(now),
+    );
   }
 
   static DateTimeRange _todayRange() {
@@ -654,6 +658,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   Future<_ReportsScreenData> _loadData(BuildContext context) async {
     final apiClient = context.read<ApiClient>();
+    final isDesktop = MediaQuery.sizeOf(context).width >= 760;
     String? warningMessage;
 
     final dashboard = await DashboardService(apiClient)
@@ -666,7 +671,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           return _emptyDashboardSnapshot();
         });
 
-    final reports = await ReportsService(apiClient)
+    var reports = await ReportsService(apiClient)
         .fetchBundle(from: _selectedRange.start, to: _selectedRange.end)
         .catchError((error) {
           warningMessage = _mergeWarning(
@@ -675,6 +680,23 @@ class _ReportsScreenState extends State<ReportsScreen> {
           );
           return _emptyReportsBundle();
         });
+
+    if (isDesktop &&
+        _isRangeEqual(_selectedRange, _defaultRange()) &&
+        _reportsBundleIsEmpty(reports) &&
+        _dashboardHasActivity(dashboard)) {
+      final fallbackRange = _rangeForLastDays(90);
+      reports = await ReportsService(apiClient)
+          .fetchBundle(from: fallbackRange.start, to: fallbackRange.end)
+          .catchError((_) => reports);
+
+      if (!_reportsBundleIsEmpty(reports)) {
+        warningMessage = _mergeWarning(
+          warningMessage,
+          'No hubo movimientos visibles en los ultimos 30 dias. Se muestran los ultimos 90 dias para presentar datos en escritorio.',
+        );
+      }
+    }
 
     return _ReportsScreenData(
       dashboard: dashboard,
@@ -722,6 +744,30 @@ class _ReportsScreenState extends State<ReportsScreen> {
       return current;
     }
     return '$current $next';
+  }
+
+  bool _reportsBundleIsEmpty(ReportsBundle bundle) {
+    return bundle.sales.isEmpty &&
+        bundle.payments.isEmpty &&
+        bundle.delinquency.isEmpty;
+  }
+
+  bool _dashboardHasActivity(DashboardSnapshot snapshot) {
+    return _asNum(snapshot.summary['totalPortfolio']) > 0 ||
+        _asNum(snapshot.summary['totalCollected']) > 0 ||
+        _asNum(snapshot.summary['outstanding']) > 0 ||
+        _asInt(snapshot.summary['activeSales']) > 0 ||
+        _asInt(snapshot.summary['clients']) > 0 ||
+        _asInt(snapshot.summary['products']) > 0;
+  }
+
+  bool _isRangeEqual(DateTimeRange left, DateTimeRange right) {
+    return left.start.year == right.start.year &&
+        left.start.month == right.start.month &&
+        left.start.day == right.start.day &&
+        left.end.year == right.end.year &&
+        left.end.month == right.end.month &&
+        left.end.day == right.end.day;
   }
 
   double _sumAmount(List<Map<String, dynamic>> items, String key) {
