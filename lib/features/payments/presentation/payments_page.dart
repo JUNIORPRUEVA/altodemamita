@@ -527,7 +527,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
         ? 'Lista de cuotas'
         : 'Activación del financiamiento';
     final panelSubtitle = showAggregate
-        ? 'Mostrando pagos de todas las ventas activas'
+      ? 'Mostrando cuotas de todas las ventas activas'
         : '${contextData.sale.clientName}  ·  ${contextData.sale.lotDisplayCode}';
 
     return Container(
@@ -578,7 +578,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
                   child: Text(
                     hasPendingContexts && totalInstallments == 0
                         ? 'Cargando...'
-                        : '${visibleInstallments.length}/$totalInstallments visibles',
+                        : '${visibleInstallments.length}/$totalInstallments cuotas visibles',
                     style: const TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
@@ -810,6 +810,10 @@ class _PaymentsPageState extends State<PaymentsPage> {
               children: [
                 _DetailGrid(
                   items: [
+                    _DetailItem(
+                      label: 'Pagos registrados',
+                      value: '${visibleHistory.length}',
+                    ),
                     _DetailItem(label: 'Cuotas pagadas', value: '$paidCount'),
                     _DetailItem(
                       label: 'Cuotas pendientes',
@@ -1902,7 +1906,9 @@ class _DetailSection extends StatelessWidget {
                 ),
               ),
             ),
-            if (trailing != null) trailing!,
+            ...(trailing != null
+                ? <Widget>[trailing!]
+                : const <Widget>[]),
           ],
         ),
         const SizedBox(height: 12),

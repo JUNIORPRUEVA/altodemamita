@@ -35,6 +35,8 @@ class PaymentSaleSummary {
     required this.totalAmount,
     required this.totalPaid,
     required this.pendingBalance,
+    required this.paymentsCount,
+    required this.installmentsCount,
     required this.requiredInitialPayment,
     required this.paidInitialPayment,
     required this.pendingInitialPayment,
@@ -51,6 +53,8 @@ class PaymentSaleSummary {
   final double totalAmount;
   final double totalPaid;
   final double pendingBalance;
+  final int paymentsCount;
+  final int installmentsCount;
   final double requiredInitialPayment;
   final double paidInitialPayment;
   final double pendingInitialPayment;
@@ -379,6 +383,8 @@ class PaymentsService {
       totalAmount: _asNum(sale['totalAmount']),
       totalPaid: _asNum(sale['paidAmount']),
       pendingBalance: _asNum(sale['outstandingBalance']),
+      paymentsCount: _asInt(sale['paymentsCount']),
+      installmentsCount: _asInt(sale['installmentsCount']),
       requiredInitialPayment: requiredInitialPayment,
       paidInitialPayment: paidInitialPayment,
       pendingInitialPayment: pendingInitialPayment,

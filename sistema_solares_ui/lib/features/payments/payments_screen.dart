@@ -21,6 +21,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
   int _lastTick = -1;
   int _page = 1;
   String? _selectedSaleId;
+  String _salesFilter = 'all';
 
   @override
   void dispose() {
@@ -61,6 +62,15 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
     });
   }
 
+  void _setSalesFilter(String filter) {
+    if (_salesFilter == filter) {
+      return;
+    }
+    setState(() {
+      _salesFilter = filter;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final refreshTick = context.watch<RealtimeController>().refreshTick;
@@ -87,29 +97,44 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
         }
         try {
           final data = snapshot.data!;
-          final sales = data.sales;
+          final sales = _filterSales(data.sales);
           final selectedSale = data.selectedSale;
           final detailErrorMessage = data.detailErrorMessage;
           _selectedSaleId ??= selectedSale?.summary.id;
+          final activeSelectedSale =
+              selectedSale != null &&
+                  sales.any((sale) => sale.id == selectedSale.summary.id)
+              ? selectedSale
+              : null;
+          if (activeSelectedSale == null && sales.isNotEmpty) {
+            final fallbackSaleId = sales.first.id;
+            if (_selectedSaleId != fallbackSaleId) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) {
+                  _selectSale(fallbackSaleId);
+                }
+              });
+            }
+          }
           final compact = MediaQuery.sizeOf(context).width < 760;
           final currency = NumberFormat.currency(locale: 'es_DO', symbol: r'$');
           final totalCollected =
-              selectedSale?.history.fold<double>(
+              activeSelectedSale?.history.fold<double>(
                 0,
                 (total, payment) => total + payment.amount,
               ) ??
               0;
           final averageTicket =
-              selectedSale == null || selectedSale.history.isEmpty
+              activeSelectedSale == null || activeSelectedSale.history.isEmpty
               ? 0.0
-              : totalCollected / selectedSale.history.length;
+              : totalCollected / activeSelectedSale.history.length;
           final methods =
-              selectedSale?.history
+              activeSelectedSale?.history
                   .map((payment) => payment.method.trim())
                   .where((method) => method.isNotEmpty)
                   .toSet() ??
               <String>{};
-          final lastPaymentDate = selectedSale?.history
+          final lastPaymentDate = activeSelectedSale?.history
               .map((payment) => payment.paymentDate)
               .whereType<DateTime>()
               .fold<DateTime?>(
@@ -118,17 +143,25 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                     ? current
                     : latest,
               );
-          final selectedSummary = selectedSale?.summary;
+          final selectedSummary = activeSelectedSale?.summary;
           final visibleOutstanding = sales.fold<double>(
             0,
             (total, sale) => total + sale.pendingBalance,
+          );
+          final visiblePayments = sales.fold<int>(
+            0,
+            (total, sale) => total + sale.paymentsCount,
+          );
+          final visibleInstallments = sales.fold<int>(
+            0,
+            (total, sale) => total + sale.installmentsCount,
           );
 
           return DesktopPageScaffold(
           title: 'Pagos',
           subtitle: compact
-              ? 'Consulta de pagos y cuotas en modo solo lectura.'
-              : 'Modulo de supervision de pagos, cuotas e historial usando datos reales del backend.',
+              ? 'Consulta alineada de cuotas y pagos reales.'
+              : 'Vista unificada de pagos reales, cuotas y resumen de cobranza en modo solo lectura.',
           toolbar: DesktopFieldToolbar(
             child: DesktopToolbar(
               searchField: DesktopSearchField(
@@ -137,9 +170,14 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                 onSubmitted: (_) => _reloadFromStart(),
               ),
               actions: [
+                _PaymentsFilterBar(
+                  currentFilter: _salesFilter,
+                  onChanged: _setSalesFilter,
+                ),
                 OutlinedButton.icon(
                   onPressed: () {
                     _searchController.clear();
+                    _setSalesFilter('all');
                     _reloadFromStart();
                   },
                   icon: const Icon(Icons.cleaning_services_outlined),
@@ -152,9 +190,15 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                 ),
               ],
               compactActions: [
+                _PaymentsFilterBar(
+                  currentFilter: _salesFilter,
+                  onChanged: _setSalesFilter,
+                  compact: true,
+                ),
                 OutlinedButton.icon(
                   onPressed: () {
                     _searchController.clear();
+                    _setSalesFilter('all');
                     _reloadFromStart();
                   },
                   icon: const Icon(Icons.cleaning_services_outlined),
@@ -178,36 +222,43 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                   children: [
                     DesktopTag(
                       label: compact
-                          ? '${data.total} ventas'
-                          : 'Ventas ${data.total}',
+                          ? '${sales.length} ventas'
+                          : 'Ventas ${sales.length}',
                       background: const Color(0xFFF1F4FA),
                     ),
                     DesktopTag(
-                      label: currency.format(visibleOutstanding),
+                      label: compact
+                          ? '$visiblePayments pagos'
+                          : 'Pagos $visiblePayments',
                       background: const Color(0xFFEAF4ED),
                       foreground: const Color(0xFF2F6F5C),
                     ),
+                    DesktopTag(
+                      label: currency.format(visibleOutstanding),
+                      background: const Color(0xFFF6EFE3),
+                      foreground: const Color(0xFF8C5A2C),
+                    ),
+                    if (!compact)
+                      DesktopTag(
+                        label: 'Cuotas $visibleInstallments',
+                        background: const Color(0xFFF5EEF8),
+                        foreground: const Color(0xFF7A4A97),
+                      ),
                     if (selectedSummary != null && !compact)
                       DesktopTag(
                         label:
                             'Pagado ${currency.format(selectedSummary.totalPaid)}',
-                        background: const Color(0xFFF6EFE3),
-                        foreground: const Color(0xFF8C5A2C),
-                      ),
-                    if (selectedSale != null && !compact)
-                      DesktopTag(
-                        label: 'Historial ${selectedSale.history.length}',
-                        background: const Color(0xFFF5EEF8),
-                        foreground: const Color(0xFF7A4A97),
+                        background: const Color(0xFFEAF4ED),
+                        foreground: const Color(0xFF2F6F5C),
                       ),
                     if (!compact)
                       DesktopTag(
                         label: 'Pag. ${data.page}/${data.totalPages}',
                         background: const Color(0xFFF1F4FA),
                       ),
-                    if (selectedSale != null)
+                    if (activeSelectedSale != null)
                       DesktopTag(
-                        label: selectedSale.stageLabel,
+                        label: activeSelectedSale.stageLabel,
                         background: const Color(0xFFF7F1E4),
                         foreground: const Color(0xFF8C5A2C),
                       ),
@@ -222,12 +273,15 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
               const SizedBox(height: 16),
               Expanded(
                 child: sales.isEmpty
-                    ? const DesktopEmptyState(
-                        icon: Icons.payments_outlined,
-                        title: 'No se encontraron ventas para pagos',
-                        message:
-                            'Prueba otra busqueda o espera a la siguiente sincronizacion del backend.',
-                      )
+                  ? DesktopEmptyState(
+                    icon: Icons.payments_outlined,
+                    title: _salesFilter == 'all'
+                      ? 'No se encontraron ventas para pagos'
+                      : 'No hay resultados para este filtro',
+                    message: _salesFilter == 'all'
+                      ? 'Prueba otra busqueda o espera a la siguiente sincronizacion del backend.'
+                      : 'Ajusta el filtro de pendientes o realizados para ver otras ventas.',
+                    )
                     : LayoutBuilder(
                         builder: (context, constraints) {
                           final stacked = constraints.maxWidth < 1100;
@@ -241,18 +295,18 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                                   scrollable: false,
                                 ),
                                 const SizedBox(height: 12),
-                                if (selectedSale != null) ...[
-                                  _buildSummaryPanel(selectedSale, currency),
+                                if (activeSelectedSale != null) ...[
+                                  _buildSummaryPanel(activeSelectedSale, currency),
                                   const SizedBox(height: 12),
                                   _buildInstallmentsPanel(
-                                    selectedSale,
+                                    activeSelectedSale,
                                     currency,
                                     compact,
                                     scrollable: false,
                                   ),
                                   const SizedBox(height: 12),
                                   _buildHistoryPanel(
-                                    selectedSale,
+                                    activeSelectedSale,
                                     currency,
                                     averageTicket,
                                     methods.length,
@@ -278,7 +332,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                               const SizedBox(width: 12),
                               Expanded(
                                 flex: 36,
-                                child: selectedSale == null
+                                child: activeSelectedSale == null
                                     ? DesktopEmptyState(
                                         icon: Icons.view_list_outlined,
                                         title: detailErrorMessage == null
@@ -289,7 +343,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                                             'Elige una venta de la lista para ver cuotas e historial.',
                                       )
                                     : _buildInstallmentsPanel(
-                                        selectedSale,
+                                        activeSelectedSale,
                                         currency,
                                         compact,
                                       ),
@@ -297,20 +351,20 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                               const SizedBox(width: 12),
                               Expanded(
                                 flex: 30,
-                                child: selectedSale == null
+                                child: activeSelectedSale == null
                                     ? const SizedBox.shrink()
                                     : Column(
                                         crossAxisAlignment:
                                             CrossAxisAlignment.stretch,
                                         children: [
                                           _buildSummaryPanel(
-                                            selectedSale,
+                                            activeSelectedSale,
                                             currency,
                                           ),
                                           const SizedBox(height: 12),
                                           Expanded(
                                             child: _buildHistoryPanel(
-                                              selectedSale,
+                                              activeSelectedSale,
                                               currency,
                                               averageTicket,
                                               methods.length,
@@ -345,13 +399,26 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
     );
   }
 
+  List<PaymentSaleSummary> _filterSales(List<PaymentSaleSummary> sales) {
+    return sales.where((sale) => _matchesSalesFilter(sale)).toList(growable: false);
+  }
+
+  bool _matchesSalesFilter(PaymentSaleSummary sale) {
+    return switch (_salesFilter) {
+      'pending' => sale.pendingInitialPayment > 0.009 || sale.pendingBalance > 0.009,
+      'completed' => sale.paymentsCount > 0,
+      _ => true,
+    };
+  }
+
   Widget _buildSalesPanel(
     PaymentsReadOnlyData data,
     NumberFormat currency,
     bool compact, {
     bool scrollable = true,
   }) {
-    final content = data.sales.isEmpty
+    final visibleSales = _filterSales(data.sales);
+    final content = visibleSales.isEmpty
         ? const DesktopEmptyState(
             icon: Icons.payments_outlined,
             title: 'Sin ventas visibles',
@@ -359,7 +426,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
           )
         : (scrollable
               ? DesktopModuleList(
-                  children: data.sales
+                  children: visibleSales
                       .map((sale) {
                         final selected = sale.id == _selectedSaleId;
                         return _buildSaleRow(sale, selected, compact, currency);
@@ -367,7 +434,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                       .toList(growable: false),
                 )
               : _StaticPaymentsList(
-                  children: data.sales
+                  children: visibleSales
                       .map((sale) {
                         final selected = sale.id == _selectedSaleId;
                         return _buildSaleRow(sale, selected, compact, currency);
@@ -392,7 +459,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                 ),
               ),
               DesktopTag(
-                label: '${data.total} visibles',
+                label: '${visibleSales.length} visibles',
                 background: const Color(0xFFF1F4FA),
               ),
             ],
@@ -462,6 +529,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
             if (sale.contractNumber.isNotEmpty) sale.contractNumber,
             sale.lotLabel,
             _statusLabel(sale.status),
+            '${sale.paymentsCount} pagos',
             _formatDate(sale.saleDate),
           ].join(compact ? '\n' : '  •  '),
           maxLines: compact ? 4 : 2,
@@ -472,6 +540,11 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
           spacing: 8,
           runSpacing: 8,
           children: [
+            DesktopTag(
+              label: '${sale.paymentsCount} pagos',
+              background: const Color(0xFFEAF4ED),
+              foreground: const Color(0xFF2F6F5C),
+            ),
             DesktopTag(
               label: currency.format(sale.pendingBalance),
               background: const Color(0xFFF6EFE3),
@@ -631,6 +704,14 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
               _SummaryItem(
                 label: 'Saldo pendiente',
                 value: currency.format(sale.pendingBalance),
+              ),
+              _SummaryItem(
+                label: 'Pagos registrados',
+                value: '${sale.paymentsCount}',
+              ),
+              _SummaryItem(
+                label: 'Cuotas generadas',
+                value: '${sale.installmentsCount}',
               ),
               _SummaryItem(
                 label: 'Inicial requerida',
@@ -954,6 +1035,53 @@ class _StaticPaymentsList extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+class _PaymentsFilterBar extends StatelessWidget {
+  const _PaymentsFilterBar({
+    required this.currentFilter,
+    required this.onChanged,
+    this.compact = false,
+  });
+
+  final String currentFilter;
+  final ValueChanged<String> onChanged;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final chips = [
+      ('all', 'Todas'),
+      ('pending', 'Pendientes'),
+      ('completed', 'Realizados'),
+    ];
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: chips.map((entry) {
+        final selected = currentFilter == entry.$1;
+        return ChoiceChip(
+          label: Text(entry.$2),
+          selected: selected,
+          onSelected: (_) => onChanged(entry.$1),
+          labelStyle: TextStyle(
+            fontSize: compact ? 12 : 13,
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+            color: selected ? const Color(0xFF2F6F5C) : const Color(0xFF556079),
+          ),
+          selectedColor: const Color(0xFFEAF4ED),
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(999),
+            side: BorderSide(
+              color: selected ? const Color(0xFF2F6F5C) : const Color(0xFFD0D7E4),
+            ),
+          ),
+        );
+      }).toList(growable: false),
     );
   }
 }

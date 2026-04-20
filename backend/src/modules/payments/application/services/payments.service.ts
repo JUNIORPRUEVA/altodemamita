@@ -124,12 +124,24 @@ export class PaymentsService {
       }),
     ]);
 
+    const enrichedItems = await Promise.all(
+      items.map(async (item) => ({
+        ...item,
+        paymentsCount: await this.prisma.payment.count({
+          where: { saleId: item.id, deletedAt: null },
+        }),
+        installmentsCount: await this.prisma.installment.count({
+          where: { saleId: item.id, deletedAt: null },
+        }),
+      })),
+    );
+
     this.logger.log(
-      `payments sales read model search="${query.search ?? ''}" page=${query.page} limit=${query.limit} total=${total} returned=${items.length}`,
+      `payments sales read model search="${query.search ?? ''}" page=${query.page} limit=${query.limit} total=${total} returned=${enrichedItems.length}`,
     );
 
     return {
-      items,
+      items: enrichedItems,
       meta: {
         total,
         page: query.page,
