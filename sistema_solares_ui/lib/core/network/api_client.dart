@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:developer' as developer;
 
 import 'package:http/http.dart' as http;
 import 'package:sistema_solares_ui/core/config/app_config.dart';
@@ -134,6 +135,12 @@ class ApiClient {
 
     final hasBody = response.body.trim().isNotEmpty;
     final decoded = hasBody ? jsonDecode(response.body) : null;
+    _logPaymentsTraffic(
+      method: method,
+      uri: uri,
+      statusCode: response.statusCode,
+      decoded: decoded,
+    );
     if (response.statusCode >= 200 && response.statusCode < 300) {
       return _unwrapEnvelope(decoded);
     }
@@ -192,5 +199,38 @@ class ApiClient {
       }
     }
     return null;
+  }
+
+  void _logPaymentsTraffic({
+    required String method,
+    required Uri uri,
+    required int statusCode,
+    required dynamic decoded,
+  }) {
+    if (!_isPaymentsDebugPath(uri.path)) {
+      return;
+    }
+
+    developer.log(
+      'Payments request $method ${uri.toString()} -> $statusCode payload=${_summarizePayload(decoded)}',
+      name: 'SistemaSolares.PaymentsApi',
+    );
+  }
+
+  bool _isPaymentsDebugPath(String path) {
+    final normalized = path.toLowerCase();
+    return normalized.contains('/payments');
+  }
+
+  String _summarizePayload(dynamic decoded) {
+    try {
+      final encoded = jsonEncode(decoded);
+      if (encoded.length <= 1200) {
+        return encoded;
+      }
+      return '${encoded.substring(0, 1200)}...(truncated)';
+    } catch (_) {
+      return decoded?.toString() ?? 'null';
+    }
   }
 }

@@ -1,3 +1,5 @@
+import 'dart:developer' as developer;
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -83,45 +85,46 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
             onRetry: _reload,
           );
         }
+        try {
+          final data = snapshot.data!;
+          final sales = data.sales;
+          final selectedSale = data.selectedSale;
+          final detailErrorMessage = data.detailErrorMessage;
+          _selectedSaleId ??= selectedSale?.summary.id;
+          final compact = MediaQuery.sizeOf(context).width < 760;
+          final currency = NumberFormat.currency(locale: 'es_DO', symbol: r'$');
+          final totalCollected =
+              selectedSale?.history.fold<double>(
+                0,
+                (total, payment) => total + payment.amount,
+              ) ??
+              0;
+          final averageTicket =
+              selectedSale == null || selectedSale.history.isEmpty
+              ? 0.0
+              : totalCollected / selectedSale.history.length;
+          final methods =
+              selectedSale?.history
+                  .map((payment) => payment.method.trim())
+                  .where((method) => method.isNotEmpty)
+                  .toSet() ??
+              <String>{};
+          final lastPaymentDate = selectedSale?.history
+              .map((payment) => payment.paymentDate)
+              .whereType<DateTime>()
+              .fold<DateTime?>(
+                null,
+                (latest, current) => latest == null || current.isAfter(latest)
+                    ? current
+                    : latest,
+              );
+          final selectedSummary = selectedSale?.summary;
+          final visibleOutstanding = sales.fold<double>(
+            0,
+            (total, sale) => total + sale.pendingBalance,
+          );
 
-        final data = snapshot.data!;
-        final sales = data.sales;
-        final selectedSale = data.selectedSale;
-        final detailErrorMessage = data.detailErrorMessage;
-        _selectedSaleId ??= selectedSale?.summary.id;
-        final compact = MediaQuery.sizeOf(context).width < 760;
-        final currency = NumberFormat.currency(locale: 'es_DO', symbol: r'$');
-        final totalCollected =
-            selectedSale?.history.fold<double>(
-              0,
-              (total, payment) => total + payment.amount,
-            ) ??
-            0;
-        final averageTicket =
-            selectedSale == null || selectedSale.history.isEmpty
-            ? 0.0
-            : totalCollected / selectedSale.history.length;
-        final methods =
-            selectedSale?.history
-                .map((payment) => payment.method.trim())
-                .where((method) => method.isNotEmpty)
-                .toSet() ??
-            <String>{};
-        final lastPaymentDate = selectedSale?.history
-            .map((payment) => payment.paymentDate)
-            .whereType<DateTime>()
-            .fold<DateTime?>(
-              null,
-              (latest, current) =>
-                  latest == null || current.isAfter(latest) ? current : latest,
-            );
-        final selectedSummary = selectedSale?.summary;
-        final visibleOutstanding = sales.fold<double>(
-          0,
-          (total, sale) => total + sale.pendingBalance,
-        );
-
-        return DesktopPageScaffold(
+          return DesktopPageScaffold(
           title: 'Pagos',
           subtitle: compact
               ? 'Consulta de pagos y cuotas en modo solo lectura.'
@@ -328,6 +331,19 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
             ],
           ),
         );
+        } catch (error, stackTrace) {
+          developer.log(
+            'Payments screen render failed.',
+            name: 'SistemaSolares.PaymentsScreen',
+            error: error,
+            stackTrace: stackTrace,
+          );
+          return DesktopPageError(
+            message:
+                'No se pudieron renderizar los pagos. Revisa los logs del modulo para ver el endpoint, payload y motivo del fallo.',
+            onRetry: _reload,
+          );
+        }
       },
     );
   }

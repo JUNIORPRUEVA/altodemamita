@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma, SaleStatus, SyncStatus } from '@prisma/client';
 
 import { PrismaService } from 'src/infrastructure/prisma/prisma.service';
@@ -11,6 +11,8 @@ import { UpdatePaymentDto } from '../dto/update-payment.dto';
 
 @Injectable()
 export class PaymentsService {
+  private readonly logger = new Logger(PaymentsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly accountingService: LoanAccountingService,
@@ -122,6 +124,10 @@ export class PaymentsService {
       }),
     ]);
 
+    this.logger.log(
+      `payments sales read model search="${query.search ?? ''}" page=${query.page} limit=${query.limit} total=${total} returned=${items.length}`,
+    );
+
     return {
       items,
       meta: {
@@ -156,8 +162,13 @@ export class PaymentsService {
     });
 
     if (!sale) {
+      this.logger.warn(`payments sale detail not found for saleId=${id}`);
       throw new NotFoundException('Venta no encontrada para el panel de pagos.');
     }
+
+    this.logger.log(
+      `payments sale detail saleId=${id} installments=${sale.installments.length} payments=${sale.payments.length}`,
+    );
 
     return sale;
   }

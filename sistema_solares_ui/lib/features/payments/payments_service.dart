@@ -1,3 +1,5 @@
+import 'dart:developer' as developer;
+
 import 'package:sistema_solares_ui/core/network/api_client.dart';
 
 class PaymentsReadOnlyData {
@@ -192,6 +194,10 @@ class PaymentsService {
     String? selectedSaleId,
   }) async {
     try {
+      developer.log(
+        'Loading payments read model from /payments/sales page=$page limit=$limit search=${search?.trim() ?? ''} selectedSaleId=${selectedSaleId ?? ''}',
+        name: 'SistemaSolares.PaymentsPwa',
+      );
       final response = await _apiClient.get(
         '/payments/sales',
         queryParameters: {
@@ -207,6 +213,10 @@ class PaymentsService {
         normalized['items'],
       ).map(_asMap).map(_mapSaleSummary).toList(growable: false);
       final meta = _asMap(normalized['meta'] ?? const <String, dynamic>{});
+      developer.log(
+        'Payments sales payload parsed: items=${sales.length} total=${_asInt(meta['total'])} page=${_asInt(meta['page'], fallback: page)}',
+        name: 'SistemaSolares.PaymentsPwa',
+      );
       final effectiveSaleId = _resolveSelectedSaleId(sales, selectedSaleId);
       PaymentSaleDetail? selectedSale;
       String? detailErrorMessage;
@@ -215,9 +225,18 @@ class PaymentsService {
           selectedSale = await fetchSaleDetail(effectiveSaleId);
         } on ApiException catch (error) {
           detailErrorMessage = error.message;
+          developer.log(
+            'Payments detail failed for sale=$effectiveSaleId: ${error.message}',
+            name: 'SistemaSolares.PaymentsPwa',
+            error: error,
+          );
         } catch (_) {
           detailErrorMessage =
               'No se pudo cargar el detalle de la venta seleccionada.';
+          developer.log(
+            'Payments detail failed for sale=$effectiveSaleId with unexpected error.',
+            name: 'SistemaSolares.PaymentsPwa',
+          );
         }
       }
 
@@ -235,17 +254,32 @@ class PaymentsService {
         ),
       );
     } on ApiException catch (error) {
+      developer.log(
+        'Payments read model request failed: ${error.message}',
+        name: 'SistemaSolares.PaymentsPwa',
+        error: error,
+      );
       throw ApiException(
         _readFriendlyMessage(error),
         statusCode: error.statusCode,
       );
-    } catch (_) {
+    } catch (error, stackTrace) {
+      developer.log(
+        'Payments read model parsing failed.',
+        name: 'SistemaSolares.PaymentsPwa',
+        error: error,
+        stackTrace: stackTrace,
+      );
       throw ApiException('No se pudieron cargar los pagos.');
     }
   }
 
   Future<PaymentSaleDetail> fetchSaleDetail(String id) async {
     try {
+      developer.log(
+        'Loading payments detail from /payments/sales/$id',
+        name: 'SistemaSolares.PaymentsPwa',
+      );
       final response = await _apiClient.get('/payments/sales/$id');
       final sale = _asOptionalMap(response);
       if (sale == null) {
@@ -258,6 +292,10 @@ class PaymentsService {
       final history = _asList(
         sale['payments'],
       ).map(_asMap).map(_mapHistory).toList(growable: false);
+      developer.log(
+        'Payments detail parsed for sale=$id installments=${installments.length} history=${history.length}',
+        name: 'SistemaSolares.PaymentsPwa',
+      );
 
       return PaymentSaleDetail(
         summary: summary,
@@ -271,11 +309,22 @@ class PaymentsService {
         history: history,
       );
     } on ApiException catch (error) {
+      developer.log(
+        'Payments detail request failed for sale=$id: ${error.message}',
+        name: 'SistemaSolares.PaymentsPwa',
+        error: error,
+      );
       throw ApiException(
         _readFriendlyMessage(error),
         statusCode: error.statusCode,
       );
-    } catch (_) {
+    } catch (error, stackTrace) {
+      developer.log(
+        'Payments detail parsing failed for sale=$id.',
+        name: 'SistemaSolares.PaymentsPwa',
+        error: error,
+        stackTrace: stackTrace,
+      );
       throw ApiException('No se pudo cargar el detalle de pagos.');
     }
   }
