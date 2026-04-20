@@ -284,7 +284,9 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                     )
                     : LayoutBuilder(
                         builder: (context, constraints) {
-                          final stacked = constraints.maxWidth < 1100;
+                          final stacked =
+                              constraints.maxWidth < 1100 ||
+                              constraints.maxHeight < 720;
                           if (stacked) {
                             return ListView(
                               children: [
@@ -750,24 +752,34 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
     bool compact,
   ) {
     return _PaymentsPanelSurface(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _buildSummaryPanel(detail, currency),
-          const SizedBox(height: 12),
-          const Divider(height: 1),
-          const SizedBox(height: 12),
-          Expanded(
-            child: _buildHistoryPanel(
-              detail,
-              currency,
-              averageTicket,
-              methodsCount,
-              compact,
-              embedded: true,
-            ),
-          ),
-        ],
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return ListView(
+            padding: EdgeInsets.zero,
+            children: [
+              _buildSummaryPanel(detail, currency),
+              const SizedBox(height: 12),
+              const Divider(height: 1),
+              const SizedBox(height: 12),
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: constraints.maxHeight > 280
+                      ? constraints.maxHeight - 280
+                      : 0,
+                ),
+                child: _buildHistoryPanel(
+                  detail,
+                  currency,
+                  averageTicket,
+                  methodsCount,
+                  compact,
+                  scrollable: false,
+                  embedded: true,
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
