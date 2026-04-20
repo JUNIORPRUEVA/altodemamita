@@ -22,10 +22,19 @@ class _ReportsScreenState extends State<ReportsScreen> {
   int _lastTick = -1;
 
   static DateTimeRange _defaultRange() {
+    return _todayRange();
+  }
+
+  static DateTimeRange _todayRange() {
     final now = DateTime.now();
+    return DateTimeRange(start: _startOfDay(now), end: _endOfDay(now));
+  }
+
+  static DateTimeRange _yesterdayRange() {
+    final yesterday = DateTime.now().subtract(const Duration(days: 1));
     return DateTimeRange(
-      start: _startOfDay(now.subtract(const Duration(days: 1))),
-      end: _endOfDay(now),
+      start: _startOfDay(yesterday),
+      end: _endOfDay(yesterday),
     );
   }
 
@@ -85,9 +94,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   String _mobileRangeLabel() {
-    final defaultRange = _defaultRange();
-    if (_matchesRange(defaultRange)) {
-      return 'Ayer y hoy';
+    if (_matchesRange(_todayRange())) {
+      return 'Hoy';
+    }
+
+    if (_matchesRange(_yesterdayRange())) {
+      return 'Ayer';
     }
 
     final formatter = DateFormat('dd MMM', 'es_DO');
@@ -113,16 +125,18 @@ class _ReportsScreenState extends State<ReportsScreen> {
         if (snapshot.connectionState != ConnectionState.done) {
           return const Center(child: CircularProgressIndicator());
         }
-        if (snapshot.hasError) {
+
+        final data = snapshot.data;
+        if (data == null) {
           return DesktopPageError(
-            message: snapshot.error.toString(),
+            message:
+                snapshot.error?.toString() ?? 'No se pudo cargar reportes.',
             onRetry: () => _reloadForRange(_selectedRange),
           );
         }
-
-        final data = snapshot.data!;
         final summary = data.dashboard;
         final reports = data.reports;
+        final warningMessage = data.warningMessage;
         final currency = AppNumberFormats.currency;
         final compact = MediaQuery.sizeOf(context).width < 760;
 
@@ -258,11 +272,19 @@ class _ReportsScreenState extends State<ReportsScreen> {
             toolbar: DesktopFieldToolbar(
               child: _MobileReportsFilterBar(
                 activeLabel: _mobileRangeLabel(),
+                isTodaySelected: _matchesRange(_todayRange()),
+                isYesterdaySelected: _matchesRange(_yesterdayRange()),
+                onSelectToday: () => _reloadForRange(_todayRange()),
+                onSelectYesterday: () => _reloadForRange(_yesterdayRange()),
                 onOpenFilter: _selectCustomRange,
               ),
             ),
             child: ListView(
               children: [
+                if (warningMessage != null) ...[
+                  _ReportsWarningBanner(message: warningMessage),
+                  const SizedBox(height: 12),
+                ],
                 _CompactMetricsPanel(cards: mobileSummaryCards),
                 const SizedBox(height: 12),
                 _CompactFocusCard(
@@ -356,14 +378,20 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   ),
                   ...[
                     _QuickRangeOption(label: 'Hoy', days: 1),
-                    _QuickRangeOption(label: 'Ayer y hoy', days: 2),
+                    _QuickRangeOption(label: 'Ayer', days: 0),
                     _QuickRangeOption(label: '7 dias', days: 7),
                     _QuickRangeOption(label: '30 dias', days: 30),
                   ].map(
                     (option) => ChoiceChip(
                       label: Text(option.label),
-                      selected: _matchesRange(_rangeForLastDays(option.days)),
-                      onSelected: (_) => _reloadForRange(_rangeForLastDays(option.days)),
+                      selected: option.days == 0
+                          ? _matchesRange(_yesterdayRange())
+                          : _matchesRange(_rangeForLastDays(option.days)),
+                      onSelected: (_) => _reloadForRange(
+                        option.days == 0
+                            ? _yesterdayRange()
+                            : _rangeForLastDays(option.days),
+                      ),
                     ),
                   ),
                   OutlinedButton.icon(
@@ -377,6 +405,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
           ),
           child: ListView(
             children: [
+              if (warningMessage != null) ...[
+                _ReportsWarningBanner(message: warningMessage),
+                const SizedBox(height: 16),
+              ],
               LayoutBuilder(
                 builder: (context, constraints) {
                   final wide = constraints.maxWidth >= 1180;
@@ -622,18 +654,74 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   Future<_ReportsScreenData> _loadData(BuildContext context) async {
     final apiClient = context.read<ApiClient>();
-    final results = await Future.wait<dynamic>([
-      DashboardService(apiClient).fetchSnapshot(),
-      ReportsService(apiClient).fetchBundle(
-        from: _selectedRange.start,
-        to: _selectedRange.end,
-      ),
-    ]);
+    String? warningMessage;
+
+    final dashboard = await DashboardService(apiClient)
+        .fetchSnapshot()
+        .catchError((error) {
+          warningMessage = _mergeWarning(
+            warningMessage,
+            _buildLoadWarning(error, scope: 'resumen'),
+          );
+          return _emptyDashboardSnapshot();
+        });
+
+    final reports = await ReportsService(apiClient)
+        .fetchBundle(from: _selectedRange.start, to: _selectedRange.end)
+        .catchError((error) {
+          warningMessage = _mergeWarning(
+            warningMessage,
+            _buildLoadWarning(error, scope: 'detalle'),
+          );
+          return _emptyReportsBundle();
+        });
 
     return _ReportsScreenData(
-      dashboard: results[0] as DashboardSnapshot,
-      reports: results[1] as ReportsBundle,
+      dashboard: dashboard,
+      reports: reports,
+      warningMessage: warningMessage,
     );
+  }
+
+  DashboardSnapshot _emptyDashboardSnapshot() {
+    return DashboardSnapshot(
+      summary: const <String, dynamic>{
+        'totalPortfolio': 0,
+        'totalCollected': 0,
+        'outstanding': 0,
+        'products': 0,
+        'clients': 0,
+        'activeSales': 0,
+        'overdueInstallments': 0,
+      },
+      recentSales: const <Map<String, dynamic>>[],
+      recentPayments: const <Map<String, dynamic>>[],
+    );
+  }
+
+  ReportsBundle _emptyReportsBundle() {
+    return ReportsBundle(
+      sales: const <Map<String, dynamic>>[],
+      payments: const <Map<String, dynamic>>[],
+      delinquency: const <Map<String, dynamic>>[],
+    );
+  }
+
+  String _buildLoadWarning(Object error, {required String scope}) {
+    if (error is ApiException && error.statusCode == 403) {
+      return 'El backend no autorizo cargar el $scope del reporte. La pantalla sigue visible con datos vacios.';
+    }
+    return 'No se pudo cargar el $scope del reporte. La pantalla sigue visible mientras se reintenta o llega nueva sincronizacion.';
+  }
+
+  String _mergeWarning(String? current, String next) {
+    if (current == null || current.trim().isEmpty) {
+      return next;
+    }
+    if (current.contains(next)) {
+      return current;
+    }
+    return '$current $next';
   }
 
   double _sumAmount(List<Map<String, dynamic>> items, String key) {
@@ -696,10 +784,61 @@ class _ReportsScreenState extends State<ReportsScreen> {
 }
 
 class _ReportsScreenData {
-  const _ReportsScreenData({required this.dashboard, required this.reports});
+  const _ReportsScreenData({
+    required this.dashboard,
+    required this.reports,
+    this.warningMessage,
+  });
 
   final DashboardSnapshot dashboard;
   final ReportsBundle reports;
+  final String? warningMessage;
+}
+
+class _ReportsWarningBanner extends StatelessWidget {
+  const _ReportsWarningBanner({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return DesktopInfoStrip(
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFF6E8),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFF0D8A8)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Padding(
+              padding: EdgeInsets.only(top: 1),
+              child: Icon(
+                Icons.info_outline_rounded,
+                size: 18,
+                color: Color(0xFF9A6714),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(
+                  fontSize: 13,
+                  height: 1.4,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF7B5615),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _QuickRangeOption {
@@ -712,68 +851,104 @@ class _QuickRangeOption {
 class _MobileReportsFilterBar extends StatelessWidget {
   const _MobileReportsFilterBar({
     required this.activeLabel,
+    required this.isTodaySelected,
+    required this.isYesterdaySelected,
+    required this.onSelectToday,
+    required this.onSelectYesterday,
     required this.onOpenFilter,
   });
 
   final String activeLabel;
+  final bool isTodaySelected;
+  final bool isYesterdaySelected;
+  final VoidCallback onSelectToday;
+  final VoidCallback onSelectYesterday;
   final Future<void> Function() onOpenFilter;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Expanded(
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFE3EAF3)),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  'Rango activo',
-                  style: TextStyle(
-                    color: Color(0xFF788396),
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w700,
-                  ),
+        Row(
+          children: [
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  activeLabel,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Color(0xFF12385F),
-                    fontSize: 13,
-                    fontWeight: FontWeight.w800,
-                  ),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFE3EAF3)),
                 ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(width: 8),
-        SizedBox(
-          height: 44,
-          child: OutlinedButton.icon(
-            onPressed: onOpenFilter,
-            icon: const Icon(Icons.tune_rounded, size: 18),
-            label: const Text('Filtrar'),
-            style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              side: const BorderSide(color: Color(0xFFD8E2EE)),
-              foregroundColor: const Color(0xFF173450),
-              backgroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'Rango activo',
+                      style: TextStyle(
+                        color: Color(0xFF788396),
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      activeLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF12385F),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
+            const SizedBox(width: 8),
+            SizedBox(
+              height: 44,
+              child: OutlinedButton.icon(
+                onPressed: onOpenFilter,
+                icon: const Icon(Icons.tune_rounded, size: 18),
+                label: const Text('Filtrar'),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
+                  side: const BorderSide(color: Color(0xFFD8E2EE)),
+                  foregroundColor: const Color(0xFF173450),
+                  backgroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            ChoiceChip(
+              label: const Text('Hoy'),
+              selected: isTodaySelected,
+              onSelected: (_) => onSelectToday(),
+            ),
+            ChoiceChip(
+              label: const Text('Ayer'),
+              selected: isYesterdaySelected,
+              onSelected: (_) => onSelectYesterday(),
+            ),
+          ],
         ),
       ],
     );

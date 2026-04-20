@@ -13,7 +13,7 @@ class DesktopPageScaffold extends StatelessWidget {
     this.toolbar,
     this.child,
     this.showDesktopTitle = false,
-    this.showMobileTitle = true,
+    this.showMobileTitle = false,
   });
 
   final String title;

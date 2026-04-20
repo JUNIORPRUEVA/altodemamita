@@ -65,7 +65,7 @@ class _SalesScreenState extends State<SalesScreen> {
         return DesktopPageScaffold(
           title: 'Ventas',
           subtitle: compact
-              ? 'Vista limpia de ventas activas y monto visible.'
+              ? null
               : 'Consulta de ventas y detalle de operaciones registradas.',
           toolbar: DesktopFieldToolbar(
             child: DesktopToolbar(
@@ -184,7 +184,7 @@ class _SalesScreenState extends State<SalesScreen> {
                           ];
 
                           return DesktopListRow(
-                            height: compact ? 84 : 82,
+                            height: compact ? 76 : 82,
                             onTap: () =>
                                 _openDetail(item['id']?.toString() ?? ''),
                             leading: Container(
@@ -206,19 +206,19 @@ class _SalesScreenState extends State<SalesScreen> {
                               client,
                               style: TextStyle(
                                 fontWeight: FontWeight.w800,
-                                fontSize: compact ? 13.5 : null,
+                                fontSize: compact ? 12.6 : null,
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
                             subtitle: Text(
-                              subtitleParts.join(compact ? '\n' : '  •  '),
+                              subtitleParts.join(compact ? '  •  ' : '  •  '),
                               style: TextStyle(
                                 color: const Color(0xFF6E7791),
-                                fontSize: compact ? 11.5 : null,
-                                height: compact ? 1.25 : null,
+                                fontSize: compact ? 10.8 : null,
+                                height: compact ? 1.1 : null,
                               ),
-                              maxLines: compact ? 2 : 1,
+                              maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
                             trailing: Wrap(

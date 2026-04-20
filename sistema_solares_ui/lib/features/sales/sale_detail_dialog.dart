@@ -122,10 +122,10 @@ class _DetailHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: EdgeInsets.fromLTRB(
-        compact ? 12 : 18,
-        compact ? 12 : 14,
-        compact ? 8 : 12,
-        compact ? 12 : 14,
+        compact ? 10 : 18,
+        compact ? 10 : 14,
+        compact ? 6 : 12,
+        compact ? 10 : 14,
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
@@ -148,25 +148,71 @@ class _DetailHeader extends StatelessWidget {
           final titleBlock = Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'Venta #${viewModel.saleId}  ·  ${viewModel.clientName}',
-                maxLines: stacked ? 2 : 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: compact ? 18 : 21,
-                  fontWeight: FontWeight.w800,
-                  color: const Color(0xFF14273F),
+              if (!compact)
+                Text(
+                  'Venta #${viewModel.saleId}  ·  ${viewModel.clientName}',
+                  maxLines: stacked ? 2 : 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: compact ? 18 : 21,
+                    fontWeight: FontWeight.w800,
+                    color: const Color(0xFF14273F),
+                  ),
                 ),
-              ),
+              if (compact)
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF1F4FA),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: const Color(0xFFE0E7F0)),
+                      ),
+                      child: Text(
+                        '#${viewModel.saleId}',
+                        style: const TextStyle(
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF506078),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        viewModel.clientName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF14273F),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: _StatusChip(
+                        label: viewModel.statusLabel,
+                        tone: viewModel.statusTone,
+                        compact: true,
+                      ),
+                    ),
+                  ],
+                ),
               const SizedBox(height: 3),
               Text(
                 viewModel.headerSubtitle,
-                maxLines: stacked ? 2 : 1,
+                maxLines: compact ? 1 : (stacked ? 2 : 1),
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 13,
+                style: TextStyle(
+                  fontSize: compact ? 11.5 : 13,
                   color: Color(0xFF7E8BA0),
-                  height: 1.35,
+                  height: compact ? 1.2 : 1.35,
                 ),
               ),
             ],
@@ -177,28 +223,32 @@ class _DetailHeader extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     leading,
-                    const SizedBox(width: 10),
+                    const SizedBox(width: 8),
                     Expanded(child: titleBlock),
                     IconButton(
                       onPressed: () => Navigator.of(context).pop(),
                       icon: const Icon(Icons.close),
                       style: IconButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        minimumSize: const Size(32, 32),
                         foregroundColor: const Color(0xFF6A7684),
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 10),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: _StatusChip(
-                    label: viewModel.statusLabel,
-                    tone: viewModel.statusTone,
+                if (!compact) ...[
+                  const SizedBox(height: 10),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: _StatusChip(
+                      label: viewModel.statusLabel,
+                      tone: viewModel.statusTone,
+                    ),
                   ),
-                ),
+                ],
               ],
             );
           }
@@ -219,6 +269,8 @@ class _DetailHeader extends StatelessWidget {
                 onPressed: () => Navigator.of(context).pop(),
                 icon: const Icon(Icons.close),
                 style: IconButton.styleFrom(
+                  padding: EdgeInsets.zero,
+                  minimumSize: const Size(34, 34),
                   foregroundColor: const Color(0xFF6A7684),
                 ),
               ),
@@ -241,8 +293,8 @@ class _TopInfoBand extends StatelessWidget {
 
     return Container(
       padding: EdgeInsets.symmetric(
-        horizontal: compact ? 12 : 16,
-        vertical: compact ? 12 : 14,
+        horizontal: compact ? 10 : 16,
+        vertical: compact ? 10 : 14,
       ),
       decoration: BoxDecoration(
         color: const Color(0xFFF9FBFE),
@@ -670,21 +722,46 @@ class _DialogFooter extends StatelessWidget {
 
     final exportButton = OutlinedButton.icon(
       onPressed: () => _showPrintHint(context, 'Exportar PDF'),
-      icon: const Icon(Icons.file_download_outlined),
-      label: const Text('Exportar PDF'),
+      icon: Icon(Icons.file_download_outlined, size: compact ? 15 : 18),
+      label: Text(
+        'Exportar',
+        style: TextStyle(fontSize: compact ? 11.5 : null),
+      ),
+      style: compact
+          ? OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              minimumSize: const Size(0, 34),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            )
+          : null,
     );
     final printButton = FilledButton.tonalIcon(
       onPressed: () => _showPrintHint(context, 'Imprimir'),
-      icon: const Icon(Icons.print_outlined),
-      label: const Text('Imprimir'),
+      icon: Icon(Icons.print_outlined, size: compact ? 15 : 18),
+      label: Text(
+        'Imprimir',
+        style: TextStyle(fontSize: compact ? 11.5 : null),
+      ),
+      style: compact
+          ? FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              minimumSize: const Size(0, 34),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            )
+          : null,
     );
     final closeButton = FilledButton(
       style: FilledButton.styleFrom(
         backgroundColor: const Color(0xFF14385F),
         foregroundColor: Colors.white,
+        padding: compact
+            ? const EdgeInsets.symmetric(horizontal: 10, vertical: 8)
+            : null,
+        minimumSize: compact ? const Size(0, 34) : null,
+        tapTargetSize: compact ? MaterialTapTargetSize.shrinkWrap : null,
       ),
       onPressed: () => Navigator.of(context).pop(),
-      child: const Text('Cerrar'),
+      child: Text('Cerrar', style: TextStyle(fontSize: compact ? 11.5 : null)),
     );
 
     return Padding(
@@ -708,11 +785,18 @@ class _DialogFooter extends StatelessWidget {
                   ),
                   const SizedBox(height: 10),
                 ],
-                exportButton,
-                const SizedBox(height: 8),
-                printButton,
-                const SizedBox(height: 8),
-                closeButton,
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      exportButton,
+                      const SizedBox(width: 8),
+                      printButton,
+                      const SizedBox(width: 8),
+                      closeButton,
+                    ],
+                  ),
+                ),
               ],
             )
           : Wrap(

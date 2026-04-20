@@ -22,6 +22,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => _future = null);
   }
 
+  Future<void> _openMobileSection({
+    required String title,
+    required Widget child,
+  }) async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (context) => _SettingsSectionPage(title: title, child: child),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final refreshTick = context.watch<RealtimeController>().refreshTick;
@@ -46,6 +57,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         final data = snapshot.data!;
         final auth = context.watch<AuthController>();
         final realtime = context.watch<RealtimeController>();
+        final compact = MediaQuery.sizeOf(context).width < 760;
         final canManageUsers = auth.canManageUsers;
         final currentRole = auth.user?.panelRole == PanelRole.admin
             ? 'Administrador'
@@ -247,6 +259,252 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         );
 
+        final rolesCard = _SettingsCard(
+          title: 'Roles disponibles',
+          icon: Icons.badge_outlined,
+          accentColor: const Color(0xFF8C5A2C),
+          child: data.roles.isEmpty
+              ? const DesktopEmptyState(
+                  icon: Icons.badge_outlined,
+                  title: 'No hay roles configurados',
+                  message:
+                      'El backend no devolvio roles para esta instalacion.',
+                )
+              : Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: data.roles
+                      .map(
+                        (role) => Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF1F4FA),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(color: const Color(0xFFE4EAF2)),
+                          ),
+                          child: Text('${role.name} (${role.code})'),
+                        ),
+                      )
+                      .toList(),
+                ),
+        );
+
+        final permissionsCard = _SettingsCard(
+          title: 'Permisos vigentes',
+          icon: Icons.lock_open_outlined,
+          accentColor: const Color(0xFF2F6F5C),
+          child: data.permissions.isEmpty
+              ? const DesktopEmptyState(
+                  icon: Icons.verified_user_outlined,
+                  title: 'No hay permisos vigentes',
+                  message:
+                      'No se encontraron permisos asignados para la configuracion actual.',
+                )
+              : Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: data.permissions
+                      .map(
+                        (permission) => Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF1F5FA),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(color: const Color(0xFFE4EAF2)),
+                          ),
+                          child: Text(permission),
+                        ),
+                      )
+                      .toList(),
+                ),
+        );
+
+        if (compact) {
+          return DesktopPageScaffold(
+            title: 'Configuracion',
+            showMobileTitle: false,
+            child: ListView(
+              children: [
+                _MobileSettingsGroupLabel(label: 'Sesion y panel'),
+                _MobileSettingsNavTile(
+                  icon: Icons.verified_user_outlined,
+                  title: 'Cuenta y sesion',
+                  subtitle: auth.user?.fullName ?? '-',
+                  trailingLabel: currentRole,
+                  onTap: () => _openMobileSection(
+                    title: 'Cuenta y sesion',
+                    child: _MobileSettingsDetailSection(
+                      children: [
+                        _MobileSettingsFactRow(
+                          label: 'Nombre',
+                          value: auth.user?.fullName ?? '-',
+                        ),
+                        _MobileSettingsFactRow(
+                          label: 'Correo',
+                          value: auth.user?.email ?? '-',
+                        ),
+                        _MobileSettingsFactRow(
+                          label: 'Usuario',
+                          value: auth.user?.username ?? '-',
+                        ),
+                        _MobileSettingsFactRow(
+                          label: 'Perfil',
+                          value: currentRole,
+                        ),
+                        _MobileSettingsFactRow(
+                          label: 'Conexion realtime',
+                          value: realtime.isConnected
+                              ? 'Activa'
+                              : 'Sin conexion',
+                          highlight: realtime.isConnected,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                _MobileSettingsNavTile(
+                  icon: Icons.tune_rounded,
+                  title: 'Estado del panel',
+                  subtitle: data.initialized
+                      ? 'Panel listo para operar'
+                      : 'Panel pendiente',
+                  trailingLabel: realtime.isConnected ? 'Activo' : 'Offline',
+                  onTap: () => _openMobileSection(
+                    title: 'Estado del panel',
+                    child: _MobileSettingsDetailSection(
+                      children: [
+                        _MobileSettingsFactRow(
+                          label: 'Panel',
+                          value: data.initialized ? 'Listo' : 'Pendiente',
+                        ),
+                        _MobileSettingsFactRow(
+                          label: 'Roles disponibles',
+                          value: '${data.roles.length}',
+                        ),
+                        _MobileSettingsFactRow(
+                          label: 'Permisos cargados',
+                          value: '${data.permissions.length}',
+                        ),
+                        _MobileSettingsFactRow(
+                          label: 'Realtime',
+                          value: realtime.isConnected
+                              ? 'Activo'
+                              : 'Sin conexion',
+                          highlight: realtime.isConnected,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                _MobileSettingsGroupLabel(label: 'Accesos'),
+                _MobileSettingsNavTile(
+                  icon: Icons.manage_accounts_outlined,
+                  title: 'Usuarios y permisos',
+                  subtitle: canManageUsers
+                      ? 'Gestion y acceso administrativo'
+                      : 'Vista de solo consulta',
+                  trailingLabel: canManageUsers ? 'Abrir' : 'Lectura',
+                  onTap: () => _openMobileSection(
+                    title: 'Usuarios y permisos',
+                    child: _MobileSettingsDetailSection(
+                      children: [
+                        _MobileSettingsFactRow(
+                          label: 'Acceso a usuarios',
+                          value: canManageUsers
+                              ? 'Disponible para este perfil'
+                              : 'Solo administradores',
+                        ),
+                        _MobileSettingsInlineWrap(
+                          label: 'Roles visibles',
+                          children: data.roles
+                              .take(6)
+                              .map(
+                                (role) => _MobileSettingsChip(label: role.name),
+                              )
+                              .toList(),
+                        ),
+                        if (canManageUsers)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: FilledButton.icon(
+                              onPressed: () => context.go('/users'),
+                              icon: const Icon(Icons.arrow_forward_rounded),
+                              label: const Text('Abrir gestion de usuarios'),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+                _MobileSettingsNavTile(
+                  icon: Icons.badge_outlined,
+                  title: 'Roles disponibles',
+                  subtitle: '${data.roles.length} roles cargados',
+                  trailingLabel: 'Ver',
+                  onTap: () => _openMobileSection(
+                    title: 'Roles disponibles',
+                    child: _MobileSettingsDetailSection(
+                      children: [
+                        if (data.roles.isEmpty)
+                          const _MobileSettingsEmptyMessage(
+                            message:
+                                'No hay roles configurados para esta instalacion.',
+                          )
+                        else
+                          _MobileSettingsInlineWrap(
+                            label: 'Listado',
+                            children: data.roles
+                                .map(
+                                  (role) => _MobileSettingsChip(
+                                    label: '${role.name} (${role.code})',
+                                  ),
+                                )
+                                .toList(),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+                _MobileSettingsNavTile(
+                  icon: Icons.lock_open_outlined,
+                  title: 'Permisos vigentes',
+                  subtitle: '${data.permissions.length} permisos activos',
+                  trailingLabel: 'Ver',
+                  onTap: () => _openMobileSection(
+                    title: 'Permisos vigentes',
+                    child: _MobileSettingsDetailSection(
+                      children: [
+                        if (data.permissions.isEmpty)
+                          const _MobileSettingsEmptyMessage(
+                            message:
+                                'No se encontraron permisos asignados para la configuracion actual.',
+                          )
+                        else
+                          _MobileSettingsInlineWrap(
+                            label: 'Permisos',
+                            children: data.permissions
+                                .map(
+                                  (permission) =>
+                                      _MobileSettingsChip(label: permission),
+                                )
+                                .toList(),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
         return DesktopPageScaffold(
           title: 'Configuracion',
           subtitle:
@@ -264,40 +522,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               LayoutBuilder(
                 builder: (context, constraints) {
                   final twoColumns = constraints.maxWidth >= 960;
-                  final rolesCard = _SettingsCard(
-                    title: 'Roles disponibles',
-                    icon: Icons.badge_outlined,
-                    accentColor: const Color(0xFF8C5A2C),
-                    child: data.roles.isEmpty
-                        ? const DesktopEmptyState(
-                            icon: Icons.badge_outlined,
-                            title: 'No hay roles configurados',
-                            message:
-                                'El backend no devolvio roles para esta instalacion.',
-                          )
-                        : Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: data.roles
-                                .map(
-                                  (role) => Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 8,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFF1F4FA),
-                                      borderRadius: BorderRadius.circular(999),
-                                      border: Border.all(
-                                        color: const Color(0xFFE4EAF2),
-                                      ),
-                                    ),
-                                    child: Text('${role.name} (${role.code})'),
-                                  ),
-                                )
-                                .toList(),
-                          ),
-                  );
 
                   if (twoColumns) {
                     return Row(
@@ -308,48 +532,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             children: [
                               accountCard,
                               const SizedBox(height: 16),
-                              _SettingsCard(
-                                title: 'Permisos vigentes',
-                                icon: Icons.lock_open_outlined,
-                                accentColor: const Color(0xFF2F6F5C),
-                                child: data.permissions.isEmpty
-                                    ? const DesktopEmptyState(
-                                        icon: Icons.verified_user_outlined,
-                                        title: 'No hay permisos vigentes',
-                                        message:
-                                            'No se encontraron permisos asignados para la configuracion actual.',
-                                      )
-                                    : Wrap(
-                                        spacing: 8,
-                                        runSpacing: 8,
-                                        children: data.permissions
-                                            .map(
-                                              (permission) => Container(
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                      horizontal: 12,
-                                                      vertical: 8,
-                                                    ),
-                                                decoration: BoxDecoration(
-                                                  color: const Color(
-                                                    0xFFF1F5FA,
-                                                  ),
-                                                  borderRadius:
-                                                      BorderRadius.circular(
-                                                        999,
-                                                      ),
-                                                  border: Border.all(
-                                                    color: const Color(
-                                                      0xFFE4EAF2,
-                                                    ),
-                                                  ),
-                                                ),
-                                                child: Text(permission),
-                                              ),
-                                            )
-                                            .toList(),
-                                      ),
-                              ),
+                              permissionsCard,
                             ],
                           ),
                         ),
@@ -379,42 +562,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       const SizedBox(height: 16),
                       rolesCard,
                       const SizedBox(height: 16),
-                      _SettingsCard(
-                        title: 'Permisos vigentes',
-                        icon: Icons.lock_open_outlined,
-                        accentColor: const Color(0xFF2F6F5C),
-                        child: data.permissions.isEmpty
-                            ? const DesktopEmptyState(
-                                icon: Icons.verified_user_outlined,
-                                title: 'No hay permisos vigentes',
-                                message:
-                                    'No se encontraron permisos asignados para la configuracion actual.',
-                              )
-                            : Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
-                                children: data.permissions
-                                    .map(
-                                      (permission) => Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 12,
-                                          vertical: 8,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFF1F5FA),
-                                          borderRadius: BorderRadius.circular(
-                                            999,
-                                          ),
-                                          border: Border.all(
-                                            color: const Color(0xFFE4EAF2),
-                                          ),
-                                        ),
-                                        child: Text(permission),
-                                      ),
-                                    )
-                                    .toList(),
-                              ),
-                      ),
+                      permissionsCard,
                     ],
                   );
                 },
@@ -423,6 +571,284 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         );
       },
+    );
+  }
+}
+
+class _SettingsSectionPage extends StatelessWidget {
+  const _SettingsSectionPage({required this.title, required this.child});
+
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF0F3F8),
+      appBar: AppBar(
+        title: Text(title),
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        backgroundColor: Colors.white,
+        foregroundColor: const Color(0xFF173450),
+      ),
+      body: SafeArea(
+        top: false,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 20),
+          children: [child],
+        ),
+      ),
+    );
+  }
+}
+
+class _MobileSettingsGroupLabel extends StatelessWidget {
+  const _MobileSettingsGroupLabel({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 11.5,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.5,
+          color: Color(0xFF6E7A8E),
+        ),
+      ),
+    );
+  }
+}
+
+class _MobileSettingsNavTile extends StatelessWidget {
+  const _MobileSettingsNavTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.trailingLabel,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final String trailingLabel;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: const Color(0xFFEAF0F7),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, size: 18, color: const Color(0xFF173450)),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF12263D),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      height: 1.4,
+                      color: Color(0xFF6E7A8E),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  trailingLabel,
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF8C5A2C),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                const Icon(
+                  Icons.arrow_forward_ios_rounded,
+                  size: 14,
+                  color: Color(0xFF9AA6B8),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MobileSettingsDetailSection extends StatelessWidget {
+  const _MobileSettingsDetailSection({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var index = 0; index < children.length; index++) ...[
+          children[index],
+          if (index != children.length - 1)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 10),
+              child: Divider(height: 1),
+            ),
+        ],
+      ],
+    );
+  }
+}
+
+class _MobileSettingsFactRow extends StatelessWidget {
+  const _MobileSettingsFactRow({
+    required this.label,
+    required this.value,
+    this.highlight = false,
+  });
+
+  final String label;
+  final String value;
+  final bool highlight;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 112,
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF7B8798),
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            value,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              height: 1.4,
+              color: highlight
+                  ? const Color(0xFF2F6F5C)
+                  : const Color(0xFF12263D),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _MobileSettingsInlineWrap extends StatelessWidget {
+  const _MobileSettingsInlineWrap({
+    required this.label,
+    required this.children,
+  });
+
+  final String label;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF7B8798),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Wrap(spacing: 8, runSpacing: 8, children: children),
+      ],
+    );
+  }
+}
+
+class _MobileSettingsChip extends StatelessWidget {
+  const _MobileSettingsChip({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF1F5FA),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0xFFE4EAF2)),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: Color(0xFF173450),
+        ),
+      ),
+    );
+  }
+}
+
+class _MobileSettingsEmptyMessage extends StatelessWidget {
+  const _MobileSettingsEmptyMessage({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      message,
+      style: const TextStyle(
+        fontSize: 12.5,
+        height: 1.45,
+        color: Color(0xFF6E7A8E),
+      ),
     );
   }
 }

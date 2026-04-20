@@ -62,84 +62,68 @@ class _ProductsScreenState extends State<ProductsScreen> {
         return DesktopPageScaffold(
           title: 'Solares',
           subtitle: compact
-              ? 'Inventario compacto de solares y precios clave.'
+              ? null
               : 'Inventario disponible para consulta y verificacion.',
           toolbar: DesktopFieldToolbar(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                DesktopToolbar(
-                  searchField: DesktopSearchField(
+            child: compact
+                ? _CompactProductsToolbar(
                     controller: _searchController,
-                    hintText: 'Buscar por codigo, nombre o descripcion',
-                    onSubmitted: (_) => _reload(),
-                  ),
-                  actions: [
-                    FilterChip(
-                      selected: _includeInactive,
-                      label: const Text('Incluir inactivos'),
-                      onSelected: (value) {
-                        _includeInactive = value;
-                        _reload();
-                      },
-                    ),
-                    FilterChip(
-                      selected: _includeDeleted,
-                      label: const Text('Incluir eliminados'),
-                      onSelected: (value) {
-                        _includeDeleted = value;
-                        _reload();
-                      },
-                    ),
-                    FilledButton.icon(
-                      onPressed: _reload,
-                      icon: const Icon(Icons.search_rounded),
-                      label: const Text('Buscar'),
-                    ),
-                  ],
-                  compactActions: [
-                    DesktopToolbarIconAction(
-                      icon: Icons.search_rounded,
-                      tooltip: 'Buscar',
-                      tone: DesktopToolbarActionTone.filled,
-                      onPressed: _reload,
-                    ),
-                  ],
-                ),
-                if (compact) ...[
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
+                    includeInactive: _includeInactive,
+                    includeDeleted: _includeDeleted,
+                    onSubmitted: _reload,
+                    onSearch: _reload,
+                    onToggleInactive: (value) {
+                      _includeInactive = value;
+                      _reload();
+                    },
+                    onToggleDeleted: (value) {
+                      _includeDeleted = value;
+                      _reload();
+                    },
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      FilterChip(
-                        selected: _includeInactive,
-                        label: const Text('Inactivos'),
-                        onSelected: (value) {
-                          _includeInactive = value;
-                          _reload();
-                        },
+                      DesktopToolbar(
+                        searchField: DesktopSearchField(
+                          controller: _searchController,
+                          hintText: 'Buscar por codigo, nombre o descripcion',
+                          onSubmitted: (_) => _reload(),
+                        ),
+                        actions: [
+                          FilterChip(
+                            selected: _includeInactive,
+                            label: const Text('Incluir inactivos'),
+                            onSelected: (value) {
+                              _includeInactive = value;
+                              _reload();
+                            },
+                          ),
+                          FilterChip(
+                            selected: _includeDeleted,
+                            label: const Text('Incluir eliminados'),
+                            onSelected: (value) {
+                              _includeDeleted = value;
+                              _reload();
+                            },
+                          ),
+                          FilledButton.icon(
+                            onPressed: _reload,
+                            icon: const Icon(Icons.search_rounded),
+                            label: const Text('Buscar'),
+                          ),
+                        ],
                       ),
-                      FilterChip(
-                        selected: _includeDeleted,
-                        label: const Text('Eliminados'),
-                        onSelected: (value) {
-                          _includeDeleted = value;
-                          _reload();
-                        },
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Revisa disponibilidad, estado y valores del inventario.',
+                        style: TextStyle(
+                          color: Color(0xFF66718A),
+                          height: 1.45,
+                        ),
                       ),
                     ],
                   ),
-                ],
-                if (!compact) ...[
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Revisa disponibilidad, estado y valores del inventario.',
-                    style: TextStyle(color: Color(0xFF66718A), height: 1.45),
-                  ),
-                ],
-              ],
-            ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -181,30 +165,30 @@ class _ProductsScreenState extends State<ProductsScreen> {
                             item['stock'],
                           ).toStringAsFixed(0);
                           final subtitleText = compact
-                              ? 'Contado ${currency.format(_readNum(item['price']))}\nStock $stock'
+                              ? '${currency.format(_readNum(item['price']))}  •  Stock $stock'
                               : 'Contado ${currency.format(_readNum(item['price']))}  •  Financiado ${currency.format(_readNum(item['financingPrice']))}  •  Stock $stock';
                           return DesktopListRow(
-                            height: compact ? 84 : 82,
+                            height: compact ? 72 : 82,
                             leading: Container(
-                              width: compact ? 34 : 44,
-                              height: compact ? 34 : 44,
+                              width: compact ? 30 : 44,
+                              height: compact ? 30 : 44,
                               decoration: BoxDecoration(
                                 color: const Color(0xFFEAF0F7),
                                 borderRadius: BorderRadius.circular(
-                                  compact ? 12 : 14,
+                                  compact ? 10 : 14,
                                 ),
                               ),
                               child: Icon(
                                 Icons.map_outlined,
                                 color: Color(0xFF2C4766),
-                                size: compact ? 18 : 20,
+                                size: compact ? 16 : 20,
                               ),
                             ),
                             title: Text(
                               '$code  •  $name',
                               style: TextStyle(
                                 fontWeight: FontWeight.w800,
-                                fontSize: compact ? 13 : null,
+                                fontSize: compact ? 12.4 : null,
                               ),
                               maxLines: compact ? 1 : 1,
                               overflow: TextOverflow.ellipsis,
@@ -213,10 +197,10 @@ class _ProductsScreenState extends State<ProductsScreen> {
                               subtitleText,
                               style: TextStyle(
                                 color: const Color(0xFF6E7791),
-                                fontSize: compact ? 11.5 : null,
-                                height: compact ? 1.2 : null,
+                                fontSize: compact ? 10.8 : null,
+                                height: compact ? 1.1 : null,
                               ),
-                              maxLines: compact ? 2 : 1,
+                              maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
                             trailing: _StatusBadge(
@@ -239,6 +223,103 @@ class _ProductsScreenState extends State<ProductsScreen> {
       return value.toDouble();
     }
     return double.tryParse(value?.toString() ?? '') ?? 0;
+  }
+}
+
+class _CompactProductsToolbar extends StatelessWidget {
+  const _CompactProductsToolbar({
+    required this.controller,
+    required this.includeInactive,
+    required this.includeDeleted,
+    required this.onSubmitted,
+    required this.onSearch,
+    required this.onToggleInactive,
+    required this.onToggleDeleted,
+  });
+
+  final TextEditingController controller;
+  final bool includeInactive;
+  final bool includeDeleted;
+  final VoidCallback onSearch;
+  final VoidCallback onSubmitted;
+  final ValueChanged<bool> onToggleInactive;
+  final ValueChanged<bool> onToggleDeleted;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: DesktopSearchField(
+            controller: controller,
+            hintText: 'Codigo, nombre o descripcion',
+            onSubmitted: (_) => onSubmitted(),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _CompactProductsFilterChip(
+                  label: 'Inactivos',
+                  selected: includeInactive,
+                  onSelected: onToggleInactive,
+                ),
+                const SizedBox(width: 6),
+                _CompactProductsFilterChip(
+                  label: 'Eliminados',
+                  selected: includeDeleted,
+                  onSelected: onToggleDeleted,
+                ),
+                const SizedBox(width: 6),
+                DesktopToolbarIconAction(
+                  icon: Icons.search_rounded,
+                  tooltip: 'Buscar',
+                  tone: DesktopToolbarActionTone.filled,
+                  onPressed: onSearch,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CompactProductsFilterChip extends StatelessWidget {
+  const _CompactProductsFilterChip({
+    required this.label,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  final String label;
+  final bool selected;
+  final ValueChanged<bool> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return FilterChip(
+      selected: selected,
+      label: Text(label),
+      onSelected: onSelected,
+      labelStyle: TextStyle(
+        fontSize: 11,
+        fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+        color: selected ? const Color(0xFF173450) : const Color(0xFF5F6C80),
+      ),
+      padding: EdgeInsets.zero,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
+      side: const BorderSide(color: Color(0xFFDCE4EE)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+      backgroundColor: Colors.white,
+      selectedColor: const Color(0xFFEAF0F7),
+      showCheckmark: false,
+    );
   }
 }
 
@@ -271,8 +352,8 @@ class _StatusBadge extends StatelessWidget {
 
     return Container(
       padding: EdgeInsets.symmetric(
-        horizontal: compact ? 10 : 12,
-        vertical: compact ? 6 : 8,
+        horizontal: compact ? 8 : 12,
+        vertical: compact ? 4 : 8,
       ),
       decoration: BoxDecoration(
         color: background,
@@ -283,7 +364,7 @@ class _StatusBadge extends StatelessWidget {
         style: TextStyle(
           color: textColor,
           fontWeight: FontWeight.w700,
-          fontSize: compact ? 11.5 : 12,
+          fontSize: compact ? 10.5 : 12,
         ),
       ),
     );

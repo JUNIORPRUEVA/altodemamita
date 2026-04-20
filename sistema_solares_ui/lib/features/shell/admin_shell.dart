@@ -351,14 +351,14 @@ class _MobileAppBarIconButton extends StatelessWidget {
   const _MobileAppBarIconButton({
     required this.tooltip,
     required this.icon,
-    required this.onPressed,
+    this.onPressed,
     this.size = 40,
     this.iconSize = 20,
   });
 
   final String tooltip;
   final IconData icon;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
   final double size;
   final double iconSize;
 
@@ -402,7 +402,6 @@ class _MobileSessionMenuButton extends StatelessWidget {
     return _MobileAppBarIconButton(
       tooltip: 'Opciones de sesion',
       icon: Icons.more_horiz_rounded,
-      onPressed: () {},
     );
   }
 }
@@ -421,7 +420,9 @@ class _MobileStatusIcon extends StatelessWidget {
         color: isConnected ? const Color(0xFFEAF8F0) : const Color(0xFFF1F4F8),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: (isConnected ? const Color(0xFF2BB673) : const Color(0xFF8B96A7)).withValues(alpha: 0.18),
+          color:
+              (isConnected ? const Color(0xFF2BB673) : const Color(0xFF8B96A7))
+                  .withValues(alpha: 0.18),
         ),
       ),
       alignment: Alignment.center,

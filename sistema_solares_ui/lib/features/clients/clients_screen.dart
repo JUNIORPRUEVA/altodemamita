@@ -60,7 +60,7 @@ class _ClientsScreenState extends State<ClientsScreen> {
         return DesktopPageScaffold(
           title: 'Clientes',
           subtitle: compact
-              ? 'Lista limpia de clientes para consulta rapida.'
+              ? null
               : 'Consulta y seguimiento de clientes registrados.',
           toolbar: DesktopFieldToolbar(
             child: DesktopToolbar(
@@ -107,8 +107,8 @@ class _ClientsScreenState extends State<ClientsScreen> {
             children: [
               DesktopInfoStrip(
                 child: Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
+                  spacing: compact ? 8 : 10,
+                  runSpacing: compact ? 8 : 10,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     DesktopTag(
@@ -135,33 +135,84 @@ class _ClientsScreenState extends State<ClientsScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                alignment: WrapAlignment.end,
-                children: [
-                  OutlinedButton.icon(
-                    onPressed: data.hasPreviousPage
-                        ? () {
-                            _page = data.page - 1;
-                            _reload();
-                          }
-                        : null,
-                    icon: const Icon(Icons.chevron_left_rounded),
-                    label: const Text('Anterior'),
-                  ),
-                  FilledButton.icon(
-                    onPressed: data.hasNextPage
-                        ? () {
-                            _page = data.page + 1;
-                            _reload();
-                          }
-                        : null,
-                    icon: const Icon(Icons.chevron_right_rounded),
-                    label: const Text('Siguiente'),
-                  ),
-                ],
-              ),
+              compact
+                  ? SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          OutlinedButton.icon(
+                            onPressed: data.hasPreviousPage
+                                ? () {
+                                    _page = data.page - 1;
+                                    _reload();
+                                  }
+                                : null,
+                            icon: const Icon(
+                              Icons.chevron_left_rounded,
+                              size: 16,
+                            ),
+                            label: const Text('Anterior'),
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size(0, 34),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 8,
+                              ),
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          FilledButton.icon(
+                            onPressed: data.hasNextPage
+                                ? () {
+                                    _page = data.page + 1;
+                                    _reload();
+                                  }
+                                : null,
+                            icon: const Icon(
+                              Icons.chevron_right_rounded,
+                              size: 16,
+                            ),
+                            label: const Text('Siguiente'),
+                            style: FilledButton.styleFrom(
+                              minimumSize: const Size(0, 34),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 8,
+                              ),
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      alignment: WrapAlignment.end,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: data.hasPreviousPage
+                              ? () {
+                                  _page = data.page - 1;
+                                  _reload();
+                                }
+                              : null,
+                          icon: const Icon(Icons.chevron_left_rounded),
+                          label: const Text('Anterior'),
+                        ),
+                        FilledButton.icon(
+                          onPressed: data.hasNextPage
+                              ? () {
+                                  _page = data.page + 1;
+                                  _reload();
+                                }
+                              : null,
+                          icon: const Icon(Icons.chevron_right_rounded),
+                          label: const Text('Siguiente'),
+                        ),
+                      ],
+                    ),
               const SizedBox(height: 16),
               Expanded(
                 child: data.items.isEmpty
@@ -207,7 +258,7 @@ class _ClientsScreenState extends State<ClientsScreen> {
                                     fullName.isEmpty ? 'Sin nombre' : fullName,
                                     style: TextStyle(
                                       fontWeight: FontWeight.w800,
-                                      fontSize: compact ? 13 : null,
+                                      fontSize: compact ? 12.5 : null,
                                     ),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
@@ -240,8 +291,8 @@ class _ClientsScreenState extends State<ClientsScreen> {
                               subtitleText,
                               style: TextStyle(
                                 color: const Color(0xFF6E7791),
-                                fontSize: compact ? 11.5 : null,
-                                height: compact ? 1.2 : null,
+                                fontSize: compact ? 10.8 : null,
+                                height: compact ? 1.1 : null,
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,

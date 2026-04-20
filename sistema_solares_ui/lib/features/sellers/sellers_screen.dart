@@ -57,7 +57,7 @@ class _SellersScreenState extends State<SellersScreen> {
         return DesktopPageScaffold(
           title: 'Vendedores',
           subtitle: compact
-              ? 'Directorio compacto de vendedores.'
+              ? null
               : 'Consulta la tabla de vendedores y sus ventas asociadas desde la nube.',
           toolbar: DesktopFieldToolbar(
             child: DesktopToolbar(
@@ -141,7 +141,7 @@ class _SellersScreenState extends State<SellersScreen> {
                               ? '$document\n$phone'
                               : '$document  •  $phone';
                           return DesktopListRow(
-                            height: compact ? 74 : 76,
+                            height: compact ? 68 : 76,
                             onTap: () =>
                                 _openDetail(item['id']?.toString() ?? ''),
                             leading: CircleAvatar(
@@ -159,7 +159,7 @@ class _SellersScreenState extends State<SellersScreen> {
                               name,
                               style: TextStyle(
                                 fontWeight: FontWeight.w800,
-                                fontSize: compact ? 13 : null,
+                                fontSize: compact ? 12.4 : null,
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
@@ -168,8 +168,8 @@ class _SellersScreenState extends State<SellersScreen> {
                               subtitle,
                               style: TextStyle(
                                 color: const Color(0xFF6E7791),
-                                fontSize: compact ? 11.5 : null,
-                                height: compact ? 1.2 : null,
+                                fontSize: compact ? 10.8 : null,
+                                height: compact ? 1.1 : null,
                               ),
                               maxLines: compact ? 2 : 1,
                               overflow: TextOverflow.ellipsis,

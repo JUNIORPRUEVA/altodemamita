@@ -55,7 +55,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
         return DesktopPageScaffold(
           title: 'Panel principal',
-          subtitle: 'Vista operativa del inventario, las ventas y la cobranza sincronizada.',
+          subtitle: compact
+              ? null
+              : 'Vista operativa del inventario, las ventas y la cobranza sincronizada.',
           child: ListView(
             children: [
               DesktopInfoStrip(
@@ -149,7 +151,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     items: [
                       _FocusItem(label: 'Solares', value: '$products'),
                       _FocusItem(label: 'Clientes', value: '$clients'),
-                      _FocusItem(label: 'Ventas activas', value: '$activeSales'),
+                      _FocusItem(
+                        label: 'Ventas activas',
+                        value: '$activeSales',
+                      ),
                     ],
                   );
 
@@ -162,9 +167,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   final tables = Column(
                     children: [
                       if (compact) ...[
-                        _RecentSalesTable(rows: data.recentSales, compact: true),
+                        _RecentSalesTable(
+                          rows: data.recentSales,
+                          compact: true,
+                        ),
                         const SizedBox(height: 16),
-                        _RecentPaymentsTable(rows: data.recentPayments, compact: true),
+                        _RecentPaymentsTable(
+                          rows: data.recentPayments,
+                          compact: true,
+                        ),
                       ] else if (constraints.maxWidth < 1100) ...[
                         _RecentSalesTable(rows: data.recentSales),
                         const SizedBox(height: 16),
@@ -173,9 +184,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Expanded(child: _RecentSalesTable(rows: data.recentSales)),
+                            Expanded(
+                              child: _RecentSalesTable(rows: data.recentSales),
+                            ),
                             const SizedBox(width: 16),
-                            Expanded(child: _RecentPaymentsTable(rows: data.recentPayments)),
+                            Expanded(
+                              child: _RecentPaymentsTable(
+                                rows: data.recentPayments,
+                              ),
+                            ),
                           ],
                         ),
                       ],
@@ -327,7 +344,8 @@ class _DashboardOverviewCard extends StatelessWidget {
                     children: [
                       Text(
                         'Resumen operativo',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
                               color: Colors.white,
                               fontWeight: FontWeight.w700,
                             ),
@@ -336,9 +354,9 @@ class _DashboardOverviewCard extends StatelessWidget {
                       Text(
                         'Vista rapida del inventario, la cartera y la cobranza sincronizada.',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Colors.white.withValues(alpha: 0.74),
-                              height: 1.35,
-                            ),
+                          color: Colors.white.withValues(alpha: 0.74),
+                          height: 1.35,
+                        ),
                       ),
                     ],
                   ),
@@ -381,10 +399,7 @@ class _OverviewMetric extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            label,
-            style: const TextStyle(color: Color(0xB3FFFFFF)),
-          ),
+          Text(label, style: const TextStyle(color: Color(0xB3FFFFFF))),
           const SizedBox(height: 6),
           Text(
             value,
@@ -434,8 +449,8 @@ class _DashboardFocusCard extends StatelessWidget {
                 child: Text(
                   title,
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             ],
@@ -510,7 +525,8 @@ class _RecentSalesTable extends StatelessWidget {
                 DesktopEmptyState(
                   icon: Icons.receipt_long_outlined,
                   title: 'Sin ventas recientes',
-                  message: 'Todavia no hay ventas sincronizadas para mostrar en esta vista.',
+                  message:
+                      'Todavia no hay ventas sincronizadas para mostrar en esta vista.',
                 ),
               ]
             : rows.map((row) {
@@ -522,7 +538,10 @@ class _RecentSalesTable extends StatelessWidget {
                       color: const Color(0xFFF1F4FA),
                       borderRadius: BorderRadius.circular(14),
                     ),
-                    child: const Icon(Icons.receipt_long_outlined, color: Color(0xFF223048)),
+                    child: const Icon(
+                      Icons.receipt_long_outlined,
+                      color: Color(0xFF223048),
+                    ),
                   ),
                   title: Text(
                     row['client']?['firstName']?.toString() ?? '-',
@@ -548,7 +567,8 @@ class _RecentSalesTable extends StatelessWidget {
           ? const DesktopEmptyState(
               icon: Icons.receipt_long_outlined,
               title: 'Sin ventas recientes',
-              message: 'Todavia no hay ventas sincronizadas para mostrar en esta vista.',
+              message:
+                  'Todavia no hay ventas sincronizadas para mostrar en esta vista.',
             )
           : SingleChildScrollView(
               scrollDirection: Axis.horizontal,
@@ -561,12 +581,22 @@ class _RecentSalesTable extends StatelessWidget {
                 ],
                 rows: rows
                     .map(
-                      (row) => DataRow(cells: [
-                        DataCell(Text(row['client']?['firstName']?.toString() ?? '-')),
-                        DataCell(Text(row['product']?['name']?.toString() ?? '-')),
-                        DataCell(Text(row['status']?.toString() ?? '-')),
-                        DataCell(Text(currency.format(row['totalAmount'] ?? 0))),
-                      ]),
+                      (row) => DataRow(
+                        cells: [
+                          DataCell(
+                            Text(
+                              row['client']?['firstName']?.toString() ?? '-',
+                            ),
+                          ),
+                          DataCell(
+                            Text(row['product']?['name']?.toString() ?? '-'),
+                          ),
+                          DataCell(Text(row['status']?.toString() ?? '-')),
+                          DataCell(
+                            Text(currency.format(row['totalAmount'] ?? 0)),
+                          ),
+                        ],
+                      ),
                     )
                     .toList(),
               ),
@@ -592,7 +622,8 @@ class _RecentPaymentsTable extends StatelessWidget {
                 DesktopEmptyState(
                   icon: Icons.payments_outlined,
                   title: 'Sin pagos recientes',
-                  message: 'No se han recibido pagos recientes dentro del rango sincronizado.',
+                  message:
+                      'No se han recibido pagos recientes dentro del rango sincronizado.',
                 ),
               ]
             : rows.map((row) {
@@ -604,7 +635,10 @@ class _RecentPaymentsTable extends StatelessWidget {
                       color: const Color(0xFFE8F6F0),
                       borderRadius: BorderRadius.circular(14),
                     ),
-                    child: const Icon(Icons.payments_outlined, color: Color(0xFF2F6F5C)),
+                    child: const Icon(
+                      Icons.payments_outlined,
+                      color: Color(0xFF2F6F5C),
+                    ),
                   ),
                   title: Text(
                     row['sale']?['client']?['firstName']?.toString() ?? '-',
@@ -630,7 +664,8 @@ class _RecentPaymentsTable extends StatelessWidget {
           ? const DesktopEmptyState(
               icon: Icons.payments_outlined,
               title: 'Sin pagos recientes',
-              message: 'No se han recibido pagos recientes dentro del rango sincronizado.',
+              message:
+                  'No se han recibido pagos recientes dentro del rango sincronizado.',
             )
           : SingleChildScrollView(
               scrollDirection: Axis.horizontal,
@@ -643,14 +678,25 @@ class _RecentPaymentsTable extends StatelessWidget {
                 ],
                 rows: rows
                     .map(
-                      (row) => DataRow(cells: [
-                        DataCell(
-                          Text(row['sale']?['client']?['firstName']?.toString() ?? '-'),
-                        ),
-                        DataCell(Text(row['method']?.toString() ?? '-')),
-                        DataCell(Text(row['paymentDate']?.toString().split('T').first ?? '-')),
-                        DataCell(Text(currency.format(row['amount'] ?? 0))),
-                      ]),
+                      (row) => DataRow(
+                        cells: [
+                          DataCell(
+                            Text(
+                              row['sale']?['client']?['firstName']
+                                      ?.toString() ??
+                                  '-',
+                            ),
+                          ),
+                          DataCell(Text(row['method']?.toString() ?? '-')),
+                          DataCell(
+                            Text(
+                              row['paymentDate']?.toString().split('T').first ??
+                                  '-',
+                            ),
+                          ),
+                          DataCell(Text(currency.format(row['amount'] ?? 0))),
+                        ],
+                      ),
                     )
                     .toList(),
               ),

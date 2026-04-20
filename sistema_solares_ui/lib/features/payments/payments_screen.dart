@@ -20,11 +20,14 @@ class PaymentsScreen extends StatefulWidget {
 class _PaymentsScreenState extends State<PaymentsScreen> {
   final _searchController = TextEditingController();
   final _inspectorScrollController = ScrollController();
+  static const int _mobileDetailPageSize = 5;
   Future<PaymentsReadOnlyData>? _future;
   int _lastTick = -1;
   int _page = 1;
   String? _selectedSaleId;
   String _salesFilter = 'all';
+  _MobilePaymentsDetailTab _mobileDetailTab = _MobilePaymentsDetailTab.payments;
+  int _mobileDetailPage = 1;
 
   @override
   void dispose() {
@@ -52,6 +55,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
     }
     setState(() {
       _selectedSaleId = saleId;
+      _mobileDetailPage = 1;
       _future = null;
     });
   }
@@ -72,6 +76,26 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
     }
     setState(() {
       _salesFilter = filter;
+      _mobileDetailPage = 1;
+    });
+  }
+
+  void _setMobileDetailTab(_MobilePaymentsDetailTab tab) {
+    if (_mobileDetailTab == tab) {
+      return;
+    }
+    setState(() {
+      _mobileDetailTab = tab;
+      _mobileDetailPage = 1;
+    });
+  }
+
+  void _setMobileDetailPage(int page) {
+    if (page < 1 || page == _mobileDetailPage) {
+      return;
+    }
+    setState(() {
+      _mobileDetailPage = page;
     });
   }
 
@@ -164,125 +188,132 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
           return DesktopPageScaffold(
             title: 'Pagos',
             subtitle: compact
-                ? 'Consulta alineada de cuotas y pagos reales.'
+                ? null
                 : 'Vista unificada de pagos reales, cuotas y resumen de cobranza en modo solo lectura.',
+            showMobileTitle: false,
             toolbar: DesktopFieldToolbar(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  DesktopToolbar(
-                    searchField: DesktopSearchField(
-                      controller: _searchController,
-                      hintText: 'Buscar por cliente, contrato, solar o estado',
-                      onSubmitted: (_) => _reloadFromStart(),
-                    ),
-                    actions: [
-                      _PaymentsFilterBar(
-                        currentFilter: _salesFilter,
-                        onChanged: _setSalesFilter,
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: () {
-                          _searchController.clear();
-                          _setSalesFilter('all');
-                          _reloadFromStart();
-                        },
-                        icon: const Icon(Icons.cleaning_services_outlined),
-                        label: const Text('Limpiar'),
-                      ),
-                      FilledButton.icon(
-                        onPressed: _reloadFromStart,
-                        icon: const Icon(Icons.search_rounded),
-                        label: const Text('Buscar'),
-                      ),
-                    ],
-                    compactActions: [
-                      DesktopToolbarIconAction(
-                        icon: Icons.cleaning_services_outlined,
-                        tooltip: 'Limpiar',
-                        onPressed: () {
-                          _searchController.clear();
-                          _setSalesFilter('all');
-                          _reloadFromStart();
-                        },
-                      ),
-                      DesktopToolbarIconAction(
-                        icon: Icons.search_rounded,
-                        tooltip: 'Buscar',
-                        tone: DesktopToolbarActionTone.filled,
-                        onPressed: _reloadFromStart,
-                      ),
-                    ],
-                  ),
-                  if (compact) ...[
-                    const SizedBox(height: 8),
-                    _PaymentsFilterBar(
+              child: compact
+                  ? _MobilePaymentsToolbar(
+                      searchController: _searchController,
                       currentFilter: _salesFilter,
-                      onChanged: _setSalesFilter,
-                      compact: true,
+                      onSearch: _reloadFromStart,
+                      onClear: () {
+                        _searchController.clear();
+                        _setSalesFilter('all');
+                        _reloadFromStart();
+                      },
+                      onFilterChanged: _setSalesFilter,
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        DesktopToolbar(
+                          searchField: DesktopSearchField(
+                            controller: _searchController,
+                            hintText: 'Buscar por cliente, contrato, solar o estado',
+                            onSubmitted: (_) => _reloadFromStart(),
+                          ),
+                          actions: [
+                            _PaymentsFilterBar(
+                              currentFilter: _salesFilter,
+                              onChanged: _setSalesFilter,
+                            ),
+                            OutlinedButton.icon(
+                              onPressed: () {
+                                _searchController.clear();
+                                _setSalesFilter('all');
+                                _reloadFromStart();
+                              },
+                              icon: const Icon(Icons.cleaning_services_outlined),
+                              label: const Text('Limpiar'),
+                            ),
+                            FilledButton.icon(
+                              onPressed: _reloadFromStart,
+                              icon: const Icon(Icons.search_rounded),
+                              label: const Text('Buscar'),
+                            ),
+                          ],
+                          compactActions: [
+                            DesktopToolbarIconAction(
+                              icon: Icons.cleaning_services_outlined,
+                              tooltip: 'Limpiar',
+                              onPressed: () {
+                                _searchController.clear();
+                                _setSalesFilter('all');
+                                _reloadFromStart();
+                              },
+                            ),
+                            DesktopToolbarIconAction(
+                              icon: Icons.search_rounded,
+                              tooltip: 'Buscar',
+                              tone: DesktopToolbarActionTone.filled,
+                              onPressed: _reloadFromStart,
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
-                  ],
-                ],
-              ),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                DesktopInfoStrip(
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      DesktopTag(
-                        label: compact
-                            ? '${sales.length} ventas'
-                            : 'Ventas ${sales.length}',
-                        background: const Color(0xFFF1F4FA),
-                      ),
-                      DesktopTag(
-                        label: compact
-                            ? '$visiblePayments realizados'
-                            : 'Pagos realizados $visiblePayments',
-                        background: const Color(0xFFEAF4ED),
-                        foreground: const Color(0xFF2F6F5C),
-                      ),
-                      DesktopTag(
-                        label: currency.format(visibleOutstanding),
-                        background: const Color(0xFFF6EFE3),
-                        foreground: const Color(0xFF8C5A2C),
-                      ),
-                      if (!compact)
+                if (compact)
+                  _MobilePaymentsOverviewStrip(
+                    salesCount: sales.length,
+                    visiblePayments: visiblePayments,
+                    visibleInstallments: visibleInstallments,
+                    visibleOutstanding: currency.format(visibleOutstanding),
+                    stageLabel: activeSelectedSale?.stageLabel,
+                  )
+                else
+                  DesktopInfoStrip(
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        DesktopTag(
+                          label: 'Ventas ${sales.length}',
+                          background: const Color(0xFFF1F4FA),
+                        ),
+                        DesktopTag(
+                          label: 'Pagos realizados $visiblePayments',
+                          background: const Color(0xFFEAF4ED),
+                          foreground: const Color(0xFF2F6F5C),
+                        ),
+                        DesktopTag(
+                          label: currency.format(visibleOutstanding),
+                          background: const Color(0xFFF6EFE3),
+                          foreground: const Color(0xFF8C5A2C),
+                        ),
                         DesktopTag(
                           label: 'Cuotas generadas $visibleInstallments',
                           background: const Color(0xFFF5EEF8),
                           foreground: const Color(0xFF7A4A97),
                         ),
-                      if (selectedSummary != null && !compact)
-                        DesktopTag(
-                          label:
-                              'Pagado ${currency.format(selectedSummary.totalPaid)}',
-                          background: const Color(0xFFEAF4ED),
-                          foreground: const Color(0xFF2F6F5C),
-                        ),
-                      if (!compact)
+                        if (selectedSummary != null)
+                          DesktopTag(
+                            label: 'Pagado ${currency.format(selectedSummary.totalPaid)}',
+                            background: const Color(0xFFEAF4ED),
+                            foreground: const Color(0xFF2F6F5C),
+                          ),
                         DesktopTag(
                           label: 'Pag. ${data.page}/${data.totalPages}',
                           background: const Color(0xFFF1F4FA),
                         ),
-                      if (activeSelectedSale != null)
-                        DesktopTag(
-                          label: activeSelectedSale.stageLabel,
-                          background: const Color(0xFFF7F1E4),
-                          foreground: const Color(0xFF8C5A2C),
-                        ),
-                      if (lastPaymentDate != null)
-                        DesktopTag(
-                          label: _formatDate(lastPaymentDate),
-                          background: const Color(0xFFF1F4FA),
-                        ),
-                    ],
+                        if (activeSelectedSale != null)
+                          DesktopTag(
+                            label: activeSelectedSale.stageLabel,
+                            background: const Color(0xFFF7F1E4),
+                            foreground: const Color(0xFF8C5A2C),
+                          ),
+                        if (lastPaymentDate != null)
+                          DesktopTag(
+                            label: _formatDate(lastPaymentDate),
+                            background: const Color(0xFFF1F4FA),
+                          ),
+                      ],
+                    ),
                   ),
-                ),
                 const SizedBox(height: 10),
                 Expanded(
                   child: sales.isEmpty
@@ -300,6 +331,31 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                             final stacked =
                                 constraints.maxWidth < 1100 ||
                                 constraints.maxHeight < 720;
+                            if (stacked && compact) {
+                              return ListView(
+                                children: [
+                                  _buildSalesPanel(
+                                    data,
+                                    currency,
+                                    compact,
+                                    scrollable: false,
+                                  ),
+                                  const SizedBox(height: 12),
+                                  if (activeSelectedSale != null) ...[
+                                    _buildMobileSummaryPanel(
+                                      activeSelectedSale,
+                                      currency,
+                                    ),
+                                    const SizedBox(height: 12),
+                                    _buildMobileDetailPanel(
+                                      activeSelectedSale,
+                                      currency,
+                                    ),
+                                  ],
+                                ],
+                              );
+                            }
+
                             if (stacked) {
                               return ListView(
                                 children: [
@@ -401,6 +457,137 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
           );
         }
       },
+    );
+  }
+
+  Widget _buildMobileSummaryPanel(
+    PaymentSaleDetail detail,
+    NumberFormat currency,
+  ) {
+    return DesktopCompactSurface(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  detail.summary.clientName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF10263D),
+                    fontSize: 15.5,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              DesktopTag(
+                label: detail.stageLabel,
+                background: const Color(0xFFF7F1E4),
+                foreground: const Color(0xFF8C5A2C),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _SummaryMetricPill(
+                label: 'Pendiente',
+                value: currency.format(detail.summary.pendingBalance),
+              ),
+              _SummaryMetricPill(
+                label: 'Pagos',
+                value: '${detail.history.length}',
+                tone: _SummaryTone.success,
+              ),
+              _SummaryMetricPill(
+                label: 'Cuotas',
+                value: '${detail.installments.length}',
+                tone: _SummaryTone.accent,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMobileDetailPanel(
+    PaymentSaleDetail detail,
+    NumberFormat currency,
+  ) {
+    final isPayments = _mobileDetailTab == _MobilePaymentsDetailTab.payments;
+    final totalItems = isPayments ? detail.history.length : detail.installments.length;
+    final totalPages = totalItems == 0
+        ? 1
+        : (totalItems / _mobileDetailPageSize).ceil();
+    final currentPage = _mobileDetailPage.clamp(1, totalPages);
+    final startIndex = (currentPage - 1) * _mobileDetailPageSize;
+    final endIndex = (startIndex + _mobileDetailPageSize).clamp(0, totalItems);
+
+    return DesktopCompactSurface(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _MobileDetailSegmentedControl(
+            currentTab: _mobileDetailTab,
+            paymentsCount: detail.history.length,
+            installmentsCount: detail.installments.length,
+            onChanged: _setMobileDetailTab,
+          ),
+          const SizedBox(height: 12),
+          if (totalItems == 0)
+            DesktopEmptyState(
+              icon: isPayments
+                  ? Icons.receipt_long_outlined
+                  : Icons.view_list_outlined,
+              title: isPayments ? 'Sin pagos visibles' : 'Sin cuotas visibles',
+              message: isPayments
+                  ? 'Esta venta no tiene pagos aplicados dentro del detalle cargado.'
+                  : 'Esta venta no tiene cuotas visibles en este momento.',
+            )
+          else ...[
+            for (final index in List<int>.generate(endIndex - startIndex, (i) => startIndex + i)) ...[
+              if (isPayments)
+                _MobilePaymentRow(
+                  payment: detail.history[index],
+                  currency: currency,
+                  formatDate: _formatDate,
+                  paymentBackground: _paymentBackground,
+                  paymentForeground: _paymentForeground,
+                  paymentIcon: _paymentIcon,
+                  paymentMethodLabel: _paymentMethodLabel,
+                )
+              else
+                _MobileInstallmentRow(
+                  installment: detail.installments[index],
+                  currency: currency,
+                  installmentBackground: _installmentBackground,
+                  installmentForeground: _installmentForeground,
+                ),
+              if (index != endIndex - 1)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 4),
+                  child: Divider(height: 1),
+                ),
+            ],
+            const SizedBox(height: 12),
+            _MobileMiniPagination(
+              currentPage: currentPage,
+              totalPages: totalPages,
+              onPrevious: currentPage > 1
+                  ? () => _setMobileDetailPage(currentPage - 1)
+                  : null,
+              onNext: currentPage < totalPages
+                  ? () => _setMobileDetailPage(currentPage + 1)
+                  : null,
+            ),
+          ],
+        ],
+      ),
     );
   }
 
@@ -509,6 +696,19 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
     bool compact,
     NumberFormat currency,
   ) {
+    if (compact) {
+      return _MobileSaleRow(
+        sale: sale,
+        selected: selected,
+        currency: currency,
+        onTap: () => _selectSale(sale.id),
+        statusLabel: _statusLabel(sale.status),
+        statusBackground: _statusBackground(sale.status),
+        statusForeground: _statusForeground(sale.status),
+        formatDate: _formatDate,
+      );
+    }
+
     return Container(
       color: selected ? const Color(0xFFF4F7FD) : Colors.transparent,
       child: DesktopListRow(
@@ -1094,6 +1294,633 @@ class _PaymentsFilterBar extends StatelessWidget {
             );
           })
           .toList(growable: false),
+    );
+  }
+}
+
+enum _MobilePaymentsDetailTab { payments, installments }
+
+class _MobilePaymentsToolbar extends StatelessWidget {
+  const _MobilePaymentsToolbar({
+    required this.searchController,
+    required this.currentFilter,
+    required this.onSearch,
+    required this.onClear,
+    required this.onFilterChanged,
+  });
+
+  final TextEditingController searchController;
+  final String currentFilter;
+  final VoidCallback onSearch;
+  final VoidCallback onClear;
+  final ValueChanged<String> onFilterChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: DesktopSearchField(
+                controller: searchController,
+                hintText: 'Buscar cliente, contrato o solar',
+                onSubmitted: (_) => onSearch(),
+              ),
+            ),
+            const SizedBox(width: 6),
+            _ToolbarSquareButton(
+              icon: Icons.cleaning_services_outlined,
+              tooltip: 'Limpiar',
+              onPressed: onClear,
+            ),
+            const SizedBox(width: 6),
+            _ToolbarSquareButton(
+              icon: Icons.search_rounded,
+              tooltip: 'Buscar',
+              filled: true,
+              onPressed: onSearch,
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: const Color(0xFFF3F6FA),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFD8E2EE)),
+              ),
+              child: const Icon(
+                Icons.tune_rounded,
+                size: 18,
+                color: Color(0xFF173450),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: _PaymentsFilterBar(
+                  currentFilter: currentFilter,
+                  onChanged: onFilterChanged,
+                  compact: true,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _ToolbarSquareButton extends StatelessWidget {
+  const _ToolbarSquareButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+    this.filled = false,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onPressed;
+  final bool filled;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: filled ? const Color(0xFF16324F) : const Color(0xFFF8FAFD),
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: onPressed,
+          child: Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: filled
+                    ? const Color(0xFF16324F)
+                    : const Color(0xFFD8E2EE),
+              ),
+            ),
+            child: Icon(
+              icon,
+              size: 18,
+              color: filled ? Colors.white : const Color(0xFF173450),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MobilePaymentsOverviewStrip extends StatelessWidget {
+  const _MobilePaymentsOverviewStrip({
+    required this.salesCount,
+    required this.visiblePayments,
+    required this.visibleInstallments,
+    required this.visibleOutstanding,
+    this.stageLabel,
+  });
+
+  final int salesCount;
+  final int visiblePayments;
+  final int visibleInstallments;
+  final String visibleOutstanding;
+  final String? stageLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    return DesktopCompactSurface(
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          DesktopTag(label: '$salesCount ventas', background: const Color(0xFFF1F4FA)),
+          DesktopTag(
+            label: '$visiblePayments pagos',
+            background: const Color(0xFFEAF4ED),
+            foreground: const Color(0xFF2F6F5C),
+          ),
+          DesktopTag(
+            label: '$visibleInstallments cuotas',
+            background: const Color(0xFFF5EEF8),
+            foreground: const Color(0xFF7A4A97),
+          ),
+          DesktopTag(
+            label: visibleOutstanding,
+            background: const Color(0xFFF6EFE3),
+            foreground: const Color(0xFF8C5A2C),
+          ),
+          if (stageLabel != null)
+            DesktopTag(
+              label: stageLabel!,
+              background: const Color(0xFFF7F1E4),
+              foreground: const Color(0xFF8C5A2C),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MobileSaleRow extends StatelessWidget {
+  const _MobileSaleRow({
+    required this.sale,
+    required this.selected,
+    required this.currency,
+    required this.onTap,
+    required this.statusLabel,
+    required this.statusBackground,
+    required this.statusForeground,
+    required this.formatDate,
+  });
+
+  final PaymentSaleSummary sale;
+  final bool selected;
+  final NumberFormat currency;
+  final VoidCallback onTap;
+  final String statusLabel;
+  final Color statusBackground;
+  final Color statusForeground;
+  final String Function(DateTime? value) formatDate;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected ? const Color(0xFFF4F7FD) : Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(10, 10, 10, 9),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: selected
+                      ? const Color(0xFFE1EAFE)
+                      : const Color(0xFFF1F4FA),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  Icons.payments_outlined,
+                  size: 18,
+                  color: selected
+                      ? const Color(0xFF2E5AAC)
+                      : const Color(0xFF223048),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      sale.clientName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 13.4,
+                        color: Color(0xFF10263D),
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      [
+                        if (sale.contractNumber.isNotEmpty) sale.contractNumber,
+                        sale.lotLabel,
+                        formatDate(sale.saleDate),
+                      ].join('  •  '),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF6E7791),
+                        fontSize: 11.5,
+                        height: 1.2,
+                      ),
+                    ),
+                    const SizedBox(height: 7),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        DesktopTag(
+                          label: '${sale.paymentsCount} pagos',
+                          background: const Color(0xFFEAF4ED),
+                          foreground: const Color(0xFF2F6F5C),
+                        ),
+                        DesktopTag(
+                          label: currency.format(sale.pendingBalance),
+                          background: const Color(0xFFF6EFE3),
+                          foreground: const Color(0xFF8C5A2C),
+                        ),
+                        DesktopTag(
+                          label: statusLabel,
+                          background: statusBackground,
+                          foreground: statusForeground,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MobileDetailSegmentedControl extends StatelessWidget {
+  const _MobileDetailSegmentedControl({
+    required this.currentTab,
+    required this.paymentsCount,
+    required this.installmentsCount,
+    required this.onChanged,
+  });
+
+  final _MobilePaymentsDetailTab currentTab;
+  final int paymentsCount;
+  final int installmentsCount;
+  final ValueChanged<_MobilePaymentsDetailTab> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF3F6FA),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE3EAF3)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: _SegmentButton(
+              label: 'Pagos',
+              count: paymentsCount,
+              selected: currentTab == _MobilePaymentsDetailTab.payments,
+              onTap: () => onChanged(_MobilePaymentsDetailTab.payments),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: _SegmentButton(
+              label: 'Cuotas',
+              count: installmentsCount,
+              selected: currentTab == _MobilePaymentsDetailTab.installments,
+              onTap: () => onChanged(_MobilePaymentsDetailTab.installments),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SegmentButton extends StatelessWidget {
+  const _SegmentButton({
+    required this.label,
+    required this.count,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final int count;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected ? Colors.white : Colors.transparent,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w800,
+                  color: selected
+                      ? const Color(0xFF16324F)
+                      : const Color(0xFF68768A),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                decoration: BoxDecoration(
+                  color: selected
+                      ? const Color(0xFFEAF0F7)
+                      : const Color(0xFFFFFFFF),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '$count',
+                  style: const TextStyle(
+                    fontSize: 10.8,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF173450),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MobileInstallmentRow extends StatelessWidget {
+  const _MobileInstallmentRow({
+    required this.installment,
+    required this.currency,
+    required this.installmentBackground,
+    required this.installmentForeground,
+  });
+
+  final PaymentInstallmentView installment;
+  final NumberFormat currency;
+  final Color Function(String status) installmentBackground;
+  final Color Function(String status) installmentForeground;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: const Color(0xFFF1F4FA),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            '#${installment.installmentNumber}',
+            style: const TextStyle(
+              color: Color(0xFF223048),
+              fontSize: 11.4,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Vence ${installment.dueDateIso}',
+                      style: const TextStyle(
+                        color: Color(0xFF10263D),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  DesktopTag(
+                    label: installment.statusLabel,
+                    background: installmentBackground(installment.statusLabel),
+                    foreground: installmentForeground(installment.statusLabel),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Monto ${currency.format(installment.amount)}  •  Pagado ${currency.format(installment.paidAmount)}',
+                style: const TextStyle(
+                  color: Color(0xFF6E7791),
+                  fontSize: 11.6,
+                  height: 1.2,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Restante ${currency.format(installment.remainingAmount)}',
+                style: const TextStyle(
+                  color: Color(0xFF8C5A2C),
+                  fontSize: 11.8,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _MobilePaymentRow extends StatelessWidget {
+  const _MobilePaymentRow({
+    required this.payment,
+    required this.currency,
+    required this.formatDate,
+    required this.paymentBackground,
+    required this.paymentForeground,
+    required this.paymentIcon,
+    required this.paymentMethodLabel,
+  });
+
+  final PaymentHistoryView payment;
+  final NumberFormat currency;
+  final String Function(DateTime? value) formatDate;
+  final Color Function(String type) paymentBackground;
+  final Color Function(String type) paymentForeground;
+  final IconData Function(String type) paymentIcon;
+  final String Function(String method) paymentMethodLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 38,
+          height: 38,
+          decoration: BoxDecoration(
+            color: paymentBackground(payment.type),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(
+            paymentIcon(payment.type),
+            size: 18,
+            color: paymentForeground(payment.type),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      payment.typeLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF10263D),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    currency.format(payment.amount),
+                    style: TextStyle(
+                      color: paymentForeground(payment.type),
+                      fontSize: 12.4,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                [
+                  formatDate(payment.paymentDate),
+                  paymentMethodLabel(payment.method),
+                  if (payment.installmentNumber != null)
+                    'Cuota #${payment.installmentNumber}',
+                  if (payment.reference.isNotEmpty) payment.reference,
+                ].join('  •  '),
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Color(0xFF6E7791),
+                  fontSize: 11.6,
+                  height: 1.2,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _MobileMiniPagination extends StatelessWidget {
+  const _MobileMiniPagination({
+    required this.currentPage,
+    required this.totalPages,
+    this.onPrevious,
+    this.onNext,
+  });
+
+  final int currentPage;
+  final int totalPages;
+  final VoidCallback? onPrevious;
+  final VoidCallback? onNext;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: OutlinedButton.icon(
+            onPressed: onPrevious,
+            icon: const Icon(Icons.chevron_left_rounded, size: 18),
+            label: const Text('Anterior'),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          child: Text(
+            '$currentPage / $totalPages',
+            style: const TextStyle(
+              color: Color(0xFF6E7791),
+              fontSize: 11.8,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        Expanded(
+          child: FilledButton.icon(
+            onPressed: onNext,
+            icon: const Icon(Icons.chevron_right_rounded, size: 18),
+            label: const Text('Siguiente'),
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

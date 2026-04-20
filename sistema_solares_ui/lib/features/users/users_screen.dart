@@ -107,44 +107,31 @@ class _UsersScreenState extends State<UsersScreen> {
           child: ListView(
             children: [
               DesktopInfoStrip(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Wrap(
+                  spacing: compact ? 10 : 12,
+                  runSpacing: compact ? 10 : 12,
                   children: [
-                    const Text(
-                      'Resumen de accesos',
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w800,
-                      ),
+                    _SummaryTile(
+                      title: 'Usuarios visibles',
+                      value: '${data.users.length}',
+                      color: const Color(0xFF173450),
                     ),
-                    const SizedBox(height: 16),
-                    Wrap(
-                      spacing: 12,
-                      runSpacing: 12,
-                      children: [
-                        _SummaryTile(
-                          title: 'Usuarios visibles',
-                          value: '${data.users.length}',
-                          color: const Color(0xFF173450),
-                        ),
-                        _SummaryTile(
-                          title: 'Usuarios activos',
-                          value: '$activeCount',
-                          color: const Color(0xFF2F6F5C),
-                        ),
-                        _SummaryTile(
-                          title: 'Perfiles admin',
-                          value: '$adminCount',
-                          color: const Color(0xFFC07A2B),
-                        ),
-                        _SummaryTile(
-                          title: 'Usuarios en linea',
-                          value: '$onlineCount',
-                          color: onlineCount > 0
-                              ? const Color(0xFF2BB673)
-                              : const Color(0xFF6B7682),
-                        ),
-                      ],
+                    _SummaryTile(
+                      title: 'Usuarios activos',
+                      value: '$activeCount',
+                      color: const Color(0xFF2F6F5C),
+                    ),
+                    _SummaryTile(
+                      title: 'Perfiles admin',
+                      value: '$adminCount',
+                      color: const Color(0xFFC07A2B),
+                    ),
+                    _SummaryTile(
+                      title: 'Usuarios en linea',
+                      value: '$onlineCount',
+                      color: onlineCount > 0
+                          ? const Color(0xFF2BB673)
+                          : const Color(0xFF6B7682),
                     ),
                   ],
                 ),
@@ -176,7 +163,7 @@ class _UsersScreenState extends State<UsersScreen> {
                   children: data.users.map((user) {
                     final isCurrentUser = currentUser?.id == user.id;
                     return DesktopListRow(
-                      height: 94,
+                      height: 82,
                       leading: _UserAvatar(label: _initialFor(user.fullName)),
                       title: Row(
                         children: [
@@ -197,7 +184,11 @@ class _UsersScreenState extends State<UsersScreen> {
                       ),
                       subtitle: Text(
                         '${user.username}  •  ${user.email}',
-                        style: const TextStyle(color: Color(0xFF6E7791)),
+                        style: const TextStyle(
+                          color: Color(0xFF6E7791),
+                          fontSize: 10.8,
+                          height: 1.1,
+                        ),
                         overflow: TextOverflow.ellipsis,
                       ),
                       trailing: Wrap(
