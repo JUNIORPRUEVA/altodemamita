@@ -217,8 +217,8 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
             children: [
               DesktopInfoStrip(
                 child: Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
+                  spacing: 8,
+                  runSpacing: 8,
                   children: [
                     DesktopTag(
                       label: compact
@@ -270,7 +270,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                   ],
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 10),
               Expanded(
                 child: sales.isEmpty
                   ? DesktopEmptyState(
@@ -322,16 +322,16 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               Expanded(
-                                flex: 34,
+                                flex: 32,
                                 child: _buildSalesPanel(
                                   data,
                                   currency,
                                   compact,
                                 ),
                               ),
-                              const SizedBox(width: 12),
+                              const SizedBox(width: 10),
                               Expanded(
-                                flex: 36,
+                                flex: 40,
                                 child: activeSelectedSale == null
                                     ? DesktopEmptyState(
                                         icon: Icons.view_list_outlined,
@@ -348,30 +348,17 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                                         compact,
                                       ),
                               ),
-                              const SizedBox(width: 12),
+                              const SizedBox(width: 10),
                               Expanded(
-                                flex: 30,
+                                flex: 28,
                                 child: activeSelectedSale == null
                                     ? const SizedBox.shrink()
-                                    : Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.stretch,
-                                        children: [
-                                          _buildSummaryPanel(
-                                            activeSelectedSale,
-                                            currency,
-                                          ),
-                                          const SizedBox(height: 12),
-                                          Expanded(
-                                            child: _buildHistoryPanel(
-                                              activeSelectedSale,
-                                              currency,
-                                              averageTicket,
-                                              methods.length,
-                                              compact,
-                                            ),
-                                          ),
-                                        ],
+                                    : _buildInspectorPanel(
+                                        activeSelectedSale,
+                                        currency,
+                                        averageTicket,
+                                        methods.length,
+                                        compact,
                                       ),
                               ),
                             ],
@@ -652,112 +639,132 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
   Widget _buildSummaryPanel(PaymentSaleDetail detail, NumberFormat currency) {
     final sale = detail.summary;
     final priority = detail.priorityInstallment;
-    return DesktopSurface(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  'Resumen',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF0D2640),
-                  ),
-                ),
-              ),
-              DesktopTag(
-                label: 'Solo lectura',
-                background: const Color(0xFFEAF4ED),
-                foreground: const Color(0xFF2F6F5C),
-              ),
-            ],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _PanelHeader(
+          title: 'Resumen',
+          trailing: DesktopTag(
+            label: 'Solo lectura',
+            background: const Color(0xFFEAF4ED),
+            foreground: const Color(0xFF2F6F5C),
           ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _SummaryMetricPill(
+              label: 'Pendiente',
+              value: currency.format(sale.pendingBalance),
+            ),
+            _SummaryMetricPill(
+              label: 'Pagos',
+              value: '${sale.paymentsCount}',
+              tone: _SummaryTone.success,
+            ),
+            _SummaryMetricPill(
+              label: 'Cuotas',
+              value: '${sale.installmentsCount}',
+              tone: _SummaryTone.accent,
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Container(
+          decoration: BoxDecoration(
+            color: const Color(0xFFF9FBFD),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE5EBF3)),
+          ),
+          child: Column(
             children: [
-              _SummaryItem(label: 'Cliente', value: sale.clientName),
-              _SummaryItem(
+              _SummaryFactRow(label: 'Cliente', value: sale.clientName),
+              _SummaryFactRow(
                 label: 'Documento',
                 value: sale.clientDocumentId.isEmpty
                     ? 'No disponible'
                     : sale.clientDocumentId,
               ),
-              _SummaryItem(
+              _SummaryFactRow(
                 label: 'Telefono',
                 value: sale.clientPhone.isEmpty
                     ? 'No disponible'
                     : sale.clientPhone,
               ),
-              _SummaryItem(label: 'Solar', value: sale.lotLabel),
-              _SummaryItem(
+              _SummaryFactRow(label: 'Solar', value: sale.lotLabel),
+              _SummaryFactRow(
                 label: 'Contrato',
                 value: sale.contractNumber.isEmpty
                     ? 'No disponible'
                     : sale.contractNumber,
               ),
-              _SummaryItem(label: 'Estado', value: _statusLabel(sale.status)),
-              _SummaryItem(
-                label: 'Saldo pendiente',
-                value: currency.format(sale.pendingBalance),
-              ),
-              _SummaryItem(
-                label: 'Pagos realizados',
-                value: '${sale.paymentsCount}',
-              ),
-              _SummaryItem(
-                label: 'Cuotas generadas',
-                value: '${sale.installmentsCount}',
-              ),
-              _SummaryItem(
+              _SummaryFactRow(label: 'Estado', value: _statusLabel(sale.status)),
+              _SummaryFactRow(
                 label: 'Inicial requerida',
                 value: currency.format(sale.requiredInitialPayment),
               ),
-              _SummaryItem(
+              _SummaryFactRow(
                 label: 'Inicial pagada',
                 value: currency.format(sale.paidInitialPayment),
               ),
-              _SummaryItem(
+              _SummaryFactRow(
                 label: 'Inicial pendiente',
                 value: currency.format(sale.pendingInitialPayment),
               ),
-              _SummaryItem(
+              _SummaryFactRow(
                 label: 'Interes mensual',
                 value: '${detail.monthlyInterest.toStringAsFixed(2)}%',
               ),
-              _SummaryItem(label: 'Plazo', value: '${detail.termMonths} meses'),
-              _SummaryItem(
+              _SummaryFactRow(label: 'Plazo', value: '${detail.termMonths} meses'),
+              _SummaryFactRow(
                 label: 'Cuotas pagadas',
                 value: '${detail.paidInstallmentsCount}',
               ),
-              _SummaryItem(
+              _SummaryFactRow(
                 label: 'Cuotas pendientes',
                 value: '${detail.pendingInstallmentsCount}',
               ),
-              _SummaryItem(
+              _SummaryFactRow(
                 label: 'Prioridad',
                 value: priority == null
                     ? 'Sin cuota prioritaria'
                     : 'Cuota #${priority.installmentNumber}',
               ),
-              _SummaryItem(label: 'Responsable', value: detail.salespersonName),
+              _SummaryFactRow(label: 'Responsable', value: detail.salespersonName),
             ],
           ),
-          const SizedBox(height: 14),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF7F9FC),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: const Color(0xFFE4EAF2)),
-            ),
-            child: Text(
-              detail.nextActionText,
-              style: const TextStyle(color: Color(0xFF556079), height: 1.4),
+        ),
+        const SizedBox(height: 10),
+        _InlineInfoBadge(label: 'Proxima accion', value: detail.nextActionText),
+      ],
+    );
+  }
+
+  Widget _buildInspectorPanel(
+    PaymentSaleDetail detail,
+    NumberFormat currency,
+    double averageTicket,
+    int methodsCount,
+    bool compact,
+  ) {
+    return _PaymentsPanelSurface(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildSummaryPanel(detail, currency),
+          const SizedBox(height: 12),
+          const Divider(height: 1),
+          const SizedBox(height: 12),
+          Expanded(
+            child: _buildHistoryPanel(
+              detail,
+              currency,
+              averageTicket,
+              methodsCount,
+              compact,
+              embedded: true,
             ),
           ),
         ],
@@ -772,6 +779,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
     int methodsCount,
     bool compact, {
     bool scrollable = true,
+    bool embedded = false,
   }) {
     final content = detail.history.isEmpty
         ? const DesktopEmptyState(
@@ -789,16 +797,17 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
             itemBuilder: (context, index) {
               final payment = detail.history[index];
               return DesktopListRow(
-                height: compact ? 104 : 84,
+                height: compact ? 86 : 68,
                 leading: Container(
-                  width: 44,
-                  height: 44,
+                  width: 34,
+                  height: 34,
                   decoration: BoxDecoration(
                     color: const Color(0xFFEAF4ED),
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(11),
                   ),
                   child: Icon(
                     _paymentIcon(payment.type),
+                    size: 17,
                     color: _paymentForeground(payment.type),
                   ),
                 ),
@@ -816,7 +825,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                   ].join(compact ? '\n' : '  •  '),
                   maxLines: compact ? 4 : 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Color(0xFF6E7791)),
+                  style: const TextStyle(color: Color(0xFF6E7791), fontSize: 12.2),
                 ),
                 trailing: DesktopTag(
                   label: currency.format(payment.amount),
@@ -827,34 +836,23 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
             },
           );
 
-    return DesktopSurface(
-      child: Column(
+    final contentPanel = Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  'Historial',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF0D2640),
-                  ),
-                ),
-              ),
-              if (detail.history.isNotEmpty)
-                DesktopTag(
-                  label: 'Ticket ${currency.format(averageTicket)}',
-                  background: const Color(0xFFF6EFE3),
-                  foreground: const Color(0xFF8C5A2C),
-                ),
-            ],
+          _PanelHeader(
+            title: 'Historial',
+            trailing: detail.history.isNotEmpty
+                ? DesktopTag(
+                    label: 'Ticket ${currency.format(averageTicket)}',
+                    background: const Color(0xFFF6EFE3),
+                    foreground: const Color(0xFF8C5A2C),
+                  )
+                : null,
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           Wrap(
-            spacing: 8,
-            runSpacing: 8,
+            spacing: 6,
+            runSpacing: 6,
             children: [
               DesktopTag(
                 label: '${detail.history.length} realizados',
@@ -867,11 +865,12 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 10),
           if (scrollable) Expanded(child: content) else content,
         ],
-      ),
-    );
+      );
+
+    return embedded ? contentPanel : _PaymentsPanelSurface(child: contentPanel);
   }
 
   String _formatDate(DateTime? value) {
@@ -971,48 +970,6 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
   }
 }
 
-class _SummaryItem extends StatelessWidget {
-  const _SummaryItem({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    final compact = MediaQuery.sizeOf(context).width < 760;
-    return Container(
-      width: compact ? double.infinity : 190,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFD),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFE4EAF2)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF6E7791),
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            value,
-            style: const TextStyle(
-              fontWeight: FontWeight.w800,
-              color: Color(0xFF0D2640),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _StaticPaymentsList extends StatelessWidget {
   const _StaticPaymentsList({required this.children});
 
@@ -1059,8 +1016,8 @@ class _PaymentsFilterBar extends StatelessWidget {
     ];
 
     return Wrap(
-      spacing: 8,
-      runSpacing: 8,
+      spacing: 6,
+      runSpacing: 6,
       children: chips.map((entry) {
         final selected = currentFilter == entry.$1;
         return ChoiceChip(
@@ -1068,7 +1025,7 @@ class _PaymentsFilterBar extends StatelessWidget {
           selected: selected,
           onSelected: (_) => onChanged(entry.$1),
           labelStyle: TextStyle(
-            fontSize: compact ? 12 : 13,
+            fontSize: compact ? 11.5 : 12,
             fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
             color: selected ? const Color(0xFF2F6F5C) : const Color(0xFF556079),
           ),
@@ -1082,6 +1039,189 @@ class _PaymentsFilterBar extends StatelessWidget {
           ),
         );
       }).toList(growable: false),
+    );
+  }
+}
+
+class _PaymentsPanelSurface extends StatelessWidget {
+  const _PaymentsPanelSurface({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return DesktopSurface(
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+      radius: 18,
+      child: child,
+    );
+  }
+}
+
+class _PanelHeader extends StatelessWidget {
+  const _PanelHeader({required this.title, this.trailing});
+
+  final String title;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            title,
+            style: const TextStyle(
+              fontSize: 17.5,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF0D2640),
+            ),
+          ),
+        ),
+        ...?trailing == null ? null : [trailing!],
+      ],
+    );
+  }
+}
+
+enum _SummaryTone { neutral, success, accent }
+
+class _SummaryMetricPill extends StatelessWidget {
+  const _SummaryMetricPill({
+    required this.label,
+    required this.value,
+    this.tone = _SummaryTone.neutral,
+  });
+
+  final String label;
+  final String value;
+  final _SummaryTone tone;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = switch (tone) {
+      _SummaryTone.success => (const Color(0xFFEAF4ED), const Color(0xFF2F6F5C)),
+      _SummaryTone.accent => (const Color(0xFFF5EEF8), const Color(0xFF7A4A97)),
+      _SummaryTone.neutral => (const Color(0xFFF1F4FA), const Color(0xFF223048)),
+    };
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: palette.$1,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: palette.$2.withValues(alpha: 0.16)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: palette.$2.withValues(alpha: 0.8),
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 13.5,
+              fontWeight: FontWeight.w800,
+              color: palette.$2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SummaryFactRow extends StatelessWidget {
+  const _SummaryFactRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: const BoxDecoration(
+        border: Border(
+          bottom: BorderSide(color: Color(0xFFE8EDF4), width: 1),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 106,
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF6E7791),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(
+                fontSize: 12.8,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF0D2640),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InlineInfoBadge extends StatelessWidget {
+  const _InlineInfoBadge({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7F9FC),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE4EAF2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF6E7791),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: const TextStyle(
+              color: Color(0xFF556079),
+              height: 1.3,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
