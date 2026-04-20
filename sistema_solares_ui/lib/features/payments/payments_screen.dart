@@ -213,10 +213,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                       ),
                     if (lastPaymentDate != null)
                       DesktopTag(
-                        label: DateFormat(
-                          'dd MMM yyyy',
-                          'es_DO',
-                        ).format(lastPaymentDate),
+                        label: _formatDate(lastPaymentDate),
                         background: const Color(0xFFF1F4FA),
                       ),
                   ],
@@ -800,7 +797,9 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
     if (value == null) {
       return '-';
     }
-    return DateFormat('dd MMM yyyy', 'es_DO').format(value);
+    final day = value.day.toString().padLeft(2, '0');
+    final month = value.month.toString().padLeft(2, '0');
+    return '$day/$month/${value.year}';
   }
 
   String _statusLabel(String status) {
