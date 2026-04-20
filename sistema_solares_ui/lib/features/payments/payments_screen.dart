@@ -228,8 +228,8 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                     ),
                     DesktopTag(
                       label: compact
-                          ? '$visiblePayments pagos'
-                          : 'Pagos $visiblePayments',
+                          ? '$visiblePayments realizados'
+                          : 'Pagos realizados $visiblePayments',
                       background: const Color(0xFFEAF4ED),
                       foreground: const Color(0xFF2F6F5C),
                     ),
@@ -240,7 +240,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                     ),
                     if (!compact)
                       DesktopTag(
-                        label: 'Cuotas $visibleInstallments',
+                        label: 'Cuotas generadas $visibleInstallments',
                         background: const Color(0xFFF5EEF8),
                         foreground: const Color(0xFF7A4A97),
                       ),
@@ -529,7 +529,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
             if (sale.contractNumber.isNotEmpty) sale.contractNumber,
             sale.lotLabel,
             _statusLabel(sale.status),
-            '${sale.paymentsCount} pagos',
+            '${sale.paymentsCount} pagos realizados',
             _formatDate(sale.saleDate),
           ].join(compact ? '\n' : '  •  '),
           maxLines: compact ? 4 : 2,
@@ -541,7 +541,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
           runSpacing: 8,
           children: [
             DesktopTag(
-              label: '${sale.paymentsCount} pagos',
+              label: '${sale.paymentsCount} realizados',
               background: const Color(0xFFEAF4ED),
               foreground: const Color(0xFF2F6F5C),
             ),
@@ -706,7 +706,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                 value: currency.format(sale.pendingBalance),
               ),
               _SummaryItem(
-                label: 'Pagos registrados',
+                label: 'Pagos realizados',
                 value: '${sale.paymentsCount}',
               ),
               _SummaryItem(
@@ -857,7 +857,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
             runSpacing: 8,
             children: [
               DesktopTag(
-                label: '${detail.history.length} pagos',
+                label: '${detail.history.length} realizados',
                 background: const Color(0xFFF1F4FA),
               ),
               DesktopTag(

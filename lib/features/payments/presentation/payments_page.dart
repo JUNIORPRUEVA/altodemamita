@@ -811,7 +811,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
                 _DetailGrid(
                   items: [
                     _DetailItem(
-                      label: 'Pagos registrados',
+                      label: 'Pagos realizados',
                       value: '${visibleHistory.length}',
                     ),
                     _DetailItem(label: 'Cuotas pagadas', value: '$paidCount'),
