@@ -340,7 +340,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
           );
           return DesktopPageError(
             message:
-                'No se pudieron renderizar los pagos. Revisa los logs del modulo para ver el endpoint, payload y motivo del fallo.',
+                'Render fallo en PaymentsScreen: ${error.runtimeType}: $error',
             onRetry: _reload,
           );
         }

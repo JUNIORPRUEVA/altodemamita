@@ -270,7 +270,9 @@ class PaymentsService {
         error: error,
         stackTrace: stackTrace,
       );
-      throw ApiException('No se pudieron cargar los pagos.');
+      throw ApiException(
+        'No se pudieron cargar los pagos. Falla en read-model: ${error.runtimeType}: $error',
+      );
     }
   }
 
@@ -325,7 +327,9 @@ class PaymentsService {
         error: error,
         stackTrace: stackTrace,
       );
-      throw ApiException('No se pudo cargar el detalle de pagos.');
+      throw ApiException(
+        'No se pudo cargar el detalle de pagos. Falla en detalle sale=$id: ${error.runtimeType}: $error',
+      );
     }
   }
 
