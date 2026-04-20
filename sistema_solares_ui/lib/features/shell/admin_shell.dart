@@ -223,29 +223,44 @@ class _MobileShellAppBar extends StatelessWidget
   final RealtimeController realtimeController;
 
   @override
-  Size get preferredSize => const Size.fromHeight(42);
+  Size get preferredSize => const Size.fromHeight(60);
 
   @override
   Widget build(BuildContext context) {
     final authController = context.watch<AuthController>();
 
     return AppBar(
-      automaticallyImplyLeading: true,
+      automaticallyImplyLeading: false,
       centerTitle: false,
-      toolbarHeight: 42,
-      titleSpacing: 0,
+      toolbarHeight: 60,
+      titleSpacing: 6,
+      leadingWidth: 62,
       elevation: 0,
       scrolledUnderElevation: 0,
       backgroundColor: Colors.white,
       surfaceTintColor: Colors.white,
       foregroundColor: const Color(0xFF173450),
+      leading: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 10, 0, 10),
+        child: Builder(
+          builder: (context) {
+            return _MobileAppBarIconButton(
+              tooltip: 'Abrir menu',
+              icon: Icons.menu_rounded,
+              size: 42,
+              iconSize: 22,
+              onPressed: () => Scaffold.of(context).openDrawer(),
+            );
+          },
+        ),
+      ),
       title: Row(
         children: [
           Container(
-            width: 26,
-            height: 26,
+            width: 32,
+            height: 32,
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(9),
+              borderRadius: BorderRadius.circular(11),
               gradient: const LinearGradient(
                 colors: [Color(0xFF1A4D73), Color(0xFF214C68)],
                 begin: Alignment.topLeft,
@@ -255,28 +270,44 @@ class _MobileShellAppBar extends StatelessWidget
             child: const Icon(
               Icons.wb_sunny_rounded,
               color: Colors.white,
-              size: 15,
+              size: 18,
             ),
           ),
-          const SizedBox(width: 8),
-          const Expanded(
-            child: Text(
-              'Sistema Solares',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Sistema Solares',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w800),
+                ),
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 10.8,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF6C7890),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
       ),
       actions: [
         Padding(
-          padding: const EdgeInsets.only(right: 6),
+          padding: const EdgeInsets.only(right: 10),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               _MobileStatusIcon(isConnected: realtimeController.isConnected),
-              const SizedBox(width: 4),
+              const SizedBox(width: 8),
               PopupMenuButton<String>(
                 tooltip: 'Sesion',
                 onSelected: (value) async {
@@ -321,11 +352,15 @@ class _MobileAppBarIconButton extends StatelessWidget {
     required this.tooltip,
     required this.icon,
     required this.onPressed,
+    this.size = 40,
+    this.iconSize = 20,
   });
 
   final String tooltip;
   final IconData icon;
   final VoidCallback onPressed;
+  final double size;
+  final double iconSize;
 
   @override
   Widget build(BuildContext context) {
@@ -337,14 +372,21 @@ class _MobileAppBarIconButton extends StatelessWidget {
           borderRadius: BorderRadius.circular(14),
           onTap: onPressed,
           child: Container(
-            width: 36,
-            height: 36,
+            width: size,
+            height: size,
             decoration: BoxDecoration(
               color: const Color(0xFFF7F8FB),
               border: Border.all(color: const Color(0xFFE4EAF2)),
               borderRadius: BorderRadius.circular(12),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x0810263D),
+                  blurRadius: 10,
+                  offset: Offset(0, 4),
+                ),
+              ],
             ),
-            child: Icon(icon, color: const Color(0xFF173450), size: 18),
+            child: Icon(icon, color: const Color(0xFF173450), size: iconSize),
           ),
         ),
       ),
@@ -373,12 +415,19 @@ class _MobileStatusIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 24,
-      height: 24,
+      width: 42,
+      height: 42,
+      decoration: BoxDecoration(
+        color: isConnected ? const Color(0xFFEAF8F0) : const Color(0xFFF1F4F8),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: (isConnected ? const Color(0xFF2BB673) : const Color(0xFF8B96A7)).withValues(alpha: 0.18),
+        ),
+      ),
       alignment: Alignment.center,
       child: Icon(
         isConnected ? Icons.sync_rounded : Icons.sync_disabled_rounded,
-        size: 16,
+        size: 19,
         color: isConnected ? const Color(0xFF2BB673) : const Color(0xFF6B7682),
       ),
     );
@@ -878,8 +927,8 @@ class _NavTile extends StatelessWidget {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
           padding: EdgeInsets.symmetric(
-            horizontal: drawerMode ? 12 : 10,
-            vertical: 10,
+            horizontal: drawerMode ? 13 : 10,
+            vertical: drawerMode ? 11 : 10,
           ),
           decoration: BoxDecoration(
             color: selected
@@ -895,8 +944,8 @@ class _NavTile extends StatelessWidget {
           child: Row(
             children: [
               Container(
-                width: drawerMode ? 40 : 36,
-                height: drawerMode ? 40 : 36,
+                width: drawerMode ? 44 : 36,
+                height: drawerMode ? 44 : 36,
                 decoration: BoxDecoration(
                   color: selected
                       ? Colors.white.withValues(alpha: 0.14)
@@ -906,7 +955,7 @@ class _NavTile extends StatelessWidget {
                 child: Icon(
                   item.icon,
                   color: Colors.white,
-                  size: drawerMode ? 22 : 20,
+                  size: drawerMode ? 24 : 20,
                 ),
               ),
               SizedBox(width: drawerMode ? 12 : 10),
@@ -916,7 +965,7 @@ class _NavTile extends StatelessWidget {
                   style: TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w700,
-                    fontSize: drawerMode ? 14.5 : 13.5,
+                    fontSize: drawerMode ? 15 : 13.5,
                   ),
                 ),
               ),

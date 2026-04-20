@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:sistema_solares_ui/core/formatters/app_number_formats.dart';
 import 'package:sistema_solares_ui/core/network/api_client.dart';
 import 'package:sistema_solares_ui/core/realtime/realtime_controller.dart';
 import 'package:sistema_solares_ui/features/global_search/global_search_service.dart';
@@ -78,7 +79,9 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
             ),
           ],
           compactActions: [
-            OutlinedButton.icon(
+            DesktopToolbarIconAction(
+              icon: Icons.cleaning_services_outlined,
+              tooltip: 'Limpiar',
               onPressed: () {
                 _searchController.clear();
                 setState(() {
@@ -86,13 +89,12 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
                   _lastSubmittedQuery = '';
                 });
               },
-              icon: const Icon(Icons.cleaning_services_outlined),
-              label: const Text('Limpiar'),
             ),
-            FilledButton.icon(
+            DesktopToolbarIconAction(
+              icon: Icons.search_rounded,
+              tooltip: 'Buscar',
+              tone: DesktopToolbarActionTone.filled,
               onPressed: _reload,
-              icon: const Icon(Icons.search_rounded),
-              label: const Text('Buscar'),
             ),
           ],
         ),
@@ -177,10 +179,10 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
                   );
 
                   return DesktopListRow(
-                    height: compact ? 124 : 88,
+                    height: compact ? 104 : 88,
                     onTap: () => _openDetail(result.clientId),
                     leading: CircleAvatar(
-                      radius: compact ? 18 : 22,
+                      radius: compact ? 16 : 22,
                       backgroundColor: const Color(0xFFEFF3FB),
                       child: Text(
                         fullName.isEmpty ? 'C' : fullName[0].toUpperCase(),
@@ -494,10 +496,7 @@ class _GlobalSearchDetailDialog extends StatelessWidget {
   }
 }
 
-final NumberFormat _currency = NumberFormat.currency(
-  locale: 'es_DO',
-  symbol: 'RD\$ ',
-);
+final NumberFormat _currency = AppNumberFormats.currency;
 
 Map<String, dynamic> _asMap(Object? value) {
   if (value is Map<String, dynamic>) {

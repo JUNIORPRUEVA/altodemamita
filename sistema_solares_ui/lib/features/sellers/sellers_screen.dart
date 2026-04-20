@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:sistema_solares_ui/core/formatters/app_number_formats.dart';
 import 'package:sistema_solares_ui/core/network/api_client.dart';
 import 'package:sistema_solares_ui/core/realtime/realtime_controller.dart';
 import 'package:sistema_solares_ui/features/sellers/sellers_service.dart';
@@ -81,18 +82,19 @@ class _SellersScreenState extends State<SellersScreen> {
                 ),
               ],
               compactActions: [
-                OutlinedButton.icon(
+                DesktopToolbarIconAction(
+                  icon: Icons.cleaning_services_outlined,
+                  tooltip: 'Limpiar',
                   onPressed: () {
                     _searchController.clear();
                     _reload();
                   },
-                  icon: const Icon(Icons.cleaning_services_outlined),
-                  label: const Text('Limpiar'),
                 ),
-                FilledButton.icon(
+                DesktopToolbarIconAction(
+                  icon: Icons.search_rounded,
+                  tooltip: 'Buscar',
+                  tone: DesktopToolbarActionTone.filled,
                   onPressed: _reload,
-                  icon: const Icon(Icons.search_rounded),
-                  label: const Text('Buscar'),
                 ),
               ],
             ),
@@ -139,11 +141,11 @@ class _SellersScreenState extends State<SellersScreen> {
                               ? '$document\n$phone'
                               : '$document  •  $phone';
                           return DesktopListRow(
-                            height: compact ? 82 : 76,
+                            height: compact ? 74 : 76,
                             onTap: () =>
                                 _openDetail(item['id']?.toString() ?? ''),
                             leading: CircleAvatar(
-                              radius: compact ? 16 : 22,
+                              radius: compact ? 15 : 22,
                               backgroundColor: const Color(0xFFEAF0F7),
                               child: Text(
                                 name.isEmpty ? 'V' : name[0].toUpperCase(),
@@ -383,10 +385,7 @@ class _SellerDetailPage extends StatelessWidget {
   }
 }
 
-final NumberFormat _currency = NumberFormat.currency(
-  locale: 'es_DO',
-  symbol: 'RD\$ ',
-);
+final NumberFormat _currency = AppNumberFormats.currency;
 
 Map<String, dynamic> _asMap(Object? value) {
   if (value is Map<String, dynamic>) {

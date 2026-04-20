@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:sistema_solares_ui/core/formatters/app_number_formats.dart';
 import 'package:sistema_solares_ui/core/network/api_client.dart';
 import 'package:sistema_solares_ui/core/realtime/realtime_controller.dart';
 import 'dart:math' as math;
@@ -16,15 +17,86 @@ class ReportsScreen extends StatefulWidget {
 }
 
 class _ReportsScreenState extends State<ReportsScreen> {
-  int _days = 30;
+  DateTimeRange _selectedRange = _defaultRange();
   Future<_ReportsScreenData>? _future;
   int _lastTick = -1;
 
-  void _reloadFor(int days) {
+  static DateTimeRange _defaultRange() {
+    final now = DateTime.now();
+    return DateTimeRange(
+      start: _startOfDay(now.subtract(const Duration(days: 1))),
+      end: _endOfDay(now),
+    );
+  }
+
+  static DateTime _startOfDay(DateTime date) {
+    return DateTime(date.year, date.month, date.day);
+  }
+
+  static DateTime _endOfDay(DateTime date) {
+    return DateTime(date.year, date.month, date.day, 23, 59, 59, 999);
+  }
+
+  DateTimeRange _rangeForLastDays(int days) {
+    final now = DateTime.now();
+    return DateTimeRange(
+      start: _startOfDay(now.subtract(Duration(days: days - 1))),
+      end: _endOfDay(now),
+    );
+  }
+
+  void _reloadForRange(DateTimeRange range) {
     setState(() {
-      _days = days;
+      _selectedRange = DateTimeRange(
+        start: _startOfDay(range.start),
+        end: _endOfDay(range.end),
+      );
       _future = null;
     });
+  }
+
+  Future<void> _selectCustomRange() async {
+    final picked = await showDateRangePicker(
+      context: context,
+      locale: const Locale('es', 'DO'),
+      initialDateRange: _selectedRange,
+      firstDate: DateTime(DateTime.now().year - 5),
+      lastDate: DateTime(DateTime.now().year + 1, 12, 31),
+      helpText: 'Selecciona el intervalo',
+      saveText: 'Aplicar',
+      cancelText: 'Cancelar',
+      confirmText: 'Aplicar',
+      fieldStartHintText: 'Desde',
+      fieldEndHintText: 'Hasta',
+    );
+
+    if (picked != null) {
+      _reloadForRange(picked);
+    }
+  }
+
+  bool _matchesRange(DateTimeRange range) {
+    return _selectedRange.start.year == range.start.year &&
+        _selectedRange.start.month == range.start.month &&
+        _selectedRange.start.day == range.start.day &&
+        _selectedRange.end.year == range.end.year &&
+        _selectedRange.end.month == range.end.month &&
+        _selectedRange.end.day == range.end.day;
+  }
+
+  String _mobileRangeLabel() {
+    final defaultRange = _defaultRange();
+    if (_matchesRange(defaultRange)) {
+      return 'Ayer y hoy';
+    }
+
+    final formatter = DateFormat('dd MMM', 'es_DO');
+    return '${formatter.format(_selectedRange.start)} - ${formatter.format(_selectedRange.end)}';
+  }
+
+  String _desktopRangeLabel() {
+    final formatter = DateFormat('dd MMM yyyy', 'es_DO');
+    return '${formatter.format(_selectedRange.start)} - ${formatter.format(_selectedRange.end)}';
   }
 
   @override
@@ -44,14 +116,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
         if (snapshot.hasError) {
           return DesktopPageError(
             message: snapshot.error.toString(),
-            onRetry: () => _reloadFor(_days),
+            onRetry: () => _reloadForRange(_selectedRange),
           );
         }
 
         final data = snapshot.data!;
         final summary = data.dashboard;
         final reports = data.reports;
-        final currency = NumberFormat.currency(locale: 'es_DO', symbol: r'$');
+        final currency = AppNumberFormats.currency;
         final compact = MediaQuery.sizeOf(context).width < 760;
 
         final totalPortfolio = _asNum(summary.summary['totalPortfolio']);
@@ -172,19 +244,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
             accentColor: const Color(0xFFB66A12),
           ),
           _StatCardData(
-            label: 'Ventas',
-            value: '$salesCount',
-            icon: Icons.point_of_sale_outlined,
-            accentColor: const Color(0xFF204A71),
-          ),
-          _StatCardData(
-            label: 'Pagos',
-            value: '$paymentsCount',
-            icon: Icons.payments_outlined,
-            accentColor: const Color(0xFF94611A),
-          ),
-          _StatCardData(
-            label: 'Vencidas',
+            label: 'Cuotas vencidas',
             value: '$overdueInstallments',
             icon: Icons.warning_amber_rounded,
             accentColor: const Color(0xFF8E3A59),
@@ -194,25 +254,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
         if (compact) {
           return DesktopPageScaffold(
             title: 'Reportes',
-            subtitle:
-                'Resumen prioritario del periodo con foco en ventas y cobranza.',
+            showMobileTitle: false,
             toolbar: DesktopFieldToolbar(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    ...[7, 30, 90].map(
-                      (days) => ChoiceChip(
-                        label: Text('$days dias'),
-                        selected: _days == days,
-                        onSelected: (_) => _reloadFor(days),
-                      ),
-                    ),
-                  ],
-                ),
+              child: _MobileReportsFilterBar(
+                activeLabel: _mobileRangeLabel(),
+                onOpenFilter: _selectCustomRange,
               ),
             ),
             child: ListView(
@@ -228,12 +274,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
                       value: currency.format(salesTotal),
                     ),
                     _CompactFocusItem(
-                      label: 'Ventas activas',
-                      value: '$activeSales',
+                      label: 'Pagos registrados',
+                      value: '$paymentsCount',
                     ),
                     _CompactFocusItem(
-                      label: 'Clientes activos',
-                      value: '$clients',
+                      label: 'Ventas activas',
+                      value: '$activeSales',
                     ),
                   ],
                 ),
@@ -253,6 +299,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     _CompactFocusItem(
                       label: 'Cuotas vencidas',
                       value: '$overdueInstallments',
+                    ),
+                    _CompactFocusItem(
+                      label: 'Clientes activos',
+                      value: '$clients',
                     ),
                   ],
                 ),
@@ -304,12 +354,22 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     'Corte operativo:',
                     style: TextStyle(fontWeight: FontWeight.w700),
                   ),
-                  ...[7, 30, 90].map(
-                    (days) => ChoiceChip(
-                      label: Text('Ultimos $days dias'),
-                      selected: _days == days,
-                      onSelected: (_) => _reloadFor(days),
+                  ...[
+                    _QuickRangeOption(label: 'Hoy', days: 1),
+                    _QuickRangeOption(label: 'Ayer y hoy', days: 2),
+                    _QuickRangeOption(label: '7 dias', days: 7),
+                    _QuickRangeOption(label: '30 dias', days: 30),
+                  ].map(
+                    (option) => ChoiceChip(
+                      label: Text(option.label),
+                      selected: _matchesRange(_rangeForLastDays(option.days)),
+                      onSelected: (_) => _reloadForRange(_rangeForLastDays(option.days)),
                     ),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: _selectCustomRange,
+                    icon: const Icon(Icons.date_range_rounded, size: 18),
+                    label: Text(_desktopRangeLabel()),
                   ),
                 ],
               ),
@@ -564,7 +624,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
     final apiClient = context.read<ApiClient>();
     final results = await Future.wait<dynamic>([
       DashboardService(apiClient).fetchSnapshot(),
-      ReportsService(apiClient).fetchBundle(days: _days),
+      ReportsService(apiClient).fetchBundle(
+        from: _selectedRange.start,
+        to: _selectedRange.end,
+      ),
     ]);
 
     return _ReportsScreenData(
@@ -637,6 +700,84 @@ class _ReportsScreenData {
 
   final DashboardSnapshot dashboard;
   final ReportsBundle reports;
+}
+
+class _QuickRangeOption {
+  const _QuickRangeOption({required this.label, required this.days});
+
+  final String label;
+  final int days;
+}
+
+class _MobileReportsFilterBar extends StatelessWidget {
+  const _MobileReportsFilterBar({
+    required this.activeLabel,
+    required this.onOpenFilter,
+  });
+
+  final String activeLabel;
+  final Future<void> Function() onOpenFilter;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFE3EAF3)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Rango activo',
+                  style: TextStyle(
+                    color: Color(0xFF788396),
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  activeLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF12385F),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        SizedBox(
+          height: 44,
+          child: OutlinedButton.icon(
+            onPressed: onOpenFilter,
+            icon: const Icon(Icons.tune_rounded, size: 18),
+            label: const Text('Filtrar'),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              side: const BorderSide(color: Color(0xFFD8E2EE)),
+              foregroundColor: const Color(0xFF173450),
+              backgroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 class _SectionHeader extends StatelessWidget {
@@ -718,7 +859,7 @@ class _CompactMetricsPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        const columns = 3;
+        final columns = constraints.maxWidth >= 540 ? 4 : 2;
         const gap = 10.0;
         final availableWidth = constraints.maxWidth.isFinite
             ? constraints.maxWidth
@@ -779,27 +920,27 @@ class _CompactStatCard extends StatelessWidget {
         ],
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 12, 12, 11),
+        padding: const EdgeInsets.fromLTRB(13, 13, 13, 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Container(
-              width: 30,
-              height: 30,
+              width: 34,
+              height: 34,
               decoration: BoxDecoration(
                 color: data.accentColor.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(11),
               ),
-              child: Icon(data.icon, size: 16, color: data.accentColor),
+              child: Icon(data.icon, size: 18, color: data.accentColor),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             Text(
               data.label,
-              maxLines: 1,
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 color: Color(0xFF6B7682),
-                fontSize: 11,
+                fontSize: 11.2,
                 fontWeight: FontWeight.w700,
               ),
             ),
@@ -810,7 +951,7 @@ class _CompactStatCard extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 color: data.accentColor,
-                fontSize: 14.5,
+                fontSize: 15,
                 fontWeight: FontWeight.w800,
                 height: 1.1,
               ),
@@ -851,7 +992,7 @@ class _CompactFocusCard extends StatelessWidget {
         side: const BorderSide(color: Color(0xFFE4EAF2)),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1348,6 +1489,7 @@ class _ReportMetricTile extends StatelessWidget {
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                 color: const Color(0xFF1D3550),
                 fontWeight: FontWeight.w700,
+                fontSize: 15,
               ),
             ),
           ],

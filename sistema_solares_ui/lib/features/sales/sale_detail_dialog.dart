@@ -1,0 +1,2019 @@
+import 'dart:math' as math;
+
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:sistema_solares_ui/core/formatters/app_number_formats.dart';
+import 'package:sistema_solares_ui/shared/desktop_ui.dart';
+
+class SaleDetailDialog extends StatelessWidget {
+  const SaleDetailDialog({super.key, required this.detail});
+
+  final Map<String, dynamic> detail;
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+    final compact = size.width < 860;
+    final fullscreen = size.width < 640 || size.height < 720;
+    final viewModel = _SaleDetailViewModel.fromMap(detail);
+
+    return Dialog(
+      insetPadding: fullscreen
+          ? const EdgeInsets.all(0)
+          : EdgeInsets.symmetric(
+              horizontal: compact ? 10 : 24,
+              vertical: compact ? 10 : 18,
+            ),
+      backgroundColor: Colors.transparent,
+      child: SafeArea(
+        minimum: EdgeInsets.all(fullscreen ? 0 : 4),
+        child: Container(
+          constraints: BoxConstraints(
+            maxWidth: fullscreen ? size.width : (compact ? 460 : 1260),
+            maxHeight: fullscreen
+                ? size.height
+                : size.height - (compact ? 20 : 36),
+          ),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(
+              fullscreen ? 0 : (compact ? 20 : 24),
+            ),
+            border: Border.all(
+              color: fullscreen ? Colors.transparent : const Color(0xFFE4EAF2),
+            ),
+            boxShadow: fullscreen
+                ? const []
+                : const [
+                    BoxShadow(
+                      color: Color(0x16000000),
+                      blurRadius: 24,
+                      offset: Offset(0, 10),
+                    ),
+                  ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _DetailHeader(viewModel: viewModel, compact: compact),
+              const Divider(height: 1),
+              Expanded(
+                child: Scrollbar(
+                  thumbVisibility: !compact,
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.fromLTRB(
+                      compact ? 12 : 18,
+                      compact ? 12 : 16,
+                      compact ? 12 : 18,
+                      compact ? 14 : 18,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _TopInfoBand(viewModel: viewModel),
+                        const SizedBox(height: 12),
+                        _PrimaryMetricStrip(viewModel: viewModel),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'TABLA DE AMORTIZACION',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.6,
+                            color: Color(0xFF8A97AD),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        _SummaryMetricStrip(viewModel: viewModel),
+                        const SizedBox(height: 10),
+                        _InstallmentsTable(viewModel: viewModel),
+                        const SizedBox(height: 12),
+                        _TotalsStrip(viewModel: viewModel),
+                        if (viewModel.payments.isNotEmpty) ...[
+                          const SizedBox(height: 16),
+                          _PaymentsSection(viewModel: viewModel),
+                        ],
+                        if (viewModel.notes.isNotEmpty) ...[
+                          const SizedBox(height: 16),
+                          _NotesSection(notes: viewModel.notes),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const Divider(height: 1),
+              _DialogFooter(viewModel: viewModel),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DetailHeader extends StatelessWidget {
+  const _DetailHeader({required this.viewModel, required this.compact});
+
+  final _SaleDetailViewModel viewModel;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        compact ? 12 : 18,
+        compact ? 12 : 14,
+        compact ? 8 : 12,
+        compact ? 12 : 14,
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final stacked = constraints.maxWidth < 560;
+
+          final leading = Container(
+            width: compact ? 36 : 42,
+            height: compact ? 36 : 42,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF1F4FA),
+              borderRadius: BorderRadius.circular(compact ? 12 : 14),
+            ),
+            child: Icon(
+              Icons.receipt_long_outlined,
+              size: compact ? 18 : 20,
+              color: const Color(0xFF274567),
+            ),
+          );
+
+          final titleBlock = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Venta #${viewModel.saleId}  ·  ${viewModel.clientName}',
+                maxLines: stacked ? 2 : 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: compact ? 18 : 21,
+                  fontWeight: FontWeight.w800,
+                  color: const Color(0xFF14273F),
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                viewModel.headerSubtitle,
+                maxLines: stacked ? 2 : 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: Color(0xFF7E8BA0),
+                  height: 1.35,
+                ),
+              ),
+            ],
+          );
+
+          if (stacked) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    leading,
+                    const SizedBox(width: 10),
+                    Expanded(child: titleBlock),
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close),
+                      style: IconButton.styleFrom(
+                        foregroundColor: const Color(0xFF6A7684),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: _StatusChip(
+                    label: viewModel.statusLabel,
+                    tone: viewModel.statusTone,
+                  ),
+                ),
+              ],
+            );
+          }
+
+          return Row(
+            children: [
+              leading,
+              SizedBox(width: compact ? 10 : 12),
+              Expanded(child: titleBlock),
+              if (!compact) ...[
+                _StatusChip(
+                  label: viewModel.statusLabel,
+                  tone: viewModel.statusTone,
+                ),
+                const SizedBox(width: 8),
+              ],
+              IconButton(
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.close),
+                style: IconButton.styleFrom(
+                  foregroundColor: const Color(0xFF6A7684),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _TopInfoBand extends StatelessWidget {
+  const _TopInfoBand({required this.viewModel});
+
+  final _SaleDetailViewModel viewModel;
+
+  @override
+  Widget build(BuildContext context) {
+    final compact = MediaQuery.sizeOf(context).width < 860;
+
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 12 : 16,
+        vertical: compact ? 12 : 14,
+      ),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9FBFE),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE4EAF2)),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final columns = constraints.maxWidth >= 1120
+              ? 3
+              : constraints.maxWidth >= 720
+              ? 2
+              : 1;
+          final itemWidth = columns == 1
+              ? constraints.maxWidth
+              : (constraints.maxWidth - ((columns - 1) * 22)) / columns;
+          final children = [
+            _InfoColumn(
+              title: 'CLIENTE Y SOLAR',
+              items: [
+                _InfoItem('Cliente', viewModel.clientName),
+                _InfoItem('Cedula', viewModel.clientDocumentId),
+                _InfoItem('Solar', viewModel.lotCodeLabel),
+                _InfoItem('Metros cuadrados', viewModel.lotAreaLabel),
+              ],
+            ),
+            _InfoColumn(
+              title: 'VENTA Y SEGUIMIENTO',
+              items: [
+                _InfoItem(
+                  'Precio por metro',
+                  viewModel.pricePerSquareMeterLabel,
+                ),
+                _InfoItem(
+                  'Inicial minimo',
+                  viewModel.requiredInitialPaymentLabel,
+                ),
+                _InfoItem('Inicial real', viewModel.paidInitialPaymentLabel),
+                _InfoItem('Fecha venta', viewModel.saleDateLabel),
+                _InfoItem('Activacion', viewModel.activationDateLabel),
+                _InfoItem('Limite inicial', viewModel.initialDeadlineLabel),
+              ],
+            ),
+            _InfoColumn(
+              title: 'VENDEDOR Y PLAN',
+              items: [
+                _InfoItem('Atendido por', viewModel.userName),
+                _InfoItem('Vendedor', viewModel.sellerName),
+                _InfoItem('Cedula vend.', viewModel.sellerDocumentId),
+                _InfoItem('Tel. vendedor', viewModel.sellerPhone),
+                _InfoItem('Contrato', viewModel.contractNumber),
+                _InfoItem('Estado', viewModel.statusLabel),
+              ],
+            ),
+          ];
+
+          return Wrap(
+            spacing: 22,
+            runSpacing: 18,
+            children: [
+              for (final child in children)
+                SizedBox(width: itemWidth, child: child),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _PrimaryMetricStrip extends StatelessWidget {
+  const _PrimaryMetricStrip({required this.viewModel});
+
+  final _SaleDetailViewModel viewModel;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final items = [
+          _MetricCard(
+            icon: Icons.sell_outlined,
+            iconColor: const Color(0xFF5176C9),
+            iconBackground: const Color(0xFFE9F0FF),
+            label: 'Precio total',
+            value: viewModel.salePriceLabel,
+          ),
+          _MetricCard(
+            icon: Icons.grid_view_rounded,
+            iconColor: const Color(0xFF4479B8),
+            iconBackground: const Color(0xFFE7EFFA),
+            label: 'Cuota fija mensual',
+            value: viewModel.fixedInstallmentLabel,
+          ),
+          _MetricCard(
+            icon: Icons.account_balance_wallet_outlined,
+            iconColor: const Color(0xFFE48B2C),
+            iconBackground: const Color(0xFFFFF1E1),
+            label: 'Saldo pendiente',
+            value: viewModel.pendingBalanceLabel,
+          ),
+          _MetricCard(
+            icon: Icons.format_list_numbered_rounded,
+            iconColor: const Color(0xFF8B5DBA),
+            iconBackground: const Color(0xFFF3E9FF),
+            label: 'Plazo restante',
+            value: viewModel.remainingInstallmentsLabel,
+          ),
+        ];
+
+        return _AdaptiveCardWrap(
+          minItemWidth: 220,
+          maxColumns: 4,
+          spacing: 10,
+          runSpacing: 10,
+          children: items,
+        );
+      },
+    );
+  }
+}
+
+class _SummaryMetricStrip extends StatelessWidget {
+  const _SummaryMetricStrip({required this.viewModel});
+
+  final _SaleDetailViewModel viewModel;
+
+  @override
+  Widget build(BuildContext context) {
+    return _AdaptiveCardWrap(
+      minItemWidth: 170,
+      maxColumns: 5,
+      spacing: 10,
+      runSpacing: 10,
+      children: [
+        _SummaryCard(
+          label: 'Cuota fija mensual',
+          value: viewModel.fixedInstallmentLabel,
+          background: const Color(0xFFE9F3FF),
+          foreground: const Color(0xFF1F69C5),
+        ),
+        _SummaryCard(
+          label: 'Cuotas pagadas',
+          value: '${viewModel.paidInstallmentsCount}',
+          background: const Color(0xFFF1F8EE),
+          foreground: const Color(0xFF3B8F2D),
+        ),
+        _SummaryCard(
+          label: 'Cuotas restantes',
+          value: '${viewModel.remainingInstallmentsCount}',
+          background: const Color(0xFFFFF4E8),
+          foreground: const Color(0xFFE07B00),
+        ),
+        _SummaryCard(
+          label: 'Plazo activo',
+          value: viewModel.activeTermLabel,
+          background: const Color(0xFFF5ECFB),
+          foreground: const Color(0xFF9346C4),
+        ),
+        _SummaryCard(
+          label: 'Saldo pendiente',
+          value: viewModel.pendingBalanceLabel,
+          background: const Color(0xFFF3F6FA),
+          foreground: const Color(0xFF42566F),
+        ),
+      ],
+    );
+  }
+}
+
+class _InstallmentsTable extends StatelessWidget {
+  const _InstallmentsTable({required this.viewModel});
+
+  final _SaleDetailViewModel viewModel;
+
+  @override
+  Widget build(BuildContext context) {
+    if (viewModel.installments.isEmpty) {
+      return const DesktopSurface(
+        child: DesktopEmptyState(
+          icon: Icons.view_list_outlined,
+          title: 'Sin cuotas registradas',
+          message: 'Esta venta no tiene amortizacion visible en el backend.',
+        ),
+      );
+    }
+
+    const columns = [
+      _TableColumnSpec('Cuota', 84),
+      _TableColumnSpec('Vence', 108),
+      _TableColumnSpec('Saldo inicial', 132),
+      _TableColumnSpec('Interes', 104),
+      _TableColumnSpec('Capital', 104),
+      _TableColumnSpec('Cuota fija', 116),
+      _TableColumnSpec('Pagado', 104),
+      _TableColumnSpec('Pendiente', 110),
+      _TableColumnSpec('Saldo final', 126),
+      _TableColumnSpec('Estado', 128),
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compactTable = constraints.maxWidth < 760;
+        if (compactTable) {
+          return Column(
+            children: [
+              for (
+                var index = 0;
+                index < viewModel.installments.length;
+                index++
+              ) ...[
+                _InstallmentCard(row: viewModel.installments[index]),
+                if (index != viewModel.installments.length - 1)
+                  const SizedBox(height: 10),
+              ],
+            ],
+          );
+        }
+
+        return DesktopSurface(
+          padding: const EdgeInsets.all(0),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(20),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: SizedBox(
+                width: columns.fold<double>(0, (sum, item) => sum + item.width),
+                child: Column(
+                  children: [
+                    Container(
+                      color: const Color(0xFFF3F6FB),
+                      child: Row(
+                        children: [
+                          for (final column in columns)
+                            _TableHeaderCell(
+                              label: column.label,
+                              width: column.width,
+                            ),
+                        ],
+                      ),
+                    ),
+                    for (
+                      var index = 0;
+                      index < viewModel.installments.length;
+                      index++
+                    )
+                      _InstallmentRow(
+                        row: viewModel.installments[index],
+                        odd: index.isOdd,
+                        columns: columns,
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _TotalsStrip extends StatelessWidget {
+  const _TotalsStrip({required this.viewModel});
+
+  final _SaleDetailViewModel viewModel;
+
+  @override
+  Widget build(BuildContext context) {
+    return _AdaptiveCardWrap(
+      minItemWidth: 240,
+      maxColumns: 3,
+      spacing: 12,
+      runSpacing: 12,
+      children: [
+        _TotalCard(
+          label: 'Capital total',
+          value: viewModel.totalCapitalLabel,
+          background: const Color(0xFFEAF3FF),
+          foreground: const Color(0xFF2172D0),
+        ),
+        _TotalCard(
+          label: 'Interes total',
+          value: viewModel.totalInterestLabel,
+          background: const Color(0xFFFFF4E8),
+          foreground: const Color(0xFFE07B00),
+        ),
+        _TotalCard(
+          label: 'Total del plan',
+          value: viewModel.totalPlanLabel,
+          background: const Color(0xFFF0F8F0),
+          foreground: const Color(0xFF35904E),
+        ),
+      ],
+    );
+  }
+}
+
+class _PaymentsSection extends StatelessWidget {
+  const _PaymentsSection({required this.viewModel});
+
+  final _SaleDetailViewModel viewModel;
+
+  @override
+  Widget build(BuildContext context) {
+    return DesktopSurface(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compactList = constraints.maxWidth < 760;
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                runSpacing: 8,
+                spacing: 8,
+                children: [
+                  const Text(
+                    'Historial de pagos',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF0D2640),
+                    ),
+                  ),
+                  DesktopTag(
+                    label: '${viewModel.payments.length} registros',
+                    background: const Color(0xFFF1F4FA),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              compactList
+                  ? Column(
+                      children: [
+                        for (
+                          var index = 0;
+                          index < viewModel.payments.length;
+                          index++
+                        ) ...[
+                          _PaymentRowCard(payment: viewModel.payments[index]),
+                          if (index != viewModel.payments.length - 1)
+                            const SizedBox(height: 10),
+                        ],
+                      ],
+                    )
+                  : Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: const Color(0xFFE4EAF2)),
+                      ),
+                      child: Column(
+                        children: [
+                          for (
+                            var index = 0;
+                            index < viewModel.payments.length;
+                            index++
+                          ) ...[
+                            _PaymentRowCard(
+                              payment: viewModel.payments[index],
+                              embedded: true,
+                            ),
+                            if (index != viewModel.payments.length - 1)
+                              const Divider(
+                                height: 1,
+                                indent: 16,
+                                endIndent: 16,
+                              ),
+                          ],
+                        ],
+                      ),
+                    ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _NotesSection extends StatelessWidget {
+  const _NotesSection({required this.notes});
+
+  final String notes;
+
+  @override
+  Widget build(BuildContext context) {
+    return DesktopSurface(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Observaciones',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF0D2640),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            notes,
+            style: const TextStyle(
+              fontSize: 14,
+              height: 1.45,
+              color: Color(0xFF536174),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DialogFooter extends StatelessWidget {
+  const _DialogFooter({required this.viewModel});
+
+  final _SaleDetailViewModel viewModel;
+
+  @override
+  Widget build(BuildContext context) {
+    final compact = MediaQuery.sizeOf(context).width < 860;
+
+    final exportButton = OutlinedButton.icon(
+      onPressed: () => _showPrintHint(context, 'Exportar PDF'),
+      icon: const Icon(Icons.file_download_outlined),
+      label: const Text('Exportar PDF'),
+    );
+    final printButton = FilledButton.tonalIcon(
+      onPressed: () => _showPrintHint(context, 'Imprimir'),
+      icon: const Icon(Icons.print_outlined),
+      label: const Text('Imprimir'),
+    );
+    final closeButton = FilledButton(
+      style: FilledButton.styleFrom(
+        backgroundColor: const Color(0xFF14385F),
+        foregroundColor: Colors.white,
+      ),
+      onPressed: () => Navigator.of(context).pop(),
+      child: const Text('Cerrar'),
+    );
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        compact ? 12 : 18,
+        12,
+        compact ? 12 : 18,
+        compact ? 12 : 14,
+      ),
+      child: compact
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (viewModel.statusLabel.isNotEmpty) ...[
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: _StatusChip(
+                      label: viewModel.statusLabel,
+                      tone: viewModel.statusTone,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                exportButton,
+                const SizedBox(height: 8),
+                printButton,
+                const SizedBox(height: 8),
+                closeButton,
+              ],
+            )
+          : Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              runSpacing: 10,
+              spacing: 10,
+              children: [
+                _StatusChip(
+                  label: viewModel.statusLabel,
+                  tone: viewModel.statusTone,
+                ),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [exportButton, printButton, closeButton],
+                ),
+              ],
+            ),
+    );
+  }
+
+  void _showPrintHint(BuildContext context, String action) {
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(
+        content: Text(
+          '$action usa la impresion del navegador en la PWA. Si necesitas PDF, selecciona Guardar como PDF en el dialogo de impresion.',
+        ),
+      ),
+    );
+  }
+}
+
+class _InfoColumn extends StatelessWidget {
+  const _InfoColumn({required this.title, required this.items});
+
+  final String title;
+  final List<_InfoItem> items;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.5,
+            color: Color(0xFF8794A8),
+          ),
+        ),
+        const SizedBox(height: 10),
+        for (var index = 0; index < items.length; index++) ...[
+          items[index],
+          if (index != items.length - 1) const SizedBox(height: 8),
+        ],
+      ],
+    );
+  }
+}
+
+class _InfoItem extends StatelessWidget {
+  const _InfoItem(this.label, this.value);
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final stacked = constraints.maxWidth < 280;
+        if (stacked) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF8794A8),
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF304357),
+                  height: 1.35,
+                ),
+              ),
+            ],
+          );
+        }
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 96,
+              child: Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF8794A8),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF304357),
+                  height: 1.35,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _MetricCard extends StatelessWidget {
+  const _MetricCard({
+    required this.icon,
+    required this.iconColor,
+    required this.iconBackground,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final Color iconColor;
+  final Color iconBackground;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7F9FC),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE4EAF2)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: iconBackground,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, size: 17, color: iconColor),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    color: Color(0xFF8B98AC),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF304357),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SummaryCard extends StatelessWidget {
+  const _SummaryCard({
+    required this.label,
+    required this.value,
+    required this.background,
+    required this.foreground,
+  });
+
+  final String label;
+  final String value;
+  final Color background;
+  final Color foreground;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: foreground.withValues(alpha: 0.16)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11.5,
+              color: foreground.withValues(alpha: 0.78),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w800,
+              color: foreground,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TableColumnSpec {
+  const _TableColumnSpec(this.label, this.width);
+
+  final String label;
+  final double width;
+}
+
+class _TableHeaderCell extends StatelessWidget {
+  const _TableHeaderCell({required this.label, required this.width});
+
+  final String label;
+  final double width;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: width,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      alignment: Alignment.centerLeft,
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 12.5,
+          fontWeight: FontWeight.w700,
+          color: Color(0xFF7B89A0),
+        ),
+      ),
+    );
+  }
+}
+
+class _InstallmentRow extends StatelessWidget {
+  const _InstallmentRow({
+    required this.row,
+    required this.odd,
+    required this.columns,
+  });
+
+  final _InstallmentViewRow row;
+  final bool odd;
+  final List<_TableColumnSpec> columns;
+
+  @override
+  Widget build(BuildContext context) {
+    final values = [
+      'Cuota ${row.installmentNumber}',
+      row.dueDateLabel,
+      row.openingBalanceLabel,
+      row.interestLabel,
+      row.principalLabel,
+      row.totalAmountLabel,
+      row.paidAmountLabel,
+      row.pendingAmountLabel,
+      row.endingBalanceLabel,
+      row.statusLabel,
+    ];
+
+    return Container(
+      color: odd ? const Color(0xFFFCFDFE) : Colors.white,
+      child: Row(
+        children: [
+          for (var index = 0; index < columns.length; index++)
+            _TableValueCell(
+              width: columns[index].width,
+              value: values[index],
+              strong: index == 0 || index == 5,
+              tone: index == values.length - 1 ? row.statusTone : null,
+              asTag: index == values.length - 1,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TableValueCell extends StatelessWidget {
+  const _TableValueCell({
+    required this.width,
+    required this.value,
+    this.strong = false,
+    this.tone,
+    this.asTag = false,
+  });
+
+  final double width;
+  final String value;
+  final bool strong;
+  final _StatusTone? tone;
+  final bool asTag;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: width,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 13),
+      alignment: Alignment.centerLeft,
+      decoration: const BoxDecoration(
+        border: Border(top: BorderSide(color: Color(0xFFF0F3F7))),
+      ),
+      child: asTag && tone != null
+          ? _StatusChip(label: value, tone: tone!, compact: true)
+          : Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: strong ? FontWeight.w800 : FontWeight.w600,
+                color: const Color(0xFF36495C),
+              ),
+            ),
+    );
+  }
+}
+
+class _InstallmentCard extends StatelessWidget {
+  const _InstallmentCard({required this.row});
+
+  final _InstallmentViewRow row;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE4EAF2)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Cuota ${row.installmentNumber}',
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF213549),
+                    ),
+                  ),
+                ),
+                _StatusChip(
+                  label: row.statusLabel,
+                  tone: row.statusTone,
+                  compact: true,
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            _AdaptiveCardWrap(
+              minItemWidth: 118,
+              maxColumns: 2,
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _CompactFactCard(label: 'Vence', value: row.dueDateLabel),
+                _CompactFactCard(
+                  label: 'Saldo inicial',
+                  value: row.openingBalanceLabel,
+                ),
+                _CompactFactCard(label: 'Interes', value: row.interestLabel),
+                _CompactFactCard(label: 'Capital', value: row.principalLabel),
+                _CompactFactCard(
+                  label: 'Cuota fija',
+                  value: row.totalAmountLabel,
+                ),
+                _CompactFactCard(label: 'Pagado', value: row.paidAmountLabel),
+                _CompactFactCard(
+                  label: 'Pendiente',
+                  value: row.pendingAmountLabel,
+                ),
+                _CompactFactCard(
+                  label: 'Saldo final',
+                  value: row.endingBalanceLabel,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CompactFactCard extends StatelessWidget {
+  const _CompactFactCard({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFD),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE7EDF5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF8794A8),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF304357),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TotalCard extends StatelessWidget {
+  const _TotalCard({
+    required this.label,
+    required this.value,
+    required this.background,
+    required this.foreground,
+  });
+
+  final String label;
+  final String value;
+  final Color background;
+  final Color foreground;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: foreground.withValues(alpha: 0.15)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: foreground.withValues(alpha: 0.78),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 17.5,
+              fontWeight: FontWeight.w800,
+              color: foreground,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PaymentRowCard extends StatelessWidget {
+  const _PaymentRowCard({required this.payment, this.embedded = false});
+
+  final _PaymentViewRow payment;
+  final bool embedded;
+
+  @override
+  Widget build(BuildContext context) {
+    final content = LayoutBuilder(
+      builder: (context, constraints) {
+        final stacked = constraints.maxWidth < 360;
+        final iconBox = Container(
+          width: 38,
+          height: 38,
+          decoration: BoxDecoration(
+            color: const Color(0xFFEAF4ED),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(payment.icon, size: 18, color: const Color(0xFF2F6F5C)),
+        );
+
+        final textBlock = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              payment.title,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF213549),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              payment.subtitle,
+              style: const TextStyle(
+                fontSize: 12.5,
+                color: Color(0xFF6E7791),
+                height: 1.35,
+              ),
+            ),
+          ],
+        );
+
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: stacked
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        iconBox,
+                        const SizedBox(width: 12),
+                        Expanded(child: textBlock),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: DesktopTag(
+                        label: payment.amountLabel,
+                        background: const Color(0xFFF6EFE3),
+                        foreground: const Color(0xFF8C5A2C),
+                      ),
+                    ),
+                  ],
+                )
+              : Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    iconBox,
+                    const SizedBox(width: 12),
+                    Expanded(child: textBlock),
+                    const SizedBox(width: 12),
+                    DesktopTag(
+                      label: payment.amountLabel,
+                      background: const Color(0xFFF6EFE3),
+                      foreground: const Color(0xFF8C5A2C),
+                    ),
+                  ],
+                ),
+        );
+      },
+    );
+
+    if (embedded) {
+      return content;
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE4EAF2)),
+      ),
+      child: content,
+    );
+  }
+}
+
+class _AdaptiveCardWrap extends StatelessWidget {
+  const _AdaptiveCardWrap({
+    required this.children,
+    required this.minItemWidth,
+    required this.maxColumns,
+    this.spacing = 10,
+    this.runSpacing = 10,
+  });
+
+  final List<Widget> children;
+  final double minItemWidth;
+  final int maxColumns;
+  final double spacing;
+  final double runSpacing;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (!constraints.hasBoundedWidth) {
+          return Wrap(
+            spacing: spacing,
+            runSpacing: runSpacing,
+            children: children,
+          );
+        }
+
+        final availableWidth = constraints.maxWidth;
+        var columns = maxColumns;
+        while (columns > 1) {
+          final itemWidth =
+              (availableWidth - ((columns - 1) * spacing)) / columns;
+          if (itemWidth >= minItemWidth) {
+            break;
+          }
+          columns--;
+        }
+
+        final finalColumns = math.max(columns, 1);
+        final itemWidth = finalColumns == 1
+            ? availableWidth
+            : (availableWidth - ((finalColumns - 1) * spacing)) / finalColumns;
+
+        return Wrap(
+          spacing: spacing,
+          runSpacing: runSpacing,
+          children: [
+            for (final child in children)
+              SizedBox(width: itemWidth, child: child),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _StatusChip extends StatelessWidget {
+  const _StatusChip({
+    required this.label,
+    required this.tone,
+    this.compact = false,
+  });
+
+  final String label;
+  final _StatusTone tone;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 10 : 12,
+        vertical: compact ? 5 : 6,
+      ),
+      decoration: BoxDecoration(
+        color: tone.background,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: tone.foreground.withValues(alpha: 0.14)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: compact ? 11.5 : 12.5,
+          fontWeight: FontWeight.w700,
+          color: tone.foreground,
+        ),
+      ),
+    );
+  }
+}
+
+class _StatusTone {
+  const _StatusTone(this.background, this.foreground);
+
+  final Color background;
+  final Color foreground;
+}
+
+class _SaleDetailViewModel {
+  _SaleDetailViewModel({
+    required this.saleId,
+    required this.clientName,
+    required this.clientDocumentId,
+    required this.lotCodeLabel,
+    required this.lotDisplayLabel,
+    required this.lotAreaLabel,
+    required this.pricePerSquareMeterLabel,
+    required this.saleDateLabel,
+    required this.activationDateLabel,
+    required this.initialDeadlineLabel,
+    required this.userName,
+    required this.sellerName,
+    required this.sellerDocumentId,
+    required this.sellerPhone,
+    required this.contractNumber,
+    required this.statusLabel,
+    required this.statusTone,
+    required this.salePriceLabel,
+    required this.fixedInstallmentLabel,
+    required this.pendingBalanceLabel,
+    required this.remainingInstallmentsLabel,
+    required this.requiredInitialPaymentLabel,
+    required this.paidInitialPaymentLabel,
+    required this.activeTermLabel,
+    required this.totalCapitalLabel,
+    required this.totalInterestLabel,
+    required this.totalPlanLabel,
+    required this.notes,
+    required this.headerSubtitle,
+    required this.installments,
+    required this.payments,
+    required this.paidInstallmentsCount,
+    required this.remainingInstallmentsCount,
+  });
+
+  final String saleId;
+  final String clientName;
+  final String clientDocumentId;
+  final String lotCodeLabel;
+  final String lotDisplayLabel;
+  final String lotAreaLabel;
+  final String pricePerSquareMeterLabel;
+  final String saleDateLabel;
+  final String activationDateLabel;
+  final String initialDeadlineLabel;
+  final String userName;
+  final String sellerName;
+  final String sellerDocumentId;
+  final String sellerPhone;
+  final String contractNumber;
+  final String statusLabel;
+  final _StatusTone statusTone;
+  final String salePriceLabel;
+  final String fixedInstallmentLabel;
+  final String pendingBalanceLabel;
+  final String remainingInstallmentsLabel;
+  final String requiredInitialPaymentLabel;
+  final String paidInitialPaymentLabel;
+  final String activeTermLabel;
+  final String totalCapitalLabel;
+  final String totalInterestLabel;
+  final String totalPlanLabel;
+  final String notes;
+  final String headerSubtitle;
+  final List<_InstallmentViewRow> installments;
+  final List<_PaymentViewRow> payments;
+  final int paidInstallmentsCount;
+  final int remainingInstallmentsCount;
+
+  static _SaleDetailViewModel fromMap(Map<String, dynamic> detail) {
+    final currency = AppNumberFormats.currency;
+    final saleSync = _map(detail['syncPayload']);
+    final client = _map(detail['client']);
+    final product = _map(detail['product']);
+    final productSync = _map(product['syncPayload']);
+    final user = _map(detail['user']);
+    final seller = _map(detail['seller']);
+
+    final saleId = _string(detail['id'], fallback: '-');
+    final clientName = _fullName(client, fallback: 'Sin cliente');
+    final clientDocumentId = _string(client['documentId'], fallback: '-');
+    final productCode = _string(product['code']);
+    final productName = _string(product['name'], fallback: 'Sin solar');
+    final blockNumber = _string(productSync['block_number']);
+    final lotNumber = _string(productSync['lot_number']);
+    final lotCodeLabel = [
+      if (productCode.isNotEmpty) productCode,
+      if (blockNumber.isNotEmpty || lotNumber.isNotEmpty)
+        'M$blockNumber-S$lotNumber',
+      if (productCode.isEmpty && productName.isNotEmpty) productName,
+    ].firstWhere((item) => item.trim().isNotEmpty, orElse: () => 'Sin solar');
+    final lotDisplayLabel = productName.trim().isEmpty
+        ? lotCodeLabel
+        : productName;
+    final lotArea = _number(productSync['area']);
+    final pricePerSquareMeter = _number(productSync['price_per_square_meter']);
+
+    final salePrice = _firstNumber([
+      saleSync['sale_price'],
+      detail['principalAmount'],
+      detail['totalAmount'],
+    ]);
+    final financedBalance = _firstNumber([
+      saleSync['financed_balance'],
+      detail['financedAmount'],
+      math.max(salePrice - _firstNumber([detail['downPayment']]), 0.0),
+    ]);
+    final requiredInitialPayment = _firstNumber([
+      saleSync['required_initial_payment'],
+      detail['downPayment'],
+    ]);
+    final paidInitialPayment = _firstNumber([
+      saleSync['paid_initial_payment'],
+      detail['downPayment'],
+      detail['paidAmount'],
+    ]);
+    final pendingBalance = _firstNumber([
+      saleSync['pending_balance'],
+      detail['outstandingBalance'],
+      math.max(financedBalance - _firstNumber([detail['paidAmount']]), 0.0),
+    ]);
+    final termMonths = _firstInt([
+      saleSync['installment_count'],
+      detail['termMonths'],
+    ]);
+    final saleDate = _date(saleSync['sale_date'] ?? detail['saleDate']);
+    final activationDate = _date(saleSync['activation_date']);
+    final initialDeadline = _date(saleSync['initial_payment_deadline']);
+
+    final installmentMaps =
+        (detail['installments'] as List<dynamic>? ?? const <dynamic>[])
+            .map(_map)
+            .toList(growable: false)
+          ..sort(
+            (a, b) => _int(
+              a['installmentNumber'],
+            ).compareTo(_int(b['installmentNumber'])),
+          );
+
+    var runningBalance = financedBalance > 0
+        ? financedBalance
+        : installmentMaps.fold<double>(
+            0,
+            (sum, item) =>
+                sum +
+                _firstNumber([
+                  _map(item['syncPayload'])['principal_amount'],
+                  item['principalAmount'],
+                ]),
+          );
+
+    final installments = <_InstallmentViewRow>[];
+    var totalCapital = 0.0;
+    var totalInterest = 0.0;
+    var totalPlan = 0.0;
+    var paidInstallmentsCount = 0;
+
+    for (final installment in installmentMaps) {
+      final installmentSync = _map(installment['syncPayload']);
+      final totalAmount = _firstNumber([
+        installmentSync['total_amount'],
+        installment['amount'],
+      ]);
+      final principalAmount = _firstNumber([
+        installmentSync['principal_amount'],
+        installment['principalAmount'],
+      ]);
+      final interestAmount = _firstNumber([
+        installmentSync['interest_amount'],
+        installment['interestAmount'],
+      ]);
+      final paidAmount = _firstNumber([
+        installmentSync['paid_amount'],
+        installment['paidAmount'],
+      ]);
+      final openingBalance = installmentSync.containsKey('opening_balance')
+          ? _number(installmentSync['opening_balance'])
+          : runningBalance;
+      final endingBalance = installmentSync.containsKey('ending_balance')
+          ? _number(installmentSync['ending_balance'])
+          : math.max(openingBalance - principalAmount, 0.0);
+      final pendingAmount = math.max(totalAmount - paidAmount, 0.0);
+      final statusRaw = _string(
+        installmentSync['status'] ?? installment['status'],
+        fallback: 'pending',
+      );
+      final statusLabel = _installmentStatusLabel(statusRaw, pendingAmount);
+      final statusTone = _installmentStatusTone(statusRaw, pendingAmount);
+
+      totalCapital += principalAmount;
+      totalInterest += interestAmount;
+      totalPlan += totalAmount;
+      if (pendingAmount <= 0.009 || statusRaw.toLowerCase() == 'paid') {
+        paidInstallmentsCount++;
+      }
+
+      installments.add(
+        _InstallmentViewRow(
+          installmentNumber: _firstInt([
+            installmentSync['installment_number'],
+            installment['installmentNumber'],
+          ]),
+          dueDateLabel: _formatDate(
+            _date(installmentSync['due_date'] ?? installment['dueDate']),
+          ),
+          openingBalanceLabel: currency.format(openingBalance),
+          interestLabel: currency.format(interestAmount),
+          principalLabel: currency.format(principalAmount),
+          totalAmountLabel: currency.format(totalAmount),
+          paidAmountLabel: currency.format(paidAmount),
+          pendingAmountLabel: currency.format(pendingAmount),
+          endingBalanceLabel: currency.format(endingBalance),
+          statusLabel: statusLabel,
+          statusTone: statusTone,
+        ),
+      );
+
+      runningBalance = endingBalance;
+    }
+
+    final totalPaid =
+        (detail['payments'] as List<dynamic>? ?? const <dynamic>[])
+            .map(_map)
+            .fold<double>(0, (sum, payment) {
+              final paymentSync = _map(payment['syncPayload']);
+              return sum +
+                  _firstNumber([paymentSync['amount_paid'], payment['amount']]);
+            });
+
+    final firstInstallmentAmount = installmentMaps.isNotEmpty
+        ? _firstNumber([
+            _map(installmentMaps.first['syncPayload'])['total_amount'],
+            installmentMaps.first['amount'],
+          ])
+        : 0;
+
+    final payments =
+        (detail['payments'] as List<dynamic>? ?? const <dynamic>[])
+            .map(_map)
+            .toList(growable: false)
+          ..sort(
+            (a, b) =>
+                _date(b['paymentDate']).compareTo(_date(a['paymentDate'])),
+          );
+
+    final paymentRows = payments
+        .map((payment) {
+          final paymentSync = _map(payment['syncPayload']);
+          final amount = _firstNumber([
+            paymentSync['amount_paid'],
+            payment['amount'],
+          ]);
+          final installment = _map(payment['installment']);
+          final installmentNumber = _firstInt([
+            paymentSync['numero_cuota'],
+            paymentSync['installment_number'],
+            installment['installmentNumber'],
+          ], fallback: 0);
+          final reference = _string(payment['reference']);
+          final method = _string(payment['method'], fallback: 'Pago');
+          final title = installmentNumber > 0
+              ? '${_paymentMethodLabel(method)}  ·  Cuota $installmentNumber'
+              : _paymentMethodLabel(method);
+          final subtitleParts = <String>[
+            _formatDate(
+              _date(paymentSync['payment_date'] ?? payment['paymentDate']),
+            ),
+            if (reference.isNotEmpty) reference,
+            if (_string(payment['notes']).isNotEmpty) _string(payment['notes']),
+          ];
+          return _PaymentViewRow(
+            title: title,
+            subtitle: subtitleParts.join('  •  '),
+            amountLabel: currency.format(amount),
+            icon: _paymentIcon(method),
+          );
+        })
+        .toList(growable: false);
+
+    final fixedInstallment = firstInstallmentAmount > 0
+        ? firstInstallmentAmount
+        : (termMonths > 0 ? totalPlan / termMonths : totalPlan);
+    final targetTerm = math.max(termMonths, installments.length);
+    final remainingInstallmentsCount = math.max(
+      installments.length - paidInstallmentsCount,
+      0,
+    );
+    final effectivePaidInitialPayment = paidInitialPayment > 0
+        ? paidInitialPayment
+        : math.min(totalPaid, requiredInitialPayment);
+    final statusRaw = _string(detail['status'], fallback: 'active');
+    final statusLabel = _saleStatusLabel(statusRaw);
+    final statusTone = _saleStatusTone(statusRaw, pendingBalance);
+    final headerSubtitleParts = <String>[
+      lotDisplayLabel,
+      if (lotCodeLabel.trim().isNotEmpty && lotCodeLabel != lotDisplayLabel)
+        lotCodeLabel,
+      if (_string(detail['contractNumber']).isNotEmpty)
+        _string(detail['contractNumber']),
+      _formatDate(saleDate),
+    ];
+
+    return _SaleDetailViewModel(
+      saleId: saleId,
+      clientName: clientName,
+      clientDocumentId: clientDocumentId,
+      lotCodeLabel: lotCodeLabel,
+      lotDisplayLabel: lotDisplayLabel,
+      lotAreaLabel: lotArea > 0 ? '${lotArea.toStringAsFixed(2)} m²' : '-',
+      pricePerSquareMeterLabel: pricePerSquareMeter > 0
+          ? '${currency.format(pricePerSquareMeter)} /m²'
+          : '-',
+      saleDateLabel: _formatDate(saleDate),
+      activationDateLabel: _formatDate(activationDate),
+      initialDeadlineLabel: _formatDate(initialDeadline),
+      userName: _string(user['fullName'], fallback: 'No disponible'),
+      sellerName: _string(seller['name'], fallback: '-'),
+      sellerDocumentId: _string(seller['documentId'], fallback: '-'),
+      sellerPhone: _string(seller['phone'], fallback: '-'),
+      contractNumber: _string(detail['contractNumber'], fallback: '-'),
+      statusLabel: statusLabel,
+      statusTone: statusTone,
+      salePriceLabel: currency.format(salePrice),
+      fixedInstallmentLabel: currency.format(fixedInstallment),
+      pendingBalanceLabel: currency.format(pendingBalance),
+      remainingInstallmentsLabel: '$remainingInstallmentsCount cuotas',
+      requiredInitialPaymentLabel: currency.format(requiredInitialPayment),
+      paidInitialPaymentLabel: currency.format(effectivePaidInitialPayment),
+      activeTermLabel: '${installments.length}/$targetTerm',
+      totalCapitalLabel: currency.format(totalCapital),
+      totalInterestLabel: currency.format(totalInterest),
+      totalPlanLabel: currency.format(
+        totalPlan > 0 ? totalPlan : _firstNumber([detail['totalAmount']]),
+      ),
+      notes: _string(detail['notes']),
+      headerSubtitle: headerSubtitleParts
+          .where((item) => item.trim().isNotEmpty)
+          .join('  •  '),
+      installments: installments,
+      payments: paymentRows,
+      paidInstallmentsCount: paidInstallmentsCount,
+      remainingInstallmentsCount: remainingInstallmentsCount,
+    );
+  }
+
+  static Map<String, dynamic> _map(Object? value) {
+    if (value is Map<String, dynamic>) {
+      return value;
+    }
+    if (value is Map) {
+      return value.map((key, val) => MapEntry(key.toString(), val));
+    }
+    return const <String, dynamic>{};
+  }
+
+  static String _string(Object? value, {String fallback = ''}) {
+    final text = value?.toString().trim() ?? '';
+    return text.isEmpty ? fallback : text;
+  }
+
+  static String _fullName(Map<String, dynamic> map, {String fallback = ''}) {
+    final fullName = _string(map['fullName']);
+    if (fullName.isNotEmpty) {
+      return fullName;
+    }
+    final firstName = _string(map['firstName']);
+    final lastName = _string(map['lastName']);
+    final combined = '$firstName $lastName'.trim();
+    return combined.isEmpty ? fallback : combined;
+  }
+
+  static double _number(Object? value) {
+    if (value is num) {
+      return value.toDouble();
+    }
+    return double.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  static double _firstNumber(List<Object?> values) {
+    for (final value in values) {
+      final parsed = _number(value);
+      if (parsed != 0 || value == 0 || value == 0.0) {
+        return parsed;
+      }
+    }
+    return 0;
+  }
+
+  static int _int(Object? value) {
+    if (value is int) {
+      return value;
+    }
+    if (value is num) {
+      return value.toInt();
+    }
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  static int _firstInt(List<Object?> values, {int fallback = 0}) {
+    for (final value in values) {
+      final parsed = _int(value);
+      if (parsed != 0 || value == 0) {
+        return parsed;
+      }
+    }
+    return fallback;
+  }
+
+  static DateTime _date(Object? value) {
+    if (value is DateTime) {
+      return value;
+    }
+    return DateTime.tryParse(value?.toString() ?? '') ??
+        DateTime.fromMillisecondsSinceEpoch(0);
+  }
+
+  static String _formatDate(DateTime value) {
+    if (value.millisecondsSinceEpoch == 0) {
+      return '-';
+    }
+    return DateFormat('dd/MM/yyyy').format(value.toLocal());
+  }
+
+  static String _saleStatusLabel(String status) {
+    switch (status.trim().toLowerCase()) {
+      case 'completed':
+      case 'completada':
+        return 'completada';
+      case 'cancelled':
+      case 'cancelada':
+        return 'cancelada';
+      case 'overdue':
+      case 'vencida':
+        return 'vencida';
+      default:
+        return 'activa';
+    }
+  }
+
+  static _StatusTone _saleStatusTone(String status, double pendingBalance) {
+    final normalized = status.trim().toLowerCase();
+    if (normalized == 'completed' ||
+        normalized == 'completada' ||
+        pendingBalance <= 0.009) {
+      return const _StatusTone(Color(0xFFEAF4ED), Color(0xFF2F6F5C));
+    }
+    if (normalized == 'cancelled' || normalized == 'cancelada') {
+      return const _StatusTone(Color(0xFFFBE6E0), Color(0xFFB05233));
+    }
+    if (normalized == 'overdue' || normalized == 'vencida') {
+      return const _StatusTone(Color(0xFFFFF1E3), Color(0xFFD87A0E));
+    }
+    return const _StatusTone(Color(0xFFEAF0F7), Color(0xFF223048));
+  }
+
+  static String _installmentStatusLabel(String status, double pendingAmount) {
+    final normalized = status.trim().toLowerCase();
+    if (normalized == 'paid' ||
+        normalized == 'pagada' ||
+        pendingAmount <= 0.009) {
+      return 'pagada';
+    }
+    if (normalized == 'partial' || normalized == 'parcial') {
+      return 'parcial';
+    }
+    if (normalized == 'overdue' || normalized == 'vencida') {
+      return 'vencida';
+    }
+    if (normalized == 'cancelled' || normalized == 'cancelada') {
+      return 'cancelada';
+    }
+    return 'pendiente';
+  }
+
+  static _StatusTone _installmentStatusTone(
+    String status,
+    double pendingAmount,
+  ) {
+    final normalized = status.trim().toLowerCase();
+    if (normalized == 'paid' ||
+        normalized == 'pagada' ||
+        pendingAmount <= 0.009) {
+      return const _StatusTone(Color(0xFFF1F8EE), Color(0xFF3B8F2D));
+    }
+    if (normalized == 'partial' || normalized == 'parcial') {
+      return const _StatusTone(Color(0xFFEAF0FF), Color(0xFF2E5AAC));
+    }
+    if (normalized == 'overdue' || normalized == 'vencida') {
+      return const _StatusTone(Color(0xFFFFF1E3), Color(0xFFD87A0E));
+    }
+    if (normalized == 'cancelled' || normalized == 'cancelada') {
+      return const _StatusTone(Color(0xFFFBE6E0), Color(0xFFB05233));
+    }
+    return const _StatusTone(Color(0xFFFFF6E8), Color(0xFFE08A1A));
+  }
+
+  static String _paymentMethodLabel(String method) {
+    switch (method.trim().toLowerCase()) {
+      case 'cash':
+      case 'efectivo':
+        return 'Efectivo';
+      case 'transfer':
+      case 'transferencia':
+        return 'Transferencia';
+      case 'card':
+      case 'tarjeta':
+        return 'Tarjeta';
+      case 'check':
+      case 'cheque':
+        return 'Cheque';
+      default:
+        final normalized = method.trim();
+        if (normalized.isEmpty) {
+          return 'Pago';
+        }
+        return '${normalized[0].toUpperCase()}${normalized.substring(1).toLowerCase()}';
+    }
+  }
+
+  static IconData _paymentIcon(String method) {
+    switch (method.trim().toLowerCase()) {
+      case 'card':
+      case 'tarjeta':
+        return Icons.credit_card_outlined;
+      case 'transfer':
+      case 'transferencia':
+        return Icons.swap_horiz_rounded;
+      case 'check':
+      case 'cheque':
+        return Icons.receipt_long_outlined;
+      default:
+        return Icons.payments_outlined;
+    }
+  }
+}
+
+class _InstallmentViewRow {
+  const _InstallmentViewRow({
+    required this.installmentNumber,
+    required this.dueDateLabel,
+    required this.openingBalanceLabel,
+    required this.interestLabel,
+    required this.principalLabel,
+    required this.totalAmountLabel,
+    required this.paidAmountLabel,
+    required this.pendingAmountLabel,
+    required this.endingBalanceLabel,
+    required this.statusLabel,
+    required this.statusTone,
+  });
+
+  final int installmentNumber;
+  final String dueDateLabel;
+  final String openingBalanceLabel;
+  final String interestLabel;
+  final String principalLabel;
+  final String totalAmountLabel;
+  final String paidAmountLabel;
+  final String pendingAmountLabel;
+  final String endingBalanceLabel;
+  final String statusLabel;
+  final _StatusTone statusTone;
+}
+
+class _PaymentViewRow {
+  const _PaymentViewRow({
+    required this.title,
+    required this.subtitle,
+    required this.amountLabel,
+    required this.icon,
+  });
+
+  final String title;
+  final String subtitle;
+  final String amountLabel;
+  final IconData icon;
+}

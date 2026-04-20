@@ -42,6 +42,7 @@
       const preflightResetKey = 'sistema_solares_ui.preflight_cache_reset.v2';
       const runtimeConfigUrl = `app-config.json?v=${Date.now()}`;
       const versionUrl = `version.json?v=${Date.now()}`;
+      const isLocalFlutterRun = ['localhost', '127.0.0.1'].includes(window.location.hostname);
 
       function log(message, details) {
         if (details === undefined) {
@@ -62,7 +63,7 @@
         });
 
         if (!response.ok) {
-          throw new Error(`Request failed for ${url}: ${response.status}`);
+          return null;
         }
 
         return response.json();
@@ -158,6 +159,12 @@
       }
 
       try {
+        if (isLocalFlutterRun) {
+          log('Local Flutter web run detected. Skipping runtime preflight bootstrap.');
+          await loadBootstrap('local-dev');
+          return;
+        }
+
         const preflightResetApplied = await runPreflightCacheReset();
         if (preflightResetApplied) {
           window.location.replace(window.location.pathname + window.location.search + window.location.hash);
@@ -174,7 +181,7 @@
         const reloadGuard = window.sessionStorage.getItem(reloadGuardKey);
 
         log('Resolved runtime configuration.', {
-          apiBaseUrl: appConfig.API_BASE_URL,
+          apiBaseUrl: appConfig && appConfig.API_BASE_URL,
           signature,
           previousSignature,
           reloadGuard,

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:sistema_solares_ui/core/formatters/app_number_formats.dart';
 import 'package:sistema_solares_ui/core/network/api_client.dart';
+import 'package:sistema_solares_ui/features/sales/sale_detail_dialog.dart';
 import 'package:sistema_solares_ui/core/realtime/realtime_controller.dart';
 import 'package:sistema_solares_ui/features/sales/sales_service.dart';
 import 'package:sistema_solares_ui/shared/desktop_ui.dart';
@@ -31,7 +33,7 @@ class _SalesScreenState extends State<SalesScreen> {
   @override
   Widget build(BuildContext context) {
     final refreshTick = context.watch<RealtimeController>().refreshTick;
-    final currency = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$ ');
+    final currency = AppNumberFormats.currency;
 
     if (_future == null || refreshTick != _lastTick) {
       _lastTick = refreshTick;
@@ -88,18 +90,19 @@ class _SalesScreenState extends State<SalesScreen> {
                 ),
               ],
               compactActions: [
-                OutlinedButton.icon(
+                DesktopToolbarIconAction(
+                  icon: Icons.cleaning_services_outlined,
+                  tooltip: 'Limpiar',
                   onPressed: () {
                     _searchController.clear();
                     _reload();
                   },
-                  icon: const Icon(Icons.cleaning_services_outlined),
-                  label: const Text('Limpiar'),
                 ),
-                FilledButton.icon(
+                DesktopToolbarIconAction(
+                  icon: Icons.search_rounded,
+                  tooltip: 'Buscar',
+                  tone: DesktopToolbarActionTone.filled,
                   onPressed: _reload,
-                  icon: const Icon(Icons.search_rounded),
-                  label: const Text('Buscar'),
                 ),
               ],
             ),
@@ -181,12 +184,12 @@ class _SalesScreenState extends State<SalesScreen> {
                           ];
 
                           return DesktopListRow(
-                            height: compact ? 92 : 82,
+                            height: compact ? 84 : 82,
                             onTap: () =>
                                 _openDetail(item['id']?.toString() ?? ''),
                             leading: Container(
-                              width: compact ? 38 : 42,
-                              height: compact ? 38 : 42,
+                              width: compact ? 36 : 42,
+                              height: compact ? 36 : 42,
                               decoration: BoxDecoration(
                                 color: const Color(0xFFF1F4FA),
                                 borderRadius: BorderRadius.circular(
@@ -265,7 +268,7 @@ class _SalesScreenState extends State<SalesScreen> {
       Navigator.of(context, rootNavigator: true).pop();
       await showDialog<void>(
         context: context,
-        builder: (context) => _SaleDetailDialog(detail: detail),
+        builder: (context) => SaleDetailDialog(detail: detail),
       );
     } catch (error) {
       if (!mounted) {
@@ -399,266 +402,5 @@ class _StatusTag extends StatelessWidget {
       background: background,
       foreground: foreground,
     );
-  }
-}
-
-class _SaleDetailDialog extends StatelessWidget {
-  const _SaleDetailDialog({required this.detail});
-
-  final Map<String, dynamic> detail;
-
-  @override
-  Widget build(BuildContext context) {
-    final compact = MediaQuery.sizeOf(context).width < 760;
-    final currency = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$ ');
-    final installments =
-        (detail['installments'] as List<dynamic>? ?? const <dynamic>[])
-            .map(_asMap)
-            .toList();
-    final payments = (detail['payments'] as List<dynamic>? ?? const <dynamic>[])
-        .map(_asMap)
-        .toList();
-
-    return Dialog(
-      insetPadding: EdgeInsets.all(compact ? 10 : 18),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: compact ? 420 : 860,
-          maxHeight: compact ? MediaQuery.sizeOf(context).height - 20 : 760,
-        ),
-        child: Padding(
-          padding: EdgeInsets.all(compact ? 16 : 20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Detalle de venta',
-                      style: Theme.of(context).textTheme.headlineSmall
-                          ?.copyWith(fontWeight: FontWeight.w800),
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Expanded(
-                child: ListView(
-                  children: [
-                    Wrap(
-                      spacing: 12,
-                      runSpacing: 12,
-                      children: [
-                        DesktopStackedStat(
-                          label: 'Cliente',
-                          value: _fullName(detail['client']),
-                        ),
-                        DesktopStackedStat(
-                          label: 'Solar',
-                          value:
-                              _readNested(detail, ['product', 'name']) ??
-                              'Sin solar',
-                        ),
-                        DesktopStackedStat(
-                          label: 'Contrato',
-                          value: detail['contractNumber']?.toString() ?? '-',
-                        ),
-                        DesktopStackedStat(
-                          label: 'Estado',
-                          value: detail['status']?.toString() ?? '-',
-                        ),
-                        DesktopStackedStat(
-                          label: 'Total',
-                          value: currency.format(_asNum(detail['totalAmount'])),
-                        ),
-                        DesktopStackedStat(
-                          label: 'Saldo',
-                          value: currency.format(
-                            _asNum(detail['outstandingBalance']),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 18),
-                    DesktopPlainSection(
-                      title: 'Resumen financiero',
-                      child: Wrap(
-                        spacing: 12,
-                        runSpacing: 12,
-                        children: [
-                          DesktopStackedStat(
-                            label: 'Inicial',
-                            value: currency.format(
-                              _asNum(detail['downPayment']),
-                            ),
-                          ),
-                          DesktopStackedStat(
-                            label: 'Monto financiado',
-                            value: currency.format(
-                              _asNum(detail['financedAmount']),
-                            ),
-                          ),
-                          DesktopStackedStat(
-                            label: 'Pagado',
-                            value: currency.format(
-                              _asNum(detail['paidAmount']),
-                            ),
-                          ),
-                          DesktopStackedStat(
-                            label: 'Plazo',
-                            value: '${detail['termMonths'] ?? 0} meses',
-                          ),
-                          DesktopStackedStat(
-                            label: 'Interes',
-                            value: '${detail['interestRate'] ?? 0} %',
-                          ),
-                          DesktopStackedStat(
-                            label: 'Responsable',
-                            value:
-                                _readNested(detail, ['user', 'fullName']) ??
-                                '-',
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    DesktopPlainSection(
-                      title: 'Cuotas',
-                      child: installments.isEmpty
-                          ? const DesktopEmptyState(
-                              icon: Icons.event_note_outlined,
-                              title: 'Sin cuotas registradas',
-                              message:
-                                  'Esta venta no tiene cuotas generadas en el backend.',
-                            )
-                          : Column(
-                              children: installments.map((installment) {
-                                return DesktopCompactSurface(
-                                  child: ListTile(
-                                    dense: true,
-                                    isThreeLine: compact,
-                                    title: Text(
-                                      'Cuota ${installment['installmentNumber'] ?? '-'}',
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                    subtitle: Text(
-                                      compact
-                                          ? 'Vence ${_formatDate(installment['dueDate'])}\nPagado ${currency.format(_asNum(installment['paidAmount']))}'
-                                          : 'Vence ${_formatDate(installment['dueDate'])}  •  Pagado ${currency.format(_asNum(installment['paidAmount']))}',
-                                    ),
-                                    trailing: Text(
-                                      currency.format(
-                                        _asNum(installment['amount']),
-                                      ),
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                  ),
-                                );
-                              }).toList(),
-                            ),
-                    ),
-                    const SizedBox(height: 18),
-                    DesktopPlainSection(
-                      title: 'Pagos',
-                      child: payments.isEmpty
-                          ? const DesktopEmptyState(
-                              icon: Icons.payments_outlined,
-                              title: 'Sin pagos registrados',
-                              message:
-                                  'Esta venta aun no tiene pagos aplicados.',
-                            )
-                          : Column(
-                              children: payments.map((payment) {
-                                return DesktopCompactSurface(
-                                  child: ListTile(
-                                    dense: true,
-                                    isThreeLine: compact,
-                                    title: Text(
-                                      payment['method']?.toString() ?? 'Pago',
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                    subtitle: Text(
-                                      _formatDate(payment['paymentDate']),
-                                    ),
-                                    trailing: Text(
-                                      currency.format(
-                                        _asNum(payment['amount']),
-                                      ),
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                  ),
-                                );
-                              }).toList(),
-                            ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  static Map<String, dynamic> _asMap(dynamic value) {
-    return (value as Map<dynamic, dynamic>).map(
-      (key, val) => MapEntry(key.toString(), val),
-    );
-  }
-
-  static String _fullName(Object? value) {
-    final map = value is Map<String, dynamic>
-        ? value
-        : value is Map
-        ? value.map((key, val) => MapEntry(key.toString(), val))
-        : const <String, dynamic>{};
-    final firstName = map['firstName']?.toString() ?? '';
-    final lastName = map['lastName']?.toString() ?? '';
-    final fullName = '$firstName $lastName'.trim();
-    return fullName.isEmpty ? 'Sin cliente' : fullName;
-  }
-
-  static String? _readNested(Map<String, dynamic> value, List<String> keys) {
-    Object? current = value;
-    for (final key in keys) {
-      if (current is! Map) {
-        return null;
-      }
-      current = current[key];
-    }
-    return current?.toString();
-  }
-
-  static double _asNum(Object? value) {
-    if (value is num) {
-      return value.toDouble();
-    }
-    return double.tryParse(value?.toString() ?? '') ?? 0;
-  }
-
-  static String _formatDate(Object? value) {
-    final raw = value?.toString();
-    if (raw == null || raw.trim().isEmpty) {
-      return 'Sin fecha';
-    }
-    final parsed = DateTime.tryParse(raw);
-    if (parsed == null) {
-      return raw;
-    }
-    return DateFormat('dd/MM/yyyy').format(parsed.toLocal());
   }
 }

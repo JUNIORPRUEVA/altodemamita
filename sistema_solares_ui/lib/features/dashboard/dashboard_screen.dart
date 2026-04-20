@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:sistema_solares_ui/core/formatters/app_number_formats.dart';
 import 'package:sistema_solares_ui/core/network/api_client.dart';
 import 'package:sistema_solares_ui/core/realtime/realtime_controller.dart';
 import 'package:sistema_solares_ui/features/dashboard/dashboard_service.dart';
@@ -43,7 +43,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         }
 
         final data = snapshot.data!;
-        final currency = NumberFormat.currency(locale: 'es_DO', symbol: r'$');
+        final currency = AppNumberFormats.currency;
         final compact = MediaQuery.sizeOf(context).width < 760;
         final totalPortfolio = _asNum(data.summary['totalPortfolio']);
         final totalCollected = _asNum(data.summary['totalCollected']);
@@ -501,7 +501,7 @@ class _RecentSalesTable extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final currency = NumberFormat.currency(locale: 'es_DO', symbol: r'$');
+    final currency = AppNumberFormats.currency;
     if (compact) {
       return DesktopDataListSection(
         title: 'Ventas recientes',
@@ -583,7 +583,7 @@ class _RecentPaymentsTable extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final currency = NumberFormat.currency(locale: 'es_DO', symbol: r'$');
+    final currency = AppNumberFormats.currency;
     if (compact) {
       return DesktopDataListSection(
         title: 'Pagos reportados',

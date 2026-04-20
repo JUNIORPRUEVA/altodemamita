@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:sistema_solares_ui/core/formatters/app_number_formats.dart';
 import 'package:sistema_solares_ui/core/network/api_client.dart';
 import 'package:sistema_solares_ui/core/realtime/realtime_controller.dart';
 import 'package:sistema_solares_ui/features/products/products_service.dart';
@@ -33,7 +33,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
   @override
   Widget build(BuildContext context) {
     final refreshTick = context.watch<RealtimeController>().refreshTick;
-    final currency = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$ ');
+    final currency = AppNumberFormats.currency;
 
     if (_future == null || refreshTick != _lastTick) {
       _lastTick = refreshTick;
@@ -98,29 +98,39 @@ class _ProductsScreenState extends State<ProductsScreen> {
                     ),
                   ],
                   compactActions: [
-                    FilterChip(
-                      selected: _includeInactive,
-                      label: const Text('Inactivos'),
-                      onSelected: (value) {
-                        _includeInactive = value;
-                        _reload();
-                      },
-                    ),
-                    FilterChip(
-                      selected: _includeDeleted,
-                      label: const Text('Eliminados'),
-                      onSelected: (value) {
-                        _includeDeleted = value;
-                        _reload();
-                      },
-                    ),
-                    FilledButton.icon(
+                    DesktopToolbarIconAction(
+                      icon: Icons.search_rounded,
+                      tooltip: 'Buscar',
+                      tone: DesktopToolbarActionTone.filled,
                       onPressed: _reload,
-                      icon: const Icon(Icons.search_rounded),
-                      label: const Text('Buscar'),
                     ),
                   ],
                 ),
+                if (compact) ...[
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      FilterChip(
+                        selected: _includeInactive,
+                        label: const Text('Inactivos'),
+                        onSelected: (value) {
+                          _includeInactive = value;
+                          _reload();
+                        },
+                      ),
+                      FilterChip(
+                        selected: _includeDeleted,
+                        label: const Text('Eliminados'),
+                        onSelected: (value) {
+                          _includeDeleted = value;
+                          _reload();
+                        },
+                      ),
+                    ],
+                  ),
+                ],
                 if (!compact) ...[
                   const SizedBox(height: 8),
                   const Text(
@@ -174,10 +184,10 @@ class _ProductsScreenState extends State<ProductsScreen> {
                               ? 'Contado ${currency.format(_readNum(item['price']))}\nStock $stock'
                               : 'Contado ${currency.format(_readNum(item['price']))}  •  Financiado ${currency.format(_readNum(item['financingPrice']))}  •  Stock $stock';
                           return DesktopListRow(
-                            height: compact ? 94 : 82,
+                            height: compact ? 84 : 82,
                             leading: Container(
-                              width: compact ? 38 : 44,
-                              height: compact ? 38 : 44,
+                              width: compact ? 34 : 44,
+                              height: compact ? 34 : 44,
                               decoration: BoxDecoration(
                                 color: const Color(0xFFEAF0F7),
                                 borderRadius: BorderRadius.circular(

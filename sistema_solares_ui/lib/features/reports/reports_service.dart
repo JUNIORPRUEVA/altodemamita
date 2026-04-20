@@ -17,8 +17,11 @@ class ReportsService {
 
   final ApiClient _apiClient;
 
-  Future<ReportsBundle> fetchBundle({required int days}) async {
-    final query = _buildRangeQuery(days);
+  Future<ReportsBundle> fetchBundle({
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    final query = _buildRangeQuery(from: from, to: to);
 
     final sales =
         await _apiClient.get('/reports/sales', queryParameters: query)
@@ -37,21 +40,25 @@ class ReportsService {
     );
   }
 
-  Future<List<Map<String, dynamic>>> fetchPayments({required int days}) async {
+  Future<List<Map<String, dynamic>>> fetchPayments({
+    required DateTime from,
+    required DateTime to,
+  }) async {
     final payments =
         await _apiClient.get(
               '/reports/payments',
-              queryParameters: _buildRangeQuery(days),
+              queryParameters: _buildRangeQuery(from: from, to: to),
             )
             as List<dynamic>;
 
     return payments.map(_asMap).toList();
   }
 
-  Map<String, String> _buildRangeQuery(int days) {
-    final now = DateTime.now();
-    final from = now.subtract(Duration(days: days)).toIso8601String();
-    return {'from': from, 'to': now.toIso8601String()};
+  Map<String, String> _buildRangeQuery({
+    required DateTime from,
+    required DateTime to,
+  }) {
+    return {'from': from.toIso8601String(), 'to': to.toIso8601String()};
   }
 
   Map<String, dynamic> _asMap(dynamic value) {

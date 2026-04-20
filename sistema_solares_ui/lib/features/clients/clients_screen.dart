@@ -85,18 +85,19 @@ class _ClientsScreenState extends State<ClientsScreen> {
                 ),
               ],
               compactActions: [
-                OutlinedButton.icon(
+                DesktopToolbarIconAction(
+                  icon: Icons.cleaning_services_outlined,
+                  tooltip: 'Limpiar',
                   onPressed: () {
                     _searchController.clear();
                     _reload(resetPage: true);
                   },
-                  icon: const Icon(Icons.cleaning_services_outlined),
-                  label: const Text('Limpiar'),
                 ),
-                FilledButton.icon(
+                DesktopToolbarIconAction(
+                  icon: Icons.search_rounded,
+                  tooltip: 'Buscar',
+                  tone: DesktopToolbarActionTone.filled,
                   onPressed: () => _reload(resetPage: true),
-                  icon: const Icon(Icons.search_rounded),
-                  label: const Text('Buscar'),
                 ),
               ],
             ),
@@ -186,9 +187,9 @@ class _ClientsScreenState extends State<ClientsScreen> {
                               ? '$documentId  •  $phone'
                               : '$documentId  •  $phone  •  $email';
                           return DesktopListRow(
-                            height: compact ? 78 : 72,
+                            height: compact ? 72 : 72,
                             leading: CircleAvatar(
-                              radius: compact ? 16 : 22,
+                              radius: compact ? 15 : 22,
                               backgroundColor: const Color(0xFFEFF3FB),
                               child: Text(
                                 (fullName.isNotEmpty ? fullName[0] : 'C')

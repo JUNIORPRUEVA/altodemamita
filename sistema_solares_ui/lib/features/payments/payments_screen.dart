@@ -1,8 +1,10 @@
+
 import 'dart:developer' as developer;
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:sistema_solares_ui/core/formatters/app_number_formats.dart';
 import 'package:sistema_solares_ui/core/network/api_client.dart';
 import 'package:sistema_solares_ui/core/realtime/realtime_controller.dart';
 import 'package:sistema_solares_ui/features/payments/payments_service.dart';
@@ -119,7 +121,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
             }
           }
           final compact = MediaQuery.sizeOf(context).width < 760;
-          final currency = NumberFormat.currency(locale: 'es_DO', symbol: r'$');
+          final currency = AppNumberFormats.currency;
           final totalCollected =
               activeSelectedSale?.history.fold<double>(
                 0,
@@ -160,219 +162,231 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
           );
 
           return DesktopPageScaffold(
-          title: 'Pagos',
-          subtitle: compact
-              ? 'Consulta alineada de cuotas y pagos reales.'
-              : 'Vista unificada de pagos reales, cuotas y resumen de cobranza en modo solo lectura.',
-          toolbar: DesktopFieldToolbar(
-            child: DesktopToolbar(
-              searchField: DesktopSearchField(
-                controller: _searchController,
-                hintText: 'Buscar por cliente, contrato, solar o estado',
-                onSubmitted: (_) => _reloadFromStart(),
-              ),
-              actions: [
-                _PaymentsFilterBar(
-                  currentFilter: _salesFilter,
-                  onChanged: _setSalesFilter,
-                ),
-                OutlinedButton.icon(
-                  onPressed: () {
-                    _searchController.clear();
-                    _setSalesFilter('all');
-                    _reloadFromStart();
-                  },
-                  icon: const Icon(Icons.cleaning_services_outlined),
-                  label: const Text('Limpiar'),
-                ),
-                FilledButton.icon(
-                  onPressed: _reloadFromStart,
-                  icon: const Icon(Icons.search_rounded),
-                  label: const Text('Buscar'),
-                ),
-              ],
-              compactActions: [
-                _PaymentsFilterBar(
-                  currentFilter: _salesFilter,
-                  onChanged: _setSalesFilter,
-                  compact: true,
-                ),
-                OutlinedButton.icon(
-                  onPressed: () {
-                    _searchController.clear();
-                    _setSalesFilter('all');
-                    _reloadFromStart();
-                  },
-                  icon: const Icon(Icons.cleaning_services_outlined),
-                  label: const Text('Limpiar'),
-                ),
-                FilledButton.icon(
-                  onPressed: _reloadFromStart,
-                  icon: const Icon(Icons.search_rounded),
-                  label: const Text('Buscar'),
-                ),
-              ],
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              DesktopInfoStrip(
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    DesktopTag(
-                      label: compact
-                          ? '${sales.length} ventas'
-                          : 'Ventas ${sales.length}',
-                      background: const Color(0xFFF1F4FA),
+            title: 'Pagos',
+            subtitle: compact
+                ? 'Consulta alineada de cuotas y pagos reales.'
+                : 'Vista unificada de pagos reales, cuotas y resumen de cobranza en modo solo lectura.',
+            toolbar: DesktopFieldToolbar(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  DesktopToolbar(
+                    searchField: DesktopSearchField(
+                      controller: _searchController,
+                      hintText: 'Buscar por cliente, contrato, solar o estado',
+                      onSubmitted: (_) => _reloadFromStart(),
                     ),
-                    DesktopTag(
-                      label: compact
-                          ? '$visiblePayments realizados'
-                          : 'Pagos realizados $visiblePayments',
-                      background: const Color(0xFFEAF4ED),
-                      foreground: const Color(0xFF2F6F5C),
-                    ),
-                    DesktopTag(
-                      label: currency.format(visibleOutstanding),
-                      background: const Color(0xFFF6EFE3),
-                      foreground: const Color(0xFF8C5A2C),
-                    ),
-                    if (!compact)
-                      DesktopTag(
-                        label: 'Cuotas generadas $visibleInstallments',
-                        background: const Color(0xFFF5EEF8),
-                        foreground: const Color(0xFF7A4A97),
+                    actions: [
+                      _PaymentsFilterBar(
+                        currentFilter: _salesFilter,
+                        onChanged: _setSalesFilter,
                       ),
-                    if (selectedSummary != null && !compact)
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          _searchController.clear();
+                          _setSalesFilter('all');
+                          _reloadFromStart();
+                        },
+                        icon: const Icon(Icons.cleaning_services_outlined),
+                        label: const Text('Limpiar'),
+                      ),
+                      FilledButton.icon(
+                        onPressed: _reloadFromStart,
+                        icon: const Icon(Icons.search_rounded),
+                        label: const Text('Buscar'),
+                      ),
+                    ],
+                    compactActions: [
+                      DesktopToolbarIconAction(
+                        icon: Icons.cleaning_services_outlined,
+                        tooltip: 'Limpiar',
+                        onPressed: () {
+                          _searchController.clear();
+                          _setSalesFilter('all');
+                          _reloadFromStart();
+                        },
+                      ),
+                      DesktopToolbarIconAction(
+                        icon: Icons.search_rounded,
+                        tooltip: 'Buscar',
+                        tone: DesktopToolbarActionTone.filled,
+                        onPressed: _reloadFromStart,
+                      ),
+                    ],
+                  ),
+                  if (compact) ...[
+                    const SizedBox(height: 8),
+                    _PaymentsFilterBar(
+                      currentFilter: _salesFilter,
+                      onChanged: _setSalesFilter,
+                      compact: true,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                DesktopInfoStrip(
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
                       DesktopTag(
-                        label:
-                            'Pagado ${currency.format(selectedSummary.totalPaid)}',
+                        label: compact
+                            ? '${sales.length} ventas'
+                            : 'Ventas ${sales.length}',
+                        background: const Color(0xFFF1F4FA),
+                      ),
+                      DesktopTag(
+                        label: compact
+                            ? '$visiblePayments realizados'
+                            : 'Pagos realizados $visiblePayments',
                         background: const Color(0xFFEAF4ED),
                         foreground: const Color(0xFF2F6F5C),
                       ),
-                    if (!compact)
                       DesktopTag(
-                        label: 'Pag. ${data.page}/${data.totalPages}',
-                        background: const Color(0xFFF1F4FA),
-                      ),
-                    if (activeSelectedSale != null)
-                      DesktopTag(
-                        label: activeSelectedSale.stageLabel,
-                        background: const Color(0xFFF7F1E4),
+                        label: currency.format(visibleOutstanding),
+                        background: const Color(0xFFF6EFE3),
                         foreground: const Color(0xFF8C5A2C),
                       ),
-                    if (lastPaymentDate != null)
-                      DesktopTag(
-                        label: _formatDate(lastPaymentDate),
-                        background: const Color(0xFFF1F4FA),
-                      ),
-                  ],
+                      if (!compact)
+                        DesktopTag(
+                          label: 'Cuotas generadas $visibleInstallments',
+                          background: const Color(0xFFF5EEF8),
+                          foreground: const Color(0xFF7A4A97),
+                        ),
+                      if (selectedSummary != null && !compact)
+                        DesktopTag(
+                          label:
+                              'Pagado ${currency.format(selectedSummary.totalPaid)}',
+                          background: const Color(0xFFEAF4ED),
+                          foreground: const Color(0xFF2F6F5C),
+                        ),
+                      if (!compact)
+                        DesktopTag(
+                          label: 'Pag. ${data.page}/${data.totalPages}',
+                          background: const Color(0xFFF1F4FA),
+                        ),
+                      if (activeSelectedSale != null)
+                        DesktopTag(
+                          label: activeSelectedSale.stageLabel,
+                          background: const Color(0xFFF7F1E4),
+                          foreground: const Color(0xFF8C5A2C),
+                        ),
+                      if (lastPaymentDate != null)
+                        DesktopTag(
+                          label: _formatDate(lastPaymentDate),
+                          background: const Color(0xFFF1F4FA),
+                        ),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 10),
-              Expanded(
-                child: sales.isEmpty
-                  ? DesktopEmptyState(
-                    icon: Icons.payments_outlined,
-                    title: _salesFilter == 'all'
-                      ? 'No se encontraron ventas para pagos'
-                      : 'No hay resultados para este filtro',
-                    message: _salesFilter == 'all'
-                      ? 'Prueba otra busqueda o espera a la siguiente sincronizacion del backend.'
-                      : 'Ajusta el filtro de pendientes o realizados para ver otras ventas.',
-                    )
-                    : LayoutBuilder(
-                        builder: (context, constraints) {
-                          final stacked =
-                              constraints.maxWidth < 1100 ||
-                              constraints.maxHeight < 720;
-                          if (stacked) {
-                            return ListView(
-                              children: [
-                                _buildSalesPanel(
-                                  data,
-                                  currency,
-                                  compact,
-                                  scrollable: false,
-                                ),
-                                const SizedBox(height: 12),
-                                if (activeSelectedSale != null) ...[
-                                  _buildSummaryPanel(activeSelectedSale, currency),
-                                  const SizedBox(height: 12),
-                                  _buildInstallmentsPanel(
-                                    activeSelectedSale,
+                const SizedBox(height: 10),
+                Expanded(
+                  child: sales.isEmpty
+                      ? DesktopEmptyState(
+                          icon: Icons.payments_outlined,
+                          title: _salesFilter == 'all'
+                              ? 'No se encontraron ventas para pagos'
+                              : 'No hay resultados para este filtro',
+                          message: _salesFilter == 'all'
+                              ? 'Prueba otra busqueda o espera a la siguiente sincronizacion del backend.'
+                              : 'Ajusta el filtro de pendientes o realizados para ver otras ventas.',
+                        )
+                      : LayoutBuilder(
+                          builder: (context, constraints) {
+                            final stacked =
+                                constraints.maxWidth < 1100 ||
+                                constraints.maxHeight < 720;
+                            if (stacked) {
+                              return ListView(
+                                children: [
+                                  _buildSalesPanel(
+                                    data,
                                     currency,
                                     compact,
                                     scrollable: false,
                                   ),
                                   const SizedBox(height: 12),
-                                  _buildHistoryPanel(
-                                    activeSelectedSale,
-                                    currency,
-                                    averageTicket,
-                                    methods.length,
-                                    compact,
-                                    scrollable: false,
-                                  ),
+                                  if (activeSelectedSale != null) ...[
+                                    _buildSummaryPanel(
+                                      activeSelectedSale,
+                                      currency,
+                                    ),
+                                    const SizedBox(height: 12),
+                                    _buildInstallmentsPanel(
+                                      activeSelectedSale,
+                                      currency,
+                                      compact,
+                                      scrollable: false,
+                                    ),
+                                    const SizedBox(height: 12),
+                                    _buildHistoryPanel(
+                                      activeSelectedSale,
+                                      currency,
+                                      averageTicket,
+                                      methods.length,
+                                      compact,
+                                      scrollable: false,
+                                    ),
+                                  ],
                                 ],
+                              );
+                            }
+
+                            return Row(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Expanded(
+                                  flex: 32,
+                                  child: _buildSalesPanel(
+                                    data,
+                                    currency,
+                                    compact,
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  flex: 40,
+                                  child: activeSelectedSale == null
+                                      ? DesktopEmptyState(
+                                          icon: Icons.view_list_outlined,
+                                          title: detailErrorMessage == null
+                                              ? 'Selecciona una venta'
+                                              : 'No se pudo cargar el detalle',
+                                          message:
+                                              detailErrorMessage ??
+                                              'Elige una venta de la lista para ver cuotas e historial.',
+                                        )
+                                      : _buildInstallmentsPanel(
+                                          activeSelectedSale,
+                                          currency,
+                                          compact,
+                                        ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  flex: 28,
+                                  child: activeSelectedSale == null
+                                      ? const SizedBox.shrink()
+                                      : _buildInspectorPanel(
+                                          activeSelectedSale,
+                                          currency,
+                                          averageTicket,
+                                          methods.length,
+                                          compact,
+                                        ),
+                                ),
                               ],
                             );
-                          }
-
-                          return Row(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Expanded(
-                                flex: 32,
-                                child: _buildSalesPanel(
-                                  data,
-                                  currency,
-                                  compact,
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                flex: 40,
-                                child: activeSelectedSale == null
-                                    ? DesktopEmptyState(
-                                        icon: Icons.view_list_outlined,
-                                        title: detailErrorMessage == null
-                                            ? 'Selecciona una venta'
-                                            : 'No se pudo cargar el detalle',
-                                        message:
-                                            detailErrorMessage ??
-                                            'Elige una venta de la lista para ver cuotas e historial.',
-                                      )
-                                    : _buildInstallmentsPanel(
-                                        activeSelectedSale,
-                                        currency,
-                                        compact,
-                                      ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                flex: 28,
-                                child: activeSelectedSale == null
-                                    ? const SizedBox.shrink()
-                                    : _buildInspectorPanel(
-                                        activeSelectedSale,
-                                        currency,
-                                        averageTicket,
-                                        methods.length,
-                                        compact,
-                                      ),
-                              ),
-                            ],
-                          );
-                        },
-                      ),
-              ),
-            ],
-          ),
-        );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          );
         } catch (error, stackTrace) {
           developer.log(
             'Payments screen render failed.',
@@ -391,12 +405,15 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
   }
 
   List<PaymentSaleSummary> _filterSales(List<PaymentSaleSummary> sales) {
-    return sales.where((sale) => _matchesSalesFilter(sale)).toList(growable: false);
+    return sales
+        .where((sale) => _matchesSalesFilter(sale))
+        .toList(growable: false);
   }
 
   bool _matchesSalesFilter(PaymentSaleSummary sale) {
     return switch (_salesFilter) {
-      'pending' => sale.pendingInitialPayment > 0.009 || sale.pendingBalance > 0.009,
+      'pending' =>
+        sale.pendingInitialPayment > 0.009 || sale.pendingBalance > 0.009,
       'completed' => sale.paymentsCount > 0,
       _ => true,
     };
@@ -496,10 +513,10 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
       color: selected ? const Color(0xFFF4F7FD) : Colors.transparent,
       child: DesktopListRow(
         onTap: () => _selectSale(sale.id),
-        height: compact ? 112 : 90,
+        height: compact ? 98 : 90,
         leading: Container(
-          width: 44,
-          height: 44,
+          width: compact ? 38 : 44,
+          height: compact ? 38 : 44,
           decoration: BoxDecoration(
             color: selected ? const Color(0xFFE1EAFE) : const Color(0xFFF1F4FA),
             borderRadius: BorderRadius.circular(14),
@@ -574,10 +591,10 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
             itemBuilder: (context, index) {
               final installment = detail.installments[index];
               return DesktopListRow(
-                height: compact ? 102 : 82,
+                height: compact ? 92 : 82,
                 leading: Container(
-                  width: 44,
-                  height: 44,
+                  width: compact ? 38 : 44,
+                  height: compact ? 38 : 44,
                   decoration: BoxDecoration(
                     color: const Color(0xFFF1F4FA),
                     borderRadius: BorderRadius.circular(14),
@@ -704,7 +721,10 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                     ? 'No disponible'
                     : sale.contractNumber,
               ),
-              _SummaryFactRow(label: 'Estado', value: _statusLabel(sale.status)),
+              _SummaryFactRow(
+                label: 'Estado',
+                value: _statusLabel(sale.status),
+              ),
               _SummaryFactRow(
                 label: 'Inicial requerida',
                 value: currency.format(sale.requiredInitialPayment),
@@ -721,7 +741,10 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                 label: 'Interes mensual',
                 value: '${detail.monthlyInterest.toStringAsFixed(2)}%',
               ),
-              _SummaryFactRow(label: 'Plazo', value: '${detail.termMonths} meses'),
+              _SummaryFactRow(
+                label: 'Plazo',
+                value: '${detail.termMonths} meses',
+              ),
               _SummaryFactRow(
                 label: 'Cuotas pagadas',
                 value: '${detail.paidInstallmentsCount}',
@@ -736,7 +759,10 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                     ? 'Sin cuota prioritaria'
                     : 'Cuota #${priority.installmentNumber}',
               ),
-              _SummaryFactRow(label: 'Responsable', value: detail.salespersonName),
+              _SummaryFactRow(
+                label: 'Responsable',
+                value: detail.salespersonName,
+              ),
             ],
           ),
         ),
@@ -817,7 +843,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
             itemBuilder: (context, index) {
               final payment = detail.history[index];
               return DesktopListRow(
-                height: compact ? 86 : 68,
+                height: compact ? 78 : 68,
                 leading: Container(
                   width: 34,
                   height: 34,
@@ -845,7 +871,10 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                   ].join(compact ? '\n' : '  •  '),
                   maxLines: compact ? 4 : 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Color(0xFF6E7791), fontSize: 12.2),
+                  style: const TextStyle(
+                    color: Color(0xFF6E7791),
+                    fontSize: 12.2,
+                  ),
                 ),
                 trailing: DesktopTag(
                   label: currency.format(payment.amount),
@@ -857,38 +886,38 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
           );
 
     final contentPanel = Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _PanelHeader(
-            title: 'Historial',
-            trailing: detail.history.isNotEmpty
-                ? DesktopTag(
-                    label: 'Ticket ${currency.format(averageTicket)}',
-                    background: const Color(0xFFF6EFE3),
-                    foreground: const Color(0xFF8C5A2C),
-                  )
-                : null,
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              DesktopTag(
-                label: '${detail.history.length} realizados',
-                background: const Color(0xFFF1F4FA),
-              ),
-              DesktopTag(
-                label: '$methodsCount metodos',
-                background: const Color(0xFFF5EEF8),
-                foreground: const Color(0xFF7A4A97),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          if (scrollable) Expanded(child: content) else content,
-        ],
-      );
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _PanelHeader(
+          title: 'Historial',
+          trailing: detail.history.isNotEmpty
+              ? DesktopTag(
+                  label: 'Ticket ${currency.format(averageTicket)}',
+                  background: const Color(0xFFF6EFE3),
+                  foreground: const Color(0xFF8C5A2C),
+                )
+              : null,
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            DesktopTag(
+              label: '${detail.history.length} realizados',
+              background: const Color(0xFFF1F4FA),
+            ),
+            DesktopTag(
+              label: '$methodsCount metodos',
+              background: const Color(0xFFF5EEF8),
+              foreground: const Color(0xFF7A4A97),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        if (scrollable) Expanded(child: content) else content,
+      ],
+    );
 
     return embedded ? contentPanel : _PaymentsPanelSurface(child: contentPanel);
   }
@@ -1038,27 +1067,33 @@ class _PaymentsFilterBar extends StatelessWidget {
     return Wrap(
       spacing: 6,
       runSpacing: 6,
-      children: chips.map((entry) {
-        final selected = currentFilter == entry.$1;
-        return ChoiceChip(
-          label: Text(entry.$2),
-          selected: selected,
-          onSelected: (_) => onChanged(entry.$1),
-          labelStyle: TextStyle(
-            fontSize: compact ? 11.5 : 12,
-            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-            color: selected ? const Color(0xFF2F6F5C) : const Color(0xFF556079),
-          ),
-          selectedColor: const Color(0xFFEAF4ED),
-          backgroundColor: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(999),
-            side: BorderSide(
-              color: selected ? const Color(0xFF2F6F5C) : const Color(0xFFD0D7E4),
-            ),
-          ),
-        );
-      }).toList(growable: false),
+      children: chips
+          .map((entry) {
+            final selected = currentFilter == entry.$1;
+            return ChoiceChip(
+              label: Text(entry.$2),
+              selected: selected,
+              onSelected: (_) => onChanged(entry.$1),
+              labelStyle: TextStyle(
+                fontSize: compact ? 11.5 : 12,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                color: selected
+                    ? const Color(0xFF2F6F5C)
+                    : const Color(0xFF556079),
+              ),
+              selectedColor: const Color(0xFFEAF4ED),
+              backgroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(999),
+                side: BorderSide(
+                  color: selected
+                      ? const Color(0xFF2F6F5C)
+                      : const Color(0xFFD0D7E4),
+                ),
+              ),
+            );
+          })
+          .toList(growable: false),
     );
   }
 }
@@ -1120,9 +1155,15 @@ class _SummaryMetricPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = switch (tone) {
-      _SummaryTone.success => (const Color(0xFFEAF4ED), const Color(0xFF2F6F5C)),
+      _SummaryTone.success => (
+        const Color(0xFFEAF4ED),
+        const Color(0xFF2F6F5C),
+      ),
       _SummaryTone.accent => (const Color(0xFFF5EEF8), const Color(0xFF7A4A97)),
-      _SummaryTone.neutral => (const Color(0xFFF1F4FA), const Color(0xFF223048)),
+      _SummaryTone.neutral => (
+        const Color(0xFFF1F4FA),
+        const Color(0xFF223048),
+      ),
     };
 
     return Container(
@@ -1169,9 +1210,7 @@ class _SummaryFactRow extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: const BoxDecoration(
-        border: Border(
-          bottom: BorderSide(color: Color(0xFFE8EDF4), width: 1),
-        ),
+        border: Border(bottom: BorderSide(color: Color(0xFFE8EDF4), width: 1)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,

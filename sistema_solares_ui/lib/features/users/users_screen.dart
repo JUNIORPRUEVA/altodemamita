@@ -33,9 +33,9 @@ class _UsersScreenState extends State<UsersScreen> {
     final refreshTick = context.watch<RealtimeController>().refreshTick;
     if (_future == null || refreshTick != _lastTick) {
       _lastTick = refreshTick;
-      _future = UsersService(context.read<ApiClient>()).fetchSnapshot(
-        search: _searchController.text,
-      );
+      _future = UsersService(
+        context.read<ApiClient>(),
+      ).fetchSnapshot(search: _searchController.text);
     }
 
     return FutureBuilder<UsersSnapshot>(
@@ -59,7 +59,10 @@ class _UsersScreenState extends State<UsersScreen> {
         final activeCount = data.users.where((user) => user.isActive).length;
         final onlineCount = data.users.where((user) => user.isOnline).length;
         final adminCount = data.users
-            .where((user) => user.roles.any((role) => _looksAdministrativeRole(role.code)))
+            .where(
+              (user) =>
+                  user.roles.any((role) => _looksAdministrativeRole(role.code)),
+            )
             .length;
         final currentSessionUser = currentUser == null
             ? null
@@ -87,10 +90,16 @@ class _UsersScreenState extends State<UsersScreen> {
                 ),
               ],
               compactActions: [
-                FilledButton.icon(
+                DesktopToolbarIconAction(
+                  icon: Icons.refresh_rounded,
+                  tooltip: 'Actualizar',
                   onPressed: _reload,
-                  icon: const Icon(Icons.search_rounded),
-                  label: const Text('Buscar'),
+                ),
+                DesktopToolbarIconAction(
+                  icon: Icons.search_rounded,
+                  tooltip: 'Buscar',
+                  tone: DesktopToolbarActionTone.filled,
+                  onPressed: _reload,
                 ),
               ],
             ),
@@ -103,7 +112,10 @@ class _UsersScreenState extends State<UsersScreen> {
                   children: [
                     const Text(
                       'Resumen de accesos',
-                      style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                     const SizedBox(height: 16),
                     Wrap(
@@ -142,7 +154,12 @@ class _UsersScreenState extends State<UsersScreen> {
                 _CurrentSessionCard(
                   user: currentSessionUser,
                   realtime: realtime,
-                  onViewDetails: () => _openUserDetails(context, currentSessionUser, true, realtime),
+                  onViewDetails: () => _openUserDetails(
+                    context,
+                    currentSessionUser,
+                    true,
+                    realtime,
+                  ),
                 ),
                 const SizedBox(height: 16),
               ],
@@ -150,7 +167,8 @@ class _UsersScreenState extends State<UsersScreen> {
                 const DesktopEmptyState(
                   icon: Icons.manage_accounts_outlined,
                   title: 'No hay usuarios visibles',
-                  message: 'Prueba otro filtro o verifica que el backend este devolviendo el listado esperado.',
+                  message:
+                      'Prueba otro filtro o verifica que el backend este devolviendo el listado esperado.',
                 )
               else if (compact)
                 DesktopDataListSection(
@@ -158,14 +176,16 @@ class _UsersScreenState extends State<UsersScreen> {
                   children: data.users.map((user) {
                     final isCurrentUser = currentUser?.id == user.id;
                     return DesktopListRow(
-                      height: 108,
+                      height: 94,
                       leading: _UserAvatar(label: _initialFor(user.fullName)),
                       title: Row(
                         children: [
                           Expanded(
                             child: Text(
                               user.fullName,
-                              style: const TextStyle(fontWeight: FontWeight.w800),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
                           ),
                           if (user.isOnline)
@@ -190,13 +210,14 @@ class _UsersScreenState extends State<UsersScreen> {
                               label: user.roles.first.name,
                               background: const Color(0xFFF1F4FA),
                             ),
-                          OutlinedButton(
-                            onPressed: () => _openUserDetails(context, user, isCurrentUser, realtime),
-                            child: const Text('Ver detalle'),
-                          ),
                         ],
                       ),
-                      onTap: () => _openUserDetails(context, user, isCurrentUser, realtime),
+                      onTap: () => _openUserDetails(
+                        context,
+                        user,
+                        isCurrentUser,
+                        realtime,
+                      ),
                     );
                   }).toList(),
                 )
@@ -220,23 +241,38 @@ class _UsersScreenState extends State<UsersScreen> {
                       rows: data.users.map((user) {
                         final isCurrentUser = currentUser?.id == user.id;
                         return DataRow(
-                          onSelectChanged: (_) => _openUserDetails(context, user, isCurrentUser, realtime),
+                          onSelectChanged: (_) => _openUserDetails(
+                            context,
+                            user,
+                            isCurrentUser,
+                            realtime,
+                          ),
                           cells: [
                             DataCell(
                               ConstrainedBox(
-                                constraints: const BoxConstraints(minWidth: 260, maxWidth: 320),
+                                constraints: const BoxConstraints(
+                                  minWidth: 260,
+                                  maxWidth: 320,
+                                ),
                                 child: Row(
                                   children: [
-                                    _UserAvatar(label: _initialFor(user.fullName), radius: 18),
+                                    _UserAvatar(
+                                      label: _initialFor(user.fullName),
+                                      radius: 18,
+                                    ),
                                     const SizedBox(width: 10),
                                     Expanded(
                                       child: Column(
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
                                         children: [
                                           Text(
                                             user.fullName,
-                                            style: const TextStyle(fontWeight: FontWeight.w800),
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w800,
+                                            ),
                                             overflow: TextOverflow.ellipsis,
                                           ),
                                           const SizedBox(height: 2),
@@ -257,7 +293,9 @@ class _UsersScreenState extends State<UsersScreen> {
                             ),
                             DataCell(
                               ConstrainedBox(
-                                constraints: const BoxConstraints(maxWidth: 260),
+                                constraints: const BoxConstraints(
+                                  maxWidth: 260,
+                                ),
                                 child: Wrap(
                                   spacing: 6,
                                   runSpacing: 6,
@@ -276,17 +314,29 @@ class _UsersScreenState extends State<UsersScreen> {
                             DataCell(
                               user.isOnline
                                   ? _PresenceBadge(
-                                      label: _presenceLabel(user, isCurrentUser),
+                                      label: _presenceLabel(
+                                        user,
+                                        isCurrentUser,
+                                      ),
                                       color: Color(0xFF2BB673),
                                     )
                                   : Text(
-                                      isCurrentUser ? 'Sesion sin conexion' : 'Fuera de linea',
-                                      style: const TextStyle(color: Color(0xFF6E7791)),
+                                      isCurrentUser
+                                          ? 'Sesion sin conexion'
+                                          : 'Fuera de linea',
+                                      style: const TextStyle(
+                                        color: Color(0xFF6E7791),
+                                      ),
                                     ),
                             ),
                             DataCell(
                               OutlinedButton(
-                                onPressed: () => _openUserDetails(context, user, isCurrentUser, realtime),
+                                onPressed: () => _openUserDetails(
+                                  context,
+                                  user,
+                                  isCurrentUser,
+                                  realtime,
+                                ),
                                 child: const Text('Ver detalle'),
                               ),
                             ),
@@ -318,7 +368,9 @@ class _UsersScreenState extends State<UsersScreen> {
         child: ConstrainedBox(
           constraints: BoxConstraints(
             maxWidth: compact ? 420 : 720,
-            maxHeight: compact ? MediaQuery.sizeOf(dialogContext).height - 20 : 760,
+            maxHeight: compact
+                ? MediaQuery.sizeOf(dialogContext).height - 20
+                : 760,
           ),
           child: Padding(
             padding: EdgeInsets.all(compact ? 16 : 24),
@@ -338,13 +390,15 @@ class _UsersScreenState extends State<UsersScreen> {
                             icon: const Icon(Icons.close_rounded),
                           ),
                         ),
-                        _UserAvatar(label: _initialFor(user.fullName), radius: 28),
+                        _UserAvatar(
+                          label: _initialFor(user.fullName),
+                          radius: 28,
+                        ),
                         const SizedBox(height: 12),
                         Text(
                           user.fullName,
-                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                fontWeight: FontWeight.w800,
-                              ),
+                          style: Theme.of(context).textTheme.titleLarge
+                              ?.copyWith(fontWeight: FontWeight.w800),
                         ),
                         const SizedBox(height: 4),
                         Text(
@@ -375,7 +429,10 @@ class _UsersScreenState extends State<UsersScreen> {
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _UserAvatar(label: _initialFor(user.fullName), radius: 28),
+                        _UserAvatar(
+                          label: _initialFor(user.fullName),
+                          radius: 28,
+                        ),
                         const SizedBox(width: 16),
                         Expanded(
                           child: Column(
@@ -383,14 +440,15 @@ class _UsersScreenState extends State<UsersScreen> {
                             children: [
                               Text(
                                 user.fullName,
-                                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                      fontWeight: FontWeight.w800,
-                                    ),
+                                style: Theme.of(context).textTheme.titleLarge
+                                    ?.copyWith(fontWeight: FontWeight.w800),
                               ),
                               const SizedBox(height: 4),
                               Text(
                                 '@${user.username}',
-                                style: const TextStyle(color: Color(0xFF6E7791)),
+                                style: const TextStyle(
+                                  color: Color(0xFF6E7791),
+                                ),
                               ),
                               const SizedBox(height: 10),
                               Wrap(
@@ -400,7 +458,10 @@ class _UsersScreenState extends State<UsersScreen> {
                                   _StatusBadge(isActive: user.isActive),
                                   if (user.isOnline)
                                     _PresenceBadge(
-                                      label: _presenceLabel(user, isCurrentUser),
+                                      label: _presenceLabel(
+                                        user,
+                                        isCurrentUser,
+                                      ),
                                       color: const Color(0xFF2BB673),
                                     )
                                   else if (isCurrentUser)
@@ -431,7 +492,9 @@ class _UsersScreenState extends State<UsersScreen> {
                         label: 'Presencia',
                         value: user.isOnline
                             ? _presenceLabel(user, isCurrentUser)
-                            : (isCurrentUser ? 'Sesion sin conexion' : 'Fuera de linea'),
+                            : (isCurrentUser
+                                  ? 'Sesion sin conexion'
+                                  : 'Fuera de linea'),
                       ),
                       _DetailTile(
                         label: 'Conexiones activas',
@@ -439,7 +502,9 @@ class _UsersScreenState extends State<UsersScreen> {
                       ),
                       _DetailTile(
                         label: 'Cliente conectado',
-                        value: user.clientTypes.isEmpty ? '-' : user.clientTypes.join(', '),
+                        value: user.clientTypes.isEmpty
+                            ? '-'
+                            : user.clientTypes.join(', '),
                       ),
                       _DetailTile(
                         label: 'Conectado desde',
@@ -484,7 +549,10 @@ class _UsersScreenState extends State<UsersScreen> {
                       isCurrentUser
                           ? 'Esta es la sesion autenticada actualmente en el panel. El indicador de linea depende de la conexion realtime activa del navegador.'
                           : 'La presencia ahora se basa en conexiones realtime activas reportadas por el backend. Si el usuario no tiene sockets activos, se muestra como fuera de linea.',
-                      style: const TextStyle(color: Color(0xFF536079), height: 1.45),
+                      style: const TextStyle(
+                        color: Color(0xFF536079),
+                        height: 1.45,
+                      ),
                     ),
                   ),
                 ],
@@ -508,7 +576,9 @@ String _initialFor(String value) {
 }
 
 String _presenceLabel(UserRecord user, bool isCurrentUser) {
-  final clientTypeLabel = user.clientTypes.isEmpty ? 'sesion' : user.clientTypes.join('/');
+  final clientTypeLabel = user.clientTypes.isEmpty
+      ? 'sesion'
+      : user.clientTypes.join('/');
   if (isCurrentUser) {
     return 'Tu sesion en linea';
   }
@@ -565,7 +635,10 @@ class _SummaryTile extends StatelessWidget {
           const SizedBox(height: 12),
           Text(title, style: const TextStyle(color: Color(0xFF6A7684))),
           const SizedBox(height: 6),
-          Text(value, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+          Text(
+            value,
+            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+          ),
         ],
       ),
     );
@@ -627,7 +700,10 @@ class _CurrentSessionCard extends StatelessWidget {
               children: [
                 _UserAvatar(label: _initialFor(user.fullName), radius: 24),
                 const SizedBox(height: 12),
-                Text(user.fullName, style: const TextStyle(fontWeight: FontWeight.w800)),
+                Text(
+                  user.fullName,
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
                 const SizedBox(height: 4),
                 Text(
                   '${user.username} • ${user.email}',
@@ -661,7 +737,10 @@ class _CurrentSessionCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(user.fullName, style: const TextStyle(fontWeight: FontWeight.w800)),
+                      Text(
+                        user.fullName,
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
                       const SizedBox(height: 4),
                       Text(
                         '${user.username} • ${user.email}',
@@ -754,7 +833,10 @@ class _PresenceBadge extends StatelessWidget {
           const SizedBox(width: 7),
           Text(
             label,
-            style: const TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF0D2640)),
+            style: const TextStyle(
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF0D2640),
+            ),
           ),
         ],
       ),
