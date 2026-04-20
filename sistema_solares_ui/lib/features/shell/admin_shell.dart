@@ -552,8 +552,8 @@ class _TopBar extends StatelessWidget {
 
     return Container(
       padding: EdgeInsets.symmetric(
-        horizontal: compact ? 12 : 18,
-        vertical: compact ? 10 : 11,
+        horizontal: compact ? 12 : 16,
+        vertical: compact ? 8 : 8,
       ),
       decoration: const BoxDecoration(
         color: Color(0xFFFAFBFC),
@@ -571,28 +571,15 @@ class _TopBar extends StatelessWidget {
               ),
             ),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  title,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: const Color(0xFF0D2640),
-                    fontWeight: FontWeight.w800,
-                    fontSize: 15,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  'Panel web administrativo',
-                  style: TextStyle(
-                    color: const Color(0xFF0D2640).withValues(alpha: 0.42),
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
+            child: Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                color: const Color(0xFF0D2640),
+                fontWeight: FontWeight.w800,
+                fontSize: 15,
+              ),
             ),
           ),
           const SizedBox(width: 12),

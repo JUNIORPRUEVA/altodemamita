@@ -12,60 +12,73 @@ class DesktopPageScaffold extends StatelessWidget {
     this.subtitle,
     this.toolbar,
     this.child,
+    this.showDesktopTitle = false,
+    this.showMobileTitle = true,
   });
 
   final String title;
   final String? subtitle;
   final Widget? toolbar;
   final Widget? child;
+  final bool showDesktopTitle;
+  final bool showMobileTitle;
 
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
     final compact = width < 760;
+    final showTitle = compact ? showMobileTitle : showDesktopTitle;
+    final hasSubtitle = subtitle != null && subtitle!.trim().isNotEmpty;
     final headerPadding = compact
-        ? const EdgeInsets.fromLTRB(2, 0, 2, 10)
-        : const EdgeInsets.fromLTRB(4, 4, 4, 16);
+        ? const EdgeInsets.fromLTRB(0, 0, 0, 8)
+        : const EdgeInsets.fromLTRB(2, 0, 2, 10);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Padding(
-          padding: headerPadding,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style:
-                    (compact
-                            ? Theme.of(context).textTheme.titleLarge
-                            : Theme.of(context).textTheme.headlineSmall)
-                        ?.copyWith(
-                          fontWeight: FontWeight.w700,
-                          color: _desktopInk,
-                        ),
-              ),
-              if (subtitle != null && subtitle!.trim().isNotEmpty) ...[
-                SizedBox(height: compact ? 6 : 8),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 780),
-                  child: Text(
-                    subtitle!,
-                    maxLines: compact ? 2 : null,
-                    overflow: compact ? TextOverflow.ellipsis : null,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: _desktopMuted,
-                      height: compact ? 1.3 : 1.45,
-                      fontSize: compact ? 12.5 : null,
+        if (showTitle || hasSubtitle || toolbar != null)
+          Padding(
+            padding: headerPadding,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (showTitle)
+                  Text(
+                    title,
+                    style:
+                        (compact
+                                ? Theme.of(context).textTheme.titleLarge
+                                : Theme.of(context).textTheme.titleLarge)
+                            ?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: _desktopInk,
+                              fontSize: compact ? 24 : 22,
+                            ),
+                  ),
+                if (showTitle && hasSubtitle)
+                  SizedBox(height: compact ? 4 : 2),
+                if (hasSubtitle)
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 780),
+                    child: Text(
+                      subtitle!,
+                      maxLines: compact ? 2 : 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: _desktopMuted,
+                        height: 1.25,
+                        fontSize: compact ? 12.5 : 12.5,
+                      ),
                     ),
                   ),
-                ),
+                if (toolbar != null) ...[
+                  if (showTitle || hasSubtitle) SizedBox(height: compact ? 8 : 8),
+                  toolbar!,
+                ],
               ],
-            ],
+            ),
           ),
-        ),
-        if (toolbar != null) ...[toolbar!, SizedBox(height: compact ? 12 : 16)],
+        if (toolbar != null) SizedBox(height: compact ? 10 : 12),
         Expanded(child: child ?? const SizedBox.shrink()),
       ],
     );
@@ -134,17 +147,17 @@ class DesktopToolbar extends StatelessWidget {
           return Padding(
             padding: EdgeInsets.symmetric(
               horizontal: veryCompact ? 0 : 2,
-              vertical: 2,
+              vertical: 0,
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 searchField,
                 if (rowActions.isNotEmpty) ...[
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 6),
                   Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
+                    spacing: 6,
+                    runSpacing: 6,
                     children: rowActions
                         .map(
                           (action) => veryCompact
@@ -160,13 +173,13 @@ class DesktopToolbar extends StatelessWidget {
         }
 
         return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           child: Row(
             children: [
               Expanded(child: searchField),
               if (rowActions.isNotEmpty) ...[
-                const SizedBox(width: 16),
-                Wrap(spacing: 8, runSpacing: 8, children: rowActions),
+                const SizedBox(width: 12),
+                Wrap(spacing: 6, runSpacing: 6, children: rowActions),
               ],
             ],
           ),
@@ -196,18 +209,18 @@ class DesktopSearchField extends StatelessWidget {
     final compact = MediaQuery.sizeOf(context).width < 760;
 
     return SizedBox(
-      height: 46,
+      height: compact ? 42 : 40,
       child: TextField(
         controller: controller,
         style: TextStyle(fontSize: compact ? 13.5 : 14, color: _desktopInk),
         onSubmitted: onSubmitted,
         decoration: InputDecoration(
           hintText: hintText,
-          prefixIcon: Icon(Icons.search, size: compact ? 18 : 18),
+          prefixIcon: Icon(Icons.search, size: compact ? 18 : 17),
           isDense: true,
           contentPadding: EdgeInsets.symmetric(
-            horizontal: compact ? 14 : 16,
-            vertical: compact ? 11 : 12,
+            horizontal: compact ? 12 : 14,
+            vertical: compact ? 10 : 10,
           ),
         ),
       ),
@@ -484,11 +497,11 @@ class DesktopFieldToolbar extends StatelessWidget {
       return Container(
         decoration: BoxDecoration(
           color: const Color(0xFFF8FAFD),
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(color: const Color(0xFFE8EDF4)),
         ),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           child: child,
         ),
       );
@@ -497,7 +510,7 @@ class DesktopFieldToolbar extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: const Color(0xFFFAFBFC),
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: _desktopOutline),
       ),
       child: child,
@@ -571,10 +584,10 @@ class DesktopInfoStrip extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: const Color(0xFFFCFDFE),
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: _desktopOutline),
       ),
-      child: Padding(padding: const EdgeInsets.all(18), child: child),
+      child: Padding(padding: const EdgeInsets.all(12), child: child),
     );
   }
 }
@@ -599,7 +612,7 @@ class DesktopStackedStat extends StatelessWidget {
     return Container(
       width: compact ? compactWidth : null,
       constraints: compact ? null : const BoxConstraints(minWidth: 150),
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: _desktopSurface,
         borderRadius: BorderRadius.circular(16),
@@ -609,7 +622,7 @@ class DesktopStackedStat extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(label, style: const TextStyle(color: _desktopMuted)),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           Text(
             value,
             style: const TextStyle(
@@ -640,8 +653,8 @@ class DesktopTag extends StatelessWidget {
     final compact = MediaQuery.sizeOf(context).width < 760;
     return Container(
       padding: EdgeInsets.symmetric(
-        horizontal: compact ? 10 : 10,
-        vertical: compact ? 6 : 6,
+        horizontal: compact ? 9 : 9,
+        vertical: compact ? 5 : 5,
       ),
       decoration: BoxDecoration(
         color: background,
