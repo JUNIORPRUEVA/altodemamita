@@ -33,11 +33,26 @@ class LocalBackupAgent {
     final outputPath = path.join(outputDir.path, filename);
     final tmpPath = '$outputPath.tmp';
 
+    final finalFile = File(outputPath);
+    if (await finalFile.exists()) {
+      try {
+        await _validator.validateSQLiteDbFile(finalFile);
+        // Prevent duplicates in the same minute: keep the existing valid file.
+        return finalFile;
+      } catch (_) {
+        try {
+          await finalFile.delete();
+        } catch (_) {
+          // Ignore; we'll attempt overwrite via tmp path.
+        }
+      }
+    }
+
     final sourcePath = await _appDatabase.databasePath;
     final sourceFile = File(sourcePath);
 
     if (!await sourceFile.exists()) {
-      throw StateError('Base de datos local no encontrada en: $sourcePath');
+      throw StateError('Base de datos local no encontrada.');
     }
 
     // Ensure WAL is checkpointed and the DB is closed for a consistent copy.
@@ -54,7 +69,6 @@ class LocalBackupAgent {
       final tmpFile = await sourceFile.copy(tmpPath);
       await _validator.validateSQLiteDbFile(tmpFile);
 
-      final finalFile = File(outputPath);
       if (await finalFile.exists()) {
         await finalFile.delete();
       }

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
@@ -10,8 +10,30 @@ export interface CloudBackupFileInfo {
 }
 
 @Injectable()
-export class SystemBackupService {
+export class SystemBackupService implements OnModuleInit, OnModuleDestroy {
   private readonly storageDir = path.join(process.cwd(), 'cloud_backups');
+  private cleanupTimer?: NodeJS.Timeout;
+
+  async onModuleInit(): Promise<void> {
+    await this.ensureStorageDir();
+    // Enforce retention periodically even if no requests are made.
+    await this.cleanupOldBackups({ keepDays: 4 });
+
+    // Low frequency to minimize resource usage.
+    this.cleanupTimer = setInterval(() => {
+      void this.cleanupOldBackups({ keepDays: 4 });
+    }, 6 * 60 * 60 * 1000);
+
+    // Do not keep the Node process alive just for this timer.
+    this.cleanupTimer.unref?.();
+  }
+
+  onModuleDestroy(): void {
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = undefined;
+    }
+  }
 
   async ensureStorageDir(): Promise<void> {
     await fs.mkdir(this.storageDir, { recursive: true });

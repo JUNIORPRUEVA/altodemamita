@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as path;
 
 import '../../../core/system/system_config_service.dart';
 import '../../../services/professional_backup/backup_service.dart' as professional;
@@ -103,7 +104,7 @@ class _ProfessionalBackupSectionState extends State<ProfessionalBackupSection> {
 
       final message = file == null
           ? 'Backup local deshabilitado.'
-          : 'Backup creado: ${file.path}';
+          : 'Backup creado: ${path.basename(file.path)}';
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message)),

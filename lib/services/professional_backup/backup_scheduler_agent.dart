@@ -33,6 +33,8 @@ class BackupSchedulerAgent {
     _timer = Timer(delay, () async {
       try {
         await _job();
+      } catch (_) {
+        // Best-effort: scheduled backups must never crash the app.
       } finally {
         // Schedule again with current time; caller will typically re-reschedule
         // on settings changes, but this keeps it running.

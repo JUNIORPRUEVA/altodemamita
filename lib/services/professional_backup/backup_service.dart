@@ -74,7 +74,7 @@ class BackupService {
     final settings = await getSettings();
     _scheduler.reschedule(settings);
     // If the app starts after the scheduled time, try to run once.
-    unawaited(runCloudBackupIfDue());
+    unawaited(runCloudBackupIfDue().catchError((_) {}));
   }
 
   void dispose() {
@@ -132,7 +132,10 @@ class BackupService {
 
     await _enqueue<void>(() async {
       final uploadDate = DateTime.now();
-      final result = await _cloudAgent.createAndUploadDailyBackup(date: uploadDate);
+      final result = await _createAndUploadCloudBackupWithRetries(
+        date: uploadDate,
+        maxRetries: 2,
+      );
       if (!result.success) {
         throw StateError(
           'La nube rechazó el backup (${result.statusCode}): ${result.message ?? ''}',
@@ -147,7 +150,30 @@ class BackupService {
   }
 
   Future<void> _runScheduledCloudBackup() {
-    return runCloudBackupIfDue(force: true);
+    // Scheduled jobs should still respect "once-per-day".
+    return runCloudBackupIfDue(force: false);
+  }
+
+  Future<CloudBackupUploadResult> _createAndUploadCloudBackupWithRetries({
+    required DateTime date,
+    required int maxRetries,
+  }) async {
+    var attempt = 0;
+    while (true) {
+      try {
+        return await _cloudAgent.createAndUploadDailyBackup(date: date);
+      } on SocketException {
+        if (attempt >= maxRetries) rethrow;
+      } on TimeoutException {
+        if (attempt >= maxRetries) rethrow;
+      } on HttpException {
+        if (attempt >= maxRetries) rethrow;
+      }
+
+      attempt++;
+      final backoff = Duration(milliseconds: 750 * attempt);
+      await Future<void>.delayed(backoff);
+    }
   }
 
   Future<T> _enqueue<T>(Future<T> Function() task) {

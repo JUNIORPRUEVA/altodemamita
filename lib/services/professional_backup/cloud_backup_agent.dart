@@ -61,7 +61,7 @@ class CloudBackupAgent {
     final sourcePath = await _appDatabase.databasePath;
     final sourceFile = File(sourcePath);
     if (!await sourceFile.exists()) {
-      throw StateError('Base de datos local no encontrada en: $sourcePath');
+      throw StateError('Base de datos local no encontrada.');
     }
 
     // Create a consistent snapshot by checkpointing and closing the DB briefly.
