@@ -10,6 +10,8 @@ import 'package:sistema_solares/features/auth/data/auth_service.dart';
 import 'package:sistema_solares/features/auth/domain/permission_model.dart';
 import 'package:sistema_solares/features/auth/domain/user_model.dart';
 
+import 'helpers/fake_backend.dart';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -18,6 +20,8 @@ void main() {
   late Directory tempDirectory;
   late AppDatabase appDatabase;
   late AuthService authService;
+  late FakeSyncConfigRepository configRepository;
+  late FakeBackendState backendState;
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
@@ -26,7 +30,17 @@ void main() {
     );
     appDatabase = AppDatabase.test(path.join(tempDirectory.path, 'auth.db'));
     await appDatabase.initialize();
-    authService = AuthService(appDatabase: appDatabase);
+
+    backendState = FakeBackendState();
+    configRepository = FakeSyncConfigRepository(
+      settings: buildFakeSettings(),
+    );
+
+    authService = AuthService(
+      appDatabase: appDatabase,
+      syncConfigRepository: configRepository,
+      httpClient: FakeBackendHttpClient(state: backendState),
+    );
   });
 
   tearDown(() async {

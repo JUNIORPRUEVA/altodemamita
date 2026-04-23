@@ -57,9 +57,11 @@ class BackupService {
         throw StateError('Base de datos local no encontrada en: $sourcePath');
       }
 
-      final dbFileSize = await sourceFile.length();
+      final dbFileSizeBeforeClose = await sourceFile.length();
       print('[BACKUP] Iniciando backup de tipo: $backupType');
-      print('[BACKUP] Tamaño de base de datos: ${_formatBytes(dbFileSize)}');
+      print(
+        '[BACKUP] Tamaño de base de datos: ${_formatBytes(dbFileSizeBeforeClose)}',
+      );
 
       // Verify backup directory exists
       final backupDir = Directory(config.backupPath);
@@ -79,7 +81,7 @@ class BackupService {
       }
 
       // Verify sufficient free space (need 1.5x the database size for safety)
-      final minRequiredSpace = (dbFileSize * 1.5).toInt();
+      final minRequiredSpace = (dbFileSizeBeforeClose * 1.5).toInt();
       final freeSpace = await _getAvailableSpace(config.backupPath);
 
       if (freeSpace < minRequiredSpace) {
@@ -104,6 +106,9 @@ class BackupService {
       // Close database before backup to ensure consistency
       print('[BACKUP] Cerrando base de datos para backup...');
       await _appDatabase.close();
+
+      // The database file size can change after WAL checkpoint/close.
+      final dbFileSize = await sourceFile.length();
 
       try {
         // Copy database file

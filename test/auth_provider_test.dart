@@ -9,6 +9,8 @@ import 'package:sistema_solares/features/auth/domain/permission_model.dart';
 import 'package:sistema_solares/features/auth/domain/user_model.dart';
 import 'package:sistema_solares/features/auth/presentation/auth_provider.dart';
 
+import 'helpers/fake_backend.dart';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -18,6 +20,8 @@ void main() {
   late AppDatabase appDatabase;
   late AuthService authService;
   late AuthProvider authProvider;
+  late FakeBackendState backendState;
+  late FakeSyncConfigRepository configRepository;
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
@@ -26,7 +30,17 @@ void main() {
     );
     appDatabase = AppDatabase.test(path.join(tempDirectory.path, 'auth.db'));
     await appDatabase.initialize();
-    authService = AuthService(appDatabase: appDatabase);
+
+    backendState = FakeBackendState();
+    configRepository = FakeSyncConfigRepository(
+      settings: buildFakeSettings(),
+    );
+
+    authService = AuthService(
+      appDatabase: appDatabase,
+      syncConfigRepository: configRepository,
+      httpClient: FakeBackendHttpClient(state: backendState),
+    );
     authProvider = AuthProvider(authService: authService);
   });
 
@@ -54,6 +68,8 @@ void main() {
         PermissionModel(module: PermissionCatalog.payments, read: true),
       ],
     );
+
+    await configRepository.saveBaseUrl('http://invalid.invalid/api');
 
     final signedIn = await authProvider.signIn(
       email: 'caja@local.test',
@@ -98,6 +114,8 @@ void main() {
       password: 'AdminLocalSegura123',
       recoveryCode: recoveryCode,
     );
+
+    await configRepository.saveBaseUrl('http://invalid.invalid/api');
 
     final signedIn = await authProvider.signIn(
       email: 'programador',

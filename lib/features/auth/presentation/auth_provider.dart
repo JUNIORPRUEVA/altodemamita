@@ -96,11 +96,20 @@ class AuthProvider extends ChangeNotifier {
       _currentUser = result.user;
       _requiresInitialSetup = false;
       _isCloudInitialized = true;
-        _isOnline = result.mode == AuthSignInMode.online;
-        _backendStatus = _isOnline
-          ? BackendConnectionStatus.connected
-          : BackendConnectionStatus.unreachable;
+      _isOnline = result.mode == AuthSignInMode.online;
+      if (_isOnline) {
+        _backendStatus = BackendConnectionStatus.connected;
         _backendStatusMessage = null;
+      } else {
+        final baseUrl = await _authService.loadBackendBaseUrl();
+        if (baseUrl.trim().isEmpty) {
+          _backendStatus = BackendConnectionStatus.unconfigured;
+          _backendStatusMessage = 'Configura la URL del backend.';
+        } else {
+          _backendStatus = BackendConnectionStatus.unreachable;
+          _backendStatusMessage = null;
+        }
+      }
       return true;
     } on AuthException catch (error) {
       _currentUser = null;
@@ -145,10 +154,19 @@ class AuthProvider extends ChangeNotifier {
       _currentUser = result.user;
       _isOnline = result.mode == AuthSignInMode.online;
       _isCloudInitialized = true;
-        _backendStatus = _isOnline
-          ? BackendConnectionStatus.connected
-          : BackendConnectionStatus.unreachable;
+      if (_isOnline) {
+        _backendStatus = BackendConnectionStatus.connected;
         _backendStatusMessage = null;
+      } else {
+        final baseUrl = await _authService.loadBackendBaseUrl();
+        if (baseUrl.trim().isEmpty) {
+          _backendStatus = BackendConnectionStatus.unconfigured;
+          _backendStatusMessage = 'Configura la URL del backend.';
+        } else {
+          _backendStatus = BackendConnectionStatus.unreachable;
+          _backendStatusMessage = null;
+        }
+      }
       return true;
     } on AuthException catch (error) {
       _currentUser = null;

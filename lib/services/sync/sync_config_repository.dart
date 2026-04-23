@@ -1,7 +1,11 @@
 import 'dart:math';
 
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import '../../core/database/app_database.dart';
+import '../../core/database/database_schema.dart';
 import '../../core/security/sensitive_storage.dart';
 import '../../core/system/system_config_service.dart';
 import '../../features/settings/data/settings_repository.dart';
@@ -21,8 +25,7 @@ class SyncConfigRepository {
            preferencesFactory ?? SharedPreferences.getInstance;
 
   static const syncBaseUrlKey = 'sync.base_url';
-  static const defaultSyncBaseUrl =
-      'https://altodemanita-altodemamita-backend.onqyr1.easypanel.host/api';
+  static const defaultSyncBaseUrl = '';
   static const syncQueueRetrySecondsKey = 'sync.queue_retry_seconds';
   static const syncRealtimePollingSecondsKey = 'sync.realtime_polling_seconds';
   static const syncConflictStrategyKey = 'sync.conflict_strategy';
@@ -36,7 +39,7 @@ class SyncConfigRepository {
   static String normalizeBackendBaseUrl(String baseUrl) {
     final trimmed = baseUrl.trim();
     if (trimmed.isEmpty) {
-      return defaultSyncBaseUrl;
+      return '';
     }
 
     final uri = Uri.tryParse(trimmed);
@@ -61,6 +64,14 @@ class SyncConfigRepository {
   final SensitiveStorage _sensitiveStorage;
   final Future<SharedPreferences> Function() _preferencesFactory;
 
+  Future<SharedPreferences?> _tryPreferences() async {
+    try {
+      return await _preferencesFactory();
+    } on MissingPluginException {
+      return null;
+    }
+  }
+
   Future<SyncSettings> loadSettings() async {
     final values = await _settingsRepository.fetchByKeys([
       syncBaseUrlKey,
@@ -68,7 +79,7 @@ class SyncConfigRepository {
       syncRealtimePollingSecondsKey,
       syncConflictStrategyKey,
     ]);
-    final storedBaseUrl = values[syncBaseUrlKey]?.value ?? defaultSyncBaseUrl;
+    final storedBaseUrl = values[syncBaseUrlKey]?.value ?? '';
     final baseUrl = normalizeBackendBaseUrl(storedBaseUrl);
     final token = await _sensitiveStorage.read(_jwtTokenPreferenceKey) ?? '';
     final retrySeconds =
@@ -88,10 +99,25 @@ class SyncConfigRepository {
     );
   }
 
-  Future<void> saveBaseUrl(String baseUrl) {
-    return _settingsRepository.upsert(
-      syncBaseUrlKey,
-      normalizeBackendBaseUrl(baseUrl),
+  Future<void> saveBaseUrl(String baseUrl) async {
+    final normalized = normalizeBackendBaseUrl(baseUrl);
+    try {
+      await _settingsRepository.upsert(syncBaseUrlKey, normalized);
+      return;
+    } on ReadOnlyModeException {
+      // Allow updating the backend URL even in read-only mode so
+      // installations can recover connectivity.
+    }
+
+    final db = await AppDatabase.instance.database;
+    await db.insert(
+      DatabaseSchema.settingsTable,
+      {
+        'clave': syncBaseUrlKey,
+        'valor': normalized,
+        'fecha_actualizacion': DateTime.now().toIso8601String(),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
 
@@ -125,7 +151,10 @@ class SyncConfigRepository {
   }
 
   Future<DateTime?> loadCursor(String scope) async {
-    final prefs = await _preferencesFactory();
+    final prefs = await _tryPreferences();
+    if (prefs == null) {
+      return null;
+    }
     final value = prefs.getString('$_cursorPreferencePrefix$scope');
     if (value == null || value.trim().isEmpty) {
       return null;
@@ -134,7 +163,10 @@ class SyncConfigRepository {
   }
 
   Future<void> saveCursor(String scope, DateTime timestamp) async {
-    final prefs = await _preferencesFactory();
+    final prefs = await _tryPreferences();
+    if (prefs == null) {
+      return;
+    }
     await prefs.setString(
       '$_cursorPreferencePrefix$scope',
       timestamp.toIso8601String(),
@@ -142,7 +174,10 @@ class SyncConfigRepository {
   }
 
   Future<void> clearCursor(String scope) async {
-    final prefs = await _preferencesFactory();
+    final prefs = await _tryPreferences();
+    if (prefs == null) {
+      return;
+    }
     await prefs.remove('$_cursorPreferencePrefix$scope');
   }
 
@@ -156,7 +191,10 @@ class SyncConfigRepository {
       return;
     }
 
-    final prefs = await _preferencesFactory();
+    final prefs = await _tryPreferences();
+    if (prefs == null) {
+      return;
+    }
     for (final scope in normalizedScopes) {
       await prefs.remove('$_cursorPreferencePrefix$scope');
     }
@@ -174,18 +212,19 @@ class SyncConfigRepository {
   }
 
   Future<String> getOrCreateDeviceId() async {
-    final prefs = await _preferencesFactory();
-    final current = prefs.getString(_deviceIdPreferenceKey);
-    if (current != null && current.trim().isNotEmpty) {
-      return current;
-    }
-
     final random = Random.secure();
     final generated = List<int>.generate(
       16,
       (_) => random.nextInt(256),
     ).map((value) => value.toRadixString(16).padLeft(2, '0')).join();
-    await prefs.setString(_deviceIdPreferenceKey, generated);
+
+    final prefs = await _tryPreferences();
+    final current = prefs?.getString(_deviceIdPreferenceKey);
+    if (current != null && current.trim().isNotEmpty) {
+      return current;
+    }
+
+    await prefs?.setString(_deviceIdPreferenceKey, generated);
     return generated;
   }
 }

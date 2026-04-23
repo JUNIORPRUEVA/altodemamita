@@ -10,6 +10,10 @@ include(${EPHEMERAL_DIR}/generated_config.cmake)
 # https://github.com/flutter/flutter/issues/57146.
 set(WRAPPER_ROOT "${EPHEMERAL_DIR}/cpp_client_wrapper")
 
+if (NOT EXISTS "${WRAPPER_ROOT}/core_implementations.cc")
+  message(WARNING "cpp_client_wrapper sources not found at: ${WRAPPER_ROOT}")
+endif()
+
 # Set fallback configurations for older versions of the flutter tool.
 if (NOT DEFINED FLUTTER_TARGET_PLATFORM)
   set(FLUTTER_TARGET_PLATFORM "windows-x64")

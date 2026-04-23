@@ -36,6 +36,8 @@ import '../../services/sync/sync_conflict_service.dart';
 import '../../services/sync/sync_manager.dart';
 import '../../services/sync/sync_queue_service.dart';
 import '../../services/sync/sync_service.dart';
+import '../../services/professional_backup/backup_service.dart'
+  as professional_backup;
 import '../../shared/widgets/base_layout.dart';
 import 'app_module.dart';
 
@@ -104,6 +106,7 @@ class _AppShellState extends State<AppShell> {
       _paymentsSyncRepository,
     ],
     syncQueueService: _syncQueueService,
+    onSyncFinished: professional_backup.BackupService.instance.onSyncFinished,
   );
   late final RealtimeSyncService _realtimeSyncService = RealtimeSyncService(
     syncService: _syncService,

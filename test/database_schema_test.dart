@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'dart:io';
 
 import 'package:path/path.dart' as path;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sistema_solares/core/database/app_database.dart';
 import 'package:sistema_solares/core/database/database_schema.dart';
 import 'package:sistema_solares/features/clients/data/client_repository.dart';
@@ -36,6 +37,7 @@ void main() {
   late PrinterRepository printerRepository;
 
   setUp(() async {
+    SharedPreferences.setMockInitialValues({});
     tempDirectory = await Directory.systemTemp.createTemp(
       'sistema_solares_test_',
     );
@@ -143,6 +145,7 @@ void main() {
       'tipo_pago': 'cuota',
       'referencia': 'REC-001',
       'fecha_creacion': DateTime.now().toIso8601String(),
+      'fecha_actualizacion': DateTime.now().toIso8601String(),
     });
 
     expect(saleId, greaterThan(0));
@@ -373,23 +376,22 @@ void main() {
       expect(saleLot, isNotNull);
       expect(saleLot!.status, 'disponible');
 
-      expect(
-        () => salesRepository.createSale(
-          SaleDraft(
-            clientId: client.id!,
-            lotId: lot.id!,
-            userId: 1,
-            saleDate: now,
-            salePrice: 1000000,
-            downPaymentPercentage: 10,
-            requiredInitialPayment: 100000,
-            initialPaymentPaid: 100000,
-            monthlyInterest: 1,
-            installmentCount: 12,
-          ),
+      final financedSaleId = await salesRepository.createSale(
+        SaleDraft(
+          clientId: client.id!,
+          lotId: lot.id!,
+          userId: 1,
+          saleDate: now,
+          salePrice: 1000000,
+          downPaymentPercentage: 10,
+          requiredInitialPayment: 100000,
+          initialPaymentPaid: 100000,
+          monthlyInterest: 1,
+          installmentCount: 12,
         ),
-        throwsA(isA<StateError>()),
       );
+
+      expect(financedSaleId, greaterThan(0));
 
       await lotRepository.save(
         Lot(

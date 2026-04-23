@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../data/auth_service.dart';
+import '../../settings/presentation/sync_settings_page.dart';
 import 'auth_provider.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -69,6 +70,16 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  Future<void> _openBackendSettings() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const SyncSettingsPage(),
+      ),
+    );
+    if (!mounted) return;
+    await context.read<AuthProvider>().initialize();
+  }
+
   Future<void> _openRecoveryDialog() async {
     final credentials = await showDialog<AdminRecoveryCredentials>(
       context: context,
@@ -90,6 +101,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
     final errorMessage = auth.errorMessage;
+    final backendMessage = auth.backendStatusMessage?.trim();
 
     return Scaffold(
       body: Container(
@@ -173,6 +185,22 @@ class _LoginScreenState extends State<LoginScreen> {
                                       fontWeight: FontWeight.w500,
                                     ),
                                   ),
+                                  if (backendMessage != null &&
+                                      backendMessage.isNotEmpty) ...[
+                                    const SizedBox(height: 10),
+                                    Text(
+                                      backendMessage,
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: Colors.white.withValues(
+                                          alpha: 0.70,
+                                        ),
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w400,
+                                        height: 1.25,
+                                      ),
+                                    ),
+                                  ],
                                 ],
                               ),
                               const SizedBox(height: 24),
@@ -296,27 +324,50 @@ class _LoginScreenState extends State<LoginScreen> {
                                       ),
                               ),
                               const SizedBox(height: 12),
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: TextButton(
-                                  onPressed: auth.isSigningIn
-                                      ? null
-                                      : _openRecoveryDialog,
-                                  style: TextButton.styleFrom(
-                                    padding: EdgeInsets.zero,
-                                    minimumSize: Size.zero,
-                                    tapTargetSize:
-                                        MaterialTapTargetSize.shrinkWrap,
-                                    foregroundColor: Colors.white.withValues(
-                                      alpha: 0.48,
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  TextButton(
+                                    onPressed: auth.isSigningIn
+                                        ? null
+                                        : _openBackendSettings,
+                                    style: TextButton.styleFrom(
+                                      padding: EdgeInsets.zero,
+                                      minimumSize: Size.zero,
+                                      tapTargetSize:
+                                          MaterialTapTargetSize.shrinkWrap,
+                                      foregroundColor: Colors.white.withValues(
+                                        alpha: 0.48,
+                                      ),
+                                      textStyle: const TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w400,
+                                      ),
                                     ),
-                                    textStyle: const TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w400,
-                                    ),
+                                    child: const Text('Configurar nube'),
                                   ),
-                                  child: const Text('Recuperar la contrasena'),
-                                ),
+                                  TextButton(
+                                    onPressed: auth.isSigningIn
+                                        ? null
+                                        : _openRecoveryDialog,
+                                    style: TextButton.styleFrom(
+                                      padding: EdgeInsets.zero,
+                                      minimumSize: Size.zero,
+                                      tapTargetSize:
+                                          MaterialTapTargetSize.shrinkWrap,
+                                      foregroundColor: Colors.white.withValues(
+                                        alpha: 0.48,
+                                      ),
+                                      textStyle: const TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w400,
+                                      ),
+                                    ),
+                                    child:
+                                        const Text('Recuperar la contrasena'),
+                                  ),
+                                ],
                               ),
                             ],
                           ),

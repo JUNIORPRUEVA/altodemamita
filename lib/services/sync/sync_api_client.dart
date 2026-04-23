@@ -110,6 +110,14 @@ class SyncApiClient {
 
   final HttpClient _httpClient;
 
+  static String _previewResponseBody(String body) {
+    final trimmed = body.trim();
+    if (trimmed.isEmpty) return '<empty>';
+    final normalizedWhitespace = trimmed.replaceAll(RegExp(r'\s+'), ' ');
+    if (normalizedWhitespace.length <= 320) return normalizedWhitespace;
+    return '${normalizedWhitespace.substring(0, 320)}...';
+  }
+
   Future<SyncUploadResponse> uploadQueuedRecords({
     required SyncSettings settings,
     required Map<String, List<Map<String, Object?>>> recordsByScope,
@@ -173,7 +181,33 @@ class SyncApiClient {
 
     final response = await request.close();
     final responseBody = await utf8.decoder.bind(response).join();
-    final decodedBody = _unwrapResponseEnvelope(_decodeJsonObject(responseBody));
+
+    final trimmed = responseBody.trimLeft();
+    final looksLikeJson = trimmed.startsWith('{') || trimmed.startsWith('[');
+    if (!looksLikeJson) {
+      final contentType = response.headers.contentType?.mimeType ?? 'unknown';
+      throw HttpException(
+        'La API de sincronizacion devolvio una respuesta no JSON '
+        '(status: ${response.statusCode}, content-type: $contentType). '
+        'URL: $uri. '
+        'Body: ${_previewResponseBody(responseBody)}',
+        uri: uri,
+      );
+    }
+
+    Map<String, dynamic> decodedBody;
+    try {
+      decodedBody = _unwrapResponseEnvelope(_decodeJsonObject(responseBody));
+    } on FormatException {
+      final contentType = response.headers.contentType?.mimeType ?? 'unknown';
+      throw HttpException(
+        'La API de sincronizacion devolvio JSON invalido '
+        '(status: ${response.statusCode}, content-type: $contentType). '
+        'URL: $uri. '
+        'Body: ${_previewResponseBody(responseBody)}',
+        uri: uri,
+      );
+    }
     if (response.statusCode == 409) {
       throw SyncConflictException(
         message:

@@ -19,6 +19,8 @@ import '../../../repositories/installments_sync_repository.dart';
 import '../../../repositories/payments_sync_repository.dart';
 import '../../../repositories/products_sync_repository.dart';
 import '../../../repositories/sales_sync_repository.dart';
+import '../../../services/professional_backup/backup_service.dart'
+  as professional_backup;
 import '../../../services/sync/sync_config_repository.dart';
 import '../../../services/sync/sync_queue_service.dart';
 import '../../../services/sync/sync_service.dart';
@@ -192,7 +194,6 @@ class AuthService {
     required String email,
     required String password,
   }) async {
-    final settings = await _syncConfigRepository.loadSettings();
     final remoteStatus = await _fetchRemoteSystemStatus();
     if (remoteStatus.isReachable) {
       if (remoteStatus.statusAvailable && !remoteStatus.initialized) {
@@ -210,16 +211,19 @@ class AuthService {
       );
     }
 
-    if (settings.baseUrl.trim().isEmpty) {
-      throw const AuthException(
-        'Configura la URL del backend para iniciar sesion contra el sistema central.',
+    try {
+      return AuthSignInResult(
+        user: await loginOffline(email: email, password: password),
+        mode: AuthSignInMode.offline,
       );
+    } on AuthException {
+      if (remoteStatus.connectionStatus == BackendConnectionStatus.unconfigured) {
+        throw const AuthException(
+          'Configura la URL del backend para iniciar sesion en linea o utiliza un usuario ya habilitado para modo offline.',
+        );
+      }
+      rethrow;
     }
-
-    return AuthSignInResult(
-      user: await loginOffline(email: email, password: password),
-      mode: AuthSignInMode.offline,
-    );
   }
 
   Future<String> loadBackendBaseUrl() async {
@@ -373,6 +377,15 @@ class AuthService {
     final db = await _appDatabase.database;
     final now = DateTime.now().toIso8601String();
     await db.transaction((txn) async {
+      await txn.update(
+        DatabaseSchema.usersTable,
+        {
+          'nombre': normalizedName,
+          'email': normalizedEmail,
+          'fecha_actualizacion': now,
+        },
+        where: 'id = 1',
+      );
       await _upsertSetting(
         txn,
         _adminRecoveryCodeKey,
@@ -385,7 +398,7 @@ class AuthService {
         recoveryCode: normalizedRecoveryCode,
         nombre: normalizedName,
         email: normalizedEmail,
-        password: '',
+        password: normalizedPassword,
         updatedAt: now,
       );
     });
@@ -738,11 +751,11 @@ class AuthService {
         continue;
       }
 
-      if (!PasswordHasher.verifyPassword(normalizedPassword, passwordHash)) {
+      if (!_verifyStoredPassword(normalizedPassword, passwordHash)) {
         continue;
       }
 
-      if (PasswordHasher.needsRehash(passwordHash)) {
+      if (_shouldRefreshLocalPasswordHash(passwordHash)) {
         final now = DateTime.now().toIso8601String();
         await db.update(
           DatabaseSchema.usersTable,
@@ -1000,10 +1013,7 @@ class AuthService {
     if (user == null || !user.activo) {
       throw const AuthException('No se pudo validar la cuenta actual.');
     }
-    if (!PasswordHasher.verifyPassword(
-      normalizedCurrentPassword,
-      user.passwordHash,
-    )) {
+    if (!_verifyStoredPassword(normalizedCurrentPassword, user.passwordHash)) {
       throw const AuthException('La contraseña actual no es correcta.');
     }
 
@@ -1683,6 +1693,7 @@ class AuthService {
         PaymentsSyncRepository(),
       ],
       syncQueueService: syncQueueService,
+      onSyncFinished: professional_backup.BackupService.instance.onSyncFinished,
     );
     final report = await syncService.syncNow(forceFullDownload: true);
     return !report.wasSkipped;

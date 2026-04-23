@@ -1,6 +1,8 @@
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_schema.dart';
+import '../../../core/config/app_flags.dart';
 import '../../../core/system/system_config_service.dart';
+import '../../../core/utils/client_data_guard.dart';
 import '../../../models/sync/sync_status.dart';
 import '../../../repositories/sync_repository.dart';
 import '../../../services/sync/sync_queue_service.dart';
@@ -17,6 +19,9 @@ class ClientRepository implements SyncRepository {
 
   final AppDatabase _appDatabase;
   final SyncQueueService _syncQueueService;
+
+  bool get _enforceProductionGuards =>
+      isProductionMode && identical(_appDatabase, AppDatabase.instance);
 
   @override
   String get scope => 'clients';
@@ -59,12 +64,21 @@ class ClientRepository implements SyncRepository {
     }
 
     final db = await _appDatabase.database;
-    final rows = await db.query(
+    var rows = await db.query(
       DatabaseSchema.clientsTable,
       where: 'cedula = ? AND deleted_at IS NULL',
       whereArgs: [normalizedDocumentId],
       limit: 1,
     );
+
+    if (rows.isEmpty) {
+      rows = await db.query(
+        DatabaseSchema.clientsTable,
+        where: 'TRIM(cedula) = ? AND deleted_at IS NULL',
+        whereArgs: [normalizedDocumentId],
+        limit: 1,
+      );
+    }
 
     if (rows.isEmpty) {
       return null;
@@ -76,11 +90,27 @@ class ClientRepository implements SyncRepository {
   Future<void> save(Client client) async {
     SystemConfigService.instance.ensureWritable();
 
+    final normalizedClientInput = client.copyWith(
+      fullName: client.fullName.trim(),
+      documentId: client.documentId.trim(),
+      phone: _nullIfBlank(client.phone),
+      address: _nullIfBlank(client.address),
+    );
+
+    if (_enforceProductionGuards) {
+      if (ClientDataGuard.isTestLikeName(normalizedClientInput.fullName)) {
+        throw StateError('No se admiten clientes de prueba en producción.');
+      }
+      if (!ClientDataGuard.hasValidDocumentId(normalizedClientInput.documentId)) {
+        throw StateError('La cédula del cliente no es válida.');
+      }
+    }
+
     final db = await _appDatabase.database;
     final now = DateTime.now();
-    final normalizedClient = client.copyWith(
-      syncId: _normalizeSyncId(client.syncId),
-      createdAt: client.id == null ? now : client.createdAt,
+    final normalizedClient = normalizedClientInput.copyWith(
+      syncId: _normalizeSyncId(normalizedClientInput.syncId),
+      createdAt: normalizedClientInput.id == null ? now : normalizedClientInput.createdAt,
       updatedAt: now,
       clearDeletedAt: true,
       syncStatus: SyncStatus.pending,
@@ -197,10 +227,59 @@ class ClientRepository implements SyncRepository {
     final db = await _appDatabase.database;
     await db.transaction((txn) async {
       for (final record in records) {
+        if (_enforceProductionGuards &&
+            ClientDataGuard.shouldBlockClientDownload(record)) {
+          final now = DateTime.now();
+          final remoteSyncId = _normalizeSyncId(record['sync_id']?.toString());
+          var existingRows = await txn.query(
+            DatabaseSchema.clientsTable,
+            where: 'sync_id = ?',
+            whereArgs: [remoteSyncId],
+          );
+
+          final rawDocumentId = record['document_id']?.toString() ?? '';
+          if (existingRows.isEmpty && rawDocumentId.trim().isNotEmpty) {
+            existingRows = await txn.query(
+              DatabaseSchema.clientsTable,
+              where: 'cedula = ?',
+              whereArgs: [rawDocumentId.trim()],
+            );
+
+            if (existingRows.isEmpty) {
+              existingRows = await txn.query(
+                DatabaseSchema.clientsTable,
+                where: 'TRIM(cedula) = ?',
+                whereArgs: [rawDocumentId.trim()],
+              );
+            }
+          }
+
+          if (existingRows.isNotEmpty) {
+            final localId = existingRows.first['id'] as int?;
+            await txn.update(
+              DatabaseSchema.clientsTable,
+              {
+                'deleted_at': now.toIso8601String(),
+                'fecha_actualizacion': now.toIso8601String(),
+                'sync_status': SyncStatus.synced.storageValue,
+              },
+              where: localId != null ? 'id = ?' : 'sync_id = ?',
+              whereArgs: localId != null ? [localId] : [remoteSyncId],
+            );
+          }
+
+          continue;
+        }
+
         final remoteSyncId = _normalizeSyncId(record['sync_id']?.toString());
-        final remoteClient = Client.fromSyncMap(record).copyWith(
+        final parsedRemoteClient = Client.fromSyncMap(record);
+        final remoteClient = parsedRemoteClient.copyWith(
           syncId: remoteSyncId,
           syncStatus: SyncStatus.synced,
+          fullName: parsedRemoteClient.fullName.trim(),
+          documentId: parsedRemoteClient.documentId.trim(),
+          phone: _nullIfBlank(parsedRemoteClient.phone),
+          address: _nullIfBlank(parsedRemoteClient.address),
         );
         var existingRows = await txn.query(
           DatabaseSchema.clientsTable,
@@ -216,6 +295,15 @@ class ClientRepository implements SyncRepository {
             whereArgs: [remoteClient.documentId.trim()],
             limit: 1,
           );
+
+          if (existingRows.isEmpty) {
+            existingRows = await txn.query(
+              DatabaseSchema.clientsTable,
+              where: 'TRIM(cedula) = ?',
+              whereArgs: [remoteClient.documentId.trim()],
+              limit: 1,
+            );
+          }
         }
 
         if (existingRows.isEmpty) {
@@ -263,5 +351,13 @@ class ClientRepository implements SyncRepository {
       return normalized;
     }
     return 'client-${DateTime.now().microsecondsSinceEpoch}';
+  }
+
+  String? _nullIfBlank(String? value) {
+    if (value == null) {
+      return null;
+    }
+    final trimmed = value.trim();
+    return trimmed.isEmpty ? null : trimmed;
   }
 }

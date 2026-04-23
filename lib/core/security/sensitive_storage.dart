@@ -13,6 +13,14 @@ class SensitiveStorage {
   final FlutterSecureStorage _secureStorage;
   final Future<SharedPreferences> Function() _preferencesFactory;
 
+  Future<SharedPreferences?> _tryPreferences() async {
+    try {
+      return await _preferencesFactory();
+    } on MissingPluginException {
+      return null;
+    }
+  }
+
   Future<String?> read(String key) async {
     try {
       final value = await _secureStorage.read(key: key);
@@ -25,8 +33,8 @@ class SensitiveStorage {
       // Falls back to SharedPreferences when secure storage is unavailable.
     }
 
-    final prefs = await _preferencesFactory();
-    return prefs.getString(_fallbackKey(key));
+    final prefs = await _tryPreferences();
+    return prefs?.getString(_fallbackKey(key));
   }
 
   Future<void> write(String key, String value) async {
@@ -38,8 +46,8 @@ class SensitiveStorage {
 
     try {
       await _secureStorage.write(key: key, value: normalized);
-      final prefs = await _preferencesFactory();
-      await prefs.remove(_fallbackKey(key));
+      final prefs = await _tryPreferences();
+      await prefs?.remove(_fallbackKey(key));
       return;
     } on MissingPluginException {
       // Falls back to SharedPreferences in unit tests or unsupported targets.
@@ -47,8 +55,8 @@ class SensitiveStorage {
       // Falls back to SharedPreferences when secure storage is unavailable.
     }
 
-    final prefs = await _preferencesFactory();
-    await prefs.setString(_fallbackKey(key), normalized);
+    final prefs = await _tryPreferences();
+    await prefs?.setString(_fallbackKey(key), normalized);
   }
 
   Future<void> delete(String key) async {
@@ -60,8 +68,8 @@ class SensitiveStorage {
       // Falls back to SharedPreferences when secure storage is unavailable.
     }
 
-    final prefs = await _preferencesFactory();
-    await prefs.remove(_fallbackKey(key));
+    final prefs = await _tryPreferences();
+    await prefs?.remove(_fallbackKey(key));
   }
 
   String _fallbackKey(String key) => 'secure.$key';

@@ -4,7 +4,9 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as path;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import '../config/app_flags.dart';
 import '../resilience/app_paths.dart';
+import '../utils/client_data_guard.dart';
 import 'database_schema.dart';
 
 class AppDatabase {
@@ -126,6 +128,9 @@ class AppDatabase {
         },
         onOpen: (db) async {
           await DatabaseSchema.seedDefaults(db);
+          if (isProductionMode && _customDatabasePath == null) {
+            await _cleanProductionClients(db);
+          }
         },
       ),
     );
@@ -137,6 +142,10 @@ class AppDatabase {
   }
 
   Future<void> _migrateLegacyDatabaseIfNeeded(String targetPath) async {
+    if (!allowLegacyMigration) {
+      return;
+    }
+
     final targetFile = File(targetPath);
     if (await targetFile.exists() && await targetFile.length() > 0) {
       return;
@@ -175,6 +184,209 @@ class AppDatabase {
         await targetSidecar.delete();
       }
       await _moveFile(legacySidecar, targetSidecar);
+    }
+  }
+
+  Future<void> _cleanProductionClients(Database db) async {
+    try {
+      final rows = await db.query(
+        DatabaseSchema.clientsTable,
+        columns: [
+          'id',
+          'sync_id',
+          'nombre',
+          'cedula',
+          'sync_status',
+          'fecha_actualizacion',
+          'deleted_at',
+        ],
+      );
+      if (rows.isEmpty) {
+        return;
+      }
+
+      final now = DateTime.now();
+      final nowIso = now.toIso8601String();
+
+      await db.transaction((txn) async {
+        final activeRows = <Map<String, Object?>>[];
+
+        for (final row in rows) {
+          final deletedAt = row['deleted_at']?.toString().trim();
+          if (deletedAt != null && deletedAt.isNotEmpty) {
+            continue;
+          }
+          activeRows.add(row);
+        }
+
+        if (activeRows.isEmpty) {
+          return;
+        }
+
+        final candidatesByDocument = <String, List<Map<String, Object?>>>{};
+        final invalidIds = <int>{};
+
+        for (final row in activeRows) {
+          final id = row['id'] as int?;
+          if (id == null) {
+            continue;
+          }
+
+          final fullName = (row['nombre']?.toString() ?? '').trim();
+          final documentRaw = (row['cedula']?.toString() ?? '');
+          final documentId = documentRaw.trim();
+          final syncId = (row['sync_id']?.toString() ?? '').trim();
+
+          final shouldDelete =
+              ClientDataGuard.isTestLikeName(fullName) ||
+              !ClientDataGuard.hasValidDocumentId(documentId) ||
+              !ClientDataGuard.hasValidSyncId(syncId);
+
+          if (shouldDelete) {
+            invalidIds.add(id);
+            continue;
+          }
+
+          candidatesByDocument
+              .putIfAbsent(documentId, () => <Map<String, Object?>>[])
+              .add(row);
+        }
+
+        Future<void> softDelete(int id) async {
+          await txn.update(
+            DatabaseSchema.clientsTable,
+            {
+              'deleted_at': nowIso,
+              'fecha_actualizacion': nowIso,
+              'sync_status': DatabaseSchema.syncStatusSynced,
+              // Keep UNIQUE(cedula) from blocking normalization of live rows.
+              'cedula': '__DELETED__${id}',
+            },
+            where: 'id = ?',
+            whereArgs: [id],
+          );
+        }
+
+        for (final id in invalidIds) {
+          await softDelete(id);
+        }
+
+        int pickCanonicalId(List<Map<String, Object?>> group) {
+          group.sort((left, right) {
+            final leftSync = (left['sync_id']?.toString() ?? '').trim();
+            final rightSync = (right['sync_id']?.toString() ?? '').trim();
+            if (leftSync.isEmpty != rightSync.isEmpty) {
+              return leftSync.isEmpty ? 1 : -1;
+            }
+
+            final leftUpdated = DateTime.tryParse(
+              (left['fecha_actualizacion']?.toString() ?? '').trim(),
+            );
+            final rightUpdated = DateTime.tryParse(
+              (right['fecha_actualizacion']?.toString() ?? '').trim(),
+            );
+            if (leftUpdated != null && rightUpdated != null) {
+              final cmp = rightUpdated.compareTo(leftUpdated);
+              if (cmp != 0) {
+                return cmp;
+              }
+            } else if (leftUpdated != null) {
+              return -1;
+            } else if (rightUpdated != null) {
+              return 1;
+            }
+
+            final leftId = left['id'] as int? ?? 0;
+            final rightId = right['id'] as int? ?? 0;
+            return rightId.compareTo(leftId);
+          });
+
+          return group.first['id'] as int? ?? 0;
+        }
+
+        // Resolve duplicates by trimmed document id.
+        for (final entry in candidatesByDocument.entries) {
+          final documentId = entry.key;
+          final group = entry.value;
+          if (group.isEmpty) {
+            continue;
+          }
+
+          final canonicalId = group.length == 1 ? (group.first['id'] as int? ?? 0) : pickCanonicalId(group);
+          for (final row in group) {
+            final id = row['id'] as int?;
+            if (id == null || id == 0) {
+              continue;
+            }
+            if (id == canonicalId) {
+              continue;
+            }
+            await softDelete(id);
+          }
+
+          if (canonicalId == 0) {
+            continue;
+          }
+
+          final canonicalRow = group.firstWhere(
+            (row) => (row['id'] as int?) == canonicalId,
+            orElse: () => group.first,
+          );
+
+          final rawName = (canonicalRow['nombre']?.toString() ?? '');
+          final rawDocument = (canonicalRow['cedula']?.toString() ?? '');
+          final rawSyncId = (canonicalRow['sync_id']?.toString() ?? '');
+
+          final normalizedName = rawName.trim();
+          final normalizedDoc = rawDocument.trim();
+          final normalizedSync = rawSyncId.trim();
+
+          // If a previously deleted row already holds the trimmed document id,
+          // rewrite it to a placeholder so UNIQUE(cedula) doesn't block.
+          if (rawDocument != normalizedDoc) {
+            final conflict = await txn.query(
+              DatabaseSchema.clientsTable,
+              columns: ['id', 'deleted_at'],
+              where: 'cedula = ? AND id <> ?',
+              whereArgs: [normalizedDoc, canonicalId],
+              limit: 1,
+            );
+            if (conflict.isNotEmpty) {
+              final conflictId = conflict.first['id'] as int?;
+              if (conflictId != null) {
+                await txn.update(
+                  DatabaseSchema.clientsTable,
+                  {'cedula': '__CEDULA_CONFLICT__${conflictId}'},
+                  where: 'id = ?',
+                  whereArgs: [conflictId],
+                );
+              }
+            }
+          }
+
+          final values = <String, Object?>{};
+          if (rawName != normalizedName) {
+            values['nombre'] = normalizedName;
+          }
+          if (rawDocument != normalizedDoc) {
+            values['cedula'] = normalizedDoc;
+          }
+          if (rawSyncId != normalizedSync) {
+            values['sync_id'] = normalizedSync;
+          }
+
+          if (values.isNotEmpty) {
+            await txn.update(
+              DatabaseSchema.clientsTable,
+              values,
+              where: 'id = ?',
+              whereArgs: [canonicalId],
+            );
+          }
+        }
+      });
+    } catch (_) {
+      // Best-effort cleanup. Startup must not fail because of cleanup.
     }
   }
 

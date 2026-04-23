@@ -1,5 +1,10 @@
+[CmdletBinding(PositionalBinding = $false)]
 param(
   [switch]$SkipClean,
+  [ValidateSet('run', 'test', 'build', 'clean', 'pub')]
+  [string]$Command,
+  [string]$Device = 'windows',
+  [switch]$FlutterVerbose,
   [Parameter(ValueFromRemainingArguments = $true)]
   [string[]]$FlutterArgs
 )
@@ -7,7 +12,16 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$resolvedProjectRoot = (Get-Item -LiteralPath $projectRoot).FullName
+$projectRootItem = Get-Item -LiteralPath $projectRoot
+$resolvedProjectRoot = if ($projectRootItem.LinkType -eq 'Junction' -and $projectRootItem.Target) {
+  try {
+    (Get-Item -LiteralPath @($projectRootItem.Target)[0] -ErrorAction Stop).FullName
+  } catch {
+    @($projectRootItem.Target)[0]
+  }
+} else {
+  $projectRootItem.FullName
+}
 $asciiRoot = 'C:\dev\sistema_solares_ascii'
 $asciiParent = Split-Path -Parent $asciiRoot
 $nativeAssetsDir = Join-Path $asciiRoot 'build\native_assets\windows'
@@ -64,10 +78,85 @@ if ($null -eq $junction) {
 
 Set-Location $asciiRoot
 
+if ($env:DEV_SCRIPT_DEBUG -eq '1') {
+  Write-Host "[DEV_SCRIPT] SkipClean=$SkipClean" -ForegroundColor DarkGray
+  Write-Host "[DEV_SCRIPT] Command=$Command" -ForegroundColor DarkGray
+  Write-Host "[DEV_SCRIPT] Device=$Device" -ForegroundColor DarkGray
+  Write-Host "[DEV_SCRIPT] FlutterVerbose=$FlutterVerbose" -ForegroundColor DarkGray
+  Write-Host "[DEV_SCRIPT] RawFlutterArgs=$($FlutterArgs -join ' ')" -ForegroundColor DarkGray
+}
+
 if (-not $SkipClean) {
   Remove-Item '.\build\native_assets\windows' -Recurse -Force -ErrorAction SilentlyContinue
   Remove-Item '.\build\windows' -Recurse -Force -ErrorAction SilentlyContinue
 }
+
+$plannedCommand = if ($Command) {
+  $Command
+} elseif ($FlutterArgs -and $FlutterArgs.Count -gt 0 -and $FlutterArgs[0] -in @('run', 'test', 'build', 'clean', 'pub')) {
+  $FlutterArgs[0]
+} else {
+  'run'
+}
+
+# Some generated Windows install scripts expect this directory to exist even
+# when there are no native assets to copy.
+if (-not (Test-Path $nativeAssetsDir)) {
+  New-Item -ItemType Directory -Path $nativeAssetsDir -Force | Out-Null
+}
+
+# Ensure sqlite3.dll is available for sqflite_common_ffi at runtime.
+# The Flutter CMake install step copies everything under build/native_assets/windows
+# next to the runner executable. If sqlite3.dll is missing there, startup will fail
+# with error 126 (module not found).
+$sqliteDestination = Join-Path $nativeAssetsDir 'sqlite3.dll'
+if ($plannedCommand -eq 'test') {
+  # Flutter's native asset installer will place sqlite3.dll in this folder.
+  # If we pre-create it, some Flutter versions crash with errno 183.
+  if (Test-Path $sqliteDestination) {
+    try {
+      Remove-Item -LiteralPath $sqliteDestination -Force -ErrorAction Stop
+    } catch {
+      Get-Process sistema_solares -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+
+      try {
+        Remove-Item -LiteralPath $sqliteDestination -Force -ErrorAction Stop
+      } catch {
+        $backupName = "sqlite3.dll.bak.$(Get-Date -Format 'yyyyMMddHHmmss')"
+        try {
+          Rename-Item -LiteralPath $sqliteDestination -NewName $backupName -Force -ErrorAction Stop
+        } catch {
+          Write-Error "No se pudo eliminar sqlite3.dll en $nativeAssetsDir (probablemente está bloqueado por una app en ejecución). Cierra la app y vuelve a ejecutar el task de tests."
+          exit 1
+        }
+      }
+    }
+  }
+} elseif (-not (Test-Path $sqliteDestination)) {
+  $sqliteCandidates = @(
+    (Join-Path $asciiRoot '.dart_tool\lib\sqlite3.dll')
+  )
+
+  if (Test-Path $sqliteCacheRoot) {
+    $cached = Get-ChildItem $sqliteCacheRoot -Recurse -Filter sqlite3.dll -File -ErrorAction SilentlyContinue |
+      Sort-Object LastWriteTime -Descending |
+      Select-Object -First 1
+    if ($cached) {
+      $sqliteCandidates += $cached.FullName
+    }
+  }
+
+  $sqliteSource = $sqliteCandidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+  if ($sqliteSource) {
+    Copy-Item $sqliteSource $sqliteDestination -Force
+  }
+}
+
+# Help Dart VM tests and tools find sqlite3.dll too.
+if (Test-Path (Join-Path $asciiRoot '.dart_tool\lib')) {
+  $env:PATH = "$(Join-Path $asciiRoot '.dart_tool\lib');$env:PATH"
+}
+$env:PATH = "$nativeAssetsDir;$env:PATH"
 
 if ($wrapperFallbackDir -and (Test-Path $wrapperFallbackDir)) {
   $requiredWrapperFiles = @(
@@ -95,48 +184,32 @@ if ($wrapperFallbackDir -and (Test-Path $wrapperFallbackDir)) {
   }
 }
 
-$sqliteDll = Get-ChildItem $sqliteCacheRoot -Recurse -Filter 'sqlite3.dll' -ErrorAction SilentlyContinue |
-  Sort-Object LastWriteTimeUtc -Descending |
-  Select-Object -First 1
+$effectiveArgs = @()
 
-if ($null -eq $sqliteDll) {
-  foreach ($candidatePath in $sqliteFallbackPaths) {
-    if (Test-Path $candidatePath) {
-      $sqliteDll = Get-Item $candidatePath
-      break
-    }
-  }
+if ($Command) {
+  $effectiveArgs += $Command
+} elseif ($FlutterArgs -and $FlutterArgs.Count -gt 0 -and $FlutterArgs[0] -in @('run', 'test', 'build', 'clean', 'pub')) {
+  $effectiveArgs += $FlutterArgs[0]
+  $FlutterArgs = $FlutterArgs[1..($FlutterArgs.Count - 1)]
+} else {
+  $effectiveArgs += 'run'
 }
 
-if ($null -eq $sqliteDll) {
-  throw 'No se encontro sqlite3.dll ni en .dart_tool/hooks_runner/shared/sqlite3/build ni en las rutas de salida conocidas de Windows.'
+if ($effectiveArgs[0] -eq 'run') {
+  $effectiveArgs += @('-d', $Device)
 }
 
-New-Item -ItemType Directory -Path $nativeAssetsDir -Force | Out-Null
-
-$sqliteDestination = Join-Path $nativeAssetsDir 'sqlite3.dll'
-$sqliteCopied = $false
-
-for ($attempt = 1; $attempt -le 10 -and -not $sqliteCopied; $attempt++) {
-  try {
-    if (Test-Path $sqliteDestination) {
-      Remove-Item $sqliteDestination -Force -ErrorAction Stop
-    }
-
-    Copy-Item $sqliteDll.FullName $sqliteDestination -Force -ErrorAction Stop
-    $sqliteCopied = $true
-  } catch {
-    if ($attempt -eq 10) {
-      throw
-    }
-
-    Start-Sleep -Milliseconds 500
-  }
+if ($FlutterVerbose) {
+  $effectiveArgs += '-v'
 }
 
-if (-not $FlutterArgs -or $FlutterArgs.Count -eq 0) {
-  $FlutterArgs = @('run', '-d', 'windows')
+if ($FlutterArgs -and $FlutterArgs.Count -gt 0) {
+  $effectiveArgs += $FlutterArgs
 }
 
-& flutter @FlutterArgs
+if ($env:DEV_SCRIPT_DEBUG -eq '1') {
+  Write-Host "[DEV_SCRIPT] EffectiveFlutterArgs=$($effectiveArgs -join ' ')" -ForegroundColor DarkGray
+}
+
+& flutter @effectiveArgs
 exit $LASTEXITCODE

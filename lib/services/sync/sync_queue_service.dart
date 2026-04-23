@@ -4,7 +4,9 @@ import 'dart:io';
 
 import '../../core/database/app_database.dart';
 import '../../core/database/database_schema.dart';
+import '../../core/config/app_flags.dart';
 import '../../core/system/system_config_service.dart';
+import '../../core/utils/client_data_guard.dart';
 import '../../repositories/sync_repository.dart';
 import 'sync_conflict_service.dart';
 import 'sync_api_client.dart';
@@ -233,6 +235,13 @@ class SyncQueueService {
           continue;
         }
 
+        if (isProductionMode && scope == 'clients') {
+          entryItems = await _filterBlockedClientQueueItems(entryItems);
+          if (entryItems.isEmpty) {
+            continue;
+          }
+        }
+
         try {
           final response = await _apiClient.uploadQueuedRecords(
             settings: settings,
@@ -416,6 +425,56 @@ class SyncQueueService {
       limit: limit,
     );
     return rows.map(SyncQueueItem.fromMap).toList(growable: false);
+  }
+
+  Future<List<SyncQueueItem>> _filterBlockedClientQueueItems(
+    List<SyncQueueItem> entryItems,
+  ) async {
+    final blocked = <String>[];
+    final kept = <SyncQueueItem>[];
+
+    for (final item in entryItems) {
+      if (ClientDataGuard.shouldBlockClientUpload(item.payload)) {
+        blocked.add(item.recordSyncId);
+      } else {
+        kept.add(item);
+      }
+    }
+
+    if (blocked.isEmpty) {
+      return entryItems;
+    }
+
+    await _softDeleteClients(blocked);
+    await _deleteQueuedRecords('clients', blocked);
+    await _refreshState();
+    return kept;
+  }
+
+  Future<void> _softDeleteClients(Iterable<String> syncIds) async {
+    final normalized = syncIds
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+    if (normalized.isEmpty) {
+      return;
+    }
+
+    final db = await _appDatabase.database;
+    final placeholders = List.filled(normalized.length, '?').join(', ');
+    final now = DateTime.now().toIso8601String();
+    await db.rawUpdate(
+      'UPDATE ${DatabaseSchema.clientsTable} '
+      'SET deleted_at = ?, fecha_actualizacion = ?, sync_status = ? '
+      'WHERE sync_id IN ($placeholders)',
+      [
+        now,
+        now,
+        DatabaseSchema.syncStatusSynced,
+        ...normalized,
+      ],
+    );
   }
 
   Future<void> _deleteQueuedRecords(

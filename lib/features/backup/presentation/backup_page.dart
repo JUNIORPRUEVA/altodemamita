@@ -13,6 +13,7 @@ import '../domain/disk_info.dart';
 import '../services/backup_service.dart';
 import '../services/disk_detection_service.dart';
 import 'backup_controller.dart';
+import 'professional_backup_section.dart';
 import '../../../shared/widgets/base_layout.dart';
 
 class BackupPage extends StatefulWidget {
@@ -118,6 +119,9 @@ class _BackupPageState extends State<BackupPage> {
                         _buildSystemStatusSection(_controller),
                       if (_controller.config != null)
                         _buildConfigurationSection(_controller),
+                      ProfessionalBackupSection(
+                        ensureAuthorized: _ensureAuthorized,
+                      ),
                       _buildManualBackupSection(_controller),
                       _buildBackupHistorySection(_controller),
                     ],

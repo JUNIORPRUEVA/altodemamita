@@ -26,7 +26,7 @@ void main() {
     }
   });
 
-  test('migra una base legacy a la ruta persistente central y la reutiliza', () async {
+  test('no migra una base legacy a la ruta persistente central sin ALLOW_LEGACY_MIGRATION', () async {
     final supportPath = path.join(tempDirectory.path, 'support');
     final legacyDatabasesPath = path.join(tempDirectory.path, 'legacy_db');
     final legacyDatabasePath = path.join(
@@ -68,8 +68,8 @@ void main() {
 
     expect(appPaths.databasePath, contains(path.join('data', 'database')));
     expect(await File(appPaths.databasePath).exists(), isTrue);
-    expect(await File(legacyDatabasePath).exists(), isFalse);
-    expect(migrated, hasLength(1));
+    expect(await File(legacyDatabasePath).exists(), isTrue);
+    expect(migrated, isEmpty);
 
     await productionDb.close();
     await productionDb.initialize();
@@ -77,7 +77,7 @@ void main() {
     final reopenedClients = await ClientRepository(
       appDatabase: productionDb,
     ).fetchAll(query: 'Migrado');
-    expect(reopenedClients, hasLength(1));
+    expect(reopenedClients, isEmpty);
   });
 
   test('migra archivos legacy de backup config al directorio persistente', () async {

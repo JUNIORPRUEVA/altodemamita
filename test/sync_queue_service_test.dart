@@ -205,11 +205,19 @@ Future<void> _insertQueuedRecord(
 }) async {
   final db = await appDatabase.database;
   final now = DateTime.now().toIso8601String();
+
+  final payloadJson = switch (scope) {
+    'clients' =>
+      // Must include required client fields to avoid production guards.
+      // 00113745624 is checksum-valid under DominicanValidators.
+      '{"sync_id":"$syncId","full_name":"Juan Perez","document_id":"00113745624"}',
+    _ => '{"sync_id":"$syncId"}',
+  };
   await db.insert(DatabaseSchema.syncQueueTable, {
     'scope': scope,
     'record_sync_id': syncId,
     'operation': 'upsert',
-    'payload_json': '{"sync_id":"$syncId"}',
+    'payload_json': payloadJson,
     'created_at': now,
     'updated_at': now,
     'next_attempt_at': now,

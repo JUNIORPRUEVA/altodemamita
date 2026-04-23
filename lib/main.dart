@@ -18,6 +18,8 @@ import 'features/backup/data/backup_config_repository.dart';
 import 'features/backup/presentation/backup_lifecycle_observer.dart';
 import 'features/backup/services/backup_service.dart';
 import 'features/backup/services/disk_detection_service.dart';
+import 'services/professional_backup/backup_service.dart' as professional_backup;
+import 'services/professional_backup/professional_backup_lifecycle_observer.dart';
 import 'shared/widgets/recovery_experience.dart';
 
 Future<void> main() async {
@@ -41,6 +43,8 @@ Future<void> main() async {
         configRepository: backupConfigRepository,
         diskDetectionService: diskDetectionService,
       );
+
+      final professionalBackupService = professional_backup.BackupService.instance;
       final startupRecoveryService = StartupRecoveryService(
         appDatabase: AppDatabase.instance,
         backupConfigRepository: backupConfigRepository,
@@ -103,6 +107,7 @@ Future<void> main() async {
         SistemaSolaresBootstrap(
           startupRecoveryService: startupRecoveryService,
           backupService: backupService,
+          professionalBackupService: professionalBackupService,
           errorController: errorController,
         ),
       );
@@ -127,11 +132,13 @@ class SistemaSolaresBootstrap extends StatefulWidget {
     super.key,
     required this.startupRecoveryService,
     required this.backupService,
+    required this.professionalBackupService,
     required this.errorController,
   });
 
   final StartupRecoveryService startupRecoveryService;
   final BackupService backupService;
+  final professional_backup.BackupService professionalBackupService;
   final GlobalErrorController errorController;
 
   @override
@@ -144,6 +151,7 @@ class _SistemaSolaresBootstrapState extends State<SistemaSolaresBootstrap> {
   String _startupStatus = 'Preparando sistema local...';
   bool _continueWithMinimalMode = false;
   BackupLifecycleObserver? _backupLifecycleObserver;
+  ProfessionalBackupLifecycleObserver? _professionalBackupLifecycleObserver;
 
   @override
   void initState() {
@@ -198,6 +206,11 @@ class _SistemaSolaresBootstrapState extends State<SistemaSolaresBootstrap> {
     if (observer != null) {
       WidgetsBinding.instance.removeObserver(observer);
     }
+    final professionalObserver = _professionalBackupLifecycleObserver;
+    if (professionalObserver != null) {
+      WidgetsBinding.instance.removeObserver(professionalObserver);
+    }
+    widget.professionalBackupService.dispose();
     super.dispose();
   }
 
@@ -209,6 +222,19 @@ class _SistemaSolaresBootstrapState extends State<SistemaSolaresBootstrap> {
     final observer = BackupLifecycleObserver(backupService: widget.backupService);
     WidgetsBinding.instance.addObserver(observer);
     _backupLifecycleObserver = observer;
+  }
+
+  void _registerProfessionalBackupObserverIfNeeded() {
+    if (_professionalBackupLifecycleObserver != null) {
+      return;
+    }
+
+    unawaited(widget.professionalBackupService.initialize());
+    final observer = ProfessionalBackupLifecycleObserver(
+      backupService: widget.professionalBackupService,
+    );
+    WidgetsBinding.instance.addObserver(observer);
+    _professionalBackupLifecycleObserver = observer;
   }
 
   @override
@@ -270,6 +296,7 @@ class _SistemaSolaresBootstrapState extends State<SistemaSolaresBootstrap> {
         }
 
         _registerBackupObserverIfNeeded();
+        _registerProfessionalBackupObserverIfNeeded();
 
         return SistemaSolaresApp(errorController: widget.errorController);
       },

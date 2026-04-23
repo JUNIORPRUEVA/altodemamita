@@ -72,7 +72,7 @@ void main() {
 
     expect(
       settings.baseUrl,
-      'https://altodemanita-altodemamita-backend.onqyr1.easypanel.host/api',
+      '',
     );
     expect(settings.queueRetryInterval, const Duration(seconds: 10));
     expect(settings.realtimePollingInterval, const Duration(seconds: 5));

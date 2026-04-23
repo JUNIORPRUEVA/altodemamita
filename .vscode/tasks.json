@@ -38,10 +38,11 @@
         "Bypass",
         "-File",
         ".\\tool\\flutter_windows_dev.ps1",
+        "-Command",
         "run",
-        "-d",
+        "-Device",
         "windows",
-        "-v"
+        "-FlutterVerbose"
       ],
       "isBackground": true,
       "problemMatcher": []
@@ -55,6 +56,7 @@
         "Bypass",
         "-File",
         ".\\tool\\flutter_windows_dev.ps1",
+        "-Command",
         "test"
       ],
       "problemMatcher": []

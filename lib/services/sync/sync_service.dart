@@ -15,10 +15,12 @@ import 'sync_queue_service.dart';
 class SyncService {
   SyncService({
     required List<SyncRepository> repositories,
+    Future<void> Function(SyncReport report)? onSyncFinished,
     SyncConfigRepository? configRepository,
     SyncApiClient? apiClient,
     SyncQueueService? syncQueueService,
   }) : _repositories = repositories,
+       _onSyncFinished = onSyncFinished,
        _configRepository = configRepository ?? SyncConfigRepository(),
        _apiClient = apiClient ?? SyncApiClient(),
        _syncQueueService = syncQueueService ?? SyncQueueService.instance {
@@ -30,6 +32,7 @@ class SyncService {
 
   final List<SyncRepository> _repositories;
   final Map<String, SyncRepository> _repositoriesByScope = {};
+  final Future<void> Function(SyncReport report)? _onSyncFinished;
   final SyncConfigRepository _configRepository;
   final SyncApiClient _apiClient;
   final SyncQueueService _syncQueueService;
@@ -63,7 +66,12 @@ class SyncService {
           wasSkipped: true,
           errorMessage: _buildMissingConfigurationMessage(settings),
         );
+        await _configRepository.saveLastRun(errorMessage: skipped.errorMessage);
         _lastReport = skipped;
+        final notify = _onSyncFinished;
+        if (notify != null) {
+          unawaited(notify(skipped));
+        }
         return skipped;
       }
 
@@ -83,6 +91,10 @@ class SyncService {
       );
       await _configRepository.saveLastRun();
       _lastReport = report;
+      final notify = _onSyncFinished;
+      if (notify != null) {
+        unawaited(notify(report));
+      }
       return report;
     } on SocketException catch (error) {
       _lastScopeWarnings = const [];
@@ -95,6 +107,10 @@ class SyncService {
       );
       await _configRepository.saveLastRun(errorMessage: report.errorMessage);
       _lastReport = report;
+      final notify = _onSyncFinished;
+      if (notify != null) {
+        unawaited(notify(report));
+      }
       return report;
     } on HttpException catch (error) {
       _lastScopeWarnings = const [];
@@ -108,6 +124,10 @@ class SyncService {
         );
         await _configRepository.saveLastRun(errorMessage: report.errorMessage);
         _lastReport = report;
+        final notify = _onSyncFinished;
+        if (notify != null) {
+          unawaited(notify(report));
+        }
         return report;
       }
 
@@ -118,6 +138,10 @@ class SyncService {
       );
       await _configRepository.saveLastRun(errorMessage: report.errorMessage);
       _lastReport = report;
+      final notify = _onSyncFinished;
+      if (notify != null) {
+        unawaited(notify(report));
+      }
       return report;
     } on ReadOnlyModeException {
       _lastScopeWarnings = const [];
@@ -129,6 +153,10 @@ class SyncService {
       );
       await _configRepository.saveLastRun(errorMessage: report.errorMessage);
       _lastReport = report;
+      final notify = _onSyncFinished;
+      if (notify != null) {
+        unawaited(notify(report));
+      }
       return report;
     } catch (error) {
       _lastScopeWarnings = const [];
@@ -139,6 +167,10 @@ class SyncService {
       );
       await _configRepository.saveLastRun(errorMessage: report.errorMessage);
       _lastReport = report;
+      final notify = _onSyncFinished;
+      if (notify != null) {
+        unawaited(notify(report));
+      }
       return report;
     } finally {
       _isSyncing = false;
