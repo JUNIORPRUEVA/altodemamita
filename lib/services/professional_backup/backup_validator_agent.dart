@@ -1,6 +1,8 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
 class BackupValidatorAgent {
   const BackupValidatorAgent();
 
@@ -22,6 +24,36 @@ class BackupValidatorAgent {
     for (var i = 0; i < expected.length; i++) {
       if (i >= header.length || header[i] != expected[i]) {
         throw StateError('El archivo no parece ser una base SQLite válida.');
+      }
+    }
+
+    await _validateSQLiteOpens(file);
+  }
+
+  Future<void> _validateSQLiteOpens(File file) async {
+    Database? db;
+    try {
+      db = await databaseFactoryFfi.openDatabase(
+        file.path,
+        options: OpenDatabaseOptions(
+          readOnly: true,
+          singleInstance: false,
+        ),
+      );
+
+      final rows = await db.rawQuery('PRAGMA quick_check(1)');
+      final first = rows.isNotEmpty ? rows.first.values.first : null;
+      final normalized = first?.toString().trim().toLowerCase() ?? '';
+      if (normalized != 'ok') {
+        throw StateError('El archivo SQLite no pasó la verificación de integridad.');
+      }
+    } catch (e) {
+      throw StateError('No se pudo abrir/verificar la base SQLite del backup.');
+    } finally {
+      try {
+        await db?.close();
+      } catch (_) {
+        // Best effort.
       }
     }
   }

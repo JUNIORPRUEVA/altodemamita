@@ -161,7 +161,19 @@ class BackupService {
     var attempt = 0;
     while (true) {
       try {
-        return await _cloudAgent.createAndUploadDailyBackup(date: date);
+        final result = await _cloudAgent.createAndUploadDailyBackup(date: date);
+        if (result.success) {
+          return result;
+        }
+
+        final shouldRetry =
+            result.statusCode == 408 ||
+            result.statusCode == 429 ||
+            (result.statusCode >= 500 && result.statusCode <= 599);
+
+        if (!shouldRetry || attempt >= maxRetries) {
+          return result;
+        }
       } on SocketException {
         if (attempt >= maxRetries) rethrow;
       } on TimeoutException {

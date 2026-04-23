@@ -328,10 +328,10 @@ class SyncService {
     final hasJwtToken = settings.jwtToken.trim().isNotEmpty;
 
     if (!hasBaseUrl && !hasJwtToken) {
-      return 'Configura sync.base_url e inicia sesion en linea antes de sincronizar.';
+      return 'Configura la URL de nube (backend) e inicia sesión en línea antes de sincronizar.';
     }
     if (!hasBaseUrl) {
-      return 'Configura sync.base_url antes de sincronizar.';
+      return 'Configura la URL de nube (backend) antes de sincronizar.';
     }
     if (!hasJwtToken) {
       return 'La app local necesita reautenticarse con la nube. Inicia sesion en linea nuevamente para reunificar la sincronizacion.';
