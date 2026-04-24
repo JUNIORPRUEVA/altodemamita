@@ -37,10 +37,11 @@ function parsePanelOrigins(env: NodeJS.ProcessEnv): string[] {
 export const appConfig = () => {
   const env = ensureDerivedEnvironmentVariables();
   const panelWebOrigins = parsePanelOrigins(env);
+  const nodeEnv = env.NODE_ENV ?? 'development';
 
   return ({
   app: {
-    nodeEnv: env.NODE_ENV ?? 'development',
+    nodeEnv,
     port: Number(env.PORT ?? 3000),
     apiPrefix: env.API_PREFIX ?? 'api',
     appName: env.APP_NAME ?? 'Sistema Solares Backend',
@@ -57,8 +58,15 @@ export const appConfig = () => {
     expiresIn: env.JWT_EXPIRES_IN ?? '1d',
   },
   security: {
-    panelWebOrigin: panelWebOrigins[0] ?? 'http://localhost:8080',
-    panelWebOrigins,
+    // In production, never default to localhost.
+    // For local development, developers can set PANEL_WEB_ORIGIN(S) explicitly.
+    panelWebOrigin:
+      panelWebOrigins[0] ??
+      (nodeEnv === 'development' ? 'http://localhost:8080' : ''),
+    panelWebOrigins:
+      nodeEnv === 'development'
+        ? [...new Set([...panelWebOrigins, 'http://localhost:8080'])]
+        : panelWebOrigins,
   },
   storage: {
     driver: env.STORAGE_DRIVER ?? 'local',

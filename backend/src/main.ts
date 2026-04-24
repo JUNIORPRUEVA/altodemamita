@@ -12,7 +12,12 @@ async function bootstrap(): Promise<void> {
   const configService = app.get(ConfigService);
   const apiPrefix = configService.get<string>('app.apiPrefix', 'api');
   const port = configService.get<number>('app.port', 3000);
-  const panelWebOrigins = configService.get<string[]>('security.panelWebOrigins', ['http://localhost:8080']);
+  const nodeEnv = configService.get<string>('app.nodeEnv', 'development');
+  const configuredOrigins = configService.get<string[]>('security.panelWebOrigins') ?? [];
+  const panelWebOrigins =
+    nodeEnv === 'development'
+      ? Array.from(new Set([...configuredOrigins, 'http://localhost:8080']))
+      : configuredOrigins;
 
   app.enableCors({
     origin: (
@@ -31,6 +36,16 @@ async function bootstrap(): Promise<void> {
     credentials: false,
     optionsSuccessStatus: 204,
   });
+
+  // Root health checks (no /api prefix) for reverse proxies/load balancers.
+  // Keep the normal Nest routes available under /api/health as well.
+  // We use the underlying HTTP adapter so these stay outside the global prefix.
+  const payload = () => ({ ok: true, timestamp: new Date().toISOString() });
+  const http: any = app.getHttpAdapter().getInstance();
+  if (http && typeof http.get === 'function') {
+    http.get('/health', (_req: any, res: any) => res.status(200).json(payload()));
+    http.get('/ping', (_req: any, res: any) => res.status(200).json(payload()));
+  }
 
   app.setGlobalPrefix(apiPrefix);
   app.useGlobalPipes(

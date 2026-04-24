@@ -52,6 +52,31 @@ class DominicanValidators {
     return null;
   }
 
+  /// Validar cédula SOLO por cantidad de dígitos (11).
+  ///
+  /// Útil para flujos donde no importa si la cédula es “real”,
+  /// pero sí que tenga un formato mínimo consistente.
+  static String? validateDominicanIdLengthOnly(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return 'La cédula es obligatoria.';
+    }
+
+    if (RegExp(r'[^\d\s-]').hasMatch(value)) {
+      return 'La cédula solo debe contener números.';
+    }
+
+    final cleaned = _normalizeDominicanIdDigits(value);
+    if (cleaned == null) {
+      return 'La cédula solo debe contener números.';
+    }
+
+    if (cleaned.length != 11) {
+      return 'La cédula debe tener 11 dígitos.';
+    }
+
+    return null;
+  }
+
   /// Formatear cédula al formato dominicano: XXX-XXXXXXX-X
   static String formatDominicanId(String value) {
     final cleaned = _normalizeDominicanIdDigits(value);

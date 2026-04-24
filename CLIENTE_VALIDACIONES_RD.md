@@ -23,9 +23,9 @@ Se implementaron validaciones y formatos específicos para República Dominicana
   - Tercer grupo: 1 dígito verificador
 - ✅ **Validación**:
   - Exactamente 11 dígitos
-  - Dígito verificador validado con algoritmo dominicano
+  - No valida dígito verificador (solo longitud/cantidad de dígitos)
   - Acepta entrada sin formato y auto-formatea
-  - Rechaza si el checksum es inválido
+  - Rechaza si no tiene 11 dígitos
 - ✅ **InputFormatter**: Formatea automáticamente mientras se escribe
 - ✅ **Ejemplos**:
   - 402-1234567-8 ✓
@@ -107,7 +107,7 @@ InputFormatters para formateo en tiempo real:
 | Campo | Obligatorio | Validación |
 |-------|------------|-----------|
 | Nombre | ✓ | 3+ caracteres, solo letras |
-| Cédula | ✓ | 11 dígitos, checksum válido |
+| Cédula | ✓ | 11 dígitos + checksum válido |
 | Teléfono | ✗ | Código 809/829/849, 10 dígitos |
 | Dirección | ✗ | 5-200 caracteres |
 
@@ -124,12 +124,12 @@ Para probar los cambios:
 2. **Validaciones que deben fallar**:
    - Nombre: "123abc" (rechaza números)
    - Cédula: "123" (muy corta)
-   - Cédula: "12345678901" (checksum inválido)
+  - Cédula: "1234567890" (10 dígitos)
    - Teléfono: "7001234567" (código 700 no válido)
 
 ## Notas Importantes
 
 - Los formatos se aplican automáticamente sin que el usuario escriba manualmente los guiones/símbolos
-- El validador de cédula usa el algoritmo oficial dominicano de dígito verificador
+- En clientes, la cédula se valida con checksum (no solo longitud)
 - El teléfono es opcional, pero si se ingresa debe ser válido
 - Todos los campos obligatorios deben validar antes de guardar

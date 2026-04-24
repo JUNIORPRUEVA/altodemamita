@@ -1,5 +1,6 @@
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -36,6 +37,20 @@ class SyncConfigRepository {
   static const _jwtTokenPreferenceKey = 'sync.jwt_token';
   static const _deviceIdPreferenceKey = 'sync.device_id';
   static const _cursorPreferencePrefix = 'sync.cursor.';
+
+  static bool _isLocalhostHost(String host) {
+    final lower = host.trim().toLowerCase();
+    return lower == 'localhost' ||
+        lower == '127.0.0.1' ||
+        lower == '0.0.0.0' ||
+        lower == '::1';
+  }
+
+  static bool _looksLikeLocalhostUrl(String value) {
+    final uri = Uri.tryParse(value.trim());
+    if (uri == null) return false;
+    return _isLocalhostHost(uri.host);
+  }
 
   static String normalizeBackendBaseUrl(String baseUrl) {
     final trimmed = baseUrl.trim();
@@ -81,9 +96,20 @@ class SyncConfigRepository {
       syncConflictStrategyKey,
     ]);
     final storedBaseUrl = (values[syncBaseUrlKey]?.value ?? '').trim();
-    final effectiveBaseUrl =
-      storedBaseUrl.isEmpty ? defaultSyncBaseUrl : storedBaseUrl;
-    final baseUrl = normalizeBackendBaseUrl(effectiveBaseUrl);
+
+    // Prefer stored URL when present, but never allow empty or localhost URLs
+    // to leak into release builds.
+    var candidate = storedBaseUrl.isEmpty ? defaultSyncBaseUrl : storedBaseUrl;
+    var baseUrl = normalizeBackendBaseUrl(candidate);
+
+    if (baseUrl.isEmpty) {
+      baseUrl = normalizeBackendBaseUrl(defaultSyncBaseUrl);
+    }
+
+    if (!kDebugMode && baseUrl.isNotEmpty && _looksLikeLocalhostUrl(baseUrl)) {
+      baseUrl = normalizeBackendBaseUrl(defaultSyncBaseUrl);
+    }
+
     final token = await _sensitiveStorage.read(_jwtTokenPreferenceKey) ?? '';
     final retrySeconds =
         int.tryParse(values[syncQueueRetrySecondsKey]?.value ?? '10') ?? 10;
@@ -103,7 +129,16 @@ class SyncConfigRepository {
   }
 
   Future<void> saveBaseUrl(String baseUrl) async {
-    final normalized = normalizeBackendBaseUrl(baseUrl);
+    var normalized = normalizeBackendBaseUrl(baseUrl);
+
+    if (normalized.isEmpty) {
+      normalized = normalizeBackendBaseUrl(defaultSyncBaseUrl);
+    }
+
+    if (!kDebugMode && _looksLikeLocalhostUrl(normalized)) {
+      normalized = normalizeBackendBaseUrl(defaultSyncBaseUrl);
+    }
+
     try {
       await _settingsRepository.upsert(syncBaseUrlKey, normalized);
       return;

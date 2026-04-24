@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../../../core/resilience/friendly_error_messages.dart';
 import '../data/client_repository.dart';
@@ -40,6 +41,18 @@ class ClientsController extends ChangeNotifier {
       await load();
       return null;
     } catch (error) {
+      debugPrint('ERROR REAL (guardar cliente): $error');
+
+      final decoded = _decodeClientWriteError(error);
+      if (decoded != null) {
+        FriendlyErrorMessages.forOperation(
+          'guardar el cliente',
+          error,
+          module: 'clientes',
+          presentToUser: false,
+        );
+        return decoded;
+      }
       return FriendlyErrorMessages.forOperation(
         'guardar el cliente',
         error,
@@ -54,11 +67,44 @@ class ClientsController extends ChangeNotifier {
       await load();
       return null;
     } catch (error) {
+      debugPrint('ERROR REAL (eliminar cliente): $error');
+
+      final decoded = _decodeClientWriteError(error);
+      if (decoded != null) {
+        FriendlyErrorMessages.forOperation(
+          'eliminar el cliente',
+          error,
+          module: 'clientes',
+          presentToUser: false,
+        );
+        return decoded;
+      }
       return FriendlyErrorMessages.forOperation(
         'eliminar el cliente',
         error,
         module: 'clientes',
       );
     }
+  }
+
+  String? _decodeClientWriteError(Object error) {
+    if (error is StateError) {
+      final message = error.message?.toString().trim();
+      if (message != null && message.isNotEmpty) {
+        return message;
+      }
+    }
+
+    if (error is DatabaseException) {
+      final normalized = error.toString();
+      if (normalized.contains('UNIQUE constraint failed: clientes.cedula')) {
+        return 'Ya existe un cliente con esa cédula.';
+      }
+      if (normalized.contains('NOT NULL constraint failed: clientes.cedula')) {
+        return 'La cédula es obligatoria.';
+      }
+    }
+
+    return null;
   }
 }

@@ -1,4 +1,7 @@
-﻿import 'package:flutter/material.dart';
+﻿import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../features/auth/domain/permission_model.dart';
@@ -371,8 +374,21 @@ class _ClientsPageState extends State<ClientsPage> {
   }
 
   Future<void> _saveClient(Client client, {required bool created}) async {
+    debugPrint('DATA ENVIADA (clientes.toMap): ${jsonEncode(client.toMap())}');
+    debugPrint(
+      'DATA ENVIADA (clientes.toSyncPayload): ${jsonEncode(client.toSyncPayload())}',
+    );
+
     final error = await _controller.save(client);
-    if (!mounted || error != null) {
+    if (!mounted) {
+      return;
+    }
+
+    if (error != null) {
+      debugPrint('ERROR AL GUARDAR CLIENTE (mensaje): $error');
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text(error)),
+      );
       return;
     }
 
@@ -413,7 +429,15 @@ class _ClientsPageState extends State<ClientsPage> {
     }
 
     final error = await _controller.delete(client.id!);
-    if (!mounted || error != null) {
+    if (!mounted) {
+      return;
+    }
+
+    if (error != null) {
+      debugPrint('ERROR AL ELIMINAR CLIENTE (mensaje): $error');
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text(error)),
+      );
       return;
     }
 

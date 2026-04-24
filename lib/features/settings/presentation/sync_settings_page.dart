@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -64,9 +65,39 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     return trimmed.replaceAll(RegExp(r'/$'), '');
   }
 
+  bool _isLocalhostHost(String host) {
+    final lower = host.trim().toLowerCase();
+    return lower == 'localhost' ||
+        lower == '127.0.0.1' ||
+        lower == '0.0.0.0' ||
+        lower == '::1';
+  }
+
+  bool _isLocalhostUrl(String value) {
+    final uri = Uri.tryParse(value.trim());
+    if (uri == null) return false;
+    return _isLocalhostHost(uri.host);
+  }
+
   Future<void> _save() async {
     final raw = _baseUrlController.text;
     final normalized = _normalizeDisplayUrl(raw);
+
+    if (normalized.isEmpty) {
+      setState(() {
+        _statusMessage = 'La URL del backend no puede estar vacía.';
+      });
+      return;
+    }
+
+    // Avoid shipping a desktop build configured to localhost.
+    if (!kDebugMode && _isLocalhostUrl(normalized)) {
+      setState(() {
+        _statusMessage =
+            'No se permite usar localhost/127.0.0.1 como backend en producción.';
+      });
+      return;
+    }
 
     setState(() {
       _isSaving = true;
@@ -108,38 +139,83 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     });
 
     try {
+      // Build two base URLs:
+      // - rootBase: used for GET /health (no /api)
+      // - apiBase: used for API calls (ensures /api suffix)
       final uri = Uri.parse(normalized);
-      final pathSegments = uri.pathSegments.where((s) => s.isNotEmpty).toList();
-      final baseHasApi = pathSegments.isNotEmpty &&
-          pathSegments.last.toLowerCase() == 'api';
-      final normalizedBase = baseHasApi
-          ? uri
-          : uri.replace(pathSegments: [...pathSegments, 'api']);
-      final statusUri = normalizedBase.replace(
+      final inputSegments = uri.pathSegments
+          .where((segment) => segment.trim().isNotEmpty)
+          .toList();
+      final inputHasApi =
+          inputSegments.isNotEmpty && inputSegments.last.toLowerCase() == 'api';
+
+      final rootSegments = inputHasApi
+          ? inputSegments.sublist(0, inputSegments.length - 1)
+          : inputSegments;
+      final rootBase = uri.replace(pathSegments: rootSegments);
+
+      final apiSegments = inputHasApi ? inputSegments : [...inputSegments, 'api'];
+      final apiBase = uri.replace(pathSegments: apiSegments);
+
+      if (!kDebugMode && _isLocalhostHost(uri.host)) {
+        setState(() {
+          _statusMessage =
+              'No se permite probar localhost/127.0.0.1 como backend en producción.';
+        });
+        return;
+      }
+
+      final healthUri = rootBase.replace(
         pathSegments: [
-          ...normalizedBase.pathSegments.where((s) => s.isNotEmpty),
+          ...rootBase.pathSegments.where((s) => s.isNotEmpty),
+          'health',
+        ],
+      );
+
+      final healthRequest = await _httpClient.getUrl(healthUri);
+      healthRequest.headers.set(
+        HttpHeaders.acceptHeader,
+        ContentType.json.mimeType,
+      );
+      final healthResponse = await healthRequest.close();
+      final healthBody = await utf8.decoder.bind(healthResponse).join();
+      final healthLooksLikeJson =
+          healthBody.trimLeft().startsWith('{') ||
+          healthBody.trimLeft().startsWith('[');
+
+      final healthOk =
+          healthResponse.statusCode == HttpStatus.ok && healthLooksLikeJson;
+
+      final statusUri = apiBase.replace(
+        pathSegments: [
+          ...apiBase.pathSegments.where((s) => s.isNotEmpty),
           'system',
           'status',
         ],
       );
 
-      final request = await _httpClient.getUrl(statusUri);
-      request.headers.set(HttpHeaders.acceptHeader, ContentType.json.mimeType);
-      final response = await request.close();
-      final body = await utf8.decoder.bind(response).join();
+      final statusRequest = await _httpClient.getUrl(statusUri);
+      statusRequest.headers.set(
+        HttpHeaders.acceptHeader,
+        ContentType.json.mimeType,
+      );
+      final statusResponse = await statusRequest.close();
+      final statusBody = await utf8.decoder.bind(statusResponse).join();
 
-      final trimmed = body.trimLeft();
-      final looksLikeJson = trimmed.startsWith('{') || trimmed.startsWith('[');
-      if (!looksLikeJson) {
-        final contentType = response.headers.contentType?.mimeType ?? 'unknown';
+      final trimmed = statusBody.trimLeft();
+      final statusLooksLikeJson =
+          trimmed.startsWith('{') || trimmed.startsWith('[');
+      if (!statusLooksLikeJson) {
+        final contentType =
+            statusResponse.headers.contentType?.mimeType ?? 'unknown';
         setState(() {
           _statusMessage =
-              'La URL no parece ser un backend JSON. status=${response.statusCode}, content-type=$contentType.';
+              'La URL no parece ser un backend JSON. status=${statusResponse.statusCode}, content-type=$contentType.';
         });
         return;
       }
 
-      final decoded = jsonDecode(body);
+      final decoded = jsonDecode(statusBody);
       final payload = decoded is Map<String, dynamic>
           ? decoded
           : (decoded is Map
@@ -157,14 +233,14 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
       if (token.isEmpty) {
         setState(() {
           _statusMessage =
-              'Conexión OK. initialized=$initialized. Para sincronizar necesitas iniciar sesión en línea (token no encontrado).';
+              '${healthOk ? 'Health OK.' : 'Health NO OK (status=${healthResponse.statusCode}). '}Conexión API OK. initialized=$initialized. Para sincronizar necesitas iniciar sesión en línea (token no encontrado).';
         });
         return;
       }
 
-      final meUri = normalizedBase.replace(
+      final meUri = apiBase.replace(
         pathSegments: [
-          ...normalizedBase.pathSegments.where((s) => s.isNotEmpty),
+          ...apiBase.pathSegments.where((s) => s.isNotEmpty),
           'auth',
           'me',
         ],
@@ -241,7 +317,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
 
       setState(() {
         _statusMessage =
-            'Conexión OK. initialized=$initialized. Sesión OK y permisos OK (sync.manage).';
+            '${healthOk ? 'Health OK.' : 'Health NO OK (status=${healthResponse.statusCode}). '}Conexión API OK. initialized=$initialized. Sesión OK y permisos OK (sync.manage).';
       });
     } catch (error) {
       setState(() {
