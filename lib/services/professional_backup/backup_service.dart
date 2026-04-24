@@ -5,8 +5,10 @@ import '../../core/database/app_database.dart';
 import '../../core/resilience/app_paths.dart';
 import '../../models/sync/sync_report.dart';
 import 'backup_cleaner_agent.dart';
+import 'backup_log_agent.dart';
 import 'backup_scheduler_agent.dart';
 import 'cloud_backup_agent.dart';
+import 'database_activity_guard.dart';
 import 'local_backup_agent.dart';
 import 'professional_restore_agent.dart';
 import 'professional_backup_settings.dart';
@@ -16,6 +18,7 @@ enum BackupTrigger {
   appShutdown,
   syncCompleted,
   manual,
+  periodic,
 }
 
 class BackupService {
@@ -28,7 +31,9 @@ class BackupService {
        _appPaths = appPaths ?? AppPaths(),
        _settingsRepository =
            settingsRepository ?? ProfessionalBackupSettingsRepository(),
-       _cleaner = const BackupCleanerAgent() {
+       _cleaner = const BackupCleanerAgent(),
+       _logAgent = BackupLogAgent(appPaths: appPaths),
+       _activityGuard = const DatabaseActivityGuard() {
     _localAgent = LocalBackupAgent(
       appDatabase: _appDatabase,
       appPaths: _appPaths,
@@ -49,6 +54,11 @@ class BackupService {
   final AppPaths _appPaths;
   final ProfessionalBackupSettingsRepository _settingsRepository;
   final BackupCleanerAgent _cleaner;
+  final BackupLogAgent _logAgent;
+  final DatabaseActivityGuard _activityGuard;
+  Timer? _localPeriodicTimer;
+
+  static const Duration _localPeriodicInterval = Duration(hours: 6);
 
   late final ProfessionalRestoreAgent _restoreAgent;
 
@@ -75,17 +85,21 @@ class BackupService {
     _cachedSettings = settings;
     await _settingsRepository.save(settings);
     _scheduler.reschedule(settings);
+    _rescheduleLocalPeriodicBackups(settings);
   }
 
   Future<void> initialize() async {
     final settings = await getSettings();
     _scheduler.reschedule(settings);
+    _rescheduleLocalPeriodicBackups(settings);
     // If the app starts after the scheduled time, try to run once.
     unawaited(runCloudBackupIfDue().catchError((_) {}));
   }
 
   void dispose() {
     _scheduler.dispose();
+    _localPeriodicTimer?.cancel();
+    _localPeriodicTimer = null;
   }
 
   Future<File?> createLocalBackup({required BackupTrigger trigger}) async {
@@ -95,14 +109,54 @@ class BackupService {
     }
 
     return _enqueue<File?>(() async {
+      final ts = DateTime.now();
       print('[PRO-BACKUP] Creando backup local (trigger=$trigger)');
-      final file = await _localAgent.createLocalBackup();
-      print('[PRO-BACKUP] Backup local listo: ${file.path}');
-      await _cleaner.enforceLocalRetention(
-        directory: _localAgent.localBackupsDirectory,
-        keepLast: 15,
+
+      try {
+        final dbPath = await _appDatabase.databasePath;
+        await _activityGuard.waitForNoActiveWriters(databasePath: dbPath);
+
+        final file = await _localAgent.createLocalBackup();
+        print('[PRO-BACKUP] Backup local listo: ${file.path}');
+
+        await _logAgent.log(
+          timestamp: ts,
+          type: 'local',
+          operation: 'backup',
+          result: 'ok',
+          sizeBytes: await file.length(),
+        );
+
+        await _cleaner.enforceLocalRetention(
+          directory: _localAgent.localBackupsDirectory,
+          keepLast: 15,
+        );
+        return file;
+      } catch (e) {
+        await _logAgent.log(
+          timestamp: ts,
+          type: 'local',
+          operation: 'backup',
+          result: 'error',
+          message: e.toString(),
+        );
+        rethrow;
+      }
+    });
+  }
+
+  void _rescheduleLocalPeriodicBackups(ProfessionalBackupSettings settings) {
+    _localPeriodicTimer?.cancel();
+    _localPeriodicTimer = null;
+
+    if (!settings.localBackupEnabled) {
+      return;
+    }
+
+    _localPeriodicTimer = Timer.periodic(_localPeriodicInterval, (_) {
+      unawaited(
+        createLocalBackup(trigger: BackupTrigger.periodic).catchError((_) {}),
       );
-      return file;
     });
   }
 
@@ -110,15 +164,42 @@ class BackupService {
     required String backupPath,
   }) {
     return _enqueue<ProfessionalRestoreResult>(() async {
-      return _restoreAgent.restoreFromLocalBackup(backupPath: backupPath);
+      final ts = DateTime.now();
+      final dbPath = await _appDatabase.databasePath;
+      await _activityGuard.waitForNoActiveWriters(databasePath: dbPath);
+
+      final result = await _restoreAgent.restoreFromLocalBackup(
+        backupPath: backupPath,
+      );
+
+      await _logAgent.log(
+        timestamp: ts,
+        type: 'restore_local',
+        operation: 'restore',
+        result: result.success ? 'ok' : 'error',
+        sizeBytes: await _safeFileSize(backupPath),
+        message: result.errorMessage,
+      );
+
+      return result;
     });
   }
 
+  Future<void> onSyncStarted() async {
+    // Compatibility hook: sync can notify us, but we don't coordinate/lock.
+    print('[PRO-BACKUP] Sync iniciado');
+  }
+
   Future<void> onSyncFinished(SyncReport report) async {
+    print('[PRO-BACKUP] Sync finalizado');
     if (!report.isSuccess) {
       return;
     }
-    await createLocalBackup(trigger: BackupTrigger.syncCompleted);
+    unawaited(
+      Future<void>.delayed(Duration.zero, () async {
+        await createLocalBackup(trigger: BackupTrigger.syncCompleted);
+      }).catchError((_) {}),
+    );
   }
 
   Future<void> runCloudBackupIfDue({bool force = false}) async {
@@ -128,7 +209,14 @@ class BackupService {
     }
 
     final today = _calendarDate(DateTime.now());
-    if (!force && settings.lastCloudBackupDate == today) {
+
+    // Enforce at most one attempt per day unless forced.
+    if (!force && settings.lastCloudBackupAttemptDate == today) {
+      return;
+    }
+
+    // If not pending and already backed up today, nothing to do.
+    if (!force && !settings.cloudBackupPending && settings.lastCloudBackupDate == today) {
       return;
     }
 
@@ -149,26 +237,61 @@ class BackupService {
 
     await _enqueue<void>(() async {
       final uploadDate = DateTime.now();
-      print('[PRO-BACKUP] Iniciando backup nube (force=$force, date=${_calendarDate(uploadDate)})');
-      final result = await _createAndUploadCloudBackupWithRetries(
-        date: uploadDate,
-        maxRetries: 2,
+      final ts = DateTime.now();
+      print(
+        '[PRO-BACKUP] Iniciando backup nube (force=$force, date=${_calendarDate(uploadDate)})',
       );
+
+      // Persist attempt date first so crash/restart doesn't spam retries.
+      await saveSettings(
+        (await getSettings()).copyWith(
+          lastCloudBackupAttemptDate: _calendarDate(uploadDate),
+        ),
+      );
+
+      final dbPath = await _appDatabase.databasePath;
+      await _activityGuard.waitForNoActiveWriters(databasePath: dbPath);
+
+      final result = await _createAndUploadCloudBackupWithRetries(date: uploadDate);
       if (!result.success) {
         print(
           '[PRO-BACKUP] Backup nube falló: status=${result.statusCode} msg=${result.message ?? ''}',
         );
-        throw StateError(
-          'La nube rechazó el backup (${result.statusCode}): ${result.message ?? ''}',
+
+        await saveSettings(
+          (await getSettings()).copyWith(
+            cloudBackupPending: true,
+          ),
         );
+
+        await _logAgent.log(
+          timestamp: ts,
+          type: 'cloud',
+          operation: 'backup',
+          result: 'error',
+          message: 'status=${result.statusCode} ${result.message ?? ''}'.trim(),
+        );
+
+        return;
       }
 
-      print('[PRO-BACKUP] Backup nube subido: ${result.remoteFilename} (status=${result.statusCode})');
+      print(
+        '[PRO-BACKUP] Backup nube subido: ${result.remoteFilename} (status=${result.statusCode})',
+      );
 
       final updated = (await getSettings()).copyWith(
         lastCloudBackupDate: _calendarDate(uploadDate),
+        cloudBackupPending: false,
       );
       await saveSettings(updated);
+
+      await _logAgent.log(
+        timestamp: ts,
+        type: 'cloud',
+        operation: 'backup',
+        result: 'ok',
+        message: 'status=${result.statusCode} filename=${result.remoteFilename}',
+      );
     });
   }
 
@@ -179,9 +302,15 @@ class BackupService {
 
   Future<CloudBackupUploadResult> _createAndUploadCloudBackupWithRetries({
     required DateTime date,
-    required int maxRetries,
   }) async {
-    var attempt = 0;
+    // 3 retries with explicit backoff: 2s → 5s → 10s.
+    final retryBackoff = <Duration>[
+      const Duration(seconds: 2),
+      const Duration(seconds: 5),
+      const Duration(seconds: 10),
+    ];
+
+    var retryIndex = 0;
     while (true) {
       try {
         final result = await _cloudAgent.createAndUploadDailyBackup(date: date);
@@ -194,19 +323,22 @@ class BackupService {
             result.statusCode == 429 ||
             (result.statusCode >= 500 && result.statusCode <= 599);
 
-        if (!shouldRetry || attempt >= maxRetries) {
+        if (!shouldRetry || retryIndex >= retryBackoff.length) {
           return result;
         }
       } on SocketException {
-        if (attempt >= maxRetries) rethrow;
+        if (retryIndex >= retryBackoff.length) rethrow;
       } on TimeoutException {
-        if (attempt >= maxRetries) rethrow;
+        if (retryIndex >= retryBackoff.length) rethrow;
       } on HttpException {
-        if (attempt >= maxRetries) rethrow;
+        if (retryIndex >= retryBackoff.length) rethrow;
       }
 
-      attempt++;
-      final backoff = Duration(milliseconds: 750 * attempt);
+      final backoff = retryBackoff[retryIndex];
+      print(
+        '[PRO-BACKUP] Reintentando backup nube en ${backoff.inSeconds}s (retry ${retryIndex + 1}/${retryBackoff.length})',
+      );
+      retryIndex++;
       await Future<void>.delayed(backoff);
     }
   }
@@ -224,6 +356,16 @@ class BackupService {
       }
     });
     return completer.future;
+  }
+
+  static Future<int?> _safeFileSize(String filePath) async {
+    try {
+      final file = File(filePath);
+      if (!await file.exists()) return null;
+      return await file.length();
+    } catch (_) {
+      return null;
+    }
   }
 
   static String _calendarDate(DateTime dt) {

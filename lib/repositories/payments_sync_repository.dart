@@ -90,12 +90,34 @@ class PaymentsSyncRepository implements SyncRepository {
           continue;
         }
 
+        final existingRows = await txn.query(
+          DatabaseSchema.paymentsTable,
+          where: 'sync_id = ?',
+          whereArgs: [syncId],
+          limit: 1,
+        );
+        if (_shouldKeepLocal(
+          existingRows,
+          record,
+          updatedAtField: 'fecha_actualizacion',
+        )) {
+          continue;
+        }
+
         if (_isDeleted(record['deleted_at'])) {
-          await txn.delete(
+          if (existingRows.isNotEmpty) {
+            await txn.update(
             DatabaseSchema.paymentsTable,
-            where: 'sync_id = ?',
-            whereArgs: [syncId],
-          );
+              {
+                'version': _readVersion(record),
+                'fecha_actualizacion': _readDate(record['updated_at']),
+                'deleted_at': _readNullableDate(record['deleted_at']),
+                'sync_status': DatabaseSchema.syncStatusSynced,
+              },
+              where: 'sync_id = ?',
+              whereArgs: [syncId],
+            );
+          }
           continue;
         }
 
@@ -120,20 +142,6 @@ class PaymentsSyncRepository implements SyncRepository {
                 installmentSyncId,
               );
         if (saleId == null || clientId == null) {
-          continue;
-        }
-
-        final existingRows = await txn.query(
-          DatabaseSchema.paymentsTable,
-          where: 'sync_id = ?',
-          whereArgs: [syncId],
-          limit: 1,
-        );
-        if (_shouldKeepLocal(
-          existingRows,
-          record,
-          updatedAtField: 'fecha_actualizacion',
-        )) {
           continue;
         }
 

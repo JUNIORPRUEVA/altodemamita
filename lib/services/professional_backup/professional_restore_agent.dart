@@ -1,8 +1,10 @@
 import 'dart:io';
 
 import 'package:path/path.dart' as path;
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../../core/database/app_database.dart';
+import '../../core/database/database_schema.dart';
 import '../../core/resilience/app_paths.dart';
 import 'backup_validator_agent.dart';
 
@@ -107,6 +109,8 @@ class ProfessionalRestoreAgent {
           throw StateError('La base restaurada no pasó quick_check(1).');
         }
 
+        await _validateRestoredData(db);
+
         print('[PRO-RESTORE] Restauración completada y validada: OK');
         return ProfessionalRestoreResult(
           success: true,
@@ -182,5 +186,35 @@ class ProfessionalRestoreAgent {
         }
       }
     }
+  }
+
+  Future<void> _validateRestoredData(Database db) async {
+    // 1) Verify critical tables exist.
+    final missing = await DatabaseSchema.missingCriticalTables(db);
+    if (missing.isNotEmpty) {
+      throw StateError('Faltan tablas críticas tras restore: ${missing.join(', ')}');
+    }
+
+    // 2) Verify essential records exist.
+    // Settings should always have defaults.
+    final settingsCount = await _count(db, DatabaseSchema.settingsTable);
+    if (settingsCount <= 0) {
+      throw StateError('La tabla configuracion está vacía tras restore.');
+    }
+
+    // Users should have at least one row (admin bootstrap).
+    final usersCount = await _count(db, DatabaseSchema.usersTable);
+    if (usersCount <= 0) {
+      throw StateError('La tabla usuarios está vacía tras restore.');
+    }
+  }
+
+  Future<int> _count(DatabaseExecutor db, String table) async {
+    final rows = await db.rawQuery('SELECT COUNT(*) AS c FROM $table');
+    if (rows.isEmpty) return 0;
+    final value = rows.first['c'];
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
   }
 }

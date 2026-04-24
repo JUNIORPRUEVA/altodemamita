@@ -30,7 +30,7 @@ class ClientDataGuard {
     if (normalized.isEmpty) {
       return false;
     }
-    return DominicanValidators.validateDominicanId(normalized) == null;
+    return DominicanValidators.validateDominicanIdLengthOnly(normalized) == null;
   }
 
   static bool hasValidSyncId(String? value) {

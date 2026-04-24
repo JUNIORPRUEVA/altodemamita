@@ -185,6 +185,162 @@ void main() {
     expect(queueRows.containsKey('usuarios'), isFalse);
     expect(queueRows.containsKey('clients'), isFalse);
   });
+
+  test('confirma scopes cuando la cola queda vacia tras sincronizar', () async {
+    apiClient = _RecordingSyncApiClient();
+    service = SyncQueueService.test(
+      appDatabase: appDatabase,
+      configRepository: configRepository,
+      apiClient: apiClient,
+      conflictService: SyncConflictService(appDatabase: appDatabase),
+    );
+    service.registerRepository(
+      _FakeSyncRepository('sales', pendingSyncIds: {'sale-1'}),
+    );
+
+    await _insertQueuedRecord(appDatabase, scope: 'sales', syncId: 'sale-1');
+
+    await service.syncScopesNowOrThrow(
+      const ['sales'],
+      operationLabel: 'create-sale:test',
+    );
+
+    final queueRows = await _readQueueRows(appDatabase);
+    expect(apiClient.uploadedScopes, ['sales']);
+    expect(queueRows.containsKey('sales'), isFalse);
+  });
+
+  test('lanza pending exception cuando backend deja registros pendientes', () async {
+    apiClient = _RecordingSyncApiClient(failingScopes: {'sales'});
+    service = SyncQueueService.test(
+      appDatabase: appDatabase,
+      configRepository: configRepository,
+      apiClient: apiClient,
+      conflictService: SyncConflictService(appDatabase: appDatabase),
+    );
+    service.registerRepository(
+      _FakeSyncRepository('sales', pendingSyncIds: {'sale-1'}),
+    );
+
+    await _insertQueuedRecord(appDatabase, scope: 'sales', syncId: 'sale-1');
+
+    await expectLater(
+      () => service.syncScopesNowOrThrow(
+        const ['sales'],
+        operationLabel: 'delete-sale:test',
+      ),
+      throwsA(isA<SyncOperationPendingException>()),
+    );
+
+    final queueRows = await _readQueueRows(appDatabase);
+    expect(queueRows.containsKey('sales'), isTrue);
+    expect(queueRows['sales']?['last_error'], contains('Fallo simulado'));
+  });
+
+  test('si esta offline deja la cola pendiente y no intenta enviar', () async {
+    apiClient = _RecordingSyncApiClient();
+    service = SyncQueueService.test(
+      appDatabase: appDatabase,
+      configRepository: configRepository,
+      apiClient: apiClient,
+      conflictService: SyncConflictService(appDatabase: appDatabase),
+      connectivityProbe: (_) async => false,
+    );
+    service.registerRepository(
+      _FakeSyncRepository('sales', pendingSyncIds: {'sale-offline'}),
+    );
+
+    await _insertQueuedRecord(
+      appDatabase,
+      scope: 'sales',
+      syncId: 'sale-offline',
+    );
+
+    final processed = await service.processQueue();
+    final queueRows = await _readQueueRows(appDatabase);
+
+    expect(processed, 0);
+    expect(apiClient.uploadedScopes, isEmpty);
+    expect(queueRows.containsKey('sales'), isTrue);
+  });
+
+  test('procesa la cola uno por uno en orden al reconectar', () async {
+    apiClient = _RecordingSyncApiClient();
+    var online = false;
+    service = SyncQueueService.test(
+      appDatabase: appDatabase,
+      configRepository: configRepository,
+      apiClient: apiClient,
+      conflictService: SyncConflictService(appDatabase: appDatabase),
+      connectivityProbe: (_) async => online,
+    );
+    service.registerRepository(
+      _FakeSyncRepository('sales', pendingSyncIds: {'sale-1', 'sale-2'}),
+    );
+
+    await _insertQueuedRecord(appDatabase, scope: 'sales', syncId: 'sale-1');
+    await _insertQueuedRecord(appDatabase, scope: 'sales', syncId: 'sale-2');
+
+    final processedOffline = await service.processQueue();
+    expect(processedOffline, 0);
+    expect(apiClient.uploadedScopes, isEmpty);
+
+    online = true;
+    final processedOnline = await service.processQueue();
+    final queueRows = await _readQueueRows(appDatabase);
+
+    expect(processedOnline, 2);
+    expect(apiClient.uploadedScopes, ['sales', 'sales']);
+    expect(queueRows.containsKey('sales'), isFalse);
+  });
+
+  test('conserva solo el ultimo estado create-update-delete tras volver internet', () async {
+    apiClient = _RecordingSyncApiClient();
+    var online = false;
+    service = SyncQueueService.test(
+      appDatabase: appDatabase,
+      configRepository: configRepository,
+      apiClient: apiClient,
+      conflictService: SyncConflictService(appDatabase: appDatabase),
+      connectivityProbe: (_) async => online,
+    );
+    service.registerRepository(
+      _FakeSyncRepository('sales', pendingSyncIds: {'sale-final'}),
+    );
+
+    await _insertQueuedRecord(
+      appDatabase,
+      scope: 'sales',
+      syncId: 'sale-final',
+      payloadJson: '{"sync_id":"sale-final","status":"created"}',
+    );
+    await _insertQueuedRecord(
+      appDatabase,
+      scope: 'sales',
+      syncId: 'sale-final',
+      payloadJson: '{"sync_id":"sale-final","status":"updated"}',
+    );
+    await _insertQueuedRecord(
+      appDatabase,
+      scope: 'sales',
+      syncId: 'sale-final',
+      operation: 'delete',
+      payloadJson:
+          '{"sync_id":"sale-final","status":"deleted","deleted_at":"2026-04-23T12:00:00.000Z"}',
+    );
+
+    final processedOffline = await service.processQueue();
+    expect(processedOffline, 0);
+
+    online = true;
+    final processedOnline = await service.processQueue();
+
+    expect(processedOnline, 1);
+    expect(apiClient.uploadedScopes, ['sales']);
+    expect(apiClient.uploadedPayloads, hasLength(1));
+    expect(apiClient.uploadedPayloads.single['status'], 'deleted');
+    expect(apiClient.uploadedPayloads.single['deleted_at'], isNotNull);
+  });
 }
 
 SyncSettings _buildSettings({required bool isConfigured}) {
@@ -202,28 +358,55 @@ Future<void> _insertQueuedRecord(
   AppDatabase appDatabase, {
   required String scope,
   required String syncId,
+  String operation = 'upsert',
+  String? payloadJson,
 }) async {
   final db = await appDatabase.database;
   final now = DateTime.now().toIso8601String();
 
-  final payloadJson = switch (scope) {
+  final resolvedPayloadJson = payloadJson ?? switch (scope) {
     'clients' =>
       // Must include required client fields to avoid production guards.
       // 00113745624 is checksum-valid under DominicanValidators.
       '{"sync_id":"$syncId","full_name":"Juan Perez","document_id":"00113745624"}',
     _ => '{"sync_id":"$syncId"}',
   };
-  await db.insert(DatabaseSchema.syncQueueTable, {
-    'scope': scope,
-    'record_sync_id': syncId,
-    'operation': 'upsert',
-    'payload_json': payloadJson,
-    'created_at': now,
-    'updated_at': now,
-    'next_attempt_at': now,
-    'last_error': null,
-    'attempt_count': 0,
-  });
+
+  final existing = await db.query(
+    DatabaseSchema.syncQueueTable,
+    columns: ['id', 'created_at'],
+    where: 'scope = ? AND record_sync_id = ?',
+    whereArgs: [scope, syncId],
+    limit: 1,
+  );
+
+  if (existing.isEmpty) {
+    await db.insert(DatabaseSchema.syncQueueTable, {
+      'scope': scope,
+      'record_sync_id': syncId,
+      'operation': operation,
+      'payload_json': resolvedPayloadJson,
+      'created_at': now,
+      'updated_at': now,
+      'next_attempt_at': now,
+      'last_error': null,
+      'attempt_count': 0,
+    });
+    return;
+  }
+
+  await db.update(
+    DatabaseSchema.syncQueueTable,
+    {
+      'operation': operation,
+      'payload_json': resolvedPayloadJson,
+      'updated_at': now,
+      'next_attempt_at': now,
+      'last_error': null,
+    },
+    where: 'scope = ? AND record_sync_id = ?',
+    whereArgs: [scope, syncId],
+  );
 }
 
 Future<Map<String, Map<String, Object?>>> _readQueueRows(
@@ -253,6 +436,7 @@ class _RecordingSyncApiClient extends SyncApiClient {
 
   final Set<String> failingScopes;
   final List<String> uploadedScopes = [];
+  final List<Map<String, Object?>> uploadedPayloads = [];
 
   @override
   Future<SyncUploadResponse> uploadQueuedRecords({
@@ -261,6 +445,7 @@ class _RecordingSyncApiClient extends SyncApiClient {
   }) async {
     final scope = recordsByScope.keys.single;
     uploadedScopes.add(scope);
+    uploadedPayloads.addAll(recordsByScope.values.expand((items) => items));
     if (failingScopes.contains(scope)) {
       throw HttpException('Fallo simulado para $scope');
     }

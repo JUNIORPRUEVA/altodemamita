@@ -8,9 +8,11 @@ import '../../core/system/system_config_service.dart';
 import '../../models/sync/sync_conflict_strategy.dart';
 import '../../models/sync/sync_report.dart';
 import '../../models/sync/sync_settings.dart';
+import '../../models/sync/sync_runtime_state.dart';
 import '../../repositories/sync_repository.dart';
 import 'sync_api_client.dart';
 import 'sync_config_repository.dart';
+import 'sync_logger.dart';
 import 'sync_queue_service.dart';
 
 class SyncService {
@@ -38,12 +40,24 @@ class SyncService {
   final SyncApiClient _apiClient;
   final SyncQueueService _syncQueueService;
   final AppDatabase _appDatabase = AppDatabase.instance;
+  final SyncLogger _syncLogger = SyncLogger.instance;
   List<String> _lastScopeWarnings = const [];
   bool _isSyncing = false;
   SyncReport? _lastReport;
 
   bool get isSyncing => _isSyncing;
   SyncReport? get lastReport => _lastReport;
+
+  Future<SyncRuntimeState> get runtimeState async {
+    return _configRepository.loadRuntimeState(
+      isSyncing: _isSyncing,
+      pendingCount: await _syncQueueService.pendingCount(),
+    );
+  }
+
+  Future<SyncReport> fullSync() {
+    return syncNow(forceFullDownload: true);
+  }
 
   Future<SyncReport> syncNow({bool forceFullDownload = false}) async {
     if (_isSyncing) {
@@ -58,6 +72,12 @@ class SyncService {
 
     _isSyncing = true;
     final startedAt = DateTime.now();
+    await _configRepository.saveLastRun(status: SyncRuntimeStatus.syncing);
+    await _syncLogger.log(
+      action: forceFullDownload ? 'fullSync' : 'syncNow',
+      entity: 'sync',
+      result: 'started',
+    );
     try {
       final settings = await _configRepository.loadSettings();
       if (!settings.isConfigured) {
@@ -67,7 +87,10 @@ class SyncService {
           wasSkipped: true,
           errorMessage: _buildMissingConfigurationMessage(settings),
         );
-        await _configRepository.saveLastRun(errorMessage: skipped.errorMessage);
+        await _configRepository.saveLastRun(
+          errorMessage: skipped.errorMessage,
+          status: SyncRuntimeStatus.pending,
+        );
         _lastReport = skipped;
         final notify = _onSyncFinished;
         if (notify != null) {
@@ -91,6 +114,21 @@ class SyncService {
         warnings: warnings,
       );
       await _configRepository.saveLastRun();
+      await _syncLogger.log(
+        action: forceFullDownload ? 'fullSync' : 'syncNow',
+        entity: 'sync',
+        result: pendingRecords > 0 ? 'pending' : 'ok',
+        extra: {
+          'uploadedRecords': uploadedCount,
+          'downloadedRecords': downloadedCount,
+          'pendingRecords': pendingRecords,
+        },
+      );
+      await _configRepository.saveLastRun(
+        status: pendingRecords > 0
+            ? SyncRuntimeStatus.pending
+            : SyncRuntimeStatus.ok,
+      );
       _lastReport = report;
       final notify = _onSyncFinished;
       if (notify != null) {
@@ -105,7 +143,16 @@ class SyncService {
         hadConnectivityError: true,
         errorMessage: serverConnectionErrorMessage,
       );
-      await _configRepository.saveLastRun(errorMessage: report.errorMessage);
+      await _configRepository.saveLastRun(
+        errorMessage: report.errorMessage,
+        status: SyncRuntimeStatus.error,
+      );
+      await _syncLogger.log(
+        action: forceFullDownload ? 'fullSync' : 'syncNow',
+        entity: 'sync',
+        result: 'error',
+        error: report.errorMessage,
+      );
       _lastReport = report;
       final notify = _onSyncFinished;
       if (notify != null) {
@@ -122,7 +169,16 @@ class SyncService {
           errorMessage:
               'La nube rechazo la sincronizacion con la credencial actual. Inicia sesion en linea nuevamente para reactivar la sincronizacion y reunificar los datos.',
         );
-        await _configRepository.saveLastRun(errorMessage: report.errorMessage);
+        await _configRepository.saveLastRun(
+          errorMessage: report.errorMessage,
+          status: SyncRuntimeStatus.error,
+        );
+        await _syncLogger.log(
+          action: forceFullDownload ? 'fullSync' : 'syncNow',
+          entity: 'sync',
+          result: 'error',
+          error: report.errorMessage,
+        );
         _lastReport = report;
         final notify = _onSyncFinished;
         if (notify != null) {
@@ -136,7 +192,16 @@ class SyncService {
         finishedAt: DateTime.now(),
         errorMessage: serverConnectionErrorMessage,
       );
-      await _configRepository.saveLastRun(errorMessage: report.errorMessage);
+      await _configRepository.saveLastRun(
+        errorMessage: report.errorMessage,
+        status: SyncRuntimeStatus.error,
+      );
+      await _syncLogger.log(
+        action: forceFullDownload ? 'fullSync' : 'syncNow',
+        entity: 'sync',
+        result: 'error',
+        error: report.errorMessage,
+      );
       _lastReport = report;
       final notify = _onSyncFinished;
       if (notify != null) {
@@ -151,7 +216,10 @@ class SyncService {
         wasSkipped: true,
         errorMessage: 'Sistema en modo solo lectura',
       );
-      await _configRepository.saveLastRun(errorMessage: report.errorMessage);
+      await _configRepository.saveLastRun(
+        errorMessage: report.errorMessage,
+        status: SyncRuntimeStatus.pending,
+      );
       _lastReport = report;
       final notify = _onSyncFinished;
       if (notify != null) {
@@ -165,7 +233,16 @@ class SyncService {
         finishedAt: DateTime.now(),
         errorMessage: serverConnectionErrorMessage,
       );
-      await _configRepository.saveLastRun(errorMessage: report.errorMessage);
+      await _configRepository.saveLastRun(
+        errorMessage: report.errorMessage,
+        status: SyncRuntimeStatus.error,
+      );
+      await _syncLogger.log(
+        action: forceFullDownload ? 'fullSync' : 'syncNow',
+        entity: 'sync',
+        result: 'error',
+        error: report.errorMessage,
+      );
       _lastReport = report;
       final notify = _onSyncFinished;
       if (notify != null) {

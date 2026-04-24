@@ -89,24 +89,6 @@ class InstallmentsSyncRepository implements SyncRepository {
           continue;
         }
 
-        if (_isDeleted(record['deleted_at'])) {
-          await txn.delete(
-            DatabaseSchema.installmentsTable,
-            where: 'sync_id = ?',
-            whereArgs: [syncId],
-          );
-          continue;
-        }
-
-        final saleId = await _resolveIdBySyncId(
-          txn,
-          DatabaseSchema.salesTable,
-          _readRequiredString(record['sale_sync_id']),
-        );
-        if (saleId == null) {
-          continue;
-        }
-
         final existingRows = await txn.query(
           DatabaseSchema.installmentsTable,
           where: 'sync_id = ?',
@@ -118,6 +100,32 @@ class InstallmentsSyncRepository implements SyncRepository {
           record,
           updatedAtField: 'fecha_actualizacion',
         )) {
+          continue;
+        }
+
+        if (_isDeleted(record['deleted_at'])) {
+          if (existingRows.isNotEmpty) {
+            await txn.update(
+            DatabaseSchema.installmentsTable,
+              {
+                'version': _readVersion(record),
+                'fecha_actualizacion': _readDate(record['updated_at']),
+                'deleted_at': _readNullableDate(record['deleted_at']),
+                'sync_status': DatabaseSchema.syncStatusSynced,
+              },
+              where: 'sync_id = ?',
+              whereArgs: [syncId],
+            );
+          }
+          continue;
+        }
+
+        final saleId = await _resolveIdBySyncId(
+          txn,
+          DatabaseSchema.salesTable,
+          _readRequiredString(record['sale_sync_id']),
+        );
+        if (saleId == null) {
           continue;
         }
 

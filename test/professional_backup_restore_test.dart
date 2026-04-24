@@ -28,10 +28,10 @@ void main() {
       try {
         await appDatabase.initialize();
 
-        final db = await appDatabase.database;
         final timestamp = DateTime.now().toIso8601String();
 
-        await db.rawInsert(
+        final dbBefore = await appDatabase.database;
+        await dbBefore.rawInsert(
           'INSERT OR REPLACE INTO ${DatabaseSchema.settingsTable} '
           '(clave, valor, fecha_actualizacion) VALUES (?, ?, ?)',
           ['sentinel_professional_restore_key', 'value_before', timestamp],
@@ -43,7 +43,10 @@ void main() {
         expect(backupFile, isNotNull);
         expect(await backupFile!.exists(), isTrue);
 
-        await db.rawInsert(
+        // `createLocalBackup()` closes and re-initializes the database for a
+        // consistent snapshot. Re-acquire a fresh connection.
+        final dbAfterBackup = await appDatabase.database;
+        await dbAfterBackup.rawInsert(
           'INSERT OR REPLACE INTO ${DatabaseSchema.settingsTable} '
           '(clave, valor, fecha_actualizacion) VALUES (?, ?, ?)',
           ['sentinel_professional_restore_key', 'value_after', timestamp],
@@ -80,6 +83,76 @@ void main() {
           ),
           isTrue,
         );
+      } finally {
+        await appDatabase.close();
+        if (await tempDirectory.exists()) {
+          await tempDirectory.delete(recursive: true);
+        }
+      }
+    });
+
+    test('restaura después de borrar la DB local', () async {
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'sistema_solares_professional_restore_delete_',
+      );
+      final supportDirectory = path.join(tempDirectory.path, 'support');
+      final databasePath = path.join(tempDirectory.path, 'data', 'app.db');
+
+      final appDatabase = AppDatabase.test(databasePath);
+      final appPaths = AppPaths(supportDirectory: supportDirectory);
+      final backupService = BackupService(
+        appDatabase: appDatabase,
+        appPaths: appPaths,
+      );
+
+      try {
+        await appDatabase.initialize();
+
+        final db = await appDatabase.database;
+        final timestamp = DateTime.now().toIso8601String();
+
+        await db.rawInsert(
+          'INSERT OR REPLACE INTO ${DatabaseSchema.settingsTable} '
+          '(clave, valor, fecha_actualizacion) VALUES (?, ?, ?)',
+          ['sentinel_professional_restore_key', 'value_before', timestamp],
+        );
+
+        final backupFile = await backupService.createLocalBackup(
+          trigger: BackupTrigger.manual,
+        );
+        expect(backupFile, isNotNull);
+        expect(await backupFile!.exists(), isTrue);
+
+        // Simulate catastrophic local loss.
+        await appDatabase.close();
+        final dbFile = File(databasePath);
+        if (await dbFile.exists()) {
+          await dbFile.delete();
+        }
+        for (final suffix in ['-wal', '-shm', '-journal']) {
+          final sidecar = File('$databasePath$suffix');
+          if (await sidecar.exists()) {
+            await sidecar.delete();
+          }
+        }
+
+        final restoreResult = await backupService.restoreFromLocalBackup(
+          backupPath: backupFile.path,
+        );
+
+        expect(restoreResult.success, isTrue);
+
+        await appDatabase.close();
+        await appDatabase.initialize();
+
+        final restoredDb = await appDatabase.database;
+        final rows = await restoredDb.rawQuery(
+          'SELECT valor FROM ${DatabaseSchema.settingsTable} WHERE clave = ?',
+          ['sentinel_professional_restore_key'],
+        );
+
+        expect(rows, hasLength(1));
+        expect(rows.first['valor'], 'value_before');
       } finally {
         await appDatabase.close();
         if (await tempDirectory.exists()) {

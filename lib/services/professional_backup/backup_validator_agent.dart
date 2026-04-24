@@ -3,6 +3,8 @@ import 'dart:typed_data';
 
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import '../../core/database/database_schema.dart';
+
 class BackupValidatorAgent {
   const BackupValidatorAgent();
 
@@ -46,6 +48,29 @@ class BackupValidatorAgent {
       final normalized = first?.toString().trim().toLowerCase() ?? '';
       if (normalized != 'ok') {
         throw StateError('El archivo SQLite no pasó la verificación de integridad.');
+      }
+
+      final missing = await DatabaseSchema.missingCriticalTables(db);
+      if (missing.isNotEmpty) {
+        throw StateError('El backup no contiene tablas críticas: ${missing.join(', ')}');
+      }
+
+      final settingsCountRows = await db.rawQuery(
+        'SELECT COUNT(1) AS c FROM ${DatabaseSchema.settingsTable}',
+      );
+      final settingsCount = (settingsCountRows.isNotEmpty
+              ? settingsCountRows.first['c']
+              : null) as num?;
+
+      final usersCountRows = await db.rawQuery(
+        'SELECT COUNT(1) AS c FROM ${DatabaseSchema.usersTable}',
+      );
+      final usersCount = (usersCountRows.isNotEmpty
+              ? usersCountRows.first['c']
+              : null) as num?;
+
+      if ((settingsCount?.toInt() ?? 0) <= 0 || (usersCount?.toInt() ?? 0) <= 0) {
+        throw StateError('El backup no contiene datos mínimos requeridos.');
       }
     } catch (e) {
       throw StateError('No se pudo abrir/verificar la base SQLite del backup.');

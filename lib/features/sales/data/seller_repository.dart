@@ -70,7 +70,7 @@ class SellerRepository implements SyncRepository {
       },
       conflictAlgorithm: ConflictAlgorithm.abort,
     );
-    await _syncQueueService.refreshScope(scope);
+    await _confirmAuthoritativeSync('create-seller:$id');
     return id;
   }
 
@@ -91,7 +91,7 @@ class SellerRepository implements SyncRepository {
       where: 'id = ?',
       whereArgs: [seller.id],
     );
-    await _syncQueueService.refreshScope(scope);
+    await _confirmAuthoritativeSync('update-seller:${seller.id}');
   }
 
   Future<void> delete(int id) async {
@@ -107,7 +107,15 @@ class SellerRepository implements SyncRepository {
       where: 'id = ?',
       whereArgs: [id],
     );
+    await _confirmAuthoritativeSync('delete-seller:$id');
+  }
+
+  Future<void> _confirmAuthoritativeSync(String operationLabel) async {
     await _syncQueueService.refreshScope(scope);
+    await _syncQueueService.syncScopesNowOrThrow(
+      [scope],
+      operationLabel: operationLabel,
+    );
   }
 
   Future<List<Seller>> search(String query) async {
@@ -183,8 +191,13 @@ class SellerRepository implements SyncRepository {
           limit: 1,
         );
 
+        if (_shouldKeepLocal(existing, record)) {
+          continue;
+        }
+
         final values = {
           'sync_id': syncId,
+          'version': _readVersion(record),
           'nombre': record['name']?.toString() ?? record['full_name']?.toString() ?? '',
           'cedula': record['document_id']?.toString() ?? '',
           'telefono': record['phone']?.toString() ?? '',
@@ -226,4 +239,44 @@ class SellerRepository implements SyncRepository {
   }
 
   String _newSyncId() => 'seller-${DateTime.now().microsecondsSinceEpoch}';
+
+  bool _shouldKeepLocal(
+    List<Map<String, Object?>> existingRows,
+    Map<String, dynamic> remoteRecord,
+  ) {
+    if (existingRows.isEmpty) {
+      return false;
+    }
+
+    final local = existingRows.first;
+    final localPending =
+        (local['sync_status'] as String? ?? '') == SyncStatus.pending.storageValue ||
+        (local['sync_status'] as String? ?? '') == SyncStatus.conflict.storageValue;
+    final localVersion = _readVersion(local);
+    final remoteVersion = _readVersion(remoteRecord);
+    final localUpdated = DateTime.tryParse(
+      local['fecha_actualizacion']?.toString() ?? '',
+    );
+    final remoteUpdated = DateTime.tryParse(
+      remoteRecord['updated_at']?.toString() ?? '',
+    );
+
+    return localPending &&
+        ((localVersion > remoteVersion) ||
+            (localVersion >= remoteVersion &&
+                localUpdated != null &&
+                remoteUpdated != null &&
+                localUpdated.isAfter(remoteUpdated)));
+  }
+
+  int _readVersion(Map<Object?, Object?> map) {
+    final value = map['version'];
+    if (value is int) {
+      return value;
+    }
+    if (value is num) {
+      return value.toInt();
+    }
+    return int.tryParse(value?.toString() ?? '') ?? 1;
+  }
 }

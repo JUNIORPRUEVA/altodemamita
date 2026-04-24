@@ -7,10 +7,12 @@ import {
   Logger,
   Param,
   Post,
+  Res,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
 import type { Request } from 'express';
+import type { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import * as fs from 'node:fs';
@@ -114,6 +116,32 @@ export class SystemBackupController {
       items: await this.service.listBackups(),
       storageDir: this.service.getStorageDir(),
     };
+  }
+
+  @Get('download/:id')
+  @RequirePermissions(PERMISSIONS.syncManage)
+  async download(
+    @Param('id') id: string,
+    @CurrentUser() user: { type: 'desktop' | 'panel'; roles: string[] },
+    @Res() res: Response,
+  ) {
+    assertOperationalAccess(user, 'El respaldo en la nube');
+
+    const safeName = path.basename(id);
+    if (safeName !== id) {
+      res.status(HttpStatus.BAD_REQUEST).json({ ok: false, message: 'ID inválido.' });
+      return;
+    }
+
+    const fullPath = this.service.resolveBackupPath(safeName);
+    if (!fs.existsSync(fullPath)) {
+      res.status(HttpStatus.NOT_FOUND).json({ ok: false, message: 'Backup no encontrado.' });
+      return;
+    }
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
+    res.sendFile(fullPath);
   }
 
   @Delete(':id')

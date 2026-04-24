@@ -1,9 +1,12 @@
+import 'dart:developer' as developer;
+
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_schema.dart';
 import '../../../core/system/system_config_service.dart';
 import '../../../core/utils/sync_id_generator.dart';
 import '../../../services/sync/sync_queue_service.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import '../../installments/domain/installment.dart';
 import '../domain/sale.dart';
 import '../domain/sale_calculator.dart';
@@ -21,17 +24,26 @@ class SalesRepository {
   final AppDatabase _appDatabase;
   final SyncQueueService _syncQueueService;
 
+  void _log(String message) {
+    developer.log(message, name: 'SistemaSolares.SalesSync');
+  }
+
   Future<List<SaleSummary>> fetchAll({String query = ''}) async {
     final db = await _appDatabase.database;
     final normalizedQuery = query.trim();
     final whereClause = normalizedQuery.isEmpty
-        ? ''
+        ? 'WHERE v.deleted_at IS NULL AND c.deleted_at IS NULL AND s.deleted_at IS NULL'
         : '''
-      WHERE c.nombre LIKE ?
+      WHERE v.deleted_at IS NULL
+        AND c.deleted_at IS NULL
+        AND s.deleted_at IS NULL
+        AND (
+          c.nombre LIKE ?
         OR c.cedula LIKE ?
         OR s.manzana_numero LIKE ?
         OR s.solar_numero LIKE ?
         OR v.estado LIKE ?
+        )
     ''';
 
     final rows = await db.rawQuery(
@@ -59,7 +71,7 @@ class SalesRepository {
       FROM ${DatabaseSchema.salesTable} v
       INNER JOIN ${DatabaseSchema.clientsTable} c ON c.id = v.cliente_id
       INNER JOIN ${DatabaseSchema.lotsTable} s ON s.id = v.solar_id
-      LEFT JOIN ${DatabaseSchema.installmentsTable} q ON q.venta_id = v.id
+      LEFT JOIN ${DatabaseSchema.installmentsTable} q ON q.venta_id = v.id AND q.deleted_at IS NULL
       $whereClause
       GROUP BY
         v.id,
@@ -115,8 +127,11 @@ class SalesRepository {
       FROM ${DatabaseSchema.salesTable} v
       INNER JOIN ${DatabaseSchema.clientsTable} c ON c.id = v.cliente_id
       INNER JOIN ${DatabaseSchema.lotsTable} s ON s.id = v.solar_id
-      LEFT JOIN ${DatabaseSchema.installmentsTable} q ON q.venta_id = v.id
+      LEFT JOIN ${DatabaseSchema.installmentsTable} q ON q.venta_id = v.id AND q.deleted_at IS NULL
       WHERE v.vendedor_id = ?
+        AND v.deleted_at IS NULL
+        AND c.deleted_at IS NULL
+        AND s.deleted_at IS NULL
       GROUP BY
         v.id,
         v.fecha_venta,
@@ -165,7 +180,7 @@ class SalesRepository {
       INNER JOIN ${DatabaseSchema.lotsTable} s ON s.id = v.solar_id
       INNER JOIN ${DatabaseSchema.usersTable} u ON u.id = v.usuario_id
       LEFT JOIN ${DatabaseSchema.sellersTable} vnd ON vnd.id = v.vendedor_id
-      WHERE v.id = ?
+      WHERE v.id = ? AND v.deleted_at IS NULL
       ''',
       [saleId],
     );
@@ -178,14 +193,14 @@ class SalesRepository {
     final initialPaymentRows = await db.query(
       DatabaseSchema.paymentsTable,
       columns: ['metodo_pago'],
-      where: 'venta_id = ? AND cuota_id IS NULL',
+      where: 'venta_id = ? AND cuota_id IS NULL AND deleted_at IS NULL',
       whereArgs: [saleId],
       orderBy: 'fecha_pago ASC, id ASC',
       limit: 1,
     );
     final installmentsRows = await db.query(
       DatabaseSchema.installmentsTable,
-      where: 'venta_id = ? AND estado <> ?',
+      where: 'venta_id = ? AND deleted_at IS NULL AND estado <> ?',
       whereArgs: [saleId, 'ajustada'],
       orderBy: 'numero_cuota ASC',
     );
@@ -404,10 +419,14 @@ class SalesRepository {
       return saleId;
     });
 
-    await _syncQueueService.refreshScope('products');
-    await _syncQueueService.refreshScope('sales');
-    await _syncQueueService.refreshScope('installments');
-    await _syncQueueService.refreshScope('payments');
+    _log(
+      'CREATE SALE -> local saleId=$saleId clientId=${draft.clientId} lotId=${draft.lotId} amount=${draft.salePrice}',
+    );
+    await _confirmSalesMutation(
+      'create-sale:$saleId',
+      const ['products', 'sales', 'installments', 'payments'],
+    );
+    _log('CREATE SALE FINAL -> saleId=$saleId confirmado por backend');
     return saleId;
   }
 
@@ -611,16 +630,21 @@ class SalesRepository {
 
       final existingInstallmentRows = await txn.query(
         DatabaseSchema.installmentsTable,
-        where: 'venta_id = ?',
+        where: 'venta_id = ? AND deleted_at IS NULL',
         whereArgs: [saleId],
       );
       deletedInstallmentPayloads.addAll(
         existingInstallmentRows.map((row) => _buildDeletePayload(row)),
       );
 
-      await txn.delete(
+      await txn.update(
         DatabaseSchema.installmentsTable,
-        where: 'venta_id = ?',
+        {
+          'deleted_at': updatedAt.toIso8601String(),
+          'fecha_actualizacion': updatedAt.toIso8601String(),
+          'sync_status': DatabaseSchema.syncStatusPending,
+        },
+        where: 'venta_id = ? AND deleted_at IS NULL',
         whereArgs: [saleId],
       );
 
@@ -706,10 +730,10 @@ class SalesRepository {
         payload: payload,
       );
     }
-    await _syncQueueService.refreshScope('products');
-    await _syncQueueService.refreshScope('sales');
-    await _syncQueueService.refreshScope('installments');
-    await _syncQueueService.refreshScope('payments');
+    await _confirmSalesMutation(
+      'update-sale:$saleId',
+      const ['products', 'sales', 'installments', 'payments'],
+    );
   }
 
   String _normalizeInitialPaymentMethod(String value) {
@@ -731,6 +755,7 @@ class SalesRepository {
         <({String scope, String syncId, Map<String, Object?> payload})>[];
 
     await db.transaction<void>((txn) async {
+      final deletedAt = DateTime.now().toIso8601String();
       final saleRows = await txn.query(
         DatabaseSchema.salesTable,
         where: 'id = ?',
@@ -744,12 +769,12 @@ class SalesRepository {
 
       final paymentRows = await txn.query(
         DatabaseSchema.paymentsTable,
-        where: 'venta_id = ?',
+        where: 'venta_id = ? AND deleted_at IS NULL',
         whereArgs: [saleId],
       );
       final installmentRows = await txn.query(
         DatabaseSchema.installmentsTable,
-        where: 'venta_id = ?',
+        where: 'venta_id = ? AND deleted_at IS NULL',
         whereArgs: [saleId],
       );
 
@@ -790,8 +815,35 @@ class SalesRepository {
       }
 
       final lotId = saleRow['solar_id'] as int?;
-      await txn.delete(
+      await txn.update(
+        DatabaseSchema.paymentsTable,
+        {
+          'deleted_at': deletedAt,
+          'fecha_actualizacion': deletedAt,
+          'sync_status': DatabaseSchema.syncStatusPending,
+        },
+        where: 'venta_id = ? AND deleted_at IS NULL',
+        whereArgs: [saleId],
+      );
+
+      await txn.update(
+        DatabaseSchema.installmentsTable,
+        {
+          'deleted_at': deletedAt,
+          'fecha_actualizacion': deletedAt,
+          'sync_status': DatabaseSchema.syncStatusPending,
+        },
+        where: 'venta_id = ? AND deleted_at IS NULL',
+        whereArgs: [saleId],
+      );
+
+      await txn.update(
         DatabaseSchema.salesTable,
+        {
+          'deleted_at': deletedAt,
+          'fecha_actualizacion': deletedAt,
+          'sync_status': DatabaseSchema.syncStatusPending,
+        },
         where: 'id = ?',
         whereArgs: [saleId],
       );
@@ -801,7 +853,7 @@ class SalesRepository {
           DatabaseSchema.lotsTable,
           {
             'estado': 'disponible',
-            'fecha_actualizacion': DateTime.now().toIso8601String(),
+            'fecha_actualizacion': deletedAt,
             'sync_status': DatabaseSchema.syncStatusPending,
           },
           where: 'id = ?',
@@ -817,7 +869,25 @@ class SalesRepository {
         payload: item.payload,
       );
     }
-    await _syncQueueService.refreshScope('products');
+    _log('DELETE SALE -> local saleId=$saleId queued for backend deletion');
+    await _confirmSalesMutation(
+      'delete-sale:$saleId',
+      const ['products', 'sales', 'installments', 'payments'],
+    );
+    _log('DELETE SALE FINAL -> saleId=$saleId confirmado por backend');
+  }
+
+  Future<void> _confirmSalesMutation(
+    String operationLabel,
+    List<String> scopes,
+  ) async {
+    for (final scope in scopes) {
+      await _syncQueueService.refreshScope(scope);
+    }
+    await _syncQueueService.syncScopesNowOrThrow(
+      scopes,
+      operationLabel: operationLabel,
+    );
   }
 
   Future<void> _ensureReferencedRowsExist(

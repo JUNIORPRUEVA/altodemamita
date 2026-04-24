@@ -1,3 +1,5 @@
+import 'dart:developer' as developer;
+
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../../../core/database/app_database.dart';
@@ -27,6 +29,10 @@ class PaymentsRepository {
   final SettingsRepository _settingsRepository;
   final SyncQueueService _syncQueueService;
 
+  void _log(String message) {
+    developer.log(message, name: 'SistemaSolares.PaymentsSync');
+  }
+
   Future<List<PaymentSaleOption>> fetchActiveSales() async {
     final db = await _appDatabase.database;
     final rows = await db.rawQuery('''
@@ -47,7 +53,10 @@ class PaymentsRepository {
       FROM ${DatabaseSchema.salesTable} v
       INNER JOIN ${DatabaseSchema.clientsTable} c ON c.id = v.cliente_id
       INNER JOIN ${DatabaseSchema.lotsTable} s ON s.id = v.solar_id
-      WHERE v.estado IN ('apartado', 'inicial_incompleto', 'activa')
+      WHERE v.deleted_at IS NULL
+        AND c.deleted_at IS NULL
+        AND s.deleted_at IS NULL
+        AND v.estado IN ('apartado', 'inicial_incompleto', 'activa')
         AND (v.monto_inicial_pendiente > 0 OR v.saldo_pendiente > 0)
       ORDER BY c.nombre COLLATE NOCASE ASC, v.id ASC
     ''');
@@ -87,6 +96,9 @@ class PaymentsRepository {
       INNER JOIN ${DatabaseSchema.clientsTable} c ON c.id = v.cliente_id
       INNER JOIN ${DatabaseSchema.lotsTable} s ON s.id = v.solar_id
       WHERE v.id = ?
+        AND v.deleted_at IS NULL
+        AND c.deleted_at IS NULL
+        AND s.deleted_at IS NULL
       LIMIT 1
     ''',
       [saleId],
@@ -98,7 +110,7 @@ class PaymentsRepository {
 
     final installmentRows = await db.query(
       DatabaseSchema.installmentsTable,
-      where: 'venta_id = ? AND estado <> ?',
+      where: 'venta_id = ? AND deleted_at IS NULL AND estado <> ?',
       whereArgs: [saleId, 'ajustada'],
       orderBy: 'numero_cuota ASC',
     );
@@ -111,7 +123,7 @@ class PaymentsRepository {
         q.numero_cuota
       FROM ${DatabaseSchema.paymentsTable} p
       LEFT JOIN ${DatabaseSchema.installmentsTable} q ON q.id = p.cuota_id
-      WHERE p.venta_id = ?
+      WHERE p.venta_id = ? AND p.deleted_at IS NULL
       ORDER BY p.fecha_pago DESC, p.id DESC
     ''',
       [saleId],
@@ -163,6 +175,8 @@ class PaymentsRepository {
       LEFT JOIN ${DatabaseSchema.installmentsTable} q ON q.id = p.cuota_id
       LEFT JOIN ${DatabaseSchema.lotsTable} s ON s.id = v.solar_id
       WHERE p.cliente_id = ?
+        AND p.deleted_at IS NULL
+        AND v.deleted_at IS NULL
       ORDER BY p.fecha_pago DESC, p.id DESC
     ''',
       [clientId],
@@ -202,10 +216,10 @@ class PaymentsRepository {
       );
     }
 
-    await _syncQueueService.refreshScope('products');
-    await _syncQueueService.refreshScope('sales');
-    await _syncQueueService.refreshScope('installments');
-    await _syncQueueService.refreshScope('payments');
+    await _confirmPaymentsMutation(
+      'register-payment:${draft.saleId}',
+      const ['products', 'sales', 'installments', 'payments'],
+    );
   }
 
   Future<void> deletePayment(int paymentId) async {
@@ -242,7 +256,7 @@ class PaymentsRepository {
       final latestRows = await txn.query(
         DatabaseSchema.paymentsTable,
         columns: ['id'],
-        where: 'venta_id = ?',
+        where: 'venta_id = ? AND deleted_at IS NULL',
         whereArgs: [saleId],
         orderBy: 'fecha_pago DESC, id DESC',
         limit: 1,
@@ -294,8 +308,13 @@ class PaymentsRepository {
       final existingActivationDate = saleRow['fecha_activacion'] as String?;
       final updatedAt = DateTime.now().toIso8601String();
 
-      await txn.delete(
+      await txn.update(
         DatabaseSchema.paymentsTable,
+        {
+          'deleted_at': updatedAt,
+          'fecha_actualizacion': updatedAt,
+          'sync_status': DatabaseSchema.syncStatusPending,
+        },
         where: 'id = ?',
         whereArgs: [paymentId],
       );
@@ -321,7 +340,7 @@ class PaymentsRepository {
 
         final deletedInstallmentRows = await txn.query(
           DatabaseSchema.installmentsTable,
-          where: 'venta_id = ?',
+          where: 'venta_id = ? AND deleted_at IS NULL',
           whereArgs: [saleId],
         );
         for (final row in deletedInstallmentRows) {
@@ -336,9 +355,14 @@ class PaymentsRepository {
           ));
         }
 
-        await txn.delete(
+        await txn.update(
           DatabaseSchema.installmentsTable,
-          where: 'venta_id = ?',
+          {
+            'deleted_at': updatedAt,
+            'fecha_actualizacion': updatedAt,
+            'sync_status': DatabaseSchema.syncStatusPending,
+          },
+          where: 'venta_id = ? AND deleted_at IS NULL',
           whereArgs: [saleId],
         );
 
@@ -376,7 +400,11 @@ class PaymentsRepository {
           for (final installment in generatedInstallments) {
             batch.insert(
               DatabaseSchema.installmentsTable,
-              installment.toMap()..remove('id'),
+              installment.toMap()
+                ..['sync_id'] = _newSyncId('installment')
+                ..['deleted_at'] = null
+                ..['sync_status'] = DatabaseSchema.syncStatusPending
+                ..remove('id'),
             );
           }
           await batch.commit(noResult: true);
@@ -536,10 +564,12 @@ class PaymentsRepository {
         payload: item.payload,
       );
     }
-    await _syncQueueService.refreshScope('products');
-    await _syncQueueService.refreshScope('sales');
-    await _syncQueueService.refreshScope('installments');
-    await _syncQueueService.refreshScope('payments');
+    _log('REFUND PAYMENT -> local paymentId=$paymentId queued for backend delete');
+    await _confirmPaymentsMutation(
+      'refund-payment:$paymentId',
+      const ['products', 'sales', 'installments', 'payments'],
+    );
+    _log('REFUND PAYMENT FINAL -> paymentId=$paymentId confirmado por backend');
   }
 
   Future<void> _registerPaymentInTransaction(
@@ -668,16 +698,21 @@ class PaymentsRepository {
 
         final previousInstallmentRows = await txn.query(
           DatabaseSchema.installmentsTable,
-          where: 'venta_id = ?',
+          where: 'venta_id = ? AND deleted_at IS NULL',
           whereArgs: [draft.saleId],
         );
         deletedInstallmentPayloads.addAll(
           previousInstallmentRows.map((row) => _buildDeletePayload(row)),
         );
 
-        await txn.delete(
+        await txn.update(
           DatabaseSchema.installmentsTable,
-          where: 'venta_id = ?',
+          {
+            'deleted_at': timestamp,
+            'fecha_actualizacion': timestamp,
+            'sync_status': DatabaseSchema.syncStatusPending,
+          },
+          where: 'venta_id = ? AND deleted_at IS NULL',
           whereArgs: [draft.saleId],
         );
 
@@ -904,6 +939,19 @@ class PaymentsRepository {
           : newPaidAmount > 0
           ? 'parcial'
           : 'pendiente',
+    );
+  }
+
+  Future<void> _confirmPaymentsMutation(
+    String operationLabel,
+    List<String> scopes,
+  ) async {
+    for (final scope in scopes) {
+      await _syncQueueService.refreshScope(scope);
+    }
+    await _syncQueueService.syncScopesNowOrThrow(
+      scopes,
+      operationLabel: operationLabel,
     );
   }
 

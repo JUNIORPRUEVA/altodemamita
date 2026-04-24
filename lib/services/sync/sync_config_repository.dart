@@ -9,6 +9,7 @@ import '../../core/system/system_config_service.dart';
 import '../../features/settings/data/settings_repository.dart';
 import '../../models/sync/sync_conflict_strategy.dart';
 import '../../models/sync/sync_settings.dart';
+import '../../models/sync/sync_runtime_state.dart';
 
 class SyncConfigRepository {
   SyncConfigRepository({
@@ -29,6 +30,7 @@ class SyncConfigRepository {
   static const syncConflictStrategyKey = 'sync.conflict_strategy';
   static const syncLastErrorKey = 'sync.last_error';
   static const syncLastRunAtKey = 'sync.last_run_at';
+  static const syncLastStatusKey = 'sync.last_status';
 
   static const _jwtTokenPreferenceKey = 'sync.jwt_token';
   static const _deviceIdPreferenceKey = 'sync.device_id';
@@ -157,7 +159,10 @@ class SyncConfigRepository {
     }
   }
 
-  Future<void> saveLastRun({String? errorMessage}) async {
+  Future<void> saveLastRun({
+    String? errorMessage,
+    SyncRuntimeStatus status = SyncRuntimeStatus.ok,
+  }) async {
     if (SystemConfigService.instance.isReadOnly) {
       return;
     }
@@ -165,7 +170,36 @@ class SyncConfigRepository {
     await _settingsRepository.saveMultiple({
       syncLastRunAtKey: DateTime.now().toIso8601String(),
       syncLastErrorKey: errorMessage ?? '',
+      syncLastStatusKey: status.name,
     });
+  }
+
+  Future<SyncRuntimeState> loadRuntimeState({
+    bool isSyncing = false,
+    int pendingCount = 0,
+  }) async {
+    final values = await _settingsRepository.fetchByKeys([
+      syncLastRunAtKey,
+      syncLastErrorKey,
+      syncLastStatusKey,
+    ]);
+    final lastRunAt = DateTime.tryParse(values[syncLastRunAtKey]?.value ?? '');
+    final lastError = values[syncLastErrorKey]?.value.trim();
+    final normalizedStatus = values[syncLastStatusKey]?.value.trim().toLowerCase();
+    final status = switch (normalizedStatus) {
+      'error' => SyncRuntimeStatus.error,
+      'pending' => SyncRuntimeStatus.pending,
+      'syncing' => SyncRuntimeStatus.syncing,
+      _ => SyncRuntimeStatus.ok,
+    };
+
+    return SyncRuntimeState(
+      isSyncing: isSyncing,
+      status: isSyncing ? SyncRuntimeStatus.syncing : status,
+      lastSyncAt: lastRunAt,
+      lastError: (lastError == null || lastError.isEmpty) ? null : lastError,
+      pendingCount: pendingCount,
+    );
   }
 
   Future<String> getOrCreateDeviceId() async {

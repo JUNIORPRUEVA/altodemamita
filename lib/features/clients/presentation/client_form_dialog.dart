@@ -91,7 +91,7 @@ class _ClientFormDialogState extends State<ClientFormDialog> {
                     labelText: 'Cédula',
                   ),
                   inputFormatters: [DominicanIdFormatter()],
-                  validator: DominicanValidators.validateDominicanId,
+                  validator: DominicanValidators.validateDominicanIdLengthOnly,
                 ),
                 const SizedBox(height: 12),
                 TextFormField(

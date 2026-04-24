@@ -204,6 +204,16 @@ export class SystemBackupService implements OnModuleInit, OnModuleDestroy {
     return this.storageDir;
   }
 
+  resolveBackupPath(id: string): string {
+    const safeName = path.basename(id);
+    if (safeName !== id) {
+      throw new Error('Invalid backup id.');
+    }
+
+    // storageDir is already resolved, but normalize final path anyway.
+    return path.join(this.storageDir, safeName);
+  }
+
   sanitizeUploadFilename(originalName: string): string {
     const base = path.basename(originalName || '').trim();
     if (!base) {

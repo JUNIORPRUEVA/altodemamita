@@ -51,7 +51,7 @@ class LotRepository {
     final db = await _appDatabase.database;
     final rows = await db.query(
       DatabaseSchema.lotsTable,
-      where: 'id = ?',
+      where: 'id = ? AND deleted_at IS NULL',
       whereArgs: [id],
     );
 
@@ -69,7 +69,7 @@ class LotRepository {
     final db = await _appDatabase.database;
     final rows = await db.query(
       DatabaseSchema.lotsTable,
-      where: 'manzana_numero = ? AND solar_numero = ?',
+      where: 'manzana_numero = ? AND solar_numero = ? AND deleted_at IS NULL',
       whereArgs: [blockNumber.trim(), lotNumber.trim()],
       limit: 1,
     );
@@ -95,7 +95,7 @@ class LotRepository {
       where: 'id = ?',
       whereArgs: [id],
     );
-    await _syncQueueService.refreshScope('products');
+    await _confirmAuthoritativeSync('update-lot-status:$id');
   }
 
   Future<List<Lot>> _fetchWhere({
@@ -113,6 +113,7 @@ class LotRepository {
         : List<Object?>.filled(3, '%$normalizedQuery%');
 
     final where = [
+      'deleted_at IS NULL',
       ...?wherePrefix == null ? null : [wherePrefix],
       ...?queryClause == null ? null : [queryClause],
     ].join(' AND ');
@@ -131,7 +132,7 @@ class LotRepository {
   Future<int> countAll() async {
     final db = await _appDatabase.database;
     final result = await db.rawQuery(
-      'SELECT COUNT(*) FROM ${DatabaseSchema.lotsTable}',
+      'SELECT COUNT(*) FROM ${DatabaseSchema.lotsTable} WHERE deleted_at IS NULL',
     );
     return _readCount(result);
   }
@@ -139,7 +140,7 @@ class LotRepository {
   Future<int> countByStatus(String status) async {
     final db = await _appDatabase.database;
     final result = await db.rawQuery(
-      'SELECT COUNT(*) FROM ${DatabaseSchema.lotsTable} WHERE estado = ?',
+      'SELECT COUNT(*) FROM ${DatabaseSchema.lotsTable} WHERE deleted_at IS NULL AND estado = ?',
       [status],
     );
     return _readCount(result);
@@ -175,7 +176,7 @@ class LotRepository {
           ..['sync_status'] = DatabaseSchema.syncStatusPending
           ..remove('id'),
       );
-      await _syncQueueService.refreshScope('products');
+      await _confirmAuthoritativeSync('create-lot');
       return;
     }
 
@@ -187,7 +188,7 @@ class LotRepository {
       where: 'id = ?',
       whereArgs: [normalizedLot.id],
     );
-    await _syncQueueService.refreshScope('products');
+    await _confirmAuthoritativeSync('update-lot:${normalizedLot.id}');
   }
 
   Future<void> delete(int id) async {
@@ -221,7 +222,16 @@ class LotRepository {
     };
     final syncId = (row['sync_id'] as String?)?.trim();
 
-    await db.delete(DatabaseSchema.lotsTable, where: 'id = ?', whereArgs: [id]);
+    await db.update(
+      DatabaseSchema.lotsTable,
+      {
+        'deleted_at': payload['deleted_at'],
+        'fecha_actualizacion': payload['updated_at'],
+        'sync_status': DatabaseSchema.syncStatusPending,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
     if (syncId != null && syncId.isNotEmpty) {
       await _syncQueueService.enqueueDelete(
         scope: 'products',
@@ -229,6 +239,15 @@ class LotRepository {
         payload: payload,
       );
     }
+    await _confirmAuthoritativeSync('delete-lot:$id');
+  }
+
+  Future<void> _confirmAuthoritativeSync(String operationLabel) async {
+    await _syncQueueService.refreshScope('products');
+    await _syncQueueService.syncScopesNowOrThrow(
+      const ['products'],
+      operationLabel: operationLabel,
+    );
   }
 
   int _readCount(List<Map<String, Object?>> rows) {

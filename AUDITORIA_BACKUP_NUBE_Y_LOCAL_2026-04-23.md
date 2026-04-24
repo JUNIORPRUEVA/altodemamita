@@ -111,17 +111,18 @@ Flujo:
 - Ver: `lib/services/professional_backup/cloud_backup_agent.dart`
 
 ### 2.5 Upload HTTP
-- Endpoint: `POST {baseUrl}/system/backup/upload`
+- Endpoint: `POST {baseUrl}/api/system/backup/upload`
+  - Nota: el cliente construye el path para funcionar si `{baseUrl}` viene con o sin `/api`.
 - Auth: `Authorization: Bearer <jwtToken>` (desde settings de sync)
 - Cliente: `dart:io` `HttpClient` (sin dependencias extras)
 - Timeout conexión: 20s
 
-### 2.6 Reintentos (máx 2)
+### 2.6 Reintentos (máx 3)
 - Política de retry controlada:
-  - Reintenta (hasta 2) en `SocketException`, `TimeoutException`, `HttpException`.
+  - Reintenta (hasta 3) en `SocketException`, `TimeoutException`, `HttpException`.
   - Reintenta también si el backend responde 408/429/5xx.
   - No reintenta en errores no transitorios.
-  - Backoff: 750ms * intento.
+  - Backoff fijo: 2s → 5s → 10s.
 - Ver: `lib/services/professional_backup/backup_service.dart`
 
 ### 2.7 Resultado y persistencia “último día ok”
@@ -136,7 +137,7 @@ Flujo:
 ## 3) Backend (NestJS) — Nube
 
 ### 3.1 Endpoints
-Base: `/system/backup`
+Base: `/api/system/backup` (Nest usa `setGlobalPrefix('api')` por defecto)
 - `POST /upload` — recibe multipart `file`
 - `GET /list` — lista archivos
 - `DELETE /:id` — borra por nombre
@@ -162,6 +163,9 @@ Implementación:
 
 Recomendación operativa:
 - En producción, configurar `CLOUD_BACKUPS_DIR=/cloud_backups` y montar un volumen persistente a esa ruta.
+
+Hardening adicional (Docker):
+- La imagen declara volumen `VOLUME /cloud_backups` y el entrypoint intenta ajustar permisos en runtime (best-effort) antes de ejecutar la app.
 
 ### 3.4 Retención (4 días)
 - Política: elimina archivos con `mtime` menor al cutoff de 4 días.
@@ -213,6 +217,7 @@ Se ejecutaron pruebas enfocadas (Windows) y pasaron:
 - `test/local_persistence_production_test.dart`
 - `test/read_only_configuration_hardening_test.dart`
 - `test/resilience_recovery_test.dart`
+- `test/professional_backup_restore_test.dart` (restore profesional + quick_check + caso con DB borrada)
 
 > Nota Windows: a veces Flutter puede crashear con native assets (`sqlite3.dll` errno=183) si quedan procesos `dart/flutter_tester` vivos o el archivo queda bloqueado. En ese caso, detener procesos y borrar `build/native_assets` suele resolver.
 

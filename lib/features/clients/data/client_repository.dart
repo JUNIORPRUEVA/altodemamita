@@ -121,7 +121,7 @@ class ClientRepository implements SyncRepository {
         DatabaseSchema.clientsTable,
         normalizedClient.toMap()..remove('id'),
       );
-      await _syncQueueService.refreshScope(scope);
+      await _confirmAuthoritativeSync('create-client');
       return;
     }
 
@@ -131,7 +131,7 @@ class ClientRepository implements SyncRepository {
       where: 'id = ?',
       whereArgs: [normalizedClient.id],
     );
-    await _syncQueueService.refreshScope(scope);
+    await _confirmAuthoritativeSync('update-client:${normalizedClient.id}');
   }
 
   Future<void> delete(int id) async {
@@ -161,7 +161,15 @@ class ClientRepository implements SyncRepository {
       where: 'id = ?',
       whereArgs: [id],
     );
+    await _confirmAuthoritativeSync('delete-client:$id');
+  }
+
+  Future<void> _confirmAuthoritativeSync(String operationLabel) async {
     await _syncQueueService.refreshScope(scope);
+    await _syncQueueService.syncScopesNowOrThrow(
+      [scope],
+      operationLabel: operationLabel,
+    );
   }
 
   @override

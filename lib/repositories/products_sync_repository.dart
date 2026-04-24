@@ -59,15 +59,6 @@ class ProductsSyncRepository implements SyncRepository {
           continue;
         }
 
-        if (_isDeleted(record['deleted_at'])) {
-          await txn.delete(
-            DatabaseSchema.lotsTable,
-            where: 'sync_id = ?',
-            whereArgs: [syncId],
-          );
-          continue;
-        }
-
         final existingRows = await txn.query(
           DatabaseSchema.lotsTable,
           where: 'sync_id = ?',
@@ -79,6 +70,23 @@ class ProductsSyncRepository implements SyncRepository {
           record,
           updatedAtField: 'fecha_actualizacion',
         )) {
+          continue;
+        }
+
+        if (_isDeleted(record['deleted_at'])) {
+          if (existingRows.isNotEmpty) {
+            await txn.update(
+            DatabaseSchema.lotsTable,
+              {
+                'version': _readVersion(record),
+                'fecha_actualizacion': _readDate(record['updated_at']),
+                'deleted_at': _readNullableDate(record['deleted_at']),
+                'sync_status': DatabaseSchema.syncStatusSynced,
+              },
+              where: 'sync_id = ?',
+              whereArgs: [syncId],
+            );
+          }
           continue;
         }
 

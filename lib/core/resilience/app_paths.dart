@@ -27,6 +27,7 @@ class AppPaths {
   String get backupsDirectory => path.join(supportDirectory, 'backups');
   String get configDirectory => path.join(supportDirectory, 'config');
   String get logsDirectory => path.join(supportDirectory, 'logs');
+  String get syncLogPath => path.join(logsDirectory, 'sync.log');
   String get incidentsDirectory => path.join(logsDirectory, 'incidents');
   String get generatedDirectory => path.join(supportDirectory, 'generated');
   String get tempDirectory => path.join(supportDirectory, 'temp');

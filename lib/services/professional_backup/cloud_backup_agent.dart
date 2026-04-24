@@ -8,6 +8,7 @@ import '../../core/database/app_database.dart';
 import '../../core/resilience/app_paths.dart';
 import '../sync/sync_config_repository.dart';
 import 'backup_validator_agent.dart';
+import 'database_activity_guard.dart';
 
 class CloudBackupUploadResult {
   const CloudBackupUploadResult({
@@ -30,11 +31,13 @@ class CloudBackupAgent {
     SyncConfigRepository? syncConfigRepository,
     HttpClient? httpClient,
     BackupValidatorAgent? validator,
+    DatabaseActivityGuard? activityGuard,
   }) : _appDatabase = appDatabase,
        _appPaths = appPaths,
        _syncConfigRepository = syncConfigRepository ?? SyncConfigRepository(),
        _httpClient = httpClient ?? HttpClient(),
-       _validator = validator ?? const BackupValidatorAgent() {
+       _validator = validator ?? const BackupValidatorAgent(),
+       _activityGuard = activityGuard ?? const DatabaseActivityGuard() {
     _httpClient.connectionTimeout = const Duration(seconds: 20);
     _httpClient.idleTimeout = const Duration(seconds: 30);
   }
@@ -44,6 +47,7 @@ class CloudBackupAgent {
   final SyncConfigRepository _syncConfigRepository;
   final HttpClient _httpClient;
   final BackupValidatorAgent _validator;
+  final DatabaseActivityGuard _activityGuard;
 
   Future<CloudBackupUploadResult> createAndUploadDailyBackup({
     required DateTime date,
@@ -63,6 +67,8 @@ class CloudBackupAgent {
     if (!await sourceFile.exists()) {
       throw StateError('Base de datos local no encontrada.');
     }
+
+    await _activityGuard.waitForNoActiveWriters(databasePath: sourcePath);
 
     print('[PRO-BACKUP] Preparando snapshot para nube: $zipName');
 
@@ -126,7 +132,7 @@ class CloudBackupAgent {
       throw StateError('La sincronización no está configurada (baseUrl/token).');
     }
 
-    final uri = Uri.parse('${settings.normalizedBaseUrl}/system/backup/upload');
+    final uri = _buildUploadUri(settings.normalizedBaseUrl);
 
     final boundary = '----sistemaSolaresBoundary${DateTime.now().microsecondsSinceEpoch}';
     final request = await _httpClient.postUrl(uri);
@@ -169,6 +175,20 @@ class CloudBackupAgent {
       remoteFilename: uploadFilename,
       message: body,
     );
+  }
+
+  static Uri _buildUploadUri(String normalizedBaseUrl) {
+    final base = Uri.parse(normalizedBaseUrl);
+    final trimmedPath = base.path.replaceAll(RegExp(r'/+$'), '');
+    final hasApiPrefix = trimmedPath == '/api' || trimmedPath.endsWith('/api');
+    final prefix = hasApiPrefix ? trimmedPath : '$trimmedPath/api';
+
+    // Ensure leading slash for a valid absolute path.
+    final normalizedPrefix = prefix.isEmpty
+        ? '/api'
+        : (prefix.startsWith('/') ? prefix : '/$prefix');
+
+    return base.replace(path: '$normalizedPrefix/system/backup/upload');
   }
 
   static String _calendarDate(DateTime dt) {

@@ -5,6 +5,8 @@ class ProfessionalBackupSettings {
     required this.cloudBackupHour,
     required this.cloudBackupMinute,
     required this.lastCloudBackupDate,
+    required this.lastCloudBackupAttemptDate,
+    required this.cloudBackupPending,
   });
 
   final bool localBackupEnabled;
@@ -14,6 +16,14 @@ class ProfessionalBackupSettings {
 
   /// ISO-8601 calendar date: YYYY-MM-DD (local time).
   final String? lastCloudBackupDate;
+
+  /// ISO-8601 calendar date: YYYY-MM-DD (local time). Used to enforce
+  /// "at most once per day" attempts.
+  final String? lastCloudBackupAttemptDate;
+
+  /// When true, the last cloud upload failed after retries and should be
+  /// retried on the next scheduled cycle.
+  final bool cloudBackupPending;
 
   static const defaultHour = 2;
   static const defaultMinute = 0;
@@ -25,6 +35,8 @@ class ProfessionalBackupSettings {
       cloudBackupHour: defaultHour,
       cloudBackupMinute: defaultMinute,
       lastCloudBackupDate: null,
+      lastCloudBackupAttemptDate: null,
+      cloudBackupPending: false,
     );
   }
 
@@ -34,6 +46,8 @@ class ProfessionalBackupSettings {
     int? cloudBackupHour,
     int? cloudBackupMinute,
     String? lastCloudBackupDate,
+    String? lastCloudBackupAttemptDate,
+    bool? cloudBackupPending,
   }) {
     return ProfessionalBackupSettings(
       localBackupEnabled: localBackupEnabled ?? this.localBackupEnabled,
@@ -41,6 +55,9 @@ class ProfessionalBackupSettings {
       cloudBackupHour: cloudBackupHour ?? this.cloudBackupHour,
       cloudBackupMinute: cloudBackupMinute ?? this.cloudBackupMinute,
       lastCloudBackupDate: lastCloudBackupDate ?? this.lastCloudBackupDate,
+      lastCloudBackupAttemptDate:
+          lastCloudBackupAttemptDate ?? this.lastCloudBackupAttemptDate,
+      cloudBackupPending: cloudBackupPending ?? this.cloudBackupPending,
     );
   }
 
@@ -51,6 +68,8 @@ class ProfessionalBackupSettings {
       'cloudBackupHour': cloudBackupHour,
       'cloudBackupMinute': cloudBackupMinute,
       'lastCloudBackupDate': lastCloudBackupDate,
+      'lastCloudBackupAttemptDate': lastCloudBackupAttemptDate,
+      'cloudBackupPending': cloudBackupPending,
     };
   }
 
@@ -75,6 +94,11 @@ class ProfessionalBackupSettings {
       lastCloudBackupDate: (json['lastCloudBackupDate'] as String?)?.trim().isEmpty == true
           ? null
           : (json['lastCloudBackupDate'] as String?),
+      lastCloudBackupAttemptDate:
+          (json['lastCloudBackupAttemptDate'] as String?)?.trim().isEmpty == true
+              ? null
+              : (json['lastCloudBackupAttemptDate'] as String?),
+      cloudBackupPending: (json['cloudBackupPending'] as bool?) ?? false,
     );
   }
 

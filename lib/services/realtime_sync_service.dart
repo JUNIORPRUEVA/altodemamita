@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
@@ -21,7 +22,7 @@ class RealtimeSyncService {
 
   io.Socket? _socket;
   Future<void> _eventQueue = Future<void>.value();
-  final Map<String, DateTime> _recentEvents = {};
+  final Map<String, _RecentRealtimeEvent> _recentEvents = {};
   final StreamController<RealtimeSyncState> _stateController =
       StreamController<RealtimeSyncState>.broadcast();
   final StreamController<void> _dataChangedController =
@@ -186,12 +187,12 @@ class RealtimeSyncService {
   }
 
   Future<void> _handleEvent(String eventName, dynamic payload) async {
-    final eventKey = _buildEventKey(eventName, payload);
-    if (_isDuplicateEvent(eventKey)) {
+    final deduplicationContext = _buildDeduplicationContext(eventName, payload);
+    if (_isDuplicateEvent(deduplicationContext)) {
       return;
     }
 
-    final scopes = _resolveScopes(eventName, payload);
+    final scopes = resolveAffectedScopes(eventName, payload);
     if (scopes.isEmpty) {
       await _syncFromServer();
       return;
@@ -208,10 +209,14 @@ class RealtimeSyncService {
     }
   }
 
-  List<String> _resolveScopes(String eventName, dynamic payload) {
+  bool registerEventForDeduplication(String eventName, dynamic payload) {
+    return !_isDuplicateEvent(_buildDeduplicationContext(eventName, payload));
+  }
+
+  List<String> resolveAffectedScopes(String eventName, dynamic payload) {
     switch (eventName) {
       case 'sale.created':
-        return const ['clients', 'products', 'sales', 'installments'];
+        return const ['clients', 'products', 'sales', 'installments', 'payments'];
       case 'payment.created':
         return const ['sales', 'installments', 'payments'];
       case 'entity.updated':
@@ -221,7 +226,7 @@ class RealtimeSyncService {
         }
         switch (inferredScope) {
           case 'sales':
-            return const ['clients', 'products', 'sales', 'installments'];
+            return const ['clients', 'products', 'sales', 'installments', 'payments'];
           case 'payments':
             return const ['sales', 'installments', 'payments'];
           case 'installments':
@@ -277,35 +282,134 @@ class RealtimeSyncService {
     return null;
   }
 
-  String _buildEventKey(String eventName, dynamic payload) {
-    final buffer = StringBuffer(eventName);
-    if (payload is Map) {
-      final normalized = payload.map(
-        (key, value) => MapEntry(key.toString(), value),
-      );
-      final eventId =
-          normalized['event_id'] ??
-          normalized['record_sync_id'] ??
-          normalized['sync_id'] ??
-          normalized['id'] ??
-          normalized['updated_at'];
-      buffer.write('::${eventId ?? payload.hashCode}');
-    } else {
-      buffer.write('::${payload.hashCode}');
-    }
-    return buffer.toString();
+  _DeduplicationContext _buildDeduplicationContext(
+    String eventName,
+    dynamic payload,
+  ) {
+    final normalizedPayload = _normalizePayload(payload);
+    final remoteJid = _firstString(normalizedPayload, const [
+      'remoteJid',
+      'remote_jid',
+      'jid',
+      'chatId',
+      'chat_id',
+    ]);
+    final messageId = _firstString(normalizedPayload, const [
+      'messageId',
+      'message_id',
+      'event_id',
+      'record_sync_id',
+      'sync_id',
+      'id',
+    ]);
+    final timestamp = _firstString(normalizedPayload, const [
+      'timestamp',
+      'timestamp_ms',
+      'updated_at',
+      'created_at',
+      'sentAt',
+      'sent_at',
+    ]);
+    final pushName = _firstString(normalizedPayload, const [
+      'pushName',
+      'push_name',
+      'senderName',
+      'sender_name',
+      'name',
+    ]);
+    final text = _firstString(normalizedPayload, const [
+      'texto',
+      'text',
+      'body',
+      'message',
+      'content',
+    ]);
+
+    return _DeduplicationContext(
+      key: [
+        eventName,
+        remoteJid ?? 'no-remoteJid',
+        messageId ?? 'no-messageId',
+        timestamp ?? 'no-timestamp',
+      ].join('::'),
+      contentSignature: _stableSerialize(normalizedPayload),
+      messageId: messageId,
+      remoteJid: remoteJid,
+      timestamp: timestamp,
+      pushName: pushName,
+      text: text,
+    );
   }
 
-  bool _isDuplicateEvent(String eventKey) {
+  bool _isDuplicateEvent(_DeduplicationContext context) {
     final now = DateTime.now();
     _recentEvents.removeWhere(
-      (_, timestamp) => now.difference(timestamp) > const Duration(minutes: 2),
+      (_, event) => now.difference(event.seenAt) > const Duration(minutes: 5),
     );
-    if (_recentEvents.containsKey(eventKey)) {
-      return true;
+
+    final existing = _recentEvents[context.key];
+    _logEventDiagnostics('Realtime event received', context);
+    if (existing != null) {
+      if (existing.contentSignature == context.contentSignature) {
+        _logEventDiagnostics('Realtime duplicate ignored', context);
+        return true;
+      }
+      _logEventDiagnostics('Realtime duplicate key reused with different content', context);
     }
-    _recentEvents[eventKey] = now;
+
+    _recentEvents[context.key] = _RecentRealtimeEvent(
+      seenAt: now,
+      contentSignature: context.contentSignature,
+    );
     return false;
+  }
+
+  Map<String, dynamic> _normalizePayload(dynamic payload) {
+    if (payload is Map) {
+      return payload.map((key, value) => MapEntry(key.toString(), value));
+    }
+    return <String, dynamic>{'value': payload};
+  }
+
+  String? _firstString(Map<String, dynamic> payload, List<String> keys) {
+    for (final key in keys) {
+      final value = payload[key];
+      if (value == null) {
+        continue;
+      }
+      final trimmed = value.toString().trim();
+      if (trimmed.isNotEmpty) {
+        return trimmed;
+      }
+    }
+    return null;
+  }
+
+  String _stableSerialize(dynamic value) {
+    return jsonEncode(_sortForSerialization(value));
+  }
+
+  dynamic _sortForSerialization(dynamic value) {
+    if (value is Map) {
+      final sortedKeys = value.keys.map((key) => key.toString()).toList()..sort();
+      return <String, dynamic>{
+        for (final key in sortedKeys) key: _sortForSerialization(value[key]),
+      };
+    }
+    if (value is List) {
+      return value.map(_sortForSerialization).toList();
+    }
+    return value;
+  }
+
+  void _logEventDiagnostics(String prefix, _DeduplicationContext context) {
+    print(
+      '$prefix: messageId=${context.messageId ?? '-'} '
+      'remoteJid=${context.remoteJid ?? '-'} '
+      'timestamp=${context.timestamp ?? '-'} '
+      'pushName=${context.pushName ?? '-'} '
+      'texto=${context.text ?? '-'}',
+    );
   }
 
   void _disposeSocket() {
@@ -350,4 +454,34 @@ class RealtimeSyncState {
   final String? lastError;
   final int dataVersion;
   final DateTime? lastDataChangedAt;
+}
+
+class _DeduplicationContext {
+  const _DeduplicationContext({
+    required this.key,
+    required this.contentSignature,
+    required this.messageId,
+    required this.remoteJid,
+    required this.timestamp,
+    required this.pushName,
+    required this.text,
+  });
+
+  final String key;
+  final String contentSignature;
+  final String? messageId;
+  final String? remoteJid;
+  final String? timestamp;
+  final String? pushName;
+  final String? text;
+}
+
+class _RecentRealtimeEvent {
+  const _RecentRealtimeEvent({
+    required this.seenAt,
+    required this.contentSignature,
+  });
+
+  final DateTime seenAt;
+  final String contentSignature;
 }

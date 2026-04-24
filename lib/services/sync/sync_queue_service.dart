@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:developer' as developer;
 import 'dart:io';
 
 import '../../core/database/app_database.dart';
@@ -7,10 +8,23 @@ import '../../core/database/database_schema.dart';
 import '../../core/config/app_flags.dart';
 import '../../core/system/system_config_service.dart';
 import '../../core/utils/client_data_guard.dart';
+import '../../models/sync/sync_runtime_state.dart';
+import '../../models/sync/sync_settings.dart';
 import '../../repositories/sync_repository.dart';
 import 'sync_conflict_service.dart';
 import 'sync_api_client.dart';
 import 'sync_config_repository.dart';
+import 'sync_logger.dart';
+
+class SyncOperationPendingException implements Exception {
+  const SyncOperationPendingException(this.message, {this.pendingItems = const []});
+
+  final String message;
+  final List<SyncQueueItem> pendingItems;
+
+  @override
+  String toString() => message;
+}
 
 class SyncQueueService {
   factory SyncQueueService.test({
@@ -18,12 +32,14 @@ class SyncQueueService {
     SyncConfigRepository? configRepository,
     SyncApiClient? apiClient,
     SyncConflictService? conflictService,
+    Future<bool> Function(SyncSettings settings)? connectivityProbe,
   }) {
     return SyncQueueService._(
       appDatabase: appDatabase,
       configRepository: configRepository,
       apiClient: apiClient,
       conflictService: conflictService,
+      connectivityProbe: connectivityProbe ?? ((_) async => true),
     );
   }
 
@@ -32,10 +48,12 @@ class SyncQueueService {
     SyncConfigRepository? configRepository,
     SyncApiClient? apiClient,
     SyncConflictService? conflictService,
+    Future<bool> Function(SyncSettings settings)? connectivityProbe,
   }) : _appDatabase = appDatabase ?? AppDatabase.instance,
        _configRepository = configRepository ?? SyncConfigRepository(),
        _apiClient = apiClient ?? SyncApiClient(),
-       _conflictService = conflictService ?? SyncConflictService();
+       _conflictService = conflictService ?? SyncConflictService(),
+       _connectivityProbe = connectivityProbe ?? _defaultConnectivityProbe;
 
   static final SyncQueueService instance = SyncQueueService._();
 
@@ -43,6 +61,8 @@ class SyncQueueService {
   final SyncConfigRepository _configRepository;
   final SyncApiClient _apiClient;
   final SyncConflictService _conflictService;
+  final Future<bool> Function(SyncSettings settings) _connectivityProbe;
+  final SyncLogger _syncLogger = SyncLogger.instance;
   final Map<String, SyncRepository> _repositoriesByScope = {};
   final StreamController<SyncQueueState> _stateController =
       StreamController<SyncQueueState>.broadcast();
@@ -70,6 +90,10 @@ class SyncQueueService {
 
   Stream<SyncQueueState> get stateStream => _stateController.stream;
   SyncQueueState get state => _state;
+
+  void _log(String message) {
+    developer.log(message, name: 'SistemaSolares.SyncQueue');
+  }
 
   void registerRepository(SyncRepository repository) {
     _repositoriesByScope[repository.scope] = repository;
@@ -100,6 +124,13 @@ class SyncQueueService {
   }) {
     SystemConfigService.instance.ensureWritable();
 
+    unawaited(_syncLogger.log(
+      action: 'enqueue',
+      entity: scope,
+      result: 'pending',
+      extra: {'operation': 'upsert', 'recordSyncId': recordSyncId},
+    ));
+
     return _enqueue(
       scope: scope,
       recordSyncId: recordSyncId,
@@ -114,6 +145,13 @@ class SyncQueueService {
     required Map<String, Object?> payload,
   }) {
     SystemConfigService.instance.ensureWritable();
+
+    unawaited(_syncLogger.log(
+      action: 'enqueue',
+      entity: scope,
+      result: 'pending',
+      extra: {'operation': 'delete', 'recordSyncId': recordSyncId},
+    ));
 
     return _enqueue(
       scope: scope,
@@ -158,6 +196,59 @@ class SyncQueueService {
     return int.tryParse(value.toString()) ?? 0;
   }
 
+  Future<void> syncScopesNowOrThrow(
+    Iterable<String> scopes, {
+    String? operationLabel,
+  }) async {
+    final normalizedScopes = scopes
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+    if (normalizedScopes.isEmpty) {
+      return;
+    }
+
+    await _waitForIdle();
+    await processQueue(includeDeferred: true);
+    await _waitForIdle();
+
+    final pendingItems = await _loadPendingItemsForScopes(normalizedScopes);
+    if (pendingItems.isEmpty) {
+      _log(
+        'CONFIRMED -> ${operationLabel ?? normalizedScopes.join(',')} scopes=${normalizedScopes.join(',')}',
+      );
+      return;
+    }
+
+    final pendingSummary = pendingItems
+        .map((item) {
+        final resolvedError = item.lastError?.trim();
+        final lastError =
+          resolvedError == null || resolvedError.isEmpty
+          ? null
+          : resolvedError;
+          return lastError == null
+              ? '${item.scope}:${item.recordSyncId}'
+              : '${item.scope}:${item.recordSyncId} -> $lastError';
+        })
+        .join(' | ');
+    final message =
+        'La nube no confirmo ${operationLabel ?? 'la operacion solicitada'}. Pendientes: $pendingSummary';
+    _log('PENDING -> $message');
+    await _configRepository.saveLastRun(
+      errorMessage: message,
+      status: SyncRuntimeStatus.pending,
+    );
+    await _syncLogger.log(
+      action: operationLabel ?? 'syncScopesNowOrThrow',
+      entity: normalizedScopes.join(','),
+      result: 'pending',
+      error: message,
+    );
+    throw SyncOperationPendingException(message, pendingItems: pendingItems);
+  }
+
   Future<int> processQueue({int limit = 100, bool includeDeferred = false}) async {
     if (SystemConfigService.instance.isReadOnly) {
       await _refreshState();
@@ -176,6 +267,22 @@ class SyncQueueService {
         return 0;
       }
 
+      final isOnline = await _connectivityProbe(settings);
+      if (!isOnline) {
+        await _configRepository.saveLastRun(
+          errorMessage: 'Sin conexion con el backend. Cola en espera.',
+          status: SyncRuntimeStatus.pending,
+        );
+        await _syncLogger.log(
+          action: 'connectivity-check',
+          entity: 'sync',
+          result: 'pending',
+          error: 'offline',
+        );
+        await _refreshState(lastError: 'Sin conexion con el backend.');
+        return 0;
+      }
+
       final items = await _loadDueItems(
         limit: limit,
         includeDeferred: includeDeferred,
@@ -184,39 +291,32 @@ class SyncQueueService {
         return 0;
       }
 
-      var processedCount = 0;
-      final grouped = <String, List<SyncQueueItem>>{};
-      for (final item in items) {
-        grouped.putIfAbsent(item.scope, () => []).add(item);
-      }
+      final orderedItems = items.toList(growable: false)
+        ..sort((left, right) {
+          final leftIndex = _syncOrder.indexOf(left.scope);
+          final rightIndex = _syncOrder.indexOf(right.scope);
+          final normalizedLeft = leftIndex == -1 ? _syncOrder.length : leftIndex;
+          final normalizedRight = rightIndex == -1 ? _syncOrder.length : rightIndex;
+          final byScope = normalizedLeft.compareTo(normalizedRight);
+          if (byScope != 0) {
+            return byScope;
+          }
+          return left.createdAt.compareTo(right.createdAt);
+        });
 
-      final unsupportedScopes = grouped.keys
+      var processedCount = 0;
+      final unsupportedScopes = orderedItems
+          .map((item) => item.scope)
           .where((scope) => !_repositoriesByScope.containsKey(scope))
           .toSet();
       if (unsupportedScopes.isNotEmpty) {
         await _deleteQueuedScopes(unsupportedScopes);
-        for (final scope in unsupportedScopes) {
-          grouped.remove(scope);
-        }
       }
 
       final unavailableScopes = <String>{};
-      final orderedScopes = grouped.keys.toList(growable: false)
-        ..sort((left, right) {
-          final leftIndex = _syncOrder.indexOf(left);
-          final rightIndex = _syncOrder.indexOf(right);
-          final normalizedLeft = leftIndex == -1
-              ? _syncOrder.length
-              : leftIndex;
-          final normalizedRight = rightIndex == -1
-              ? _syncOrder.length
-              : rightIndex;
-          return normalizedLeft.compareTo(normalizedRight);
-        });
-
-      for (final scope in orderedScopes) {
-        var entryItems = grouped[scope] ?? const <SyncQueueItem>[];
-        if (entryItems.isEmpty) {
+      for (final item in orderedItems) {
+        final scope = item.scope;
+        if (unsupportedScopes.contains(scope)) {
           continue;
         }
 
@@ -230,6 +330,7 @@ class SyncQueueService {
           continue;
         }
 
+        var entryItems = [item];
         entryItems = await _pruneOrphanedUpserts(scope, entryItems, repository);
         if (entryItems.isEmpty) {
           continue;
@@ -246,7 +347,7 @@ class SyncQueueService {
           final response = await _apiClient.uploadQueuedRecords(
             settings: settings,
             recordsByScope: {
-              scope: entryItems.map((item) => item.toUploadPayload()).toList(),
+              scope: [entryItems.single.toUploadPayload()],
             },
           );
 
@@ -255,9 +356,7 @@ class SyncQueueService {
             await repository.mergeRemoteRecords(returnedRecords);
           }
 
-          final acknowledgedSyncIds = entryItems
-              .map((item) => item.recordSyncId)
-              .toList(growable: false);
+            final acknowledgedSyncIds = [entryItems.single.recordSyncId];
 
           if (acknowledgedSyncIds.isNotEmpty) {
             await repository.markAsSynced(acknowledgedSyncIds);
@@ -268,6 +367,12 @@ class SyncQueueService {
               resolution: 'synced',
             );
             processedCount += acknowledgedSyncIds.length;
+            await _syncLogger.log(
+              action: 'upload',
+              entity: scope,
+              result: 'ok',
+              extra: {'count': acknowledgedSyncIds.length},
+            );
           }
 
           final unconfirmedIds = entryItems
@@ -289,6 +394,13 @@ class SyncQueueService {
             await _configRepository.saveCursor(scope, cursor);
           }
         } on SyncConflictException catch (error) {
+          await _syncLogger.log(
+            action: 'upload',
+            entity: scope,
+            result: 'error',
+            error: error.message,
+            extra: {'type': 'conflict'},
+          );
           if (error.returnedRecords.isNotEmpty) {
             await repository.mergeRemoteRecords(error.returnedRecords);
           }
@@ -303,9 +415,7 @@ class SyncQueueService {
               .toSet()
               .toList(growable: false);
           final affectedIds = conflictIds.isEmpty
-              ? entryItems
-                    .map((item) => item.recordSyncId)
-                    .toList(growable: false)
+              ? [entryItems.single.recordSyncId]
               : conflictIds;
 
           await repository.markAsConflict(affectedIds);
@@ -329,6 +439,13 @@ class SyncQueueService {
           }
           unavailableScopes.add(scope);
         } on SocketException catch (error) {
+          await _syncLogger.log(
+            action: 'upload',
+            entity: scope,
+            result: 'error',
+            error: error.message,
+            extra: {'type': 'socket'},
+          );
           await _scheduleRetry(
             scope: scope,
             recordSyncIds: entryItems.map((item) => item.recordSyncId),
@@ -336,6 +453,13 @@ class SyncQueueService {
           );
           unavailableScopes.add(scope);
         } on HttpException catch (error) {
+          await _syncLogger.log(
+            action: 'upload',
+            entity: scope,
+            result: 'error',
+            error: error.message,
+            extra: {'type': 'http'},
+          );
           await _scheduleRetry(
             scope: scope,
             recordSyncIds: entryItems.map((item) => item.recordSyncId),
@@ -343,6 +467,13 @@ class SyncQueueService {
           );
           unavailableScopes.add(scope);
         } catch (error) {
+          await _syncLogger.log(
+            action: 'upload',
+            entity: scope,
+            result: 'error',
+            error: error.toString(),
+            extra: {'type': 'unexpected'},
+          );
           await _scheduleRetry(
             scope: scope,
             recordSyncIds: entryItems.map((item) => item.recordSyncId),
@@ -404,6 +535,12 @@ class SyncQueueService {
     unawaited(processQueue());
   }
 
+  Future<void> _waitForIdle() async {
+    while (_isProcessing) {
+      await Future<void>.delayed(const Duration(milliseconds: 25));
+    }
+  }
+
   bool _hasUnavailableDependency(String scope, Set<String> unavailableScopes) {
     return (_scopeDependencies[scope] ?? const <String>[]).any(
       unavailableScopes.contains,
@@ -421,8 +558,41 @@ class SyncQueueService {
       whereArgs: includeDeferred
           ? null
           : [DateTime.now().toIso8601String()],
-      orderBy: 'updated_at ASC',
+      orderBy: 'created_at ASC, updated_at ASC, id ASC',
       limit: limit,
+    );
+    return rows.map(SyncQueueItem.fromMap).toList(growable: false);
+  }
+
+  static Future<bool> _defaultConnectivityProbe(SyncSettings settings) async {
+    try {
+      final uri = Uri.parse(settings.normalizedBaseUrl);
+      if (uri.host.trim().isEmpty) {
+        return false;
+      }
+      final lookup = await InternetAddress.lookup(uri.host);
+      return lookup.isNotEmpty;
+    } on SocketException {
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<List<SyncQueueItem>> _loadPendingItemsForScopes(
+    List<String> scopes,
+  ) async {
+    if (scopes.isEmpty) {
+      return const <SyncQueueItem>[];
+    }
+
+    final db = await _appDatabase.database;
+    final placeholders = List.filled(scopes.length, '?').join(', ');
+    final rows = await db.query(
+      DatabaseSchema.syncQueueTable,
+      where: 'scope IN ($placeholders)',
+      whereArgs: scopes,
+      orderBy: 'updated_at ASC',
     );
     return rows.map(SyncQueueItem.fromMap).toList(growable: false);
   }
@@ -528,10 +698,23 @@ class SyncQueueService {
     final settings = await _configRepository.loadSettings();
     final db = await _appDatabase.database;
     final now = DateTime.now();
-    final nextAttemptAt = now
-        .add(settings.queueRetryInterval)
-        .toIso8601String();
     final placeholders = List.filled(ids.length, '?').join(', ');
+  final currentAttemptsRows = await db.rawQuery(
+    'SELECT MAX(attempt_count) AS attempt_count FROM ${DatabaseSchema.syncQueueTable} '
+    'WHERE scope = ? AND record_sync_id IN ($placeholders)',
+    [scope, ...ids],
+  );
+  final currentAttemptsValue = currentAttemptsRows.isEmpty
+    ? 0
+    : currentAttemptsRows.first['attempt_count'];
+  final currentAttempts = currentAttemptsValue is num
+    ? currentAttemptsValue.toInt()
+    : int.tryParse(currentAttemptsValue?.toString() ?? '') ?? 0;
+  final retryNumber = currentAttempts + 1;
+  final retryDelay = retryNumber <= 3
+    ? Duration(seconds: settings.queueRetryInterval.inSeconds * retryNumber)
+    : const Duration(minutes: 5);
+  final nextAttemptAt = now.add(retryDelay).toIso8601String();
     await db.rawUpdate(
       'UPDATE ${DatabaseSchema.syncQueueTable} '
       'SET attempt_count = attempt_count + 1, '
@@ -540,6 +723,10 @@ class SyncQueueService {
       'last_error = ? '
       'WHERE scope = ? AND record_sync_id IN ($placeholders)',
       [now.toIso8601String(), nextAttemptAt, errorMessage, scope, ...ids],
+    );
+    await _configRepository.saveLastRun(
+      errorMessage: errorMessage,
+      status: SyncRuntimeStatus.pending,
     );
     await _refreshState(lastError: errorMessage);
   }
@@ -620,16 +807,22 @@ class SyncQueueState {
 
 class SyncQueueItem {
   const SyncQueueItem({
+    required this.id,
     required this.scope,
     required this.recordSyncId,
     required this.operation,
     required this.payload,
+    required this.createdAt,
+    this.lastError,
   });
 
+  final int id;
   final String scope;
   final String recordSyncId;
   final String operation;
   final Map<String, Object?> payload;
+  final DateTime createdAt;
+  final String? lastError;
 
   Map<String, Object?> toUploadPayload() {
     return payload;
@@ -642,10 +835,13 @@ class SyncQueueItem {
         : <String, Object?>{};
 
     return SyncQueueItem(
+      id: map['id'] is int ? map['id'] as int : int.tryParse(map['id']?.toString() ?? '') ?? 0,
       scope: map['scope'] as String? ?? '',
       recordSyncId: map['record_sync_id'] as String? ?? '',
       operation: map['operation'] as String? ?? 'upsert',
       payload: payload,
+      createdAt: DateTime.tryParse(map['created_at']?.toString() ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0),
+      lastError: map['last_error'] as String?,
     );
   }
 }
