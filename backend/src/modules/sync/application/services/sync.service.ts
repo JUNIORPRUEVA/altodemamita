@@ -2007,6 +2007,44 @@ export class SyncService {
     return value as Record<string, unknown>;
   }
 
+  private serializeUserRecord(user: {
+    id: string;
+    syncId: string;
+    fullName: string;
+    email: string;
+    username: string;
+    passwordHash: string;
+    isActive: boolean;
+    createdAt: Date;
+    updatedAt: Date;
+    deletedAt: Date | null;
+    syncStatus: SyncStatus;
+    userRoles: Array<{
+      role: {
+        code: RoleCode;
+      };
+    }>;
+  }) {
+    const primaryRole = user.userRoles[0]?.role.code;
+    return {
+      id: user.id,
+      sync_id: user.syncId,
+      version: 1,
+      full_name: user.fullName,
+      email: user.email,
+      username: user.username,
+      password_hash: user.passwordHash,
+      password_reset_required: false,
+      role: primaryRole === RoleCode.SUPER_ADMIN ? 'admin' : 'vendedor',
+      is_active: user.isActive,
+      created_at: user.createdAt.toISOString(),
+      updated_at: user.updatedAt.toISOString(),
+      password_updated_at: user.updatedAt.toISOString(),
+      deleted_at: user.deletedAt?.toISOString(),
+      sync_status: user.syncStatus,
+    };
+  }
+
   private serializeClientRecord(client: {
     id: string;
     syncId: string;
