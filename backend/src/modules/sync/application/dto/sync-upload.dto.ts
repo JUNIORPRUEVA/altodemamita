@@ -4,6 +4,10 @@ import { IsArray, IsObject, IsOptional, IsString, ValidateNested } from 'class-v
 export class SyncRecordsDto {
   @IsOptional()
   @IsArray()
+  users?: Record<string, unknown>[];
+
+  @IsOptional()
+  @IsArray()
   clients?: Record<string, unknown>[];
 
   @IsOptional()

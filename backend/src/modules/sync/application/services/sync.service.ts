@@ -1,8 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { Prisma, SyncStatus } from '@prisma/client';
+import { Prisma, RoleCode, SyncStatus } from '@prisma/client';
 
 import { PrismaService } from 'src/infrastructure/prisma/prisma.service';
+import { PERMISSIONS } from 'src/shared/constants/permissions.constants';
 import { LoanAccountingService } from 'src/shared/services/loan-accounting.service';
 import { RealtimeEventsService } from 'src/modules/realtime/realtime-events.service';
 import { SyncDownloadDto } from '../dto/sync-download.dto';
@@ -22,6 +23,7 @@ interface SyncDomainEvent {
 }
 
 interface SyncRecordCollections {
+  users: Record<string, unknown>[];
   clients: Record<string, unknown>[];
   products: Record<string, unknown>[];
   sellers: Record<string, unknown>[];
@@ -134,6 +136,92 @@ export class SyncService {
     const domainEvents: SyncDomainEvent[] = [];
 
     await this.prisma.$transaction(async (tx) => {
+      await this.ensureSyncUserRoles(tx);
+
+      for (const user of records.users) {
+        const payload = user as Record<string, unknown>;
+        const recordSyncId = this.readRecordSyncId(payload);
+        const deletedAt = this.readDate(payload, ['deletedAt', 'deleted_at']);
+        const incomingUpdatedAt = this.readDate(payload, ['updatedAt', 'updated_at']);
+        const existing = await this.findExistingUserRecord(tx, payload, recordSyncId);
+        if (this.shouldSkipWrite(existing?.updatedAt, incomingUpdatedAt)) {
+          continue;
+        }
+
+        if (deletedAt != null) {
+          if (!existing) {
+            continue;
+          }
+
+          await tx.user.update({
+            where: { id: existing.id },
+            data: {
+              deletedAt,
+              isActive: false,
+              ...(incomingUpdatedAt ? { updatedAt: incomingUpdatedAt } : {}),
+              syncStatus: SyncStatus.synced,
+            },
+          });
+          await tx.userRole.updateMany({
+            where: { userId: existing.id, deletedAt: null },
+            data: { deletedAt, syncStatus: SyncStatus.synced },
+          });
+          continue;
+        }
+
+        const email = this.readRequiredString(payload, ['email']);
+        const fullName = this.readRequiredString(payload, [
+          'full_name',
+          'fullName',
+          'name',
+          'nombre',
+        ]);
+        const username = this.normalizeUsername(
+          this.readString(payload, ['username']),
+          email,
+          fullName,
+        );
+        const passwordHash = this.readRequiredString(payload, [
+          'password_hash',
+          'passwordHash',
+        ]);
+        const roleCode = this.mapSyncedUserRole(payload['role']);
+        const role = await this.ensureSyncRole(tx, roleCode);
+
+        const persisted = existing
+          ? await tx.user.update({
+              where: { id: existing.id },
+              data: {
+                syncId: recordSyncId,
+                email,
+                username,
+                fullName,
+                passwordHash,
+                isActive: this.readBoolean(payload, ['is_active', 'activo']) ?? true,
+                deletedAt: null,
+                syncStatus: SyncStatus.synced,
+                ...(incomingUpdatedAt ? { updatedAt: incomingUpdatedAt } : {}),
+              },
+              select: { id: true },
+            })
+          : await tx.user.create({
+              data: {
+                syncId: recordSyncId,
+                email,
+                username,
+                fullName,
+                passwordHash,
+                isActive: this.readBoolean(payload, ['is_active', 'activo']) ?? true,
+                syncStatus: SyncStatus.synced,
+                createdAt: this.readDate(payload, ['createdAt', 'created_at']) ?? undefined,
+                updatedAt: incomingUpdatedAt ?? undefined,
+              },
+              select: { id: true },
+            });
+
+        await this.assignSingleUserRole(tx, persisted.id, role.id);
+      }
+
       for (const client of records.clients) {
         const payload = client as Record<string, unknown>;
         const recordSyncId = this.readRecordSyncId(payload);
@@ -883,6 +971,7 @@ export class SyncService {
 
     return {
       uploaded: {
+        users: records.users.length,
         clients: records.clients.length,
         products: records.products.length,
         sellers: records.sellers.length,
@@ -901,7 +990,15 @@ export class SyncService {
       : {};
 
     const [users, roles, permissions, clients, products, sellers, sales, installments, payments] = await this.prisma.$transaction([
-      this.prisma.user.findMany({ where }),
+      this.prisma.user.findMany({
+        where,
+        include: {
+          userRoles: {
+            where: { deletedAt: null },
+            include: { role: true },
+          },
+        },
+      }),
       this.prisma.role.findMany({ where }),
       this.prisma.permission.findMany({ where }),
       this.prisma.client.findMany({ where }),
@@ -940,6 +1037,7 @@ export class SyncService {
       updatedSince: query.updatedSince ?? null,
       server_time: new Date().toISOString(),
       records: {
+        users: users.map((item) => this.serializeUserRecord(item)),
         clients: clients.map((item) => this.serializeClientRecord(item)),
         products: products.map((item) => this.serializeProductRecord(item)),
         sellers: sellers.map((item) => this.serializeSellerRecord(item)),
@@ -1000,6 +1098,17 @@ export class SyncService {
         }
       }
     };
+
+    validateCollection(
+      'users',
+      records.users,
+      [
+        ['email'],
+        ['password_hash', 'passwordHash'],
+        ['role'],
+        ['full_name', 'fullName', 'name', 'nombre'],
+      ],
+    );
 
     validateCollection('clients', records.clients, [], []);
     for (const [index, client] of records.clients.entries()) {
@@ -1072,6 +1181,7 @@ export class SyncService {
 
   private normalizeRecords(records?: SyncRecordsDto): SyncRecordCollections {
     return {
+      users: records?.users ?? [],
       clients: records?.clients ?? [],
       products: records?.products ?? [],
       sellers: records?.sellers ?? [],
@@ -1083,6 +1193,7 @@ export class SyncService {
 
   private emptyRecords(): SyncRecordCollections {
     return {
+      users: [],
       clients: [],
       products: [],
       sellers: [],
@@ -1095,6 +1206,7 @@ export class SyncService {
   private async buildUploadAckRecords(
     records: SyncRecordCollections,
   ): Promise<SyncRecordCollections> {
+    const userSyncIds = this.collectInputSyncIds(records.users);
     const clientSyncIds = this.collectInputSyncIds(records.clients);
     const productSyncIds = this.collectInputSyncIds(records.products);
     const sellerSyncIds = this.collectInputSyncIds(records.sellers);
@@ -1102,7 +1214,19 @@ export class SyncService {
     const installmentSyncIds = this.collectInputSyncIds(records.installments);
     const paymentSyncIds = this.collectInputSyncIds(records.payments);
 
-    const [clients, products, sellers, sales, installments, payments] = await Promise.all([
+    const [users, clients, products, sellers, sales, installments, payments] = await Promise.all([
+      userSyncIds.length === 0
+        ? Promise.resolve([])
+        : this.prisma.user.findMany({
+            where: { syncId: { in: userSyncIds } },
+            include: {
+              userRoles: {
+                where: { deletedAt: null },
+                include: { role: true },
+              },
+            },
+            orderBy: { updatedAt: 'asc' },
+          }),
       clientSyncIds.length === 0
         ? Promise.resolve([])
         : this.prisma.client.findMany({
@@ -1159,6 +1283,10 @@ export class SyncService {
     ]);
 
     return {
+      users: this.mergeAcknowledgedRecords(
+        records.users,
+        users.map((item) => this.serializeUserRecord(item)),
+      ),
       clients: this.mergeAcknowledgedRecords(
         records.clients,
         clients.map((item) => this.serializeClientRecord(item)),
@@ -1448,6 +1576,207 @@ export class SyncService {
     return normalized;
   }
 
+  private async ensureSyncUserRoles(tx: Prisma.TransactionClient) {
+    for (const code of Object.values(PERMISSIONS)) {
+      await tx.permission.upsert({
+        where: { code },
+        update: { deletedAt: null, syncStatus: SyncStatus.synced, name: code },
+        create: {
+          code,
+          name: code,
+          syncStatus: SyncStatus.synced,
+        },
+      });
+    }
+
+    await this.ensureSyncRole(tx, RoleCode.SUPER_ADMIN);
+    await this.ensureSyncRole(tx, RoleCode.SALES_AGENT);
+  }
+
+  private async ensureSyncRole(
+    tx: Prisma.TransactionClient,
+    code: RoleCode,
+  ) {
+    const definition = code === RoleCode.SUPER_ADMIN
+      ? {
+          name: 'Super Admin',
+          description: 'Acceso total al sistema',
+          permissionCodes: Object.values(PERMISSIONS),
+        }
+      : {
+          name: 'Sales Agent',
+          description: 'Operacion comercial sincronizada desde escritorio',
+          permissionCodes: [
+            PERMISSIONS.clientsRead,
+            PERMISSIONS.clientsWrite,
+            PERMISSIONS.productsRead,
+            PERMISSIONS.sellersRead,
+            PERMISSIONS.sellersWrite,
+            PERMISSIONS.salesRead,
+            PERMISSIONS.salesWrite,
+            PERMISSIONS.paymentsRead,
+            PERMISSIONS.paymentsWrite,
+            PERMISSIONS.installmentsRead,
+            PERMISSIONS.installmentsWrite,
+            PERMISSIONS.reportsRead,
+          ],
+        };
+
+    const role = await tx.role.upsert({
+      where: { code },
+      update: {
+        deletedAt: null,
+        syncStatus: SyncStatus.synced,
+        name: definition.name,
+        description: definition.description,
+      },
+      create: {
+        code,
+        name: definition.name,
+        description: definition.description,
+        syncStatus: SyncStatus.synced,
+      },
+      select: { id: true },
+    });
+
+    const permissions = await tx.permission.findMany({
+      where: {
+        code: { in: definition.permissionCodes },
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+
+    await tx.rolePermission.updateMany({
+      where: {
+        roleId: role.id,
+        deletedAt: null,
+        permissionId: { notIn: permissions.map((item) => item.id) },
+      },
+      data: { deletedAt: new Date(), syncStatus: SyncStatus.synced },
+    });
+
+    for (const permission of permissions) {
+      await tx.rolePermission.upsert({
+        where: {
+          roleId_permissionId: {
+            roleId: role.id,
+            permissionId: permission.id,
+          },
+        },
+        update: { deletedAt: null, syncStatus: SyncStatus.synced },
+        create: {
+          roleId: role.id,
+          permissionId: permission.id,
+          syncStatus: SyncStatus.synced,
+        },
+      });
+    }
+
+    return role;
+  }
+
+  private async findExistingUserRecord(
+    tx: Prisma.TransactionClient,
+    payload: Record<string, unknown>,
+    recordSyncId: string,
+  ) {
+    const bySyncId = await tx.user.findUnique({
+      where: { syncId: recordSyncId },
+      select: { id: true, updatedAt: true },
+    });
+    if (bySyncId) {
+      return bySyncId;
+    }
+
+    const email = this.readString(payload, ['email']);
+    if (email) {
+      const byEmail = await tx.user.findFirst({
+        where: {
+          email: { equals: email, mode: 'insensitive' },
+        },
+        select: { id: true, updatedAt: true },
+      });
+      if (byEmail) {
+        return byEmail;
+      }
+    }
+
+    const username = this.readString(payload, ['username']);
+    if (!username) {
+      return null;
+    }
+
+    return tx.user.findFirst({
+      where: {
+        username: { equals: username, mode: 'insensitive' },
+      },
+      select: { id: true, updatedAt: true },
+    });
+  }
+
+  private normalizeUsername(rawUsername: string | undefined, email: string, fullName: string) {
+    const baseValue = rawUsername?.trim() || email.split('@')[0] || fullName;
+    const normalized = baseValue
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, '.')
+      .replace(/\.{2,}/g, '.')
+      .replace(/^\.|\.$/g, '');
+
+    return normalized || 'admin';
+  }
+
+  private mapSyncedUserRole(rawRole: unknown) {
+    const normalized = rawRole?.toString().trim().toLowerCase();
+    return normalized === 'admin' ? RoleCode.SUPER_ADMIN : RoleCode.SALES_AGENT;
+  }
+
+  private async assignSingleUserRole(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    roleId: string,
+  ) {
+    await tx.userRole.updateMany({
+      where: {
+        userId,
+        deletedAt: null,
+        roleId: { not: roleId },
+      },
+      data: { deletedAt: new Date(), syncStatus: SyncStatus.synced },
+    });
+
+    await tx.userRole.upsert({
+      where: {
+        userId_roleId: { userId, roleId },
+      },
+      update: { deletedAt: null, syncStatus: SyncStatus.synced },
+      create: { userId, roleId, syncStatus: SyncStatus.synced },
+    });
+  }
+
+  private readBoolean(payload: Record<string, unknown>, keys: string[]) {
+    for (const key of keys) {
+      const value = payload[key];
+      if (typeof value === 'boolean') {
+        return value;
+      }
+      if (typeof value === 'number') {
+        return value !== 0;
+      }
+      if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase();
+        if (normalized === 'true' || normalized === '1') {
+          return true;
+        }
+        if (normalized === 'false' || normalized === '0') {
+          return false;
+        }
+      }
+    }
+    return null;
+  }
+
   private async resolveClientReference(tx: Prisma.TransactionClient, payload: Record<string, unknown>) {
     return this.resolveReference(tx.client, payload, ['client_sync_id'], ['clientId', 'client_id'], 'cliente');
   }
@@ -1550,6 +1879,7 @@ export class SyncService {
 
   private extractCounts(records: SyncRecordCollections): Record<string, number> {
     return {
+      users: records.users.length,
       clients: records.clients.length,
       products: records.products.length,
       sellers: records.sellers.length,

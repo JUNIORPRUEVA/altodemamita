@@ -31,6 +31,7 @@ import '../../repositories/installments_sync_repository.dart';
 import '../../repositories/payments_sync_repository.dart';
 import '../../repositories/products_sync_repository.dart';
 import '../../repositories/sales_sync_repository.dart';
+import '../../repositories/users_sync_repository.dart';
 import '../../services/realtime_sync_service.dart';
 import '../../services/cloud_reset_service.dart';
 import '../../services/sync/sync_conflict_service.dart';
@@ -93,6 +94,7 @@ class _AppShellState extends State<AppShell> {
   final SettingsRepository _settingsRepository = SettingsRepository();
   final ProductsSyncRepository _productsSyncRepository =
       ProductsSyncRepository();
+  final UsersSyncRepository _usersSyncRepository = UsersSyncRepository();
   final SalesSyncRepository _salesSyncRepository = SalesSyncRepository();
   final InstallmentsSyncRepository _installmentsSyncRepository =
       InstallmentsSyncRepository();
@@ -100,6 +102,7 @@ class _AppShellState extends State<AppShell> {
       PaymentsSyncRepository();
   late final SyncService _syncService = SyncService(
     repositories: [
+      _usersSyncRepository,
       _clientRepository,
       _productsSyncRepository,
       _sellerRepository,

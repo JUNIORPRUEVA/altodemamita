@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
 import {
   BadRequestException,
   Injectable,
@@ -55,7 +56,7 @@ export class AuthService {
       },
     });
 
-    if (!user || !(await bcrypt.compare(dto.password, user.passwordHash))) {
+    if (!user || !(await this.verifyPassword(dto.password, user.passwordHash))) {
       throw new UnauthorizedException('Credenciales inválidas.');
     }
 
@@ -105,6 +106,67 @@ export class AuthService {
   async getUserById(id: string) {
     const user = await this.findUserEntity(id);
     return this.serializeUser(user);
+  }
+
+  private async verifyPassword(password: string, storedHash: string) {
+    if (storedHash.startsWith('$2')) {
+      return bcrypt.compare(password, storedHash);
+    }
+
+    if (storedHash.startsWith('v2$')) {
+      const parts = storedHash.split('$');
+      if (parts.length !== 4) {
+        return false;
+      }
+
+      const iterations = Number(parts[1]);
+      if (!Number.isFinite(iterations) || iterations <= 0) {
+        return false;
+      }
+
+      const expected = this.buildLocalPasswordHash(password, parts[2], iterations);
+      return this.safeEquals(expected, storedHash);
+    }
+
+    const separatorIndex = storedHash.indexOf(':');
+    if (separatorIndex <= 0 || separatorIndex >= storedHash.length - 1) {
+      return false;
+    }
+
+    const salt = storedHash.slice(0, separatorIndex);
+    const digest = createHash('sha256').update(`${salt}::${password}`).digest('hex');
+    return this.safeEquals(`${salt}:${digest}`, storedHash);
+  }
+
+  private buildLocalPasswordHash(password: string, salt: string, iterations: number) {
+    let bytes = Buffer.from(`${salt}::${password}`, 'utf8');
+    const passwordBytes = Buffer.from(password, 'utf8');
+    const saltBytes = Buffer.from(salt, 'utf8');
+
+    for (let round = 0; round < iterations; round += 1) {
+      bytes = createHash('sha256').update(Buffer.concat([
+        bytes,
+        passwordBytes,
+        saltBytes,
+        Buffer.from([
+          round & 0xff,
+          (round >> 8) & 0xff,
+          (round >> 16) & 0xff,
+          (round >> 24) & 0xff,
+        ]),
+      ])).digest();
+    }
+
+    return `v2$${iterations}$${salt}$${bytes.toString('hex')}`;
+  }
+
+  private safeEquals(left: string, right: string) {
+    const leftBuffer = Buffer.from(left);
+    const rightBuffer = Buffer.from(right);
+    if (leftBuffer.length !== rightBuffer.length) {
+      return false;
+    }
+    return timingSafeEqual(leftBuffer, rightBuffer);
   }
 
   async createUser(dto: CreateUserDto) {

@@ -149,6 +149,79 @@ void main() {
     );
   });
 
+  test('marca usuarios nuevos como pendientes de sincronizacion', () async {
+    await authService.completeInitialSetup(
+      nombre: 'Admin General',
+      email: 'admin@local.test',
+      password: 'AdminLocalSegura123',
+      recoveryCode: recoveryCode,
+    );
+
+    final createdUser = await authService.createUser(
+      nombre: 'Operador Sync',
+      email: 'sync@local.test',
+      password: 'SyncSegura123',
+      role: UserRole.user,
+      permissions: const [
+        PermissionModel(module: PermissionCatalog.clients, read: true),
+      ],
+    );
+
+    final db = await appDatabase.database;
+    final rows = await db.query(
+      DatabaseSchema.usersTable,
+      columns: ['sync_id', 'sync_status', 'deleted_at'],
+      where: 'id = ?',
+      whereArgs: [createdUser.id],
+      limit: 1,
+    );
+
+    expect(rows, isNotEmpty);
+    expect((rows.first['sync_id'] as String?)?.isNotEmpty, isTrue);
+    expect(rows.first['sync_status'], DatabaseSchema.syncStatusPending);
+    expect(rows.first['deleted_at'], isNull);
+  });
+
+  test('borra usuarios con soft delete y los deja pendientes de sync', () async {
+    await authService.completeInitialSetup(
+      nombre: 'Admin General',
+      email: 'admin@local.test',
+      password: 'AdminLocalSegura123',
+      recoveryCode: recoveryCode,
+    );
+
+    final createdUser = await authService.createUser(
+      nombre: 'Operador Baja',
+      email: 'baja@local.test',
+      password: 'BajaSegura123',
+      role: UserRole.user,
+      permissions: const [
+        PermissionModel(module: PermissionCatalog.payments, read: true),
+      ],
+    );
+
+    await authService.deleteUser(createdUser.id!);
+
+    final db = await appDatabase.database;
+    final rows = await db.query(
+      DatabaseSchema.usersTable,
+      columns: ['activo', 'deleted_at', 'sync_status'],
+      where: 'id = ?',
+      whereArgs: [createdUser.id],
+      limit: 1,
+    );
+
+    expect(rows, isNotEmpty);
+    expect(rows.first['activo'], 0);
+    expect((rows.first['deleted_at'] as String?)?.isNotEmpty, isTrue);
+    expect(rows.first['sync_status'], DatabaseSchema.syncStatusPending);
+    expect(await authService.getUserById(createdUser.id!), isNull);
+    expect(
+      (await authService.fetchUsers()).any((user) => user.id == createdUser.id),
+      isFalse,
+    );
+  });
+
   test(
     'valida la clave de un administrador sin cambiar la sesion activa',
     () async {

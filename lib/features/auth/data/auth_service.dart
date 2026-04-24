@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -11,6 +12,7 @@ import '../../../core/database/database_schema.dart';
 import '../../../core/security/password_hasher.dart';
 import '../../../core/security/sensitive_storage.dart';
 import '../../../core/system/system_config_service.dart';
+import '../../../core/utils/sync_id_generator.dart';
 import '../../../features/clients/data/client_repository.dart';
 import '../../../features/settings/data/company_repository.dart';
 import '../../../features/settings/data/settings_repository.dart';
@@ -20,6 +22,7 @@ import '../../../repositories/installments_sync_repository.dart';
 import '../../../repositories/payments_sync_repository.dart';
 import '../../../repositories/products_sync_repository.dart';
 import '../../../repositories/sales_sync_repository.dart';
+import '../../../repositories/users_sync_repository.dart';
 import '../../../services/professional_backup/backup_service.dart'
   as professional_backup;
 import '../../../services/sync/sync_config_repository.dart';
@@ -105,15 +108,20 @@ class AuthService {
   AuthService({
     AppDatabase? appDatabase,
     SyncConfigRepository? syncConfigRepository,
+    SyncQueueService? syncQueueService,
     Future<SharedPreferences> Function()? preferencesFactory,
     SensitiveStorage? sensitiveStorage,
     HttpClient? httpClient,
   }) : _appDatabase = appDatabase ?? AppDatabase.instance,
        _syncConfigRepository = syncConfigRepository ?? SyncConfigRepository(),
+       _syncQueueService = syncQueueService ?? SyncQueueService.instance,
        _httpClient = httpClient ?? HttpClient(),
        _sensitiveStorage =
          sensitiveStorage ??
-         SensitiveStorage(preferencesFactory: preferencesFactory);
+         SensitiveStorage(preferencesFactory: preferencesFactory) {
+    _usersSyncRepository = UsersSyncRepository(appDatabase: _appDatabase);
+    _syncQueueService.registerRepository(_usersSyncRepository);
+  }
 
   static const String _sessionSelectorKey = 'auth.session.selector';
   static const String _sessionTokenKey = 'auth.session.token';
@@ -128,8 +136,13 @@ class AuthService {
 
   final AppDatabase _appDatabase;
   final SyncConfigRepository _syncConfigRepository;
+  final SyncQueueService _syncQueueService;
   final HttpClient _httpClient;
   final SensitiveStorage _sensitiveStorage;
+  late final UsersSyncRepository _usersSyncRepository;
+
+  bool get _shouldRunBackgroundSync =>
+      identical(_appDatabase, AppDatabase.instance);
 
   Future<AuthBootstrapResult> bootstrap() async {
     final remoteStatus = await _fetchRemoteSystemStatus();
@@ -311,12 +324,15 @@ class AuthService {
         DatabaseSchema.usersTable,
         {
           'nombre': normalizedName,
+          'sync_id': _resolveUserSyncId(1),
           'email': normalizedEmail,
           'password_hash': PasswordHasher.hashPassword(normalizedPassword),
           'password_reset_required': 0,
           'password_updated_at': now,
           'rol': UserRole.admin.storageValue,
           'activo': 1,
+          'deleted_at': null,
+          'sync_status': DatabaseSchema.syncStatusPending,
           'fecha_actualizacion': now,
         },
         where: 'id = 1',
@@ -346,6 +362,7 @@ class AuthService {
     await _persistLocalCompanyProfile(normalizedCompanyName);
     await clearSession();
     await signIn(email: normalizedEmail, password: normalizedPassword);
+    _scheduleUserSync('bootstrap-admin');
     return normalizedRecoveryCode;
   }
 
@@ -719,6 +736,7 @@ class AuthService {
     final db = await _appDatabase.database;
     final rows = await db.query(
       DatabaseSchema.usersTable,
+      where: 'deleted_at IS NULL',
       orderBy: 'nombre COLLATE NOCASE ASC',
     );
 
@@ -733,7 +751,7 @@ class AuthService {
     final db = await _appDatabase.database;
     final rows = await db.query(
       DatabaseSchema.usersTable,
-      where: 'id = ?',
+      where: 'id = ? AND deleted_at IS NULL',
       whereArgs: [id],
       limit: 1,
     );
@@ -773,6 +791,7 @@ class AuthService {
 
     final userId = await db.transaction((txn) async {
       final id = await txn.insert(DatabaseSchema.usersTable, {
+        'sync_id': _nextUserSyncId(),
         'nombre': normalizedName,
         'email': normalizedEmail,
         'password_hash': PasswordHasher.hashPassword(password.trim()),
@@ -783,6 +802,8 @@ class AuthService {
         'fecha_creacion': now.toIso8601String(),
         'fecha_actualizacion': now.toIso8601String(),
         'password_updated_at': now.toIso8601String(),
+        'deleted_at': null,
+        'sync_status': DatabaseSchema.syncStatusPending,
       });
       await _replacePermissions(
         txn,
@@ -791,6 +812,8 @@ class AuthService {
       );
       return id;
     });
+
+    _scheduleUserSync('create-user:$userId');
 
     return (await getUserById(userId))!;
   }
@@ -853,6 +876,8 @@ class AuthService {
               : (user.passwordResetRequired ? 1 : 0),
           'rol': role.storageValue,
           'activo': active ? 1 : 0,
+            'deleted_at': null,
+            'sync_status': DatabaseSchema.syncStatusPending,
           'fecha_actualizacion': now,
           'password_updated_at':
               (newPassword != null && newPassword.trim().isNotEmpty)
@@ -877,6 +902,8 @@ class AuthService {
       );
     });
 
+    _scheduleUserSync('update-user:$userId');
+
     return (await getUserById(userId))!;
   }
 
@@ -891,12 +918,21 @@ class AuthService {
 
     await db.transaction((txn) async {
       await _ensureActiveAdminInvariant(txn, user: user, deleting: true);
-      await txn.delete(
+      final now = DateTime.now().toIso8601String();
+      await txn.update(
         DatabaseSchema.usersTable,
-        where: 'id = ?',
+        {
+          'activo': 0,
+          'deleted_at': now,
+          'sync_status': DatabaseSchema.syncStatusPending,
+          'fecha_actualizacion': now,
+        },
+        where: 'id = ? AND deleted_at IS NULL',
         whereArgs: [userId],
       );
     });
+
+    _scheduleUserSync('delete-user:$userId');
   }
 
   Future<UserModel> setUserActive({
@@ -917,12 +953,14 @@ class AuthService {
         DatabaseSchema.usersTable,
         {
           'activo': active ? 1 : 0,
+          'sync_status': DatabaseSchema.syncStatusPending,
           'fecha_actualizacion': DateTime.now().toIso8601String(),
         },
         where: 'id = ?',
         whereArgs: [userId],
       );
     });
+    _scheduleUserSync('set-user-active:$userId');
     return (await getUserById(userId))!;
   }
 
@@ -963,6 +1001,7 @@ class AuthService {
       {
         'password_hash': PasswordHasher.hashPassword(normalizedNewPassword),
         'password_reset_required': 0,
+        'sync_status': DatabaseSchema.syncStatusPending,
         'password_updated_at': now,
         'fecha_actualizacion': now,
       },
@@ -981,6 +1020,8 @@ class AuthService {
         updatedAt: now,
       );
     }
+
+    _scheduleUserSync('change-password:$userId');
 
     return (await getUserById(userId))!;
   }
@@ -1012,8 +1053,8 @@ class AuthService {
       DatabaseSchema.usersTable,
       columns: ['id'],
       where: excludeUserId == null
-          ? 'LOWER(email) = ?'
-          : 'LOWER(email) = ? AND id != ?',
+          ? 'LOWER(email) = ? AND deleted_at IS NULL'
+          : 'LOWER(email) = ? AND id != ? AND deleted_at IS NULL',
       whereArgs: excludeUserId == null ? [email] : [email, excludeUserId],
       limit: 1,
     );
@@ -1573,7 +1614,7 @@ class AuthService {
   ) async {
     var rows = await db.query(
       DatabaseSchema.usersTable,
-      where: 'LOWER(email) = ?',
+      where: 'LOWER(email) = ? AND deleted_at IS NULL',
       whereArgs: [identifier],
       limit: 1,
     );
@@ -1581,7 +1622,7 @@ class AuthService {
     if (rows.isEmpty) {
       rows = await db.query(
         DatabaseSchema.usersTable,
-        where: 'LOWER(nombre) = ?',
+        where: 'LOWER(nombre) = ? AND deleted_at IS NULL',
         whereArgs: [identifier],
         limit: 1,
       );
@@ -1616,6 +1657,7 @@ class AuthService {
     final syncQueueService = SyncQueueService.instance;
     final syncService = SyncService(
       repositories: [
+        UsersSyncRepository(),
         ClientRepository(syncQueueService: syncQueueService),
         ProductsSyncRepository(),
         SellerRepository(syncQueueService: syncQueueService),
@@ -1672,7 +1714,7 @@ class AuthService {
 
     final rows = await db.rawQuery(
       'SELECT COUNT(*) AS total FROM ${DatabaseSchema.usersTable} '
-      'WHERE rol = ? AND activo = 1 AND id != ?',
+      'WHERE rol = ? AND activo = 1 AND deleted_at IS NULL AND id != ?',
       ['admin', user.id],
     );
     final total = rows.isEmpty ? 0 : (rows.first['total'] as int? ?? 0);
@@ -1755,4 +1797,24 @@ class AuthService {
         .map((module) => PermissionModel.full(module.key))
         .toList(growable: false);
   }
+
+  void _scheduleUserSync(String operationLabel) {
+    if (!_shouldRunBackgroundSync) {
+      return;
+    }
+    unawaited(_runUserSync(operationLabel));
+  }
+
+  Future<void> _runUserSync(String operationLabel) async {
+    try {
+      await _syncQueueService.refreshScope(_usersSyncRepository.scope);
+      await _syncQueueService.processQueue(includeDeferred: true);
+    } catch (_) {
+      // The retry queue handles later attempts when the backend is unavailable.
+    }
+  }
+
+  String _nextUserSyncId() => SyncIdGenerator.next('user');
+
+  String _resolveUserSyncId(int userId) => 'user-$userId';
 }
