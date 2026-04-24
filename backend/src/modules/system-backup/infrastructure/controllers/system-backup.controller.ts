@@ -95,6 +95,7 @@ export class SystemBackupController {
         ok: true,
         filename: file?.filename,
         sizeBytes: file?.size,
+        storageDir: this.service.getStorageDir(),
       };
     } catch (error) {
       this.logger.error(
@@ -111,6 +112,7 @@ export class SystemBackupController {
     assertOperationalAccess(user, 'El respaldo en la nube');
     return {
       items: await this.service.listBackups(),
+      storageDir: this.service.getStorageDir(),
     };
   }
 

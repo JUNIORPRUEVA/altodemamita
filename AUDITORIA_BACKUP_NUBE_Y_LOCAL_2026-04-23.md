@@ -152,7 +152,9 @@ Implementación:
 ### 3.3 Almacenamiento (filesystem)
 - Directorio configurable:
   - `CLOUD_BACKUPS_DIR` o `SYSTEM_BACKUP_STORAGE_DIR`
-- Default actual: `os.tmpdir()/cloud_backups`
+- Default:
+  - Producción: `/cloud_backups` (persistente si se monta volumen)
+  - Dev/Test: `os.tmpdir()/cloud_backups`
   - Ver: `backend/src/modules/system-backup/system-backup.paths.ts`
 
 **Riesgo importante (durabilidad)**

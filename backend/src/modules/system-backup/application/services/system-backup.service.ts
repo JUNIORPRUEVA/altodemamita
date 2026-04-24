@@ -22,6 +22,9 @@ export class SystemBackupService implements OnModuleInit, OnModuleDestroy {
   async onModuleInit(): Promise<void> {
     this.logStorageResolution();
     await this._ensureStorageDir({ warnIfCreated: true });
+
+    await this.validateProductionStorageSafety();
+
     // Enforce retention periodically even if no requests are made.
     await this.cleanupOldBackups({ keepDays: 4 });
 
@@ -86,6 +89,34 @@ export class SystemBackupService implements OnModuleInit, OnModuleDestroy {
           `Cloud backups directory is under OS temp (${tmpBase}). This is not recommended for production.`,
         );
       }
+    }
+  }
+
+  private async validateProductionStorageSafety(): Promise<void> {
+    const isProduction = (process.env.NODE_ENV || '').toLowerCase() === 'production';
+    if (!isProduction) {
+      return;
+    }
+
+    const tmpBase = os.tmpdir();
+    if (this.storageDir.startsWith(tmpBase)) {
+      // Hard guard: in production this must never be under OS temp.
+      const message = `Invalid cloud backups directory in production (under temp): ${this.storageDir}`;
+      this.logger.error(message);
+      throw new Error(message);
+    }
+
+    // Fail fast if the container/user cannot write.
+    const probeName = `.write_probe_${Date.now()}_${Math.random().toString(16).slice(2)}.tmp`;
+    const probePath = path.join(this.storageDir, probeName);
+    try {
+      await fs.writeFile(probePath, 'ok', { encoding: 'utf8' });
+      await fs.unlink(probePath);
+      this.logger.log('Cloud backups directory write probe: OK');
+    } catch (error) {
+      const message = `Cloud backups directory is not writable in production: ${this.storageDir}`;
+      this.logger.error(message, error instanceof Error ? error.stack : undefined);
+      throw error;
     }
   }
 
