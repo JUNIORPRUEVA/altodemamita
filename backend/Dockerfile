@@ -23,17 +23,11 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=3000
-ENV CLOUD_BACKUPS_DIR=/cloud_backups
 
 RUN apk add --no-cache openssl \
 	&& apk add --no-cache su-exec \
 	&& addgroup -S nodejs \
-	&& adduser -S nestjs -G nodejs \
-	&& mkdir -p /cloud_backups \
-	&& chown -R nestjs:nodejs /cloud_backups \
-	&& chmod -R 777 /cloud_backups
-
-VOLUME ["/cloud_backups"]
+	&& adduser -S nestjs -G nodejs
 
 COPY --chown=nestjs:nodejs --from=builder /app/package*.json ./
 COPY --chown=nestjs:nodejs --from=builder /app/node_modules ./node_modules

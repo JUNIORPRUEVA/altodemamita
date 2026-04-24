@@ -52,7 +52,7 @@ void main() {
           ['sentinel_professional_restore_key', 'value_after', timestamp],
         );
 
-        final restoreResult = await backupService.restoreFromLocalBackup(
+        final restoreResult = await backupService.restoreLocalBackup(
           backupPath: backupFile.path,
         );
 
@@ -136,7 +136,7 @@ void main() {
           }
         }
 
-        final restoreResult = await backupService.restoreFromLocalBackup(
+        final restoreResult = await backupService.restoreLocalBackup(
           backupPath: backupFile.path,
         );
 

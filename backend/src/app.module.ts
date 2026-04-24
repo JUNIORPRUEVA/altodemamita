@@ -21,7 +21,6 @@ import { ReportsModule } from './modules/reports/reports.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
 import { SyncModule } from './modules/sync/sync.module';
 import { SystemModule } from './modules/system/system.module';
-import { SystemBackupModule } from './modules/system-backup/system-backup.module';
 
 @Module({
   imports: [
@@ -43,7 +42,6 @@ import { SystemBackupModule } from './modules/system-backup/system-backup.module
     RealtimeModule,
     SyncModule,
     SystemModule,
-    SystemBackupModule,
   ],
   providers: [
     {

@@ -529,11 +529,9 @@ GoRoute(
 - [ ] Encriptación con contraseña
 - [ ] Compresión ZIP automática
 - [ ] Backup incremental (solo cambios)
-- [ ] Cloud backup (OneDrive/Google Drive)
 
 ### **Largo Plazo**
 - [ ] Programador de backups (cron-like)
-- [ ] Replicación a servidor remoto
 - [ ] Versionado y diff entre backups
 - [ ] Dashboard de salud de backups
 
@@ -611,7 +609,6 @@ El módulo de backup ha sido **auditado y hardened** de forma exhaustiva. Con la
 
 ### **⚠️ PRÓXIMAS MEJORAS**: Consideradas
 - Encriptación
-- Cloud backup
 - Compresión
 - Scheduler
 

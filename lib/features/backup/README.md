@@ -398,7 +398,6 @@ testWidgets('BackupPage muestra estado del sistema', (tester) async {
 
 - [ ] Encriptación de backups con contraseña
 - [ ] Compresión ZIP automática
-- [ ] Cloud backup (OneDrive, Google Drive)
 - [ ] Scheduler periódico (cronograma personalizado)
 - [ ] Comparación/diff entre backups
 - [ ] Rollback a punto anterior en UI

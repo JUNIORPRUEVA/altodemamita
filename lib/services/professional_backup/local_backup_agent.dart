@@ -24,7 +24,7 @@ class LocalBackupAgent {
   final DatabaseActivityGuard _activityGuard;
 
   Directory get localBackupsDirectory =>
-      Directory(path.join(_appPaths.backupsDirectory, 'local'));
+      Directory(_appPaths.professionalLocalBackupsDirectory);
 
   Future<File> createLocalBackup() async {
     final now = DateTime.now();

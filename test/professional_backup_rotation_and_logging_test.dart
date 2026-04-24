@@ -42,7 +42,7 @@ void main() {
         final paths = backups.whereType<File>().map((f) => f.path).toSet();
         expect(paths.length, 3, reason: 'Debe crear 3 archivos distintos.');
 
-        final backupsDir = Directory(path.join(appPaths.backupsDirectory, 'local'));
+        final backupsDir = Directory(appPaths.professionalLocalBackupsDirectory);
         expect(await backupsDir.exists(), isTrue);
 
         final localBackupFiles = (await backupsDir

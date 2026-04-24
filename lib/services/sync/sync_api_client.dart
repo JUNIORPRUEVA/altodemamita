@@ -123,10 +123,17 @@ class SyncApiClient {
     required SyncSettings settings,
     required Map<String, List<Map<String, Object?>>> recordsByScope,
   }) async {
+    final normalizedRecords = _normalizeRecordsPayload(recordsByScope);
+    if (normalizedRecords.isEmpty) {
+      return SyncUploadResponse(
+        returnedRecordsByScope: _readRecordsByScope(const <String, Object?>{}),
+      );
+    }
+
     final uri = Uri.parse('${settings.normalizedBaseUrl}/sync/upload');
     final payload = <String, Object?>{
       'device_id': settings.deviceId,
-      'records': _normalizeRecordsPayload(recordsByScope),
+      'records': normalizedRecords,
     };
     final body = await _sendJsonRequest(
       method: 'POST',
@@ -331,7 +338,8 @@ class SyncApiClient {
   ) {
     return {
       for (final scope in _scopes)
-        scope: recordsByScope[scope] ?? const <Map<String, Object?>>[],
+        if ((recordsByScope[scope] ?? const <Map<String, Object?>>[]).isNotEmpty)
+          scope: recordsByScope[scope] ?? const <Map<String, Object?>>[],
     };
   }
 

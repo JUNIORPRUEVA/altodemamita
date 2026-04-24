@@ -1527,6 +1527,7 @@ class AuthService {
 
       final values = {
         'remote_auth_id': remoteAuthId,
+        'sync_id': existing == null ? _nextUserSyncId() : null,
         'nombre': (fullName?.isNotEmpty == true ? fullName : username) ?? email,
         'email': email,
         'password_hash': passwordHash,
@@ -1535,6 +1536,7 @@ class AuthService {
         'activo': payload['isActive'] == false ? 0 : 1,
         'auth_source': AuthSource.cloud.storageValue,
         'last_online_login_at': now.toIso8601String(),
+        'sync_status': DatabaseSchema.syncStatusSynced,
         'telefono': null,
         'fecha_creacion': createdAt,
         'fecha_actualizacion': now.toIso8601String(),
@@ -1556,6 +1558,18 @@ class AuthService {
 
       await _replacePermissions(txn, userId, permissions);
       await txn.delete(
+        DatabaseSchema.syncQueueTable,
+        where: 'scope = ? AND record_sync_id = ?',
+        whereArgs: [
+          'users',
+          (existing == null
+                  ? values['sync_id']
+                  : await _readExistingUserSyncId(txn, userId))
+              ?.toString() ??
+              '',
+        ],
+      );
+      await txn.delete(
         DatabaseSchema.authSessionsTable,
         where: 'usuario_id = ?',
         whereArgs: [userId],
@@ -1565,6 +1579,20 @@ class AuthService {
     });
 
     return (await getUserById(localUserId))!;
+  }
+
+  Future<String?> _readExistingUserSyncId(DatabaseExecutor db, int userId) async {
+    final rows = await db.query(
+      DatabaseSchema.usersTable,
+      columns: ['sync_id'],
+      where: 'id = ?',
+      whereArgs: [userId],
+      limit: 1,
+    );
+    if (rows.isEmpty) {
+      return null;
+    }
+    return (rows.first['sync_id'] as String?)?.trim();
   }
 
   Future<List<UserModel>> _fetchUsersFromBackend() async {

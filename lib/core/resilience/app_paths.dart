@@ -25,6 +25,26 @@ class AppPaths {
   String get databaseDirectory => path.join(dataDirectory, 'database');
   String get databasePath => path.join(databaseDirectory, 'sistema_solares.db');
   String get backupsDirectory => path.join(supportDirectory, 'backups');
+  String get professionalLocalBackupsDirectory {
+    if (_supportDirectory != null) {
+      return path.join(backupsDirectory, 'local');
+    }
+
+    if (Platform.isWindows) {
+      const preferredDrive = 'D:\\';
+      if (Directory(preferredDrive).existsSync()) {
+        return path.join(preferredDrive, 'FULLPOS_BACKUPS');
+      }
+
+      return path.join(defaultBackupDirectory, 'FULLPOS_BACKUPS');
+    }
+
+    if (Platform.isAndroid) {
+      return path.join(backupsDirectory, 'local');
+    }
+
+    return path.join(backupsDirectory, 'local');
+  }
   String get configDirectory => path.join(supportDirectory, 'config');
   String get logsDirectory => path.join(supportDirectory, 'logs');
   String get syncLogPath => path.join(logsDirectory, 'sync.log');

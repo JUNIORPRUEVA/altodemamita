@@ -68,11 +68,6 @@ export const appConfig = () => {
         ? [...new Set([...panelWebOrigins, 'http://localhost:8080'])]
         : panelWebOrigins,
   },
-  storage: {
-    driver: env.STORAGE_DRIVER ?? 'local',
-    r2Endpoint: env.R2_ENDPOINT,
-    r2Bucket: env.R2_BUCKET,
-  },
   system: {
     readOnlyMode: env.READ_ONLY_MODE === 'true',
   },

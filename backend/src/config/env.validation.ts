@@ -18,9 +18,6 @@ const envSchema = Joi.object({
   APP_NAME: Joi.string().default('Sistema Solares Backend'),
   PANEL_WEB_ORIGIN: Joi.string().allow('').optional().default(''),
   PANEL_WEB_ORIGINS: Joi.string().allow('').optional().default(''),
-  STORAGE_DRIVER: Joi.string().valid('local', 's3', 'r2').default('local'),
-  R2_ENDPOINT: Joi.string().uri({ scheme: ['http', 'https'] }),
-  R2_BUCKET: Joi.string(),
   READ_ONLY_MODE: Joi.boolean().truthy('true').falsy('false').default(false),
 })
   .custom((value, helpers) => {
@@ -37,19 +34,6 @@ const envSchema = Joi.object({
       if (missingDbVariables.length > 0) {
         return helpers.error('any.custom', {
           message: `DATABASE_URL o las variables ${missingDbVariables.join(', ')} son obligatorias.`,
-        });
-      }
-    }
-
-    if ((value.STORAGE_DRIVER === 'r2' || value.STORAGE_DRIVER === 's3')) {
-      const missingStorageVariables = ['R2_ENDPOINT', 'R2_BUCKET'].filter((key) => {
-        const currentValue = value[key];
-        return typeof currentValue !== 'string' || currentValue.trim().length === 0;
-      });
-
-      if (missingStorageVariables.length > 0) {
-        return helpers.error('any.custom', {
-          message: `Para STORAGE_DRIVER=${value.STORAGE_DRIVER} debes definir ${missingStorageVariables.join(', ')}.`,
         });
       }
     }

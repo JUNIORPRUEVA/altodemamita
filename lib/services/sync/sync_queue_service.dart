@@ -4,6 +4,7 @@ import 'dart:developer' as developer;
 import 'dart:io';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../../core/database/app_database.dart';
 import '../../core/database/database_schema.dart';
@@ -196,15 +197,23 @@ class SyncQueueService {
   }
 
   Future<int> pendingCount() async {
-    final db = await _appDatabase.database;
-    final rows = await db.rawQuery(
-      'SELECT COUNT(*) FROM ${DatabaseSchema.syncQueueTable}',
-    );
-    final value = rows.isEmpty ? 0 : rows.first.values.first;
-    if (value is num) {
-      return value.toInt();
+    try {
+      final db = await _appDatabase.database;
+      final rows = await db.rawQuery(
+        'SELECT COUNT(*) FROM ${DatabaseSchema.syncQueueTable}',
+      );
+      final value = rows.isEmpty ? 0 : rows.first.values.first;
+      if (value is num) {
+        return value.toInt();
+      }
+      return int.tryParse(value.toString()) ?? 0;
+    } on DatabaseException catch (error) {
+      if (_isDatabaseClosedError(error)) {
+        _log('SQLite cerrandose durante pendingCount -> se conserva estado local');
+        return _state.pendingCount;
+      }
+      rethrow;
     }
-    return int.tryParse(value.toString()) ?? 0;
   }
 
   Future<void> syncScopesNowOrThrow(
@@ -800,6 +809,11 @@ class SyncQueueService {
     if (!_stateController.isClosed) {
       _stateController.add(nextState);
     }
+  }
+
+  bool _isDatabaseClosedError(DatabaseException error) {
+    final message = error.toString().toLowerCase();
+    return message.contains('database_closed');
   }
 
   Future<List<SyncQueueItem>> _pruneOrphanedUpserts(
