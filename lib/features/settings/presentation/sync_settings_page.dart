@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../../../core/system/system_config_service.dart';
 import '../../../features/auth/presentation/auth_provider.dart';
+import '../../../services/sync/sync_config_repository.dart';
 import '../../../shared/widgets/base_layout.dart';
 
 class SyncSettingsPage extends StatefulWidget {
@@ -20,6 +21,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
   final HttpClient _httpClient = HttpClient()
     ..connectionTimeout = const Duration(seconds: 8)
     ..idleTimeout = const Duration(seconds: 10);
+  final SyncConfigRepository _syncConfigRepository = SyncConfigRepository();
 
   bool _isLoading = true;
   bool _isSaving = false;
@@ -148,9 +150,98 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
           ? data.map((key, value) => MapEntry(key.toString(), value))
           : payload;
 
+      final initialized = effective['initialized'] == true;
+
+      final storedSettings = await _syncConfigRepository.loadSettings();
+      final token = storedSettings.jwtToken.trim();
+      if (token.isEmpty) {
+        setState(() {
+          _statusMessage =
+              'Conexión OK. initialized=$initialized. Para sincronizar necesitas iniciar sesión en línea (token no encontrado).';
+        });
+        return;
+      }
+
+      final meUri = normalizedBase.replace(
+        pathSegments: [
+          ...normalizedBase.pathSegments.where((s) => s.isNotEmpty),
+          'auth',
+          'me',
+        ],
+      );
+
+      final meRequest = await _httpClient.getUrl(meUri);
+      meRequest.headers.set(HttpHeaders.acceptHeader, ContentType.json.mimeType);
+      meRequest.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+      final meResponse = await meRequest.close();
+      final meBody = await utf8.decoder.bind(meResponse).join();
+      final meTrimmed = meBody.trimLeft();
+      final meLooksLikeJson =
+          meTrimmed.startsWith('{') || meTrimmed.startsWith('[');
+      if (!meLooksLikeJson) {
+        final contentType = meResponse.headers.contentType?.mimeType ?? 'unknown';
+        setState(() {
+          _statusMessage =
+              'Conexión OK. initialized=$initialized. Pero /auth/me no devolvió JSON (status=${meResponse.statusCode}, content-type=$contentType).';
+        });
+        return;
+      }
+
+      final meDecoded = jsonDecode(meBody);
+      final mePayload = meDecoded is Map<String, dynamic>
+          ? meDecoded
+          : (meDecoded is Map
+              ? meDecoded.map((key, value) => MapEntry(key.toString(), value))
+              : const <String, dynamic>{});
+      final meData = mePayload['data'];
+      final meEffective = meData is Map
+          ? meData.map((key, value) => MapEntry(key.toString(), value))
+          : mePayload;
+
+      if (meResponse.statusCode == HttpStatus.unauthorized) {
+        setState(() {
+          _statusMessage =
+              'Conexión OK. initialized=$initialized. Pero el token fue rechazado (401). Inicia sesión en línea nuevamente.';
+        });
+        return;
+      }
+
+      final type = (meEffective['type']?.toString() ?? '').trim();
+      final roles = (meEffective['roles'] is List)
+          ? (meEffective['roles'] as List).map((e) => e.toString()).toList()
+          : const <String>[];
+      final permissions = (meEffective['permissions'] is List)
+          ? (meEffective['permissions'] as List)
+              .map((e) => e.toString())
+              .toList()
+          : const <String>[];
+
+      final isPanelActor = type == 'panel' ||
+          roles.contains('PANEL_ADMIN') ||
+          roles.contains('PANEL_VIEWER');
+      if (isPanelActor) {
+        setState(() {
+          _statusMessage =
+              'Conexión OK. initialized=$initialized. Pero estás autenticado como PANEL y la sincronización operativa está bloqueada. Inicia sesión desde el cliente escritorio.';
+        });
+        return;
+      }
+
+      final canSync = permissions.contains('sync.manage') ||
+          roles.contains('SUPER_ADMIN') ||
+          roles.contains('ADMIN');
+
+      if (!canSync) {
+        setState(() {
+          _statusMessage =
+              'Conexión OK. initialized=$initialized. Sesión OK, pero tu usuario no tiene permiso sync.manage. Asigna un rol con sync.manage (por ejemplo SUPER_ADMIN) y vuelve a intentar.';
+        });
+        return;
+      }
+
       setState(() {
         _statusMessage =
-            'Conexión OK. initialized=${effective['initialized'] == true}';
+            'Conexión OK. initialized=$initialized. Sesión OK y permisos OK (sync.manage).';
       });
     } catch (error) {
       setState(() {

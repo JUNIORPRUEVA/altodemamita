@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:developer' as developer;
 import 'dart:io';
 
 import '../../core/system/system_config_service.dart';
@@ -110,6 +111,12 @@ class SyncApiClient {
 
   final HttpClient _httpClient;
 
+  void _log(String message) {
+    developer.log(message, name: 'SistemaSolares.SyncApi');
+    // ignore: avoid_print
+    print(message);
+  }
+
   static String _previewResponseBody(String body) {
     final trimmed = body.trim();
     if (trimmed.isEmpty) return '<empty>';
@@ -170,17 +177,45 @@ class SyncApiClient {
     required String jwtToken,
     Map<String, Object?>? payload,
   }) async {
-    final request = await _openRequest(method, uri);
+    final normalizedToken = jwtToken.trim();
+    if (normalizedToken.isEmpty) {
+      throw HttpException(
+        'No hay una sesion online activa para sincronizar. '
+        'Inicia sesion en linea para generar el token y vuelve a intentar.',
+        uri: uri,
+      );
+    }
+
+    _log('REQUEST -> ${method.toUpperCase()} $uri');
+
+    final HttpClientRequest request;
+    try {
+      request = await _openRequest(method, uri);
+    } catch (error) {
+      _log('ERROR -> opening request ${method.toUpperCase()} $uri : $error');
+      rethrow;
+    }
     request.headers.contentType = ContentType.json;
     request.headers.set(HttpHeaders.acceptHeader, ContentType.json.mimeType);
-    request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $jwtToken');
+    request.headers.set(
+      HttpHeaders.authorizationHeader,
+      'Bearer $normalizedToken',
+    );
 
     if (payload != null) {
       request.write(jsonEncode(payload));
     }
 
-    final response = await request.close();
-    final responseBody = await utf8.decoder.bind(response).join();
+    final HttpClientResponse response;
+    String responseBody = '';
+    try {
+      response = await request.close();
+      _log('RESPONSE -> ${response.statusCode} $uri');
+      responseBody = await utf8.decoder.bind(response).join();
+    } catch (error) {
+      _log('ERROR -> request failed ${method.toUpperCase()} $uri : $error');
+      rethrow;
+    }
 
     final trimmed = responseBody.trimLeft();
     final looksLikeJson = trimmed.startsWith('{') || trimmed.startsWith('[');
@@ -229,6 +264,37 @@ class SyncApiClient {
         decodedBody['message']?.toString() == 'READ_ONLY_MODE') {
       throw const ReadOnlyModeException();
     }
+
+    if (response.statusCode == HttpStatus.unauthorized) {
+      final message = decodedBody['message']?.toString().trim();
+      throw HttpException(
+        'El backend rechazo la sesion (401). '
+        '${message == null || message.isEmpty ? 'Inicia sesion en linea nuevamente.' : message} '
+        'URL: $uri.',
+        uri: uri,
+      );
+    }
+
+    if (response.statusCode == HttpStatus.forbidden) {
+      final message = decodedBody['message']?.toString().trim() ?? '';
+      if (message.contains('No tiene permisos suficientes')) {
+        throw HttpException(
+          'Tu usuario no tiene permisos para sincronizar (falta "sync.manage"). '
+          'Asigna un rol con ese permiso (por ejemplo SUPER_ADMIN) y vuelve a intentar. '
+          'URL: $uri.',
+          uri: uri,
+        );
+      }
+      if (message.contains('no esta disponible para clientes panel')) {
+        throw HttpException(
+          'Estas autenticado como cliente PANEL y la sincronizacion operativa esta bloqueada. '
+          'Inicia sesion como Desktop (en la app de escritorio) y vuelve a intentar. '
+          'URL: $uri.',
+          uri: uri,
+        );
+      }
+    }
+
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw HttpException(
         'La API de sincronizacion respondio con ${response.statusCode}: $responseBody',

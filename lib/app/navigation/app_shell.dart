@@ -723,6 +723,7 @@ class _ShellHeader extends StatelessWidget {
             _SyncAlertBanner(
               message: currentErrors.first,
               onConfigure: onOpenSyncSettings,
+              onRetry: isSyncing ? null : onTriggerSync,
             ),
           ],
         ],
@@ -750,7 +751,10 @@ class _SyncStatusBadge extends StatelessWidget {
     if (isSyncing) {
       color = const Color(0xFFE2A400);
       label = 'Sincronizando';
-    } else if (hasErrors || connectionStatus == SyncConnectionStatus.error) {
+    } else if (connectionStatus == SyncConnectionStatus.error) {
+      color = const Color(0xFFD9534F);
+      label = 'Error conectando con la nube';
+    } else if (hasErrors) {
       color = const Color(0xFFD9534F);
       label = 'Error de sync';
     } else if (connectionStatus == SyncConnectionStatus.connected) {
@@ -820,10 +824,12 @@ class _SyncAlertBanner extends StatelessWidget {
   const _SyncAlertBanner({
     required this.message,
     this.onConfigure,
+    this.onRetry,
   });
 
   final String message;
   final Future<void> Function()? onConfigure;
+  final Future<void> Function()? onRetry;
 
   bool _shouldOfferConfigurationShortcut(String message) {
     final lower = message.toLowerCase();
@@ -837,6 +843,7 @@ class _SyncAlertBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final offerShortcut =
         onConfigure != null && _shouldOfferConfigurationShortcut(message);
+    final canRetry = onRetry != null;
 
     return Container(
       width: double.infinity,
@@ -862,6 +869,21 @@ class _SyncAlertBanner extends StatelessWidget {
               ),
             ),
           ),
+          if (canRetry) ...[
+            const SizedBox(width: 10),
+            TextButton(
+              onPressed: () => unawaited(onRetry!()),
+              style: TextButton.styleFrom(
+                foregroundColor: const Color(0xFF6E4300),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                textStyle: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              child: const Text('Reintentar'),
+            ),
+          ],
           if (offerShortcut) ...[
             const SizedBox(width: 10),
             TextButton(

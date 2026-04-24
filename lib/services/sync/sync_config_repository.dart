@@ -25,7 +25,8 @@ class SyncConfigRepository {
            preferencesFactory ?? SharedPreferences.getInstance;
 
   static const syncBaseUrlKey = 'sync.base_url';
-  static const defaultSyncBaseUrl = '';
+  static const defaultSyncBaseUrl =
+      'https://altodemanita-altodemamita-backent.onqyr1.easypanel.host';
   static const syncQueueRetrySecondsKey = 'sync.queue_retry_seconds';
   static const syncRealtimePollingSecondsKey = 'sync.realtime_polling_seconds';
   static const syncConflictStrategyKey = 'sync.conflict_strategy';
@@ -79,8 +80,10 @@ class SyncConfigRepository {
       syncRealtimePollingSecondsKey,
       syncConflictStrategyKey,
     ]);
-    final storedBaseUrl = values[syncBaseUrlKey]?.value ?? '';
-    final baseUrl = normalizeBackendBaseUrl(storedBaseUrl);
+    final storedBaseUrl = (values[syncBaseUrlKey]?.value ?? '').trim();
+    final effectiveBaseUrl =
+      storedBaseUrl.isEmpty ? defaultSyncBaseUrl : storedBaseUrl;
+    final baseUrl = normalizeBackendBaseUrl(effectiveBaseUrl);
     final token = await _sensitiveStorage.read(_jwtTokenPreferenceKey) ?? '';
     final retrySeconds =
         int.tryParse(values[syncQueueRetrySecondsKey]?.value ?? '10') ?? 10;
