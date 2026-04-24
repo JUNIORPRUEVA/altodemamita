@@ -96,6 +96,7 @@ class SyncDownloadResponse {
 
 class SyncApiClient {
   static const List<String> _scopes = [
+    'users',
     'clients',
     'products',
     'sellers',

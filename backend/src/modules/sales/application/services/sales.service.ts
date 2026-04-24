@@ -20,6 +20,7 @@ export class SalesService {
 
   async create(dto: CreateSaleDto, actorUserId: string) {
     this.logger.log(`CREATE sale actorUserId=${actorUserId} dto=${this.serialize(dto)}`);
+    console.log('DATA RECIBIDA:', dto);
     const client = await this.prisma.client.findFirst({ where: { id: dto.clientId, deletedAt: null } });
     if (!client) {
       throw new BadRequestException('Cliente no encontrado.');
@@ -124,6 +125,7 @@ export class SalesService {
       'api',
       created.updatedAt.toISOString(),
     );
+    console.log('DATA GUARDADA:', created);
     return created;
   }
 

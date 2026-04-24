@@ -3,6 +3,8 @@ import 'dart:developer' as developer;
 
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import '../../../core/network/backend_api_client.dart';
+import '../../../core/network/backend_entity_id_registry.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_schema.dart';
 import '../../../models/sync/sync_status.dart';
@@ -11,16 +13,24 @@ import '../../../services/sync/sync_queue_service.dart';
 import '../domain/seller.dart';
 
 class SellerRepository implements SyncRepository {
-  SellerRepository({AppDatabase? database, SyncQueueService? syncQueueService})
+  SellerRepository({
+    AppDatabase? database,
+    SyncQueueService? syncQueueService,
+    BackendApiClient? apiClient,
+  })
     : _appDatabase = database ?? AppDatabase.instance,
-      _syncQueueService = syncQueueService ?? SyncQueueService.instance {
+      _syncQueueService = syncQueueService ?? SyncQueueService.instance,
+      _apiClient = apiClient ?? BackendApiClient() {
     _syncQueueService.registerRepository(this);
   }
 
   final AppDatabase _appDatabase;
   final SyncQueueService _syncQueueService;
+  final BackendApiClient _apiClient;
+  final BackendEntityIdRegistry _idRegistry = BackendEntityIdRegistry.instance;
 
   bool get _shouldRunBackgroundSync => identical(_appDatabase, AppDatabase.instance);
+  bool get _useBackendMode => identical(_appDatabase, AppDatabase.instance);
 
   void _log(String message, {Object? error, StackTrace? stackTrace}) {
     developer.log(
@@ -41,6 +51,10 @@ class SellerRepository implements SyncRepository {
   String get downloadPath => '/sync/changes';
 
   Future<List<Seller>> getAll() async {
+    if (_useBackendMode) {
+      return _fetchAllFromBackend();
+    }
+
     final db = await _appDatabase.database;
     final rows = await db.query(
       DatabaseSchema.sellersTable,
@@ -52,6 +66,16 @@ class SellerRepository implements SyncRepository {
   }
 
   Future<Seller?> getById(int id) async {
+    if (_useBackendMode) {
+      final sellers = await _fetchAllFromBackend();
+      for (final seller in sellers) {
+        if (seller.id == id) {
+          return seller;
+        }
+      }
+      return null;
+    }
+
     final db = await _appDatabase.database;
     final rows = await db.query(
       DatabaseSchema.sellersTable,
@@ -69,6 +93,14 @@ class SellerRepository implements SyncRepository {
 
   Future<int> insert(Seller seller) async {
     try {
+      if (_useBackendMode) {
+        final created = await _apiClient.post('/sellers', body: _toBackendPayload(seller));
+        final mapped = _sellerFromBackend(
+          (created as Map).map((key, value) => MapEntry(key.toString(), value)),
+        );
+        return mapped.id ?? 0;
+      }
+
       final db = await _appDatabase.database;
       final id = await db.insert(DatabaseSchema.sellersTable, {
         ...seller.toMap(),
@@ -89,6 +121,17 @@ class SellerRepository implements SyncRepository {
 
   Future<void> update(Seller seller) async {
     try {
+      if (_useBackendMode) {
+        final remoteId = _idRegistry.resolveRemoteId('sellers', seller.id);
+        if (remoteId == null || remoteId.isEmpty) {
+          throw const BackendApiException(
+            'No se pudo identificar el vendedor remoto para actualizarlo.',
+          );
+        }
+        await _apiClient.patch('/sellers/$remoteId', body: _toBackendPayload(seller));
+        return;
+      }
+
       if (seller.id == null) {
         throw ArgumentError('Seller must have an ID to update');
       }
@@ -114,6 +157,17 @@ class SellerRepository implements SyncRepository {
 
   Future<void> delete(int id) async {
     try {
+      if (_useBackendMode) {
+        final remoteId = _idRegistry.resolveRemoteId('sellers', id);
+        if (remoteId == null || remoteId.isEmpty) {
+          throw const BackendApiException(
+            'No se pudo identificar el vendedor remoto para eliminarlo.',
+          );
+        }
+        await _apiClient.delete('/sellers/$remoteId');
+        return;
+      }
+
       final db = await _appDatabase.database;
       await db.update(
         DatabaseSchema.sellersTable,
@@ -161,6 +215,10 @@ class SellerRepository implements SyncRepository {
   }
 
   Future<List<Seller>> search(String query) async {
+    if (_useBackendMode) {
+      return _fetchAllFromBackend(query: query);
+    }
+
     final db = await _appDatabase.database;
     final normalizedQuery = '%${query.toLowerCase()}%';
 
@@ -337,5 +395,45 @@ class SellerRepository implements SyncRepository {
       return value.toInt();
     }
     return int.tryParse(value?.toString() ?? '') ?? 1;
+  }
+
+  Future<List<Seller>> _fetchAllFromBackend({String query = ''}) async {
+    final response = await _apiClient.get(
+      '/sellers',
+      queryParameters: {
+        'page': '1',
+        'limit': '100',
+        if (query.trim().isNotEmpty) 'search': query.trim(),
+      },
+    );
+    final payload = response is Map<String, dynamic>
+        ? response
+        : (response as Map).map((key, value) => MapEntry(key.toString(), value));
+    final items = (payload['items'] as List?) ?? const [];
+    return items
+        .whereType<Map>()
+        .map((item) => _sellerFromBackend(item.map((key, value) => MapEntry(key.toString(), value))))
+        .toList(growable: false);
+  }
+
+  Seller _sellerFromBackend(Map<String, dynamic> item) {
+    final remoteId = item['id']?.toString().trim() ?? '';
+    final localId = _idRegistry.register('sellers', remoteId);
+    return Seller(
+      id: localId,
+      name: item['name']?.toString().trim() ?? '',
+      phone: item['phone']?.toString().trim() ?? '',
+      documentId: item['documentId']?.toString().trim() ?? '',
+      createdAt: DateTime.tryParse(item['createdAt']?.toString() ?? '') ?? DateTime.now(),
+      updatedAt: DateTime.tryParse(item['updatedAt']?.toString() ?? '') ?? DateTime.now(),
+    );
+  }
+
+  Map<String, dynamic> _toBackendPayload(Seller seller) {
+    return {
+      'name': seller.name.trim(),
+      'documentId': seller.documentId.trim().isEmpty ? null : seller.documentId.trim(),
+      'phone': seller.phone.trim().isEmpty ? null : seller.phone.trim(),
+    };
   }
 }

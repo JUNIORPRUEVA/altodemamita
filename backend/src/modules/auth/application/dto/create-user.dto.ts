@@ -1,4 +1,5 @@
-import { ArrayUnique, IsArray, IsBoolean, IsEmail, IsOptional, IsString, IsUUID, MinLength } from 'class-validator';
+import { RoleCode } from '@prisma/client';
+import { ArrayUnique, IsArray, IsBoolean, IsEmail, IsEnum, IsOptional, IsString, IsUUID, MinLength } from 'class-validator';
 
 export class CreateUserDto {
   @IsEmail()
@@ -25,4 +26,8 @@ export class CreateUserDto {
   @ArrayUnique()
   @IsUUID('4', { each: true })
   roleIds?: string[];
+
+  @IsOptional()
+  @IsEnum(RoleCode)
+  roleCode?: RoleCode;
 }

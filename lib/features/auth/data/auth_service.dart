@@ -9,6 +9,8 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import '../../../core/config/backend_config.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_schema.dart';
+import '../../../core/network/backend_api_client.dart';
+import '../../../core/network/backend_entity_id_registry.dart';
 import '../../../core/security/password_hasher.dart';
 import '../../../core/security/sensitive_storage.dart';
 import '../../../core/system/system_config_service.dart';
@@ -112,10 +114,12 @@ class AuthService {
     Future<SharedPreferences> Function()? preferencesFactory,
     SensitiveStorage? sensitiveStorage,
     HttpClient? httpClient,
+    BackendApiClient? apiClient,
   }) : _appDatabase = appDatabase ?? AppDatabase.instance,
        _syncConfigRepository = syncConfigRepository ?? SyncConfigRepository(),
        _syncQueueService = syncQueueService ?? SyncQueueService.instance,
        _httpClient = httpClient ?? HttpClient(),
+       _apiClient = apiClient ?? BackendApiClient(),
        _sensitiveStorage =
          sensitiveStorage ??
          SensitiveStorage(preferencesFactory: preferencesFactory) {
@@ -138,11 +142,14 @@ class AuthService {
   final SyncConfigRepository _syncConfigRepository;
   final SyncQueueService _syncQueueService;
   final HttpClient _httpClient;
+  final BackendApiClient _apiClient;
   final SensitiveStorage _sensitiveStorage;
+  final BackendEntityIdRegistry _idRegistry = BackendEntityIdRegistry.instance;
   late final UsersSyncRepository _usersSyncRepository;
 
   bool get _shouldRunBackgroundSync =>
       identical(_appDatabase, AppDatabase.instance);
+  bool get _useBackendMode => identical(_appDatabase, AppDatabase.instance);
 
   Future<AuthBootstrapResult> bootstrap() async {
     final remoteStatus = await _fetchRemoteSystemStatus();
@@ -360,6 +367,22 @@ class AuthService {
       );
     });
     await _persistLocalCompanyProfile(normalizedCompanyName);
+    await _bootstrapRemoteSystemIfNeeded(
+      companyName: normalizedCompanyName,
+      nombre: normalizedName,
+      email: normalizedEmail,
+      password: normalizedPassword,
+    );
+    try {
+      await loginOnline(
+        email: normalizedEmail,
+        password: normalizedPassword,
+      );
+    } on AuthException {
+      // Local-first setup stays usable even if the backend session cannot start.
+    } on SocketException {
+      // The user can continue locally and reauthenticate online later.
+    }
     await clearSession();
     await signIn(email: normalizedEmail, password: normalizedPassword);
     _scheduleUserSync('bootstrap-admin');
@@ -733,6 +756,10 @@ class AuthService {
   }
 
   Future<List<UserModel>> fetchUsers() async {
+    if (_useBackendMode) {
+      return _fetchUsersFromBackend();
+    }
+
     final db = await _appDatabase.database;
     final rows = await db.query(
       DatabaseSchema.usersTable,
@@ -782,6 +809,17 @@ class AuthService {
     if (password.trim().length < 8) {
       throw const AuthException(
         'La contrasena debe tener al menos 8 caracteres.',
+      );
+    }
+
+    if (_useBackendMode) {
+      return _createUserInBackend(
+        nombre: normalizedName,
+        email: normalizedEmail,
+        password: password.trim(),
+        role: role,
+        permissions: permissions,
+        active: active,
       );
     }
 
@@ -850,6 +888,18 @@ class AuthService {
       );
     }
 
+    if (_useBackendMode) {
+      return _updateUserInBackend(
+        user: user,
+        nombre: normalizedName,
+        email: normalizedEmail,
+        role: role,
+        active: active,
+        permissions: permissions,
+        newPassword: newPassword?.trim(),
+      );
+    }
+
     final db = await _appDatabase.database;
     await _ensureEmailAvailable(db, normalizedEmail, excludeUserId: userId);
     final passwordHash = (newPassword != null && newPassword.trim().isNotEmpty)
@@ -910,6 +960,11 @@ class AuthService {
   Future<void> deleteUser(int userId) async {
     SystemConfigService.instance.ensureWritable();
 
+    if (_useBackendMode) {
+      await _deleteUserInBackend(userId);
+      return;
+    }
+
     final db = await _appDatabase.database;
     final user = await getUserById(userId);
     if (user == null) {
@@ -944,6 +999,10 @@ class AuthService {
     final userId = user.id;
     if (userId == null) {
       throw const AuthException('No se pudo identificar el usuario.');
+    }
+
+    if (_useBackendMode) {
+      return _setUserActiveInBackend(user: user, active: active);
     }
 
     final db = await _appDatabase.database;
@@ -1372,6 +1431,43 @@ class AuthService {
     return responsePayload;
   }
 
+  Future<void> _bootstrapRemoteSystemIfNeeded({
+    required String companyName,
+    required String nombre,
+    required String email,
+    required String password,
+  }) async {
+    final remoteStatus = await _fetchRemoteSystemStatus();
+    if (!remoteStatus.isReachable ||
+        !remoteStatus.statusAvailable ||
+        remoteStatus.initialized) {
+      return;
+    }
+
+    try {
+      final settings = await _syncConfigRepository.loadSettings();
+      await _sendJsonRequest(
+        method: 'POST',
+        uri: Uri.parse('${settings.normalizedBaseUrl}/system/setup'),
+        payload: {
+          'company': {
+            'name': companyName,
+          },
+          'admin': {
+            'fullName': nombre,
+            'email': email,
+            'username': email.split('@').first,
+            'password': password,
+          },
+        },
+      );
+    } on AuthException {
+      // Local-first setup must stay available even if remote bootstrap fails.
+    } on SocketException {
+      // The user can continue locally and reauthenticate online later.
+    }
+  }
+
   Future<HttpClientRequest> _openRequest(String method, Uri uri) {
     switch (method.toUpperCase()) {
       case 'GET':
@@ -1469,6 +1565,184 @@ class AuthService {
     });
 
     return (await getUserById(localUserId))!;
+  }
+
+  Future<List<UserModel>> _fetchUsersFromBackend() async {
+    final response = await _apiClient.get('/users');
+    final items = response is List
+        ? response
+        : ((response is Map<String, dynamic> ? response['items'] : null) as List?) ?? const [];
+    return items
+        .whereType<Map>()
+        .map(
+          (item) => _mapBackendUser(
+            item.map((key, value) => MapEntry(key.toString(), value)),
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  Future<UserModel> _createUserInBackend({
+    required String nombre,
+    required String email,
+    required String password,
+    required UserRole role,
+    required List<PermissionModel> permissions,
+    required bool active,
+  }) async {
+    final response = await _apiClient.post('/users', body: {
+      'email': email,
+      'username': _buildUsernameFromEmail(email),
+      'fullName': nombre,
+      'password': password,
+      'isActive': active,
+      'roleCode': _roleCodeFor(role, permissions),
+    });
+    final payload = response is Map<String, dynamic>
+        ? response
+        : (response as Map).map((key, value) => MapEntry(key.toString(), value));
+    return _mapBackendUser(payload, fallbackPassword: password);
+  }
+
+  Future<UserModel> _updateUserInBackend({
+    required UserModel user,
+    required String nombre,
+    required String email,
+    required UserRole role,
+    required bool active,
+    required List<PermissionModel> permissions,
+    String? newPassword,
+  }) async {
+    final remoteUserId = await _resolveRemoteUserId(user.id);
+    if (remoteUserId == null || remoteUserId.isEmpty) {
+      throw const AuthException('No se pudo identificar el usuario remoto.');
+    }
+    final response = await _apiClient.patch('/users/$remoteUserId', body: {
+      'email': email,
+      'username': _buildUsernameFromEmail(email),
+      'fullName': nombre,
+      if (newPassword != null && newPassword.isNotEmpty) 'password': newPassword,
+      'isActive': active,
+      'roleCode': _roleCodeFor(role, permissions),
+    });
+    final payload = response is Map<String, dynamic>
+        ? response
+        : (response as Map).map((key, value) => MapEntry(key.toString(), value));
+    return _mapBackendUser(
+      payload,
+      fallbackPassword: (newPassword != null && newPassword.isNotEmpty)
+          ? newPassword
+          : user.passwordHash,
+      passwordIsPlaintext: newPassword != null && newPassword.isNotEmpty,
+    );
+  }
+
+  Future<void> _deleteUserInBackend(int userId) async {
+    final remoteUserId = await _resolveRemoteUserId(userId);
+    if (remoteUserId == null || remoteUserId.isEmpty) {
+      return;
+    }
+    await _apiClient.delete('/users/$remoteUserId');
+  }
+
+  Future<UserModel> _setUserActiveInBackend({
+    required UserModel user,
+    required bool active,
+  }) async {
+    final remoteUserId = await _resolveRemoteUserId(user.id);
+    if (remoteUserId == null || remoteUserId.isEmpty) {
+      throw const AuthException('No se pudo identificar el usuario remoto.');
+    }
+    final response = await _apiClient.patch('/users/$remoteUserId', body: {
+      'isActive': active,
+    });
+    final payload = response is Map<String, dynamic>
+        ? response
+        : (response as Map).map((key, value) => MapEntry(key.toString(), value));
+    return _mapBackendUser(payload, fallbackPassword: user.passwordHash);
+  }
+
+  Future<String?> _resolveRemoteUserId(int? userId) async {
+    if (userId == null) {
+      return null;
+    }
+    final fromRegistry = _idRegistry.resolveRemoteId('users', userId);
+    if (fromRegistry != null && fromRegistry.isNotEmpty) {
+      return fromRegistry;
+    }
+
+    final db = await _appDatabase.database;
+    final rows = await db.query(
+      DatabaseSchema.usersTable,
+      columns: ['remote_auth_id'],
+      where: 'id = ?',
+      whereArgs: [userId],
+      limit: 1,
+    );
+    if (rows.isEmpty) {
+      return null;
+    }
+    final remoteId = (rows.first['remote_auth_id'] as String?)?.trim();
+    if (remoteId == null || remoteId.isEmpty) {
+      return null;
+    }
+    _idRegistry.register('users', remoteId);
+    return remoteId;
+  }
+
+  UserModel _mapBackendUser(
+    Map<String, dynamic> payload, {
+    String? fallbackPassword,
+    bool passwordIsPlaintext = true,
+  }) {
+    final remoteId = payload['id']?.toString().trim() ??
+        payload['sub']?.toString().trim() ??
+        payload['remote_auth_id']?.toString().trim() ??
+        '';
+    if (remoteId.isEmpty) {
+      throw const AuthException('La API no devolvio un id de usuario valido.');
+    }
+    final role = _mapRemoteRole(payload['roleCodes'] ?? payload['roles']);
+    final permissions = role == UserRole.admin
+        ? _fullPermissions()
+        : _mapRemotePermissions(payload['permissions']);
+    final createdAt = DateTime.tryParse(payload['createdAt']?.toString() ?? '') ?? DateTime.now();
+    final updatedAt = DateTime.tryParse(payload['updatedAt']?.toString() ?? '') ?? createdAt;
+    final resolvedPassword = fallbackPassword == null
+        ? ''
+        : (passwordIsPlaintext ? PasswordHasher.hashPassword(fallbackPassword) : fallbackPassword);
+    return UserModel(
+      id: _idRegistry.register('users', remoteId),
+      remoteAuthId: remoteId,
+      nombre: payload['fullName']?.toString() ?? payload['username']?.toString() ?? '',
+      email: payload['email']?.toString() ?? '',
+      passwordHash: resolvedPassword,
+      passwordResetRequired: false,
+      role: role,
+      permissions: permissions,
+      activo: payload['isActive'] != false,
+      fechaCreacion: createdAt,
+      fechaActualizacion: updatedAt,
+      authSource: AuthSource.cloud,
+      telefono: payload['phone']?.toString(),
+    );
+  }
+
+  String _buildUsernameFromEmail(String email) {
+    final localPart = email.split('@').first.trim().toLowerCase();
+    return localPart.isEmpty ? 'usuario' : localPart;
+  }
+
+  String _roleCodeFor(UserRole role, List<PermissionModel> permissions) {
+    if (role == UserRole.admin) {
+      return 'ADMIN';
+    }
+    final canManageSales = permissions.any(
+      (permission) =>
+          permission.module == PermissionCatalog.sales &&
+          (permission.create || permission.update || permission.delete),
+    );
+    return canManageSales ? 'SALES_AGENT' : 'PANEL_VIEWER';
   }
 
   Map<String, dynamic> _unwrapResponseEnvelope(Map<String, dynamic> payload) {

@@ -12,12 +12,27 @@ class FakeBackendState {
   String adminEmail = '';
   String adminPassword = '';
   String adminFullName = '';
+  Map<String, dynamic> lastSyncUploadPayload = const {};
 }
 
 class FakeBackendHttpClient implements HttpClient {
   FakeBackendHttpClient({required FakeBackendState state}) : _state = state;
 
   final FakeBackendState _state;
+  Duration? _connectionTimeout;
+  Duration? _idleTimeout;
+
+  @override
+  Duration? get connectionTimeout => _connectionTimeout;
+
+  @override
+  set connectionTimeout(Duration? value) => _connectionTimeout = value;
+
+  @override
+  Duration get idleTimeout => _idleTimeout ?? const Duration(seconds: 15);
+
+  @override
+  set idleTimeout(Duration value) => _idleTimeout = value;
 
   @override
   Future<HttpClientRequest> getUrl(Uri url) async {
@@ -154,6 +169,27 @@ class _FakeHttpClientRequest implements HttpClientRequest {
               'roles': ['SUPER_ADMIN'],
               'permissions': ['sync.manage', 'users.write', 'users.read'],
             },
+          },
+        },
+      );
+    }
+
+    if (_method == 'POST' && path.endsWith('/sync/upload')) {
+      _state.lastSyncUploadPayload = payload;
+      final records = payload['records'] is Map<String, dynamic>
+          ? payload['records'] as Map<String, dynamic>
+          : payload['records'] is Map
+          ? (payload['records'] as Map).map(
+              (key, value) => MapEntry(key.toString(), value),
+            )
+          : const <String, dynamic>{};
+      return _jsonResponse(
+        status: HttpStatus.ok,
+        body: {
+          'success': true,
+          'data': {
+            'server_time': DateTime.now().toIso8601String(),
+            'records': records,
           },
         },
       );

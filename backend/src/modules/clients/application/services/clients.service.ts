@@ -14,18 +14,21 @@ export class ClientsService {
 
   async create(dto: CreateClientDto) {
     this.logger.log(`CREATE client dto=${this.serialize(dto)}`);
+    console.log('DATA RECIBIDA:', dto);
 
     if (dto.code) {
       await this.ensureUniqueCode(dto.code);
     }
 
-    return this.prisma.client.create({
+    const result = await this.prisma.client.create({
       data: {
         ...dto,
         email: dto.email?.toLowerCase(),
         syncStatus: SyncStatus.pending,
       },
     });
+    console.log('DATA GUARDADA:', result);
+    return result;
   }
 
   async findAll(query: PaginationQueryDto) {

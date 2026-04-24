@@ -579,4 +579,32 @@ void main() {
     expect(regeneratedCode, isNot(recoveryCode));
     expect(await authService.getOrCreateAdminRecoveryCode(), regeneratedCode);
   });
+
+  test(
+    'inicializa la nube durante el setup local y habilita login online',
+    () async {
+      expect(backendState.initialized, isFalse);
+
+      await authService.completeInitialSetup(
+        companyName: 'Sistema de Solares Test',
+        nombre: 'Admin General',
+        email: 'admin@local.test',
+        password: 'AdminLocalSegura123',
+        recoveryCode: recoveryCode,
+      );
+
+      expect(configRepository.savedJwtToken, isNotEmpty);
+
+      final result = await authService.signInHybrid(
+        email: 'admin@local.test',
+        password: 'AdminLocalSegura123',
+      );
+
+      expect(backendState.initialized, isTrue);
+      expect(backendState.companyName, 'Sistema de Solares Test');
+      expect(backendState.adminEmail, 'admin@local.test');
+      expect(result.mode, AuthSignInMode.online);
+      expect(configRepository.savedJwtToken, isNotEmpty);
+    },
+  );
 }

@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:developer' as developer;
 
+import '../../../core/network/backend_api_client.dart';
+import '../../../core/network/backend_entity_id_registry.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_schema.dart';
 import '../../../core/config/app_flags.dart';
@@ -14,13 +16,17 @@ class ClientRepository implements SyncRepository {
   ClientRepository({
     AppDatabase? appDatabase,
     SyncQueueService? syncQueueService,
+    BackendApiClient? apiClient,
   }) : _appDatabase = appDatabase ?? AppDatabase.instance,
-       _syncQueueService = syncQueueService ?? SyncQueueService.instance {
+       _syncQueueService = syncQueueService ?? SyncQueueService.instance,
+       _apiClient = apiClient ?? BackendApiClient() {
     _syncQueueService.registerRepository(this);
   }
 
   final AppDatabase _appDatabase;
   final SyncQueueService _syncQueueService;
+  final BackendApiClient _apiClient;
+  final BackendEntityIdRegistry _idRegistry = BackendEntityIdRegistry.instance;
 
   void _log(String message, {Object? error, StackTrace? stackTrace}) {
     developer.log(
@@ -34,6 +40,7 @@ class ClientRepository implements SyncRepository {
   bool get _enforceProductionGuards =>
       isProductionMode && identical(_appDatabase, AppDatabase.instance);
   bool get _shouldRunBackgroundSync => identical(_appDatabase, AppDatabase.instance);
+  bool get _useBackendMode => identical(_appDatabase, AppDatabase.instance);
 
   @override
   String get scope => 'clients';
@@ -45,6 +52,10 @@ class ClientRepository implements SyncRepository {
   String get downloadPath => '/sync/changes';
 
   Future<List<Client>> fetchAll({String query = ''}) async {
+    if (_useBackendMode) {
+      return _fetchAllFromBackend(query: query);
+    }
+
     final db = await _appDatabase.database;
     final normalizedQuery = query.trim();
     final rows = await db.query(
@@ -62,6 +73,10 @@ class ClientRepository implements SyncRepository {
   }
 
   Future<int> countAll() async {
+    if (_useBackendMode) {
+      return (await _fetchAllFromBackend()).length;
+    }
+
     final db = await _appDatabase.database;
     final result = await db.rawQuery(
       'SELECT COUNT(*) FROM ${DatabaseSchema.clientsTable} WHERE deleted_at IS NULL',
@@ -72,6 +87,16 @@ class ClientRepository implements SyncRepository {
   Future<Client?> findByDocumentId(String documentId) async {
     final normalizedDocumentId = documentId.trim();
     if (normalizedDocumentId.isEmpty) {
+      return null;
+    }
+
+    if (_useBackendMode) {
+      final clients = await _fetchAllFromBackend(query: normalizedDocumentId);
+      for (final client in clients) {
+        if (client.documentId.trim() == normalizedDocumentId) {
+          return client;
+        }
+      }
       return null;
     }
 
@@ -117,6 +142,11 @@ class ClientRepository implements SyncRepository {
         )) {
           throw StateError('La cédula del cliente no es válida.');
         }
+      }
+
+      if (_useBackendMode) {
+        await _saveToBackend(normalizedClientInput);
+        return;
       }
 
       final db = await _appDatabase.database;
@@ -169,6 +199,11 @@ class ClientRepository implements SyncRepository {
 
   Future<void> delete(int id) async {
     try {
+      if (_useBackendMode) {
+        await _deleteFromBackend(id);
+        return;
+      }
+
       final db = await _appDatabase.database;
       final rows = await db.query(
         DatabaseSchema.clientsTable,
@@ -431,5 +466,86 @@ class ClientRepository implements SyncRepository {
     }
     final trimmed = value.trim();
     return trimmed.isEmpty ? null : trimmed;
+  }
+
+  Future<List<Client>> _fetchAllFromBackend({String query = ''}) async {
+    final response = await _apiClient.get(
+      '/clients',
+      queryParameters: {
+        'page': '1',
+        'limit': '100',
+        if (query.trim().isNotEmpty) 'search': query.trim(),
+      },
+    );
+    final payload = response is Map<String, dynamic>
+        ? response
+        : (response as Map).map((key, value) => MapEntry(key.toString(), value));
+    final items = (payload['items'] as List?) ?? const [];
+    return items
+        .whereType<Map>()
+        .map((item) => _clientFromBackend(item.map((key, value) => MapEntry(key.toString(), value))))
+        .toList(growable: false);
+  }
+
+  Future<void> _saveToBackend(Client client) async {
+    final payload = _toBackendPayload(client);
+    final remoteId = client.syncId?.trim();
+    if (remoteId == null || remoteId.isEmpty) {
+      await _apiClient.post('/clients', body: payload);
+      return;
+    }
+
+    await _apiClient.patch('/clients/$remoteId', body: payload);
+  }
+
+  Future<void> _deleteFromBackend(int localId) async {
+    final remoteId = _idRegistry.resolveRemoteId('clients', localId);
+    if (remoteId == null || remoteId.isEmpty) {
+      throw const BackendApiException(
+        'No se pudo identificar el cliente remoto para eliminarlo.',
+      );
+    }
+    await _apiClient.delete('/clients/$remoteId');
+  }
+
+  Client _clientFromBackend(Map<String, dynamic> item) {
+    final remoteId = item['id']?.toString().trim() ?? '';
+    final localId = _idRegistry.register('clients', remoteId);
+    final firstName = item['firstName']?.toString().trim() ?? '';
+    final lastName = item['lastName']?.toString().trim() ?? '';
+    final fullName = [firstName, lastName]
+        .where((value) => value.isNotEmpty)
+        .join(' ')
+        .trim();
+    return Client(
+      id: localId,
+      syncId: remoteId,
+      version: 1,
+      fullName: fullName,
+      documentId: item['documentId']?.toString().trim() ?? '',
+      phone: _nullIfBlank(item['phone']?.toString()),
+      address: _nullIfBlank(item['address']?.toString()),
+      createdAt: DateTime.tryParse(item['createdAt']?.toString() ?? '') ?? DateTime.now(),
+      updatedAt: DateTime.tryParse(item['updatedAt']?.toString() ?? '') ?? DateTime.now(),
+      deletedAt: null,
+      syncStatus: SyncStatus.synced,
+    );
+  }
+
+  Map<String, dynamic> _toBackendPayload(Client client) {
+    final parts = client.fullName
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((value) => value.trim().isNotEmpty)
+        .toList(growable: false);
+    final firstName = parts.isEmpty ? client.fullName.trim() : parts.first;
+    final lastName = parts.length <= 1 ? '.' : parts.skip(1).join(' ');
+    return {
+      'firstName': firstName,
+      'lastName': lastName,
+      'documentId': _nullIfBlank(client.documentId),
+      'phone': _nullIfBlank(client.phone),
+      'address': _nullIfBlank(client.address),
+    };
   }
 }

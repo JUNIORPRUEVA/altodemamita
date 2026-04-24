@@ -21,6 +21,19 @@ import { CreateUserDto } from '../dto/create-user.dto';
 import { LoginDto } from '../dto/login.dto';
 import { UpdateUserDto } from '../dto/update-user.dto';
 
+const salesAgentPermissions = [
+  'clients.read',
+  'clients.write',
+  'products.read',
+  'sellers.read',
+  'sales.read',
+  'sales.write',
+  'payments.read',
+  'payments.write',
+  'installments.read',
+  'installments.write',
+];
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -83,7 +96,16 @@ export class AuthService {
         include: {
           userRoles: {
             where: { deletedAt: null },
-            include: { role: true },
+            include: {
+              role: {
+                include: {
+                  rolePermissions: {
+                    where: { deletedAt: null },
+                    include: { permission: true },
+                  },
+                },
+              },
+            },
           },
         },
         orderBy: { createdAt: 'desc' },
@@ -170,7 +192,9 @@ export class AuthService {
   }
 
   async createUser(dto: CreateUserDto) {
+    console.log('DATA RECIBIDA:', dto);
     await this.ensureUniqueUser(dto.email, dto.username);
+    const resolvedRoleIds = await this.resolveRoleIdsForMutation(dto);
 
     const passwordHash = await bcrypt.hash(dto.password, 10);
     const user = await this.prisma.user.create({
@@ -184,14 +208,17 @@ export class AuthService {
       },
     });
 
-    if (dto.roleIds?.length) {
-      await this.assignRoles(user.id, { roleIds: dto.roleIds });
+    if (resolvedRoleIds.length > 0) {
+      await this.assignRoles(user.id, { roleIds: resolvedRoleIds });
     }
 
-    return this.getUserById(user.id);
+    const result = await this.getUserById(user.id);
+    console.log('DATA GUARDADA:', result);
+    return result;
   }
 
   async updateUser(id: string, dto: UpdateUserDto) {
+    console.log('DATA RECIBIDA:', dto);
     await this.findUserEntity(id);
 
     if (dto.email || dto.username) {
@@ -220,11 +247,14 @@ export class AuthService {
 
     await this.prisma.user.update({ where: { id }, data });
 
-    if (dto.roleIds?.length) {
-      await this.assignRoles(id, { roleIds: dto.roleIds });
+    const resolvedRoleIds = await this.resolveRoleIdsForMutation(dto);
+    if (resolvedRoleIds.length > 0) {
+      await this.assignRoles(id, { roleIds: resolvedRoleIds });
     }
 
-    return this.getUserById(id);
+    const result = await this.getUserById(id);
+    console.log('DATA GUARDADA:', result);
+    return result;
   }
 
   async removeUser(id: string) {
@@ -493,17 +523,168 @@ export class AuthService {
     deletedAt?: Date | null;
     syncId?: string;
     syncStatus?: SyncStatus;
-    userRoles: Array<{ role: unknown }>;
+    userRoles: Array<{
+      role: {
+        id: string;
+        code: RoleCode;
+        name: string;
+        description: string | null;
+        rolePermissions?: Array<{ permission: { code: string } }>;
+      };
+    }>;
   }) {
     const presence = this.userPresenceService.getPresenceForUser(user.id);
+    const roles = user.userRoles.map((item) => item.role);
+    const permissions = Array.from(
+      new Set(
+        user.userRoles.flatMap((item) =>
+          item.role.rolePermissions?.map((permission) => permission.permission.code) ?? [],
+        ),
+      ),
+    );
 
     return {
       ...user,
-      roles: user.userRoles.map((item) => item.role),
+      roles,
+      roleCodes: roles.map((role) => role.code),
+      permissions,
       passwordHash: undefined,
       userRoles: undefined,
       presence,
     };
+  }
+
+  private async resolveRoleIdsForMutation(
+    dto: Pick<CreateUserDto, 'roleIds' | 'roleCode'>,
+  ): Promise<string[]> {
+    if (dto.roleIds?.length) {
+      return dto.roleIds;
+    }
+    if (!dto.roleCode) {
+      return [];
+    }
+
+    const role = await this.ensureOperationalRole(dto.roleCode);
+    return [role.id];
+  }
+
+  private async ensureOperationalRole(roleCode: RoleCode) {
+    const upsertedRole = await this.prisma.role.upsert({
+      where: { code: roleCode },
+      update: { deletedAt: null, syncStatus: SyncStatus.synced },
+      create: {
+        code: roleCode,
+        name: this.resolveRoleName(roleCode),
+        description: this.resolveRoleDescription(roleCode),
+        syncStatus: SyncStatus.synced,
+      },
+    });
+
+    const permissionCodes = roleCode == RoleCode.ADMIN || roleCode == RoleCode.SUPER_ADMIN
+      ? [
+          'auth.manage',
+          'system.config',
+          'users.read',
+          'users.write',
+          'clients.read',
+          'clients.write',
+          'products.read',
+          'products.write',
+          'sellers.read',
+          'sellers.write',
+          'sales.read',
+          'sales.write',
+          'payments.read',
+          'payments.write',
+          'installments.read',
+          'installments.write',
+          'reports.read',
+          'sync.manage',
+        ]
+      : salesAgentPermissions;
+
+    await this.syncRolePermissions(upsertedRole.id, permissionCodes);
+    return upsertedRole;
+  }
+
+  private async syncRolePermissions(roleId: string, permissionCodes: string[]) {
+    const permissions = await this.prisma.permission.findMany({
+      where: { code: { in: permissionCodes }, deletedAt: null },
+    });
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.rolePermission.updateMany({
+        where: {
+          roleId,
+          deletedAt: null,
+          permissionId: {
+            notIn: permissions.map((permission) => permission.id),
+          },
+        },
+        data: {
+          deletedAt: new Date(),
+          syncStatus: SyncStatus.synced,
+        },
+      });
+
+      for (const permission of permissions) {
+        await tx.rolePermission.upsert({
+          where: {
+            roleId_permissionId: {
+              roleId,
+              permissionId: permission.id,
+            },
+          },
+          create: {
+            roleId,
+            permissionId: permission.id,
+            syncStatus: SyncStatus.synced,
+          },
+          update: {
+            deletedAt: null,
+            syncStatus: SyncStatus.synced,
+          },
+        });
+      }
+    });
+  }
+
+  private resolveRoleName(roleCode: RoleCode): string {
+    switch (roleCode) {
+      case RoleCode.ADMIN:
+        return 'Administrador Operativo';
+      case RoleCode.SALES_AGENT:
+        return 'Agente de Ventas';
+      case RoleCode.SUPER_ADMIN:
+        return 'Super Admin';
+      case RoleCode.MANAGER:
+        return 'Gerente';
+      case RoleCode.CASHIER:
+        return 'Caja';
+      case RoleCode.PANEL_ADMIN:
+        return 'Panel Admin';
+      case RoleCode.PANEL_VIEWER:
+        return 'Panel Viewer';
+    }
+  }
+
+  private resolveRoleDescription(roleCode: RoleCode): string {
+    switch (roleCode) {
+      case RoleCode.ADMIN:
+        return 'Acceso operativo completo para el desktop.';
+      case RoleCode.SALES_AGENT:
+        return 'Operador comercial con acceso a clientes, ventas y cobros.';
+      case RoleCode.SUPER_ADMIN:
+        return 'Acceso total al sistema.';
+      case RoleCode.MANAGER:
+        return 'Rol gerencial operativo.';
+      case RoleCode.CASHIER:
+        return 'Rol operativo de caja.';
+      case RoleCode.PANEL_ADMIN:
+        return 'Administracion del panel web sin operaciones financieras.';
+      case RoleCode.PANEL_VIEWER:
+        return 'Lectura del panel web sin operaciones financieras.';
+    }
   }
 
   private buildUserWhere(search?: string): Prisma.UserWhereInput {

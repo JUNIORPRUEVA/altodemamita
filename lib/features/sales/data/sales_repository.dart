@@ -4,6 +4,8 @@ import 'dart:math' as math;
 
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import '../../../core/network/backend_api_client.dart';
+import '../../../core/network/backend_entity_id_registry.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_schema.dart';
 import '../../../core/utils/sync_id_generator.dart';
@@ -19,19 +21,28 @@ class SalesRepository {
   SalesRepository({
     AppDatabase? appDatabase,
     SyncQueueService? syncQueueService,
+      BackendApiClient? apiClient,
   }) : _appDatabase = appDatabase ?? AppDatabase.instance,
-       _syncQueueService = syncQueueService ?? SyncQueueService.instance;
+      _syncQueueService = syncQueueService ?? SyncQueueService.instance,
+      _apiClient = apiClient ?? BackendApiClient();
 
   final AppDatabase _appDatabase;
   final SyncQueueService _syncQueueService;
+    final BackendApiClient _apiClient;
+    final BackendEntityIdRegistry _idRegistry = BackendEntityIdRegistry.instance;
 
   bool get _shouldRunBackgroundSync => identical(_appDatabase, AppDatabase.instance);
+    bool get _useBackendMode => identical(_appDatabase, AppDatabase.instance);
 
   void _log(String message) {
     developer.log(message, name: 'SistemaSolares.SalesSync');
   }
 
   Future<List<SaleSummary>> fetchAll({String query = ''}) async {
+    if (_useBackendMode) {
+      return _fetchAllFromBackend(query: query);
+    }
+
     final db = await _appDatabase.database;
     final normalizedQuery = query.trim();
     final whereClause = normalizedQuery.isEmpty
@@ -106,6 +117,14 @@ class SalesRepository {
   }
 
   Future<List<SaleSummary>> fetchBySellerId(int sellerId) async {
+    if (_useBackendMode) {
+      final remoteSellerId = _idRegistry.resolveRemoteId('sellers', sellerId);
+      if (remoteSellerId == null || remoteSellerId.isEmpty) {
+        return const [];
+      }
+      return _fetchAllFromBackend(sellerRemoteId: remoteSellerId);
+    }
+
     final db = await _appDatabase.database;
     final rows = await db.rawQuery(
       '''
@@ -167,6 +186,10 @@ class SalesRepository {
   }
 
   Future<SaleDetail?> fetchDetail(int saleId) async {
+    if (_useBackendMode) {
+      return _fetchDetailFromBackend(saleId);
+    }
+
     final db = await _appDatabase.database;
     final rows = await db.rawQuery(
       '''
@@ -234,6 +257,10 @@ class SalesRepository {
   }
 
   Future<int> createSale(SaleDraft draft) async {
+    if (_useBackendMode) {
+      return _createSaleInBackend(draft);
+    }
+
     print(
       '[SALES][DB] createSale start clientId=${draft.clientId} lotId=${draft.lotId} sellerId=${draft.sellerId} price=${draft.salePrice}',
     );
@@ -474,6 +501,11 @@ class SalesRepository {
   }
 
   Future<void> updateSale(int saleId, SaleDraft draft) async {
+    if (_useBackendMode) {
+      await _updateSaleInBackend(saleId, draft);
+      return;
+    }
+
     final db = await _appDatabase.database;
     final deletedInstallmentPayloads = <Map<String, Object?>>[];
 
@@ -819,6 +851,11 @@ class SalesRepository {
   }
 
   Future<void> deleteSale(int saleId) async {
+    if (_useBackendMode) {
+      await _deleteSaleInBackend(saleId);
+      return;
+    }
+
     final db = await _appDatabase.database;
     final deleteQueue =
         <({String scope, String syncId, Map<String, Object?> payload})>[];
@@ -1151,5 +1188,350 @@ class SalesRepository {
       'deleted_at': now,
       'sync_status': DatabaseSchema.syncStatusPending,
     };
+  }
+
+  Future<List<SaleSummary>> _fetchAllFromBackend({
+    String query = '',
+    String? sellerRemoteId,
+  }) async {
+    final response = await _apiClient.get(
+      '/sales',
+      queryParameters: {
+        'page': '1',
+        'limit': '100',
+        if (query.trim().isNotEmpty) 'search': query.trim(),
+        if (sellerRemoteId != null && sellerRemoteId.isNotEmpty) 'sellerId': sellerRemoteId,
+      },
+    );
+    final payload = response is Map<String, dynamic>
+        ? response
+        : (response as Map).map((key, value) => MapEntry(key.toString(), value));
+    final items = (payload['items'] as List?) ?? const [];
+    return items
+        .whereType<Map>()
+        .map((item) => _saleSummaryFromBackend(item.map((key, value) => MapEntry(key.toString(), value))))
+        .toList(growable: false);
+  }
+
+  Future<SaleDetail?> _fetchDetailFromBackend(int saleId) async {
+    final remoteId = _idRegistry.resolveRemoteId('sales', saleId);
+    if (remoteId == null || remoteId.isEmpty) {
+      return null;
+    }
+    final response = await _apiClient.get('/sales/$remoteId');
+    final payload = response is Map<String, dynamic>
+        ? response
+        : (response as Map).map((key, value) => MapEntry(key.toString(), value));
+    return _saleDetailFromBackend(payload);
+  }
+
+  Future<int> _createSaleInBackend(SaleDraft draft) async {
+    final clientRemoteId = _idRegistry.resolveRemoteId('clients', draft.clientId);
+    final productRemoteId = _idRegistry.resolveRemoteId('products', draft.lotId);
+    final sellerRemoteId = _idRegistry.resolveRemoteId('sellers', draft.sellerId);
+    if (clientRemoteId == null || productRemoteId == null) {
+      throw const BackendApiException(
+        'No se pudieron resolver las referencias remotas de cliente y solar.',
+      );
+    }
+
+    final response = await _apiClient.post('/sales', body: {
+      'clientId': clientRemoteId,
+      'productId': productRemoteId,
+      if (sellerRemoteId != null && sellerRemoteId.isNotEmpty)
+        'sellerId': sellerRemoteId,
+      'contractNumber': null,
+      'saleDate': draft.saleDate.toIso8601String(),
+      'principalAmount': draft.salePrice,
+      'downPayment': draft.requiredInitialPayment,
+      'interestRate': draft.monthlyInterest,
+      'termMonths': draft.installmentCount,
+      'status': _mapSaleStatusToBackend(draft.status),
+    });
+    final payload = response is Map<String, dynamic>
+        ? response
+        : (response as Map).map((key, value) => MapEntry(key.toString(), value));
+    final remoteSaleId = payload['id']?.toString().trim() ?? '';
+    if (remoteSaleId.isEmpty) {
+      throw const BackendApiException('La API no devolvió el id de la venta creada.');
+    }
+    return _idRegistry.register('sales', remoteSaleId);
+  }
+
+  Future<void> _updateSaleInBackend(int saleId, SaleDraft draft) async {
+    final remoteSaleId = _idRegistry.resolveRemoteId('sales', saleId);
+    final clientRemoteId = _idRegistry.resolveRemoteId('clients', draft.clientId);
+    final productRemoteId = _idRegistry.resolveRemoteId('products', draft.lotId);
+    final sellerRemoteId = _idRegistry.resolveRemoteId('sellers', draft.sellerId);
+    if (remoteSaleId == null || clientRemoteId == null || productRemoteId == null) {
+      throw const BackendApiException(
+        'No se pudieron resolver las referencias remotas de la venta.',
+      );
+    }
+
+    await _apiClient.patch('/sales/$remoteSaleId', body: {
+      'clientId': clientRemoteId,
+      'productId': productRemoteId,
+      if (sellerRemoteId != null && sellerRemoteId.isNotEmpty)
+        'sellerId': sellerRemoteId,
+      'saleDate': draft.saleDate.toIso8601String(),
+      'principalAmount': draft.salePrice,
+      'downPayment': draft.requiredInitialPayment,
+      'interestRate': draft.monthlyInterest,
+      'termMonths': draft.installmentCount,
+      'status': _mapSaleStatusToBackend(draft.status),
+    });
+  }
+
+  Future<void> _deleteSaleInBackend(int saleId) async {
+    final remoteSaleId = _idRegistry.resolveRemoteId('sales', saleId);
+    if (remoteSaleId == null || remoteSaleId.isEmpty) {
+      throw const BackendApiException(
+        'No se pudo identificar la venta remota para eliminarla.',
+      );
+    }
+    await _apiClient.delete('/sales/$remoteSaleId');
+  }
+
+  SaleSummary _saleSummaryFromBackend(Map<String, dynamic> item) {
+    final remoteSaleId = item['id']?.toString().trim() ?? '';
+    final localSaleId = _idRegistry.register('sales', remoteSaleId);
+    final client = _asMap(item['client']);
+    final product = _asMap(item['product']);
+    if (client != null) {
+      final clientId = client['id']?.toString().trim() ?? '';
+      if (clientId.isNotEmpty) {
+        _idRegistry.register('clients', clientId);
+      }
+    }
+    if (product != null) {
+      final productId = product['id']?.toString().trim() ?? '';
+      if (productId.isNotEmpty) {
+        _idRegistry.register('products', productId);
+      }
+    }
+    final downPayment = _toDouble(item['downPayment']);
+    final paidAmount = _toDouble(item['paidAmount']);
+    return SaleSummary(
+      id: localSaleId,
+      syncStatus: item['syncStatus']?.toString() ?? 'synced',
+      clientName: _clientName(client),
+      clientDocumentId: client?['documentId']?.toString() ?? '',
+      lotDisplayCode: _lotDisplayCode(product),
+      saleDate: DateTime.tryParse(item['saleDate']?.toString() ?? '') ?? DateTime.now(),
+      salePrice: _toDouble(item['principalAmount']),
+      downPaymentAmount: downPayment,
+      requiredInitialPayment: downPayment,
+      paidInitialPayment: paidAmount,
+      pendingInitialPayment: math.max(0, downPayment - paidAmount),
+      minimumReserveAmount: null,
+      initialPaymentDeadline: null,
+      financedBalance: _toDouble(item['financedAmount']),
+      pendingBalance: _toDouble(item['outstandingBalance']),
+      monthlyInterest: _toDouble(item['interestRate']),
+      installmentCount: _toInt(item['termMonths']),
+      status: _mapSaleStatusFromBackend(item['status']?.toString() ?? 'active'),
+      generatedInstallments: (item['installments'] as List?)?.length ?? _toInt(item['termMonths']),
+    );
+  }
+
+  SaleDetail _saleDetailFromBackend(Map<String, dynamic> item) {
+    final remoteSaleId = item['id']?.toString().trim() ?? '';
+    final localSaleId = _idRegistry.register('sales', remoteSaleId);
+    final client = _asMap(item['client']);
+    final product = _asMap(item['product']);
+    final seller = _asMap(item['seller']);
+    final user = _asMap(item['user']);
+    final installments = ((item['installments'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((installment) => _installmentFromBackend(
+              installment.map((key, value) => MapEntry(key.toString(), value)),
+              saleLocalId: localSaleId,
+            ))
+        .toList(growable: false);
+    final downPayment = _toDouble(item['downPayment']);
+    final paidAmount = _toDouble(item['paidAmount']);
+    return SaleDetail(
+      sale: Sale(
+        id: localSaleId,
+        clientId: _registerNestedId('clients', client),
+        lotId: _registerNestedId('products', product),
+        userId: _registerNestedId('users', user),
+        sellerId: _registerNestedId('sellers', seller),
+        saleDate: DateTime.tryParse(item['saleDate']?.toString() ?? '') ?? DateTime.now(),
+        salePrice: _toDouble(item['principalAmount']),
+        downPaymentPercentage: 0,
+        downPaymentAmount: downPayment,
+        requiredInitialPayment: downPayment,
+        paidInitialPayment: paidAmount,
+        pendingInitialPayment: math.max(0, downPayment - paidAmount),
+        minimumReserveAmount: null,
+        initialPaymentDeadline: null,
+        activationDate: null,
+        financedBalance: _toDouble(item['financedAmount']),
+        pendingBalance: _toDouble(item['outstandingBalance']),
+        monthlyInterest: _toDouble(item['interestRate']),
+        installmentCount: _toInt(item['termMonths']),
+        status: _mapSaleStatusFromBackend(item['status']?.toString() ?? 'active'),
+        createdAt: DateTime.tryParse(item['createdAt']?.toString() ?? '') ?? DateTime.now(),
+        updatedAt: DateTime.tryParse(item['updatedAt']?.toString() ?? '') ?? DateTime.now(),
+      ),
+      clientName: _clientName(client),
+      clientDocumentId: client?['documentId']?.toString() ?? '',
+      lotDisplayCode: _lotDisplayCode(product),
+      lotArea: _lotArea(product),
+      lotPricePerSquareMeter: _lotUnitPrice(product),
+      userName: user?['fullName']?.toString() ?? user?['username']?.toString() ?? '',
+      initialPaymentMethod: _mapPaymentMethod(
+        ((item['payments'] as List?) ?? const []).isEmpty
+            ? null
+            : ((item['payments'] as List).first as Map)['method']?.toString(),
+      ),
+      sellerName: seller?['name']?.toString(),
+      sellerDocumentId: seller?['documentId']?.toString(),
+      sellerPhone: seller?['phone']?.toString(),
+      installments: installments,
+    );
+  }
+
+  Installment _installmentFromBackend(
+    Map<String, dynamic> item, {
+    required int saleLocalId,
+  }) {
+    final remoteInstallmentId = item['id']?.toString().trim() ?? '';
+    final localInstallmentId = _idRegistry.register('installments', remoteInstallmentId);
+    final paidAmount = _toDouble(item['paidAmount']);
+    return Installment(
+      id: localInstallmentId,
+      saleId: saleLocalId,
+      installmentNumber: _toInt(item['installmentNumber']),
+      dueDate: DateTime.tryParse(item['dueDate']?.toString() ?? '') ?? DateTime.now(),
+      openingBalance: 0,
+      principalAmount: _toDouble(item['principalAmount']),
+      interestAmount: _toDouble(item['interestAmount']),
+      totalAmount: _toDouble(item['amount']),
+      paidAmount: paidAmount,
+      paidPrincipalAmount: paidAmount,
+      paidInterestAmount: 0,
+      endingBalance: 0,
+      status: item['status']?.toString() ?? 'pending',
+      createdAt: DateTime.tryParse(item['createdAt']?.toString() ?? '') ?? DateTime.now(),
+      updatedAt: DateTime.tryParse(item['updatedAt']?.toString() ?? '') ?? DateTime.now(),
+    );
+  }
+
+  Map<String, dynamic>? _asMap(Object? value) {
+    if (value is Map<String, dynamic>) {
+      return value;
+    }
+    if (value is Map) {
+      return value.map((key, data) => MapEntry(key.toString(), data));
+    }
+    return null;
+  }
+
+  int _registerNestedId(String namespace, Map<String, dynamic>? payload) {
+    final remoteId = payload?['id']?.toString().trim() ?? '';
+    if (remoteId.isEmpty) {
+      return 0;
+    }
+    return _idRegistry.register(namespace, remoteId);
+  }
+
+  String _clientName(Map<String, dynamic>? client) {
+    if (client == null) {
+      return '';
+    }
+    final firstName = client['firstName']?.toString().trim() ?? '';
+    final lastName = client['lastName']?.toString().trim() ?? '';
+    return [firstName, lastName]
+        .where((value) => value.isNotEmpty)
+        .join(' ')
+        .trim();
+  }
+
+  String _lotDisplayCode(Map<String, dynamic>? product) {
+    if (product == null) {
+      return '';
+    }
+    final syncPayload = _asMap(product['syncPayload']);
+    final blockNumber = syncPayload?['block_number']?.toString() ?? '';
+    final lotNumber = syncPayload?['lot_number']?.toString() ?? '';
+    if (blockNumber.isNotEmpty || lotNumber.isNotEmpty) {
+      return 'M$blockNumber-S$lotNumber';
+    }
+    return product['code']?.toString() ?? product['name']?.toString() ?? '';
+  }
+
+  double _lotArea(Map<String, dynamic>? product) {
+    final syncPayload = product == null ? null : _asMap(product['syncPayload']);
+    return _toDouble(syncPayload?['area']);
+  }
+
+  double _lotUnitPrice(Map<String, dynamic>? product) {
+    final syncPayload = product == null ? null : _asMap(product['syncPayload']);
+    final fromPayload = _toDouble(syncPayload?['price_per_square_meter']);
+    if (fromPayload > 0) {
+      return fromPayload;
+    }
+    final area = _lotArea(product);
+    if (area <= 0) {
+      return 0;
+    }
+    return _toDouble(product?['price']) / area;
+  }
+
+  int _toInt(Object? value) {
+    if (value is int) {
+      return value;
+    }
+    if (value is num) {
+      return value.toInt();
+    }
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  String _mapSaleStatusFromBackend(String status) {
+    switch (status.trim().toLowerCase()) {
+      case 'completed':
+        return 'pagada';
+      case 'cancelled':
+        return 'cancelada';
+      case 'draft':
+        return 'apartado';
+      case 'overdue':
+        return 'atrasada';
+      case 'active':
+      default:
+        return 'activa';
+    }
+  }
+
+  String _mapSaleStatusToBackend(String status) {
+    switch (status.trim().toLowerCase()) {
+      case 'pagada':
+        return 'completed';
+      case 'cancelada':
+        return 'cancelled';
+      case 'apartado':
+      case 'inicial_incompleto':
+        return 'draft';
+      default:
+        return 'active';
+    }
+  }
+
+  String _mapPaymentMethod(String? method) {
+    switch (method?.trim().toLowerCase()) {
+      case 'transfer':
+        return 'transferencia';
+      case 'card':
+        return 'tarjeta';
+      case 'check':
+        return 'cheque';
+      case 'cash':
+      default:
+        return 'efectivo';
+    }
   }
 }
