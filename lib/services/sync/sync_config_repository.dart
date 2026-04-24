@@ -1,12 +1,9 @@
 import 'dart:math';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import '../../core/database/app_database.dart';
-import '../../core/database/database_schema.dart';
+import '../../core/config/backend_config.dart' as backend_config;
 import '../../core/security/sensitive_storage.dart';
 import '../../core/system/system_config_service.dart';
 import '../../features/settings/data/settings_repository.dart';
@@ -26,7 +23,7 @@ class SyncConfigRepository {
            preferencesFactory ?? SharedPreferences.getInstance;
 
   static const syncBaseUrlKey = 'sync.base_url';
-  static const defaultSyncBaseUrl = DatabaseSchema.defaultSyncBaseUrl;
+  static const defaultSyncBaseUrl = backend_config.BASE_URL;
   static const syncQueueRetrySecondsKey = 'sync.queue_retry_seconds';
   static const syncRealtimePollingSecondsKey = 'sync.realtime_polling_seconds';
   static const syncConflictStrategyKey = 'sync.conflict_strategy';
@@ -37,42 +34,8 @@ class SyncConfigRepository {
   static const _deviceIdPreferenceKey = 'sync.device_id';
   static const _cursorPreferencePrefix = 'sync.cursor.';
 
-  static bool _isLocalhostHost(String host) {
-    final lower = host.trim().toLowerCase();
-    return lower == 'localhost' ||
-        lower == '127.0.0.1' ||
-        lower == '0.0.0.0' ||
-        lower == '::1';
-  }
-
-  static bool _looksLikeLocalhostUrl(String value) {
-    final uri = Uri.tryParse(value.trim());
-    if (uri == null) return false;
-    return _isLocalhostHost(uri.host);
-  }
-
   static String normalizeBackendBaseUrl(String baseUrl) {
-    final trimmed = baseUrl.trim();
-    if (trimmed.isEmpty) {
-      return '';
-    }
-
-    final uri = Uri.tryParse(trimmed);
-    if (uri == null || uri.host.trim().isEmpty) {
-      return trimmed.replaceAll(RegExp(r'/$'), '');
-    }
-
-    final pathSegments = uri.pathSegments
-        .where((segment) => segment.isNotEmpty)
-        .toList();
-    if (pathSegments.isEmpty || pathSegments.last.toLowerCase() != 'api') {
-      pathSegments.add('api');
-    }
-
-    return uri
-        .replace(pathSegments: pathSegments)
-        .toString()
-        .replaceAll(RegExp(r'/$'), '');
+    return backend_config.normalizeBackendBaseUrl(baseUrl);
   }
 
   final SettingsRepository _settingsRepository;
@@ -89,27 +52,11 @@ class SyncConfigRepository {
 
   Future<SyncSettings> loadSettings() async {
     final values = await _settingsRepository.fetchByKeys([
-      syncBaseUrlKey,
       syncQueueRetrySecondsKey,
       syncRealtimePollingSecondsKey,
       syncConflictStrategyKey,
     ]);
-    final storedBaseUrl = (values[syncBaseUrlKey]?.value ?? '').trim();
-
-    // Keep operators free to override the backend URL, but avoid breaking sync
-    // when a clean install has no stored value.
-    // IMPORTANT: We do NOT persist this fallback automatically.
-    var baseUrl = normalizeBackendBaseUrl(
-      storedBaseUrl.isEmpty ? defaultSyncBaseUrl : storedBaseUrl,
-    );
-
-    // Avoid shipping a release build pointed to localhost.
-    if (!kDebugMode && baseUrl.isNotEmpty && _looksLikeLocalhostUrl(baseUrl)) {
-      baseUrl = normalizeBackendBaseUrl(defaultSyncBaseUrl);
-      if (_looksLikeLocalhostUrl(baseUrl)) {
-        baseUrl = '';
-      }
-    }
+    final baseUrl = normalizeBackendBaseUrl(defaultSyncBaseUrl);
 
     final token = await _sensitiveStorage.read(_jwtTokenPreferenceKey) ?? '';
     final retrySeconds =
@@ -129,36 +76,7 @@ class SyncConfigRepository {
     );
   }
 
-  Future<void> saveBaseUrl(String baseUrl) async {
-    var normalized = normalizeBackendBaseUrl(baseUrl);
-
-    if (normalized.isEmpty) {
-      normalized = normalizeBackendBaseUrl(defaultSyncBaseUrl);
-    }
-
-    if (!kDebugMode && _looksLikeLocalhostUrl(normalized)) {
-      normalized = normalizeBackendBaseUrl(defaultSyncBaseUrl);
-    }
-
-    try {
-      await _settingsRepository.upsert(syncBaseUrlKey, normalized);
-      return;
-    } on ReadOnlyModeException {
-      // Allow updating the backend URL even in read-only mode so
-      // installations can recover connectivity.
-    }
-
-    final db = await AppDatabase.instance.database;
-    await db.insert(
-      DatabaseSchema.settingsTable,
-      {
-        'clave': syncBaseUrlKey,
-        'valor': normalized,
-        'fecha_actualizacion': DateTime.now().toIso8601String(),
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
-  }
+  Future<void> saveBaseUrl(String baseUrl) async {}
 
   Future<void> saveJwtToken(String jwtToken) async {
     await _sensitiveStorage.write(_jwtTokenPreferenceKey, jwtToken);

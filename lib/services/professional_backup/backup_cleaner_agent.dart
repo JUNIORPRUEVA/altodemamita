@@ -57,7 +57,9 @@ class BackupCleanerAgent {
     final toDelete = files.length - keepLast;
     for (var i = 0; i < toDelete; i++) {
       try {
+        final base = path.basename(files[i].path);
         await files[i].delete();
+        print('[PRO-BACKUP] Backup local eliminado por retención: $base');
       } catch (_) {
         // Best effort.
       }

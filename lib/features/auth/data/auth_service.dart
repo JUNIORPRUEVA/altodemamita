@@ -5,6 +5,7 @@ import 'package:bcrypt/bcrypt.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import '../../../core/config/backend_config.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_schema.dart';
 import '../../../core/security/password_hasher.dart';
@@ -217,22 +218,8 @@ class AuthService {
         mode: AuthSignInMode.offline,
       );
     } on AuthException {
-      if (remoteStatus.connectionStatus == BackendConnectionStatus.unconfigured) {
-        throw const AuthException(
-          'Configura la URL del backend para iniciar sesion en linea o utiliza un usuario ya habilitado para modo offline.',
-        );
-      }
       rethrow;
     }
-  }
-
-  Future<String> loadBackendBaseUrl() async {
-    final settings = await _syncConfigRepository.loadSettings();
-    return settings.baseUrl.trim();
-  }
-
-  Future<void> saveBackendBaseUrl(String baseUrl) {
-    return _syncConfigRepository.saveBaseUrl(baseUrl.trim());
   }
 
   Future<UserModel> loginOnline({
@@ -240,11 +227,6 @@ class AuthService {
     required String password,
   }) async {
     final settings = await _syncConfigRepository.loadSettings();
-    if (settings.baseUrl.trim().isEmpty) {
-      throw const AuthException(
-        'Configura la URL del backend antes de iniciar sesion en linea.',
-      );
-    }
 
     final normalizedIdentifier = email.trim();
     final normalizedPassword = password.trim();
@@ -345,17 +327,10 @@ class AuthService {
     }
 
     final settings = await _syncConfigRepository.loadSettings();
-    if (settings.baseUrl.trim().isEmpty) {
-      throw const AuthException(
-        'Configura la URL del backend antes de completar la configuración inicial.',
-      );
-    }
 
     final remoteStatus = await _fetchRemoteSystemStatus();
     if (!remoteStatus.isReachable) {
-      throw const AuthException(
-        'Se requiere conexión con el backend para completar la configuración inicial.',
-      );
+      throw const AuthException(serverConnectionErrorMessage);
     }
     if (remoteStatus.initialized) {
       throw const AuthException('El sistema central ya fue inicializado.');
@@ -1274,24 +1249,14 @@ class AuthService {
   Future<_RemoteSystemStatus> _fetchRemoteSystemStatus() async {
     try {
       final settings = await _syncConfigRepository.loadSettings();
-      if (settings.baseUrl.trim().isEmpty) {
-        return const _RemoteSystemStatus(
-          isReachable: false,
-          initialized: false,
-          statusAvailable: false,
-          connectionStatus: BackendConnectionStatus.unconfigured,
-          message: 'Configura la URL del backend.',
-        );
-      }
-
       final uri = Uri.parse('${settings.normalizedBaseUrl}/system/status');
       if (uri.host.trim().isEmpty) {
         return const _RemoteSystemStatus(
           isReachable: false,
           initialized: false,
           statusAvailable: false,
-          connectionStatus: BackendConnectionStatus.unconfigured,
-          message: 'La URL del backend no es valida.',
+          connectionStatus: BackendConnectionStatus.unreachable,
+          message: serverConnectionErrorMessage,
         );
       }
 
@@ -1302,7 +1267,7 @@ class AuthService {
           initialized: false,
           statusAvailable: false,
           connectionStatus: BackendConnectionStatus.unreachable,
-          message: 'No se pudo resolver el backend.',
+          message: serverConnectionErrorMessage,
         );
       }
 
@@ -1333,7 +1298,7 @@ class AuthService {
             initialized: false,
             statusAvailable: false,
             connectionStatus: BackendConnectionStatus.unreachable,
-            message: 'No se pudo consultar el backend.',
+            message: serverConnectionErrorMessage,
           );
         }
       }
@@ -1343,7 +1308,7 @@ class AuthService {
         initialized: false,
         statusAvailable: false,
         connectionStatus: BackendConnectionStatus.unreachable,
-        message: 'No hay comunicacion con el backend.',
+        message: serverConnectionErrorMessage,
       );
     } catch (_) {
       return const _RemoteSystemStatus(
@@ -1351,6 +1316,7 @@ class AuthService {
         initialized: false,
         statusAvailable: false,
         connectionStatus: BackendConnectionStatus.unreachable,
+        message: serverConnectionErrorMessage,
       );
     }
   }

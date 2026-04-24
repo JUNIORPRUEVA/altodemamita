@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:developer' as developer;
 import 'dart:io';
 
+import '../../core/config/backend_config.dart';
 import '../../core/system/system_config_service.dart';
 import '../../models/sync/sync_conflict_strategy.dart';
 import '../../models/sync/sync_settings.dart';
@@ -220,12 +221,8 @@ class SyncApiClient {
     final trimmed = responseBody.trimLeft();
     final looksLikeJson = trimmed.startsWith('{') || trimmed.startsWith('[');
     if (!looksLikeJson) {
-      final contentType = response.headers.contentType?.mimeType ?? 'unknown';
       throw HttpException(
-        'La API de sincronizacion devolvio una respuesta no JSON '
-        '(status: ${response.statusCode}, content-type: $contentType). '
-        'URL: $uri. '
-        'Body: ${_previewResponseBody(responseBody)}',
+        serverConnectionErrorMessage,
         uri: uri,
       );
     }
@@ -234,12 +231,8 @@ class SyncApiClient {
     try {
       decodedBody = _unwrapResponseEnvelope(_decodeJsonObject(responseBody));
     } on FormatException {
-      final contentType = response.headers.contentType?.mimeType ?? 'unknown';
       throw HttpException(
-        'La API de sincronizacion devolvio JSON invalido '
-        '(status: ${response.statusCode}, content-type: $contentType). '
-        'URL: $uri. '
-        'Body: ${_previewResponseBody(responseBody)}',
+        serverConnectionErrorMessage,
         uri: uri,
       );
     }
@@ -269,8 +262,7 @@ class SyncApiClient {
       final message = decodedBody['message']?.toString().trim();
       throw HttpException(
         'El backend rechazo la sesion (401). '
-        '${message == null || message.isEmpty ? 'Inicia sesion en linea nuevamente.' : message} '
-        'URL: $uri.',
+        '${message == null || message.isEmpty ? 'Inicia sesion en linea nuevamente.' : message}',
         uri: uri,
       );
     }
@@ -280,16 +272,14 @@ class SyncApiClient {
       if (message.contains('No tiene permisos suficientes')) {
         throw HttpException(
           'Tu usuario no tiene permisos para sincronizar (falta "sync.manage"). '
-          'Asigna un rol con ese permiso (por ejemplo SUPER_ADMIN) y vuelve a intentar. '
-          'URL: $uri.',
+          'Asigna un rol con ese permiso (por ejemplo SUPER_ADMIN) y vuelve a intentar.',
           uri: uri,
         );
       }
       if (message.contains('no esta disponible para clientes panel')) {
         throw HttpException(
           'Estas autenticado como cliente PANEL y la sincronizacion operativa esta bloqueada. '
-          'Inicia sesion como Desktop (en la app de escritorio) y vuelve a intentar. '
-          'URL: $uri.',
+          'Inicia sesion como Desktop (en la app de escritorio) y vuelve a intentar.',
           uri: uri,
         );
       }
@@ -297,7 +287,7 @@ class SyncApiClient {
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw HttpException(
-        'La API de sincronizacion respondio con ${response.statusCode}: $responseBody',
+        serverConnectionErrorMessage,
         uri: uri,
       );
     }

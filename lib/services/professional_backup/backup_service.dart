@@ -8,6 +8,7 @@ import 'backup_cleaner_agent.dart';
 import 'backup_scheduler_agent.dart';
 import 'cloud_backup_agent.dart';
 import 'local_backup_agent.dart';
+import 'professional_restore_agent.dart';
 import 'professional_backup_settings.dart';
 import 'professional_backup_settings_repository.dart';
 
@@ -37,6 +38,10 @@ class BackupService {
       appPaths: _appPaths,
       httpClient: httpClient,
     );
+    _restoreAgent = ProfessionalRestoreAgent(
+      appDatabase: _appDatabase,
+      appPaths: _appPaths,
+    );
     _scheduler = BackupSchedulerAgent(job: _runScheduledCloudBackup);
   }
 
@@ -44,6 +49,8 @@ class BackupService {
   final AppPaths _appPaths;
   final ProfessionalBackupSettingsRepository _settingsRepository;
   final BackupCleanerAgent _cleaner;
+
+  late final ProfessionalRestoreAgent _restoreAgent;
 
   late final LocalBackupAgent _localAgent;
   late final CloudBackupAgent _cloudAgent;
@@ -88,12 +95,22 @@ class BackupService {
     }
 
     return _enqueue<File?>(() async {
+      print('[PRO-BACKUP] Creando backup local (trigger=$trigger)');
       final file = await _localAgent.createLocalBackup();
+      print('[PRO-BACKUP] Backup local listo: ${file.path}');
       await _cleaner.enforceLocalRetention(
         directory: _localAgent.localBackupsDirectory,
         keepLast: 15,
       );
       return file;
+    });
+  }
+
+  Future<ProfessionalRestoreResult> restoreFromLocalBackup({
+    required String backupPath,
+  }) {
+    return _enqueue<ProfessionalRestoreResult>(() async {
+      return _restoreAgent.restoreFromLocalBackup(backupPath: backupPath);
     });
   }
 
@@ -132,15 +149,21 @@ class BackupService {
 
     await _enqueue<void>(() async {
       final uploadDate = DateTime.now();
+      print('[PRO-BACKUP] Iniciando backup nube (force=$force, date=${_calendarDate(uploadDate)})');
       final result = await _createAndUploadCloudBackupWithRetries(
         date: uploadDate,
         maxRetries: 2,
       );
       if (!result.success) {
+        print(
+          '[PRO-BACKUP] Backup nube falló: status=${result.statusCode} msg=${result.message ?? ''}',
+        );
         throw StateError(
           'La nube rechazó el backup (${result.statusCode}): ${result.message ?? ''}',
         );
       }
+
+      print('[PRO-BACKUP] Backup nube subido: ${result.remoteFilename} (status=${result.statusCode})');
 
       final updated = (await getSettings()).copyWith(
         lastCloudBackupDate: _calendarDate(uploadDate),

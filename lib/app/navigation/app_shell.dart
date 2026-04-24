@@ -29,7 +29,6 @@ import '../../features/sales/presentation/sellers_page.dart';
 import '../../features/settings/data/company_repository.dart';
 import '../../features/settings/data/settings_repository.dart';
 import '../../features/settings/presentation/settings_page.dart';
-import '../../features/settings/presentation/sync_settings_page.dart';
 import '../../models/sync/sync_connection_status.dart';
 import '../../repositories/installments_sync_repository.dart';
 import '../../repositories/payments_sync_repository.dart';
@@ -138,47 +137,6 @@ class _AppShellState extends State<AppShell> {
     _loadCompanyDisplayName();
     _syncManager.addListener(_handleSyncManagerChanged);
     unawaited(_syncManager.start());
-  }
-
-  Future<void> _openCloudSyncSettings() async {
-    final isReadOnly = context.read<SystemConfigService>().isReadOnly;
-
-    if (!isReadOnly) {
-      final auth = context.read<AuthProvider>();
-      final hasAccess = auth.hasScopedAccess(
-        scope: AdminOverrideScope.settingsSync,
-        module: PermissionCatalog.settings,
-        action: PermissionAction.update,
-      );
-
-      if (!hasAccess) {
-        final allowed = await requestAdminOverride(
-          context,
-          scope: AdminOverrideScope.settingsSync,
-          title: 'Autorización administrativa requerida',
-          message:
-              'Necesitas la clave de un administrador para configurar el backend y la sincronización.',
-        );
-        if (!allowed || !mounted) {
-          return;
-        }
-      }
-    }
-
-    if (!mounted) {
-      return;
-    }
-
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const SyncSettingsPage()),
-    );
-
-    if (!mounted) {
-      return;
-    }
-
-    // Refresh sync state after configuration changes.
-    unawaited(_syncManager.syncNow(showAsBusy: false));
   }
 
   @override
@@ -573,7 +531,6 @@ class _AppShellState extends State<AppShell> {
                               unresolvedConflictCount:
                                   syncState.unresolvedConflictCount,
                               onTriggerSync: isReadOnly ? () async {} : _runSync,
-                              onOpenSyncSettings: _openCloudSyncSettings,
                               onOpenProfile: _openProfile,
                             ),
                             Expanded(child: currentPage),
@@ -603,7 +560,6 @@ class _ShellHeader extends StatelessWidget {
     required this.pendingCount,
     required this.unresolvedConflictCount,
     required this.onTriggerSync,
-    required this.onOpenSyncSettings,
     required this.onOpenProfile,
   });
 
@@ -615,7 +571,6 @@ class _ShellHeader extends StatelessWidget {
   final int pendingCount;
   final int unresolvedConflictCount;
   final Future<void> Function() onTriggerSync;
-  final Future<void> Function() onOpenSyncSettings;
   final Future<void> Function() onOpenProfile;
 
   @override
@@ -722,7 +677,6 @@ class _ShellHeader extends StatelessWidget {
             const SizedBox(height: 10),
             _SyncAlertBanner(
               message: currentErrors.first,
-              onConfigure: onOpenSyncSettings,
               onRetry: isSyncing ? null : onTriggerSync,
             ),
           ],
@@ -823,26 +777,14 @@ class _QueuePill extends StatelessWidget {
 class _SyncAlertBanner extends StatelessWidget {
   const _SyncAlertBanner({
     required this.message,
-    this.onConfigure,
     this.onRetry,
   });
 
   final String message;
-  final Future<void> Function()? onConfigure;
   final Future<void> Function()? onRetry;
-
-  bool _shouldOfferConfigurationShortcut(String message) {
-    final lower = message.toLowerCase();
-    return lower.contains('sync.base_url') ||
-        lower.contains('url de nube') ||
-        lower.contains('url del backend') ||
-        lower.contains('backend y sincron');
-  }
 
   @override
   Widget build(BuildContext context) {
-    final offerShortcut =
-        onConfigure != null && _shouldOfferConfigurationShortcut(message);
     final canRetry = onRetry != null;
 
     return Container(
@@ -882,21 +824,6 @@ class _SyncAlertBanner extends StatelessWidget {
                 ),
               ),
               child: const Text('Reintentar'),
-            ),
-          ],
-          if (offerShortcut) ...[
-            const SizedBox(width: 10),
-            TextButton(
-              onPressed: () => unawaited(onConfigure!()),
-              style: TextButton.styleFrom(
-                foregroundColor: const Color(0xFF6E4300),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                textStyle: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              child: const Text('Configurar nube'),
             ),
           ],
         ],

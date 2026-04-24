@@ -19,7 +19,6 @@ import 'company_info_page.dart';
 import 'documentation_page.dart';
 import 'financial_params_page.dart';
 import 'printers_page.dart';
-import 'sync_settings_page.dart';
 import 'users_screen.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -175,19 +174,6 @@ class _SettingsPageState extends State<SettingsPage> {
                           builder: (_) => const UsersScreen(),
                         ),
                       ),
-                    _SettingCard(
-                      width: cardWidth,
-                      icon: Icons.cloud_outlined,
-                      title: 'Nube',
-                      description: 'Backend y sincronización',
-                      onTap: () => _openProtectedSettingsPage(
-                        scope: AdminOverrideScope.settingsSync,
-                        title: 'Autorización administrativa requerida',
-                        message:
-                            'Necesitas la clave de un administrador para configurar el backend y la sincronización.',
-                        builder: (_) => const SyncSettingsPage(),
-                      ),
-                    ),
                     _SettingCard(
                       width: cardWidth,
                       icon: Icons.trending_up,

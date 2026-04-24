@@ -21,7 +21,7 @@ class AuthProvider extends ChangeNotifier {
   bool _isOnline = false;
   bool _isCloudInitialized = true;
   BackendConnectionStatus _backendStatus =
-      BackendConnectionStatus.unconfigured;
+      BackendConnectionStatus.unreachable;
   String? _backendStatusMessage;
   UserModel? _currentUser;
   String? _errorMessage;
@@ -101,14 +101,8 @@ class AuthProvider extends ChangeNotifier {
         _backendStatus = BackendConnectionStatus.connected;
         _backendStatusMessage = null;
       } else {
-        final baseUrl = await _authService.loadBackendBaseUrl();
-        if (baseUrl.trim().isEmpty) {
-          _backendStatus = BackendConnectionStatus.unconfigured;
-          _backendStatusMessage = 'Configura la URL del backend.';
-        } else {
-          _backendStatus = BackendConnectionStatus.unreachable;
-          _backendStatusMessage = null;
-        }
+        _backendStatus = BackendConnectionStatus.unreachable;
+        _backendStatusMessage = null;
       }
       return true;
     } on AuthException catch (error) {
@@ -158,14 +152,8 @@ class AuthProvider extends ChangeNotifier {
         _backendStatus = BackendConnectionStatus.connected;
         _backendStatusMessage = null;
       } else {
-        final baseUrl = await _authService.loadBackendBaseUrl();
-        if (baseUrl.trim().isEmpty) {
-          _backendStatus = BackendConnectionStatus.unconfigured;
-          _backendStatusMessage = 'Configura la URL del backend.';
-        } else {
-          _backendStatus = BackendConnectionStatus.unreachable;
-          _backendStatusMessage = null;
-        }
+        _backendStatus = BackendConnectionStatus.unreachable;
+        _backendStatusMessage = null;
       }
       return true;
     } on AuthException catch (error) {

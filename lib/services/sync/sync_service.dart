@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import '../../core/config/backend_config.dart';
 import '../../core/database/app_database.dart';
 import '../../core/database/database_schema.dart';
 import '../../core/system/system_config_service.dart';
@@ -102,8 +103,7 @@ class SyncService {
         startedAt: startedAt,
         finishedAt: DateTime.now(),
         hadConnectivityError: true,
-        errorMessage:
-            'No se pudo completar la sincronizacion por falta de conectividad: ${error.message}',
+        errorMessage: serverConnectionErrorMessage,
       );
       await _configRepository.saveLastRun(errorMessage: report.errorMessage);
       _lastReport = report;
@@ -134,7 +134,7 @@ class SyncService {
       final report = SyncReport(
         startedAt: startedAt,
         finishedAt: DateTime.now(),
-        errorMessage: error.message,
+        errorMessage: serverConnectionErrorMessage,
       );
       await _configRepository.saveLastRun(errorMessage: report.errorMessage);
       _lastReport = report;
@@ -163,7 +163,7 @@ class SyncService {
       final report = SyncReport(
         startedAt: startedAt,
         finishedAt: DateTime.now(),
-        errorMessage: 'La sincronizacion fallo: $error',
+        errorMessage: serverConnectionErrorMessage,
       );
       await _configRepository.saveLastRun(errorMessage: report.errorMessage);
       _lastReport = report;
@@ -328,10 +328,10 @@ class SyncService {
     final hasJwtToken = settings.jwtToken.trim().isNotEmpty;
 
     if (!hasBaseUrl && !hasJwtToken) {
-      return 'Configura la URL de nube (backend) e inicia sesión en línea antes de sincronizar.';
+      return 'Inicia sesion en linea para activar la sincronizacion.';
     }
     if (!hasBaseUrl) {
-      return 'Configura la URL de nube (backend) antes de sincronizar.';
+      return serverConnectionErrorMessage;
     }
     if (!hasJwtToken) {
       return 'La app local necesita reautenticarse con la nube. Inicia sesion en linea nuevamente para reunificar la sincronizacion.';

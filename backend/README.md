@@ -85,6 +85,8 @@ Ejecución del contenedor:
 docker run --rm -p 3000:3000 \
 	-e NODE_ENV=production \
 	-e PORT=3000 \
+	-e CLOUD_BACKUPS_DIR=/cloud_backups \
+	-v sistema_solares_cloud_backups:/cloud_backups \
 	-e DB_HOST=postgres \
 	-e DB_PORT=5432 \
 	-e DB_USERNAME=postgres \
@@ -96,6 +98,12 @@ docker run --rm -p 3000:3000 \
 	-e R2_BUCKET=sistema-solares \
 	sistema-solares-backend
 ```
+
+Backups en la nube (filesystem):
+
+- En producción el backend guarda en `/cloud_backups`.
+- Para que sobrevivan reinicios, montar un volumen persistente a esa ruta.
+- Si el volumen no es escribible, el backend falla al iniciar (fail-fast) para evitar un estado “falso OK”.
 
 El contenedor de producción:
 

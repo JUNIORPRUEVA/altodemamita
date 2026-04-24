@@ -64,6 +64,8 @@ class CloudBackupAgent {
       throw StateError('Base de datos local no encontrada.');
     }
 
+    print('[PRO-BACKUP] Preparando snapshot para nube: $zipName');
+
     // Create a consistent snapshot by checkpointing and closing the DB briefly.
     try {
       final db = await _appDatabase.database;
@@ -78,6 +80,8 @@ class CloudBackupAgent {
       final snapshotFile = await sourceFile.copy(snapshotDbPath);
       await _validator.validateSQLiteDbFile(snapshotFile);
 
+      print('[PRO-BACKUP] Empaquetando ZIP: $zipName');
+
       final encoder = ZipFileEncoder();
       encoder.create(zipPath);
       encoder.addFile(snapshotFile, innerDbName);
@@ -86,10 +90,20 @@ class CloudBackupAgent {
       final zipFile = File(zipPath);
       await _validator.validateZipFile(zipFile);
 
+      print('[PRO-BACKUP] Subiendo ZIP al backend: $zipName');
+
       final result = await _uploadZip(
         zipFile: zipFile,
         uploadFilename: zipName,
       );
+
+      if (result.success) {
+        print('[PRO-BACKUP] Upload OK: $zipName');
+      } else {
+        print(
+          '[PRO-BACKUP] Upload FAIL: $zipName (status=${result.statusCode})',
+        );
+      }
       return result;
     } finally {
       await _appDatabase.initialize();

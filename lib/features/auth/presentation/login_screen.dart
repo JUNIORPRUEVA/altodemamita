@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../data/auth_service.dart';
-import '../../settings/presentation/sync_settings_page.dart';
 import 'auth_provider.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -68,16 +67,6 @@ class _LoginScreenState extends State<LoginScreen> {
       email: _emailController.text,
       password: _passwordController.text,
     );
-  }
-
-  Future<void> _openBackendSettings() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => const SyncSettingsPage(),
-      ),
-    );
-    if (!mounted) return;
-    await context.read<AuthProvider>().initialize();
   }
 
   Future<void> _openRecoveryDialog() async {
@@ -328,25 +317,6 @@ class _LoginScreenState extends State<LoginScreen> {
                                 mainAxisAlignment:
                                     MainAxisAlignment.spaceBetween,
                                 children: [
-                                  TextButton(
-                                    onPressed: auth.isSigningIn
-                                        ? null
-                                        : _openBackendSettings,
-                                    style: TextButton.styleFrom(
-                                      padding: EdgeInsets.zero,
-                                      minimumSize: Size.zero,
-                                      tapTargetSize:
-                                          MaterialTapTargetSize.shrinkWrap,
-                                      foregroundColor: Colors.white.withValues(
-                                        alpha: 0.48,
-                                      ),
-                                      textStyle: const TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w400,
-                                      ),
-                                    ),
-                                    child: const Text('Configurar nube'),
-                                  ),
                                   TextButton(
                                     onPressed: auth.isSigningIn
                                         ? null

@@ -26,19 +26,23 @@ ENV PORT=3000
 ENV CLOUD_BACKUPS_DIR=/cloud_backups
 
 RUN apk add --no-cache openssl \
+	&& apk add --no-cache su-exec \
 	&& addgroup -S nodejs \
 	&& adduser -S nestjs -G nodejs \
 	&& mkdir -p /cloud_backups \
 	&& chown -R nestjs:nodejs /cloud_backups \
 	&& chmod -R 777 /cloud_backups
 
+VOLUME ["/cloud_backups"]
+
 COPY --chown=nestjs:nodejs --from=builder /app/package*.json ./
 COPY --chown=nestjs:nodejs --from=builder /app/node_modules ./node_modules
 COPY --chown=nestjs:nodejs --from=builder /app/dist ./dist
 COPY --chown=nestjs:nodejs --from=builder /app/prisma ./prisma
 
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
 EXPOSE 3000
 
-USER nestjs
-
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]
+ENTRYPOINT ["/docker-entrypoint.sh"]
