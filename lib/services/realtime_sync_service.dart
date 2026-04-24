@@ -5,6 +5,7 @@ import 'package:socket_io_client/socket_io_client.dart' as io;
 
 import '../models/sync/sync_connection_status.dart';
 import 'sync/sync_config_repository.dart';
+import 'sync/sync_logger.dart';
 import 'sync/sync_service.dart';
 
 class RealtimeSyncService {
@@ -21,8 +22,10 @@ class RealtimeSyncService {
   final VoidCallback? _onDataChanged;
 
   io.Socket? _socket;
+  Timer? _pollingTimer;
   Future<void> _eventQueue = Future<void>.value();
   final Map<String, _RecentRealtimeEvent> _recentEvents = {};
+  final SyncLogger _syncLogger = SyncLogger.instance;
   final StreamController<RealtimeSyncState> _stateController =
       StreamController<RealtimeSyncState>.broadcast();
   final StreamController<void> _dataChangedController =
@@ -37,6 +40,7 @@ class RealtimeSyncService {
   Future<void> start() async {
     final settings = await _configRepository.loadSettings();
     if (!settings.isConfigured) {
+      _stopPolling();
       _emitState(
         RealtimeSyncState(
           connectionStatus: SyncConnectionStatus.disconnected,
@@ -48,6 +52,7 @@ class RealtimeSyncService {
     }
 
     _disposeSocket();
+    _stopPolling();
     _emitState(
       RealtimeSyncState(
         connectionStatus: SyncConnectionStatus.connecting,
@@ -77,6 +82,14 @@ class RealtimeSyncService {
     );
 
     socket.onConnect((_) {
+      unawaited(
+        _syncLogger.log(
+          action: 'realtime-connect',
+          entity: 'sync',
+          result: 'ok',
+          extra: {'transport': 'websocket'},
+        ),
+      );
       _emitState(
         RealtimeSyncState(
           connectionStatus: SyncConnectionStatus.connected,
@@ -85,9 +98,18 @@ class RealtimeSyncService {
           lastDataChangedAt: _state.lastDataChangedAt,
         ),
       );
+      _startPolling(settings.realtimePollingInterval);
       unawaited(_syncFromServer());
     });
     socket.onReconnect((_) {
+      unawaited(
+        _syncLogger.log(
+          action: 'realtime-reconnect',
+          entity: 'sync',
+          result: 'ok',
+          extra: {'transport': 'websocket'},
+        ),
+      );
       _emitState(
         RealtimeSyncState(
           connectionStatus: SyncConnectionStatus.connected,
@@ -96,9 +118,19 @@ class RealtimeSyncService {
           lastDataChangedAt: _state.lastDataChangedAt,
         ),
       );
+      _startPolling(settings.realtimePollingInterval);
       unawaited(_syncFromServer());
     });
     socket.onDisconnect((_) {
+      _startPolling(settings.realtimePollingInterval);
+      unawaited(
+        _syncLogger.log(
+          action: 'realtime-disconnect',
+          entity: 'sync',
+          result: 'pending',
+          extra: {'transport': 'websocket'},
+        ),
+      );
       _emitState(
         RealtimeSyncState(
           connectionStatus: SyncConnectionStatus.disconnected,
@@ -108,6 +140,15 @@ class RealtimeSyncService {
       );
     });
     socket.onConnectError((error) {
+      _startPolling(settings.realtimePollingInterval);
+      unawaited(
+        _syncLogger.log(
+          action: 'realtime-connect-error',
+          entity: 'sync',
+          result: 'error',
+          error: error.toString(),
+        ),
+      );
       _emitState(
         RealtimeSyncState(
           connectionStatus: SyncConnectionStatus.error,
@@ -116,6 +157,15 @@ class RealtimeSyncService {
       );
     });
     socket.onError((error) {
+      _startPolling(settings.realtimePollingInterval);
+      unawaited(
+        _syncLogger.log(
+          action: 'realtime-error',
+          entity: 'sync',
+          result: 'error',
+          error: error?.toString(),
+        ),
+      );
       _emitState(
         RealtimeSyncState(
           connectionStatus: SyncConnectionStatus.error,
@@ -155,6 +205,7 @@ class RealtimeSyncService {
   }
 
   void dispose() {
+    _stopPolling();
     _disposeSocket();
     if (!_stateController.isClosed) {
       unawaited(_stateController.close());
@@ -176,11 +227,25 @@ class RealtimeSyncService {
     _isApplyingRealtimeEvent = true;
     try {
       final downloadedCount = await _syncService.downloadUpdates();
+      await _syncLogger.log(
+        action: 'realtime-download',
+        entity: 'sync',
+        result: downloadedCount > 0 ? 'ok' : 'idle',
+        extra: {'downloadedRecords': downloadedCount},
+      );
       if (downloadedCount > 0) {
         _notifyDataChanged();
         _onDataChanged?.call();
       }
       return downloadedCount;
+    } catch (error) {
+      await _syncLogger.log(
+        action: 'realtime-download',
+        entity: 'sync',
+        result: 'error',
+        error: error.toString(),
+      );
+      rethrow;
     } finally {
       _isApplyingRealtimeEvent = false;
     }
@@ -211,6 +276,41 @@ class RealtimeSyncService {
 
   bool registerEventForDeduplication(String eventName, dynamic payload) {
     return !_isDuplicateEvent(_buildDeduplicationContext(eventName, payload));
+  }
+
+  void _startPolling(Duration interval) {
+    _pollingTimer?.cancel();
+    _pollingTimer = Timer.periodic(interval, (_) {
+      unawaited(_pollServer(interval));
+    });
+  }
+
+  Future<void> _pollServer(Duration interval) async {
+    try {
+      final downloadedCount = await _syncFromServer();
+      await _syncLogger.log(
+        action: 'realtime-poll',
+        entity: 'sync',
+        result: downloadedCount > 0 ? 'ok' : 'idle',
+        extra: {
+          'intervalSeconds': interval.inSeconds,
+          'downloadedRecords': downloadedCount,
+        },
+      );
+    } catch (error) {
+      await _syncLogger.log(
+        action: 'realtime-poll',
+        entity: 'sync',
+        result: 'error',
+        error: error.toString(),
+        extra: {'intervalSeconds': interval.inSeconds},
+      );
+    }
+  }
+
+  void _stopPolling() {
+    _pollingTimer?.cancel();
+    _pollingTimer = null;
   }
 
   List<String> resolveAffectedScopes(String eventName, dynamic payload) {

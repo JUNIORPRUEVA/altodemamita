@@ -276,6 +276,16 @@ class SyncService {
       return 0;
     }
 
+    await _syncLogger.log(
+      action: forceFullDownload ? 'download-full-start' : 'download-start',
+      entity: targetScopes.join(','),
+      result: 'started',
+      extra: {
+        'scopeCount': targetScopes.length,
+        'forceFullDownload': forceFullDownload,
+      },
+    );
+
     if (forceFullDownload) {
       await _configRepository.clearCursors(targetScopes);
     }
@@ -327,11 +337,24 @@ class SyncService {
           downloadedRecords += scopeRecords.length;
         }
 
+        await _syncLogger.log(
+          action: 'download-scope',
+          entity: repository.scope,
+          result: scopeRecords.isNotEmpty ? 'ok' : 'idle',
+          extra: {'records': scopeRecords.length},
+        );
+
         final nextCursor = _findLatestTimestamp(scopeRecords);
         if (nextCursor != null) {
           await _configRepository.saveCursor(repository.scope, nextCursor);
         }
       } catch (error) {
+        await _syncLogger.log(
+          action: 'download-scope',
+          entity: repository.scope,
+          result: 'error',
+          error: error.toString(),
+        );
         scopeWarnings.add(
           'No se pudieron aplicar cambios remotos de ${repository.scope}: $error',
         );
@@ -339,6 +362,16 @@ class SyncService {
     }
 
     _lastScopeWarnings = scopeWarnings;
+
+    await _syncLogger.log(
+      action: forceFullDownload ? 'download-full-complete' : 'download-complete',
+      entity: targetScopes.join(','),
+      result: scopeWarnings.isEmpty ? 'ok' : 'warning',
+      extra: {
+        'downloadedRecords': downloadedRecords,
+        'warnings': scopeWarnings.length,
+      },
+    );
 
     return downloadedRecords;
   }

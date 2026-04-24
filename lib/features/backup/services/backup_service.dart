@@ -1,9 +1,15 @@
 import 'dart:io';
+import 'dart:convert';
 
+import 'package:archive/archive_io.dart';
 import 'package:path/path.dart' as path;
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../../../core/database/app_database.dart';
+import '../../../core/database/database_schema.dart';
+import '../../../core/resilience/app_paths.dart';
 import '../../../core/resilience/friendly_error_messages.dart';
+import '../../../services/professional_backup/backup_log_agent.dart';
 import '../data/backup_config_repository.dart';
 import '../domain/backup_config.dart';
 import '../domain/backup_metadata.dart';
@@ -30,13 +36,21 @@ class BackupService {
     AppDatabase? appDatabase,
     BackupConfigRepository? configRepository,
     DiskDetectionService? diskDetectionService,
+    AppPaths? appPaths,
+    BackupLogAgent? logAgent,
   }) : _appDatabase = appDatabase ?? AppDatabase.instance,
        _configRepository = configRepository ?? BackupConfigRepository(),
-       _diskDetectionService = diskDetectionService ?? DiskDetectionService();
+       _diskDetectionService = diskDetectionService ?? DiskDetectionService(),
+       _appPaths = appPaths ?? AppPaths(),
+       _logAgent = logAgent ?? BackupLogAgent(appPaths: appPaths);
 
   final AppDatabase _appDatabase;
   final BackupConfigRepository _configRepository;
   final DiskDetectionService _diskDetectionService;
+  final AppPaths _appPaths;
+  final BackupLogAgent _logAgent;
+
+  static const int _minHistoryDays = 7;
 
   Future<String> getDatabasePath() async {
     return _appDatabase.databasePath;
@@ -47,6 +61,7 @@ class BackupService {
   Future<BackupResult> createBackup({
     required String backupType, // 'startup', 'shutdown', 'manual'
   }) async {
+    final ts = DateTime.now();
     try {
       var config = await _configRepository.loadConfig();
       config = await _resolveExternalBackupConfig(config);
@@ -97,8 +112,9 @@ class BackupService {
       await typeDir.create(recursive: true);
 
       final timestamp = _timestampForFileName(DateTime.now());
-      final backupFilename = 'sistema_solares_${backupType}_$timestamp.db';
+      final backupFilename = 'sistema_solares_${backupType}_$timestamp.zip';
       final backupPath = path.join(typeDir.path, backupFilename);
+      final tmpBackupPath = '$backupPath.tmp';
       final checkFile = '${backupPath}.verified';
 
       print('[BACKUP] Ruta de destino: $backupPath');
@@ -111,32 +127,61 @@ class BackupService {
       final dbFileSize = await sourceFile.length();
 
       try {
-        // Copy database file
-        print('[BACKUP] Copiando archivo de base de datos...');
-        await sourceFile.copy(backupPath);
+        await _validateSQLiteSourceDatabase(sourceFile);
 
-        // Verify backup file exists and has content
-        final backupFile = File(backupPath);
-        if (!await backupFile.exists()) {
-          throw StateError('No se pudo crear el archivo de backup');
+        print('[BACKUP] Empaquetando respaldo completo (ZIP)...');
+        await _appPaths.ensureCriticalDirectories();
+
+        final tmpBackupFile = File(tmpBackupPath);
+        if (await tmpBackupFile.exists()) {
+          try {
+            await tmpBackupFile.delete();
+          } catch (_) {}
         }
 
-        final backupSize = await backupFile.length();
-        if (backupSize != dbFileSize) {
-          await backupFile.delete();
-          throw StateError(
-            'Tamaño de backup incorrecto. Esperado: ${_formatBytes(dbFileSize)}, '
-            'Obtenido: ${_formatBytes(backupSize)}',
-          );
-        }
-
-        print(
-          '[BACKUP] Backup creado exitosamente: ${_formatBytes(backupSize)}',
+        final packaged = await _buildBackupPackage(
+          destinationZipPath: tmpBackupPath,
+          databaseFile: sourceFile,
         );
+
+        final backupFile = File(backupPath);
+        if (await backupFile.exists()) {
+          await backupFile.delete();
+        }
+        try {
+          await packaged.rename(backupPath);
+        } on FileSystemException {
+          await packaged.copy(backupPath);
+          await packaged.delete();
+        }
+
+        final finalBackupFile = File(backupPath);
+        if (!await finalBackupFile.exists()) {
+          throw StateError('No se pudo crear el archivo ZIP de backup');
+        }
+
+        final backupSize = await finalBackupFile.length();
+        if (backupSize <= 0) {
+          await finalBackupFile.delete();
+          throw StateError('El archivo ZIP de backup está vacío.');
+        }
+
+        // Quick ZIP signature validation (PK\x03\x04).
+        final header = await _readFirstBytes(finalBackupFile, 4);
+        if (header.length < 4 ||
+            header[0] != 0x50 ||
+            header[1] != 0x4B ||
+            header[2] != 0x03 ||
+            header[3] != 0x04) {
+          await finalBackupFile.delete();
+          throw StateError('El archivo generado no parece ser un ZIP válido.');
+        }
+
+        print('[BACKUP] Backup completo creado: ${_formatBytes(backupSize)}');
 
         // Create verification file to mark successful backup
         await File(checkFile).writeAsString(
-          '${DateTime.now().toIso8601String()}|$dbFileSize|$backupSize',
+          '${DateTime.now().toIso8601String()}|dbSize=$dbFileSize|zipSize=$backupSize',
         );
 
         // Create metadata
@@ -165,6 +210,15 @@ class BackupService {
         // Apply retention policy
         await _applyRetentionPolicy(config);
 
+        await _logAgent.log(
+          timestamp: ts,
+          type: 'legacy_external',
+          operation: 'backup',
+          result: 'ok',
+          sizeBytes: backupSize.toInt(),
+          message: 'type=$backupType file=${metadata.filename}',
+        );
+
         print(
           '[BACKUP] Backup completado exitosamente: ${metadata.formattedDate}',
         );
@@ -186,6 +240,10 @@ class BackupService {
           final failedFile = File(backupPath);
           if (await failedFile.exists()) {
             await failedFile.delete();
+          }
+          final tmpFile = File(tmpBackupPath);
+          if (await tmpFile.exists()) {
+            await tmpFile.delete();
           }
         } catch (cleanup) {
           print('[BACKUP] Error limpiando archivo fallido: $cleanup');
@@ -209,6 +267,14 @@ class BackupService {
         );
 
         await _configRepository.addBackupEntry(metadata);
+
+        await _logAgent.log(
+          timestamp: ts,
+          type: 'legacy_external',
+          operation: 'backup',
+          result: 'error',
+          message: metadata.errorMessage ?? e.toString(),
+        );
         rethrow;
       } finally {
         // Always reopen database
@@ -245,6 +311,7 @@ class BackupService {
   /// Restore from a backup file with safety measures
   /// Automatically creates a pre-restore backup before restoration
   Future<BackupResult> restoreFromBackup({required String backupPath}) async {
+    final ts = DateTime.now();
     try {
       final backupFile = File(backupPath);
       if (!await backupFile.exists()) {
@@ -296,12 +363,20 @@ class BackupService {
 
         await _clearTransientDatabaseSidecars(databasePath);
 
-        // Replace current database with backup
-        print('[RESTORE] Reemplazando base de datos con backup...');
-        if (await databaseFile.exists()) {
-          await databaseFile.delete();
+        if (_isZipPackage(backupPath)) {
+          print('[RESTORE] Restaurando paquete ZIP (DB + archivos)...');
+          await _restoreFromZipPackage(
+            zipPath: backupPath,
+            databasePath: databasePath,
+          );
+        } else {
+          // Replace current database with backup
+          print('[RESTORE] Reemplazando base de datos con backup...');
+          if (await databaseFile.exists()) {
+            await databaseFile.delete();
+          }
+          await backupFile.copy(databasePath);
         }
-        await backupFile.copy(databasePath);
 
         // Verify new database integrity by opening it
         print(
@@ -334,6 +409,15 @@ class BackupService {
         );
 
         await _configRepository.addBackupEntry(metadata);
+
+        await _logAgent.log(
+          timestamp: ts,
+          type: 'legacy_external',
+          operation: 'restore',
+          result: 'ok',
+          sizeBytes: backupSize.toInt(),
+          message: 'file=${path.basename(backupPath)}',
+        );
 
         print('[RESTORE] ✓ Restauración completada exitosamente');
         if (safetyBackupResult != null) {
@@ -430,12 +514,20 @@ class BackupService {
       }
 
       await _clearTransientDatabaseSidecars(databasePath);
-      final databaseFile = File(databasePath);
-      if (await databaseFile.exists()) {
-        await databaseFile.delete();
+
+      if (_isZipPackage(rollbackBackupPath)) {
+        await _restoreFromZipPackage(
+          zipPath: rollbackBackupPath,
+          databasePath: databasePath,
+        );
+      } else {
+        final databaseFile = File(databasePath);
+        if (await databaseFile.exists()) {
+          await databaseFile.delete();
+        }
+        await rollbackFile.copy(databasePath);
       }
 
-      await rollbackFile.copy(databasePath);
       await _appDatabase.close();
       await _appDatabase.initialize();
       return true;
@@ -472,33 +564,51 @@ class BackupService {
       // Sort all successful backups by timestamp (newest first)
       cleanHistory.sort((a, b) => b.timestamp.compareTo(a.timestamp));
 
-      // Keep only maxBackupRetention backups total
-      int backupsToDelete = 0;
-      if (cleanHistory.length > config.maxBackupRetention) {
-        backupsToDelete = cleanHistory.length - config.maxBackupRetention;
-        print('[RETENTION] Eliminando $backupsToDelete backup(s) antigua(s)');
+      // Keep at least the last 7 calendar days, even if it exceeds maxBackupRetention.
+      final cutoff = DateTime.now().subtract(const Duration(days: _minHistoryDays));
+      final protected = cleanHistory.where((b) => b.timestamp.isAfter(cutoff)).toList();
+      final candidates = cleanHistory.where((b) => !b.timestamp.isAfter(cutoff)).toList();
 
-        for (int i = 0; i < backupsToDelete; i++) {
-          final backup = cleanHistory[config.maxBackupRetention + i];
+      // Delete only from older-than-cutoff candidates until we reach maxBackupRetention.
+      if (cleanHistory.length > config.maxBackupRetention && candidates.isNotEmpty) {
+        var currentCount = cleanHistory.length;
+        final targetCount = config.maxBackupRetention;
+
+        // Oldest first among candidates.
+        candidates.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+        for (final backup in candidates) {
+          if (currentCount <= targetCount) {
+            break;
+          }
           try {
             final file = File(backup.filepath);
             if (await file.exists()) {
               await file.delete();
-              // Also delete .verified file if exists
-              final verifyFile = File('${backup.filepath}.verified');
-              if (await verifyFile.exists()) {
-                await verifyFile.delete();
-              }
-              print('[RETENTION]   - Eliminado: ${backup.filename}');
             }
+            final verifyFile = File('${backup.filepath}.verified');
+            if (await verifyFile.exists()) {
+              await verifyFile.delete();
+            }
+            currentCount--;
+            print('[RETENTION]   - Eliminado: ${backup.filename}');
           } catch (e) {
             print('[RETENTION]   - Error eliminando ${backup.filename}: $e');
           }
         }
 
-        // Update history to reflect deletions
-        final keptBackups = cleanHistory.sublist(0, config.maxBackupRetention);
-        await _configRepository.saveBackupHistory(keptBackups);
+        // Rebuild kept list: protected + remaining candidates that still exist.
+        final kept = <BackupMetadata>[];
+        kept.addAll(protected);
+        for (final backup in candidates) {
+          if (kept.any((b) => b.id == backup.id)) continue;
+          final file = File(backup.filepath);
+          if (await file.exists()) {
+            kept.add(backup);
+          }
+        }
+
+        kept.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+        await _configRepository.saveBackupHistory(kept);
         historyChanged = true;
       }
 
@@ -602,6 +712,193 @@ class BackupService {
     } catch (e) {
       print('Error deleting backup: $e');
       return false;
+    }
+  }
+
+  bool _isZipPackage(String backupPath) {
+    return backupPath.trim().toLowerCase().endsWith('.zip');
+  }
+
+  Future<File> _buildBackupPackage({
+    required String destinationZipPath,
+    required File databaseFile,
+  }) async {
+    final zipFile = File(destinationZipPath);
+    await zipFile.parent.create(recursive: true);
+
+    final encoder = ZipFileEncoder();
+    encoder.create(destinationZipPath);
+
+    // Database.
+    encoder.addFile(databaseFile, path.join('database', DatabaseSchema.databaseName));
+
+    // Config files.
+    final configDir = Directory(_appPaths.configDirectory);
+    if (await configDir.exists()) {
+      await for (final entity in configDir.list(recursive: true, followLinks: false)) {
+        if (entity is! File) continue;
+        final relative = path.relative(entity.path, from: configDir.path);
+        encoder.addFile(entity, path.join('config', relative));
+      }
+    }
+
+    // Generated files.
+    final generatedDir = Directory(_appPaths.generatedDirectory);
+    if (await generatedDir.exists()) {
+      await for (final entity in generatedDir.list(recursive: true, followLinks: false)) {
+        if (entity is! File) continue;
+        final relative = path.relative(entity.path, from: generatedDir.path);
+        encoder.addFile(entity, path.join('generated', relative));
+      }
+    }
+
+    // Manifest.
+    final manifestPath = path.join(
+      _appPaths.tempDirectory,
+      'backup_manifest_${DateTime.now().microsecondsSinceEpoch}.json',
+    );
+    final manifestFile = File(manifestPath);
+    await manifestFile.parent.create(recursive: true);
+    await manifestFile.writeAsString(
+      jsonEncode({
+        'createdAt': DateTime.now().toIso8601String(),
+        'database': {
+          'name': DatabaseSchema.databaseName,
+          'sizeBytes': await databaseFile.length(),
+        },
+      }),
+      flush: true,
+    );
+    encoder.addFile(manifestFile, 'manifest.json');
+
+    encoder.close();
+
+    try {
+      await manifestFile.delete();
+    } catch (_) {}
+
+    return zipFile;
+  }
+
+  Future<void> _restoreFromZipPackage({
+    required String zipPath,
+    required String databasePath,
+  }) async {
+    await _appPaths.ensureCriticalDirectories();
+
+    final extractDir = Directory(
+      path.join(
+        _appPaths.tempDirectory,
+        'restore_extract_${DateTime.now().microsecondsSinceEpoch}',
+      ),
+    );
+    await extractDir.create(recursive: true);
+
+    try {
+      final input = InputFileStream(zipPath);
+      final archive = ZipDecoder().decodeBuffer(input, verify: true);
+      extractArchiveToDisk(archive, extractDir.path);
+
+      final extractedDbPath = path.join(
+        extractDir.path,
+        'database',
+        DatabaseSchema.databaseName,
+      );
+      final extractedDb = File(extractedDbPath);
+      if (!await extractedDb.exists()) {
+        throw StateError('El paquete ZIP no contiene la base de datos esperada.');
+      }
+
+      // Restore config files.
+      final extractedConfigDir = Directory(path.join(extractDir.path, 'config'));
+      if (await extractedConfigDir.exists()) {
+        await for (final entity in extractedConfigDir.list(recursive: true, followLinks: false)) {
+          if (entity is! File) continue;
+          final relative = path.relative(entity.path, from: extractedConfigDir.path);
+          final dest = File(path.join(_appPaths.configDirectory, relative));
+          await dest.parent.create(recursive: true);
+          await entity.copy(dest.path);
+        }
+      }
+
+      // Restore generated files.
+      final extractedGeneratedDir = Directory(path.join(extractDir.path, 'generated'));
+      if (await extractedGeneratedDir.exists()) {
+        await for (final entity in extractedGeneratedDir.list(recursive: true, followLinks: false)) {
+          if (entity is! File) continue;
+          final relative = path.relative(entity.path, from: extractedGeneratedDir.path);
+          final dest = File(path.join(_appPaths.generatedDirectory, relative));
+          await dest.parent.create(recursive: true);
+          await entity.copy(dest.path);
+        }
+      }
+
+      // Restore database atomically.
+      final databaseFile = File(databasePath);
+      if (await databaseFile.exists()) {
+        await databaseFile.delete();
+      }
+      await extractedDb.copy(databasePath);
+    } finally {
+      try {
+        if (await extractDir.exists()) {
+          await extractDir.delete(recursive: true);
+        }
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _validateSQLiteSourceDatabase(File databaseFile) async {
+    final length = await databaseFile.length();
+    if (length <= 0) {
+      throw StateError('La base de datos está vacía.');
+    }
+
+    final header = await _readFirstBytes(databaseFile, 16);
+    const signature = 'SQLite format 3\x00';
+    final expected = signature.codeUnits;
+    for (var i = 0; i < expected.length; i++) {
+      if (i >= header.length || header[i] != expected[i]) {
+        throw StateError('El archivo no parece ser una base SQLite válida.');
+      }
+    }
+
+    Database? db;
+    try {
+      db = await databaseFactoryFfi.openDatabase(
+        databaseFile.path,
+        options: OpenDatabaseOptions(
+          readOnly: true,
+          singleInstance: false,
+        ),
+      );
+
+      final rows = await db.rawQuery('PRAGMA quick_check(1)');
+      final first = rows.isNotEmpty ? rows.first.values.first : null;
+      final normalized = first?.toString().trim().toLowerCase() ?? '';
+      if (normalized != 'ok') {
+        throw StateError('La base SQLite no pasó quick_check.');
+      }
+
+      final missing = await DatabaseSchema.missingCriticalTables(db);
+      if (missing.isNotEmpty) {
+        throw StateError('La base SQLite no contiene tablas críticas.');
+      }
+    } finally {
+      try {
+        await db?.close();
+      } catch (_) {}
+    }
+  }
+
+  static Future<List<int>> _readFirstBytes(File file, int count) async {
+    final raf = await file.open();
+    try {
+      final buffer = List<int>.filled(count, 0);
+      final read = await raf.readInto(buffer);
+      return buffer.sublist(0, read);
+    } finally {
+      await raf.close();
     }
   }
 

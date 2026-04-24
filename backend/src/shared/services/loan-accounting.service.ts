@@ -37,33 +37,57 @@ export class LoanAccountingService {
       };
     }
 
-    const monthlyRate = input.interestRate / 100;
-    const installmentAmount = monthlyRate === 0
-      ? financedAmount / input.termMonths
-      : (financedAmount * monthlyRate) / (1 - Math.pow(1 + monthlyRate, -input.termMonths));
-
     const installments: InstallmentDraft[] = [];
-    let balance = financedAmount;
+    const monthlyRate = input.interestRate / 100;
+    const paymentAmount = this.calculateFixedPayment({
+      financedAmount,
+      interestRate: input.interestRate,
+      installmentCount: input.termMonths,
+    });
+    const paymentCents = this.toCents(paymentAmount);
+    let balanceCents = this.toCents(financedAmount);
 
     for (let index = 1; index <= input.termMonths; index += 1) {
-      const interestAmount = this.roundCurrency(balance * monthlyRate);
-      let principalAmount = this.roundCurrency(installmentAmount - interestAmount);
-      let amount = this.roundCurrency(installmentAmount);
-
-      if (index === input.termMonths) {
-        principalAmount = this.roundCurrency(balance);
-        amount = this.roundCurrency(principalAmount + interestAmount);
+      const openingBalanceCents = balanceCents;
+      if (openingBalanceCents <= 0) {
+        break;
       }
+
+      const isLastInstallment = index === input.termMonths;
+      let interestCents = this.toCents(this.fromCents(openingBalanceCents) * monthlyRate);
+      let principalCents = paymentCents - interestCents;
+      let totalAmountCents = paymentCents;
+
+      if (principalCents < 0) {
+        principalCents = 0;
+        interestCents = paymentCents;
+        totalAmountCents = paymentCents;
+      }
+
+      if (principalCents >= openingBalanceCents || isLastInstallment) {
+        principalCents = openingBalanceCents;
+        const adjustedInterestCents = paymentCents - principalCents;
+        if (adjustedInterestCents >= 0) {
+          interestCents = adjustedInterestCents;
+          totalAmountCents = paymentCents;
+        } else {
+          totalAmountCents = principalCents + interestCents;
+        }
+      }
+
+      const endingBalanceCents = (principalCents >= openingBalanceCents || isLastInstallment)
+        ? 0
+        : openingBalanceCents - principalCents;
 
       installments.push({
         installmentNumber: index,
         dueDate: this.addMonths(input.saleDate, index),
-        amount,
-        principalAmount,
-        interestAmount,
+        amount: this.fromCents(totalAmountCents),
+        principalAmount: this.fromCents(principalCents),
+        interestAmount: this.fromCents(interestCents),
       });
 
-      balance = this.roundCurrency(balance - principalAmount);
+      balanceCents = endingBalanceCents;
     }
 
     const totalInstallments = this.roundCurrency(
@@ -167,15 +191,50 @@ export class LoanAccountingService {
     return Math.round((value + Number.EPSILON) * 100) / 100;
   }
 
+  private calculateFixedPayment(input: {
+    financedAmount: number;
+    interestRate: number;
+    installmentCount: number;
+  }): number {
+    if (input.installmentCount <= 0 || input.financedAmount <= 0) {
+      return 0;
+    }
+
+    const monthlyRate = input.interestRate / 100;
+    if (monthlyRate === 0) {
+      return this.roundCurrency(input.financedAmount / input.installmentCount);
+    }
+
+    const factor = 1 - (1 / Math.pow(1 + monthlyRate, input.installmentCount));
+    if (factor === 0) {
+      return this.roundCurrency(input.financedAmount / input.installmentCount);
+    }
+
+    return this.roundCurrency((input.financedAmount * monthlyRate) / factor);
+  }
+
   private addMonths(date: Date, monthsToAdd: number): Date {
+    const targetMonthIndex = date.getMonth() + monthsToAdd;
+    const targetYear = date.getFullYear() + Math.floor(targetMonthIndex / 12);
+    const targetMonth = ((targetMonthIndex % 12) + 12) % 12;
+    const maxDay = new Date(targetYear, targetMonth + 1, 0).getDate();
+    const targetDay = Math.min(date.getDate(), maxDay);
     return new Date(
-      date.getFullYear(),
-      date.getMonth() + monthsToAdd,
-      date.getDate(),
+      targetYear,
+      targetMonth,
+      targetDay,
       date.getHours(),
       date.getMinutes(),
       date.getSeconds(),
       date.getMilliseconds(),
     );
+  }
+
+  private toCents(value: number): number {
+    return Math.round(value * 100);
+  }
+
+  private fromCents(value: number): number {
+    return value / 100;
   }
 }
