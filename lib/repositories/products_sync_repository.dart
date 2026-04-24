@@ -32,6 +32,7 @@ class ProductsSyncRepository implements SyncRepository {
   @override
   Future<void> markAsSynced(Iterable<String> syncIds) async {
     await _markScopeRowsAsSynced(
+      appDatabase: _appDatabase,
       tableName: DatabaseSchema.lotsTable,
       syncIds: syncIds,
     );
@@ -40,6 +41,7 @@ class ProductsSyncRepository implements SyncRepository {
   @override
   Future<void> markAsConflict(Iterable<String> syncIds) async {
     await _markScopeRowsAsConflict(
+      appDatabase: _appDatabase,
       tableName: DatabaseSchema.lotsTable,
       syncIds: syncIds,
     );
@@ -137,6 +139,7 @@ class ProductsSyncRepository implements SyncRepository {
 }
 
 Future<void> _markScopeRowsAsSynced({
+  required AppDatabase appDatabase,
   required String tableName,
   required Iterable<String> syncIds,
 }) async {
@@ -147,15 +150,20 @@ Future<void> _markScopeRowsAsSynced({
   if (ids.isEmpty) {
     return;
   }
-  final db = await AppDatabase.instance.database;
+  final db = await appDatabase.database;
   final placeholders = List.filled(ids.length, '?').join(', ');
+  await db.rawDelete(
+    'DELETE FROM $tableName WHERE deleted_at IS NOT NULL AND sync_id IN ($placeholders)',
+    ids,
+  );
   await db.rawUpdate(
-    'UPDATE $tableName SET sync_status = ? WHERE sync_id IN ($placeholders)',
+    'UPDATE $tableName SET sync_status = ? WHERE deleted_at IS NULL AND sync_id IN ($placeholders)',
     [DatabaseSchema.syncStatusSynced, ...ids],
   );
 }
 
 Future<void> _markScopeRowsAsConflict({
+  required AppDatabase appDatabase,
   required String tableName,
   required Iterable<String> syncIds,
 }) async {
@@ -166,7 +174,7 @@ Future<void> _markScopeRowsAsConflict({
   if (ids.isEmpty) {
     return;
   }
-  final db = await AppDatabase.instance.database;
+  final db = await appDatabase.database;
   final placeholders = List.filled(ids.length, '?').join(', ');
   await db.rawUpdate(
     'UPDATE $tableName SET sync_status = ? WHERE sync_id IN ($placeholders)',

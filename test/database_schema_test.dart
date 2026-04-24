@@ -243,6 +243,101 @@ void main() {
       expect(localSales, hasLength(1));
       expect(localSales.single.id, saleId);
       expect(localSales.single.clientName, 'Cliente Offline');
+      expect(localSales.single.syncStatus, DatabaseSchema.syncStatusPendingSync);
+      expect(localSales.single.isPendingSync, isTrue);
+    },
+  );
+
+  test(
+    'createSale elimina cuotas huerfanas del saleId antes de regenerarlas',
+    () async {
+      final now = DateTime(2026, 4, 24, 11, 0);
+      final db = await appDatabase.database;
+
+      final clientId = await db.insert(DatabaseSchema.clientsTable, {
+        'sync_id': 'client-stale-installments',
+        'nombre': 'Cliente Cuotas Huerfanas',
+        'cedula': '001-0000001-0',
+        'telefono': '8095551111',
+        'direccion': 'Calle Uno',
+        'fecha_creacion': now.toIso8601String(),
+        'fecha_actualizacion': now.toIso8601String(),
+        'sync_status': DatabaseSchema.syncStatusSynced,
+      });
+
+      final lotId = await db.insert(DatabaseSchema.lotsTable, {
+        'sync_id': 'lot-stale-installments',
+        'manzana_numero': 'D',
+        'solar_numero': '10',
+        'metros_cuadrados': 200,
+        'precio_por_metro': 3500,
+        'estado': 'disponible',
+        'fecha_creacion': now.toIso8601String(),
+        'fecha_actualizacion': now.toIso8601String(),
+        'sync_status': DatabaseSchema.syncStatusSynced,
+      });
+
+      await db.execute('PRAGMA foreign_keys = OFF');
+      await db.insert(DatabaseSchema.installmentsTable, {
+        'sync_id': 'stale-installment-1',
+        'venta_id': 1,
+        'numero_cuota': 1,
+        'fecha_vencimiento': now.add(const Duration(days: 30)).toIso8601String(),
+        'saldo_inicial': 99999,
+        'capital_cuota': 5000,
+        'interes_cuota': 500,
+        'monto_cuota': 5500,
+        'saldo_final': 94499,
+        'estado': 'pendiente',
+        'fecha_creacion': now.toIso8601String(),
+        'fecha_actualizacion': now.toIso8601String(),
+        'deleted_at': null,
+        'sync_status': DatabaseSchema.syncStatusPending,
+      });
+      await db.execute('PRAGMA foreign_keys = ON');
+
+      final saleId = await salesRepository.createSale(
+        SaleDraft(
+          clientId: clientId,
+          lotId: lotId,
+          userId: 1,
+          saleDate: now,
+          salePrice: 700000,
+          downPaymentPercentage: 10,
+          requiredInitialPayment: 70000,
+          initialPaymentPaid: 70000,
+          monthlyInterest: 1,
+          installmentCount: 12,
+        ),
+      );
+
+      expect(saleId, 1);
+
+      final installmentRows = await db.query(
+        DatabaseSchema.installmentsTable,
+        columns: ['venta_id', 'numero_cuota', 'sync_id'],
+        where: 'venta_id = ?',
+        whereArgs: [saleId],
+        orderBy: 'numero_cuota ASC',
+      );
+
+      expect(installmentRows, hasLength(12));
+      expect(
+        installmentRows.map((row) => row['numero_cuota']).toList(),
+        List<int>.generate(12, (index) => index + 1),
+      );
+      expect(
+        installmentRows.any((row) => row['sync_id'] == 'stale-installment-1'),
+        isFalse,
+      );
+
+      final saleRows = await db.query(
+        DatabaseSchema.salesTable,
+        columns: ['id'],
+        where: 'id = ?',
+        whereArgs: [saleId],
+      );
+      expect(saleRows, hasLength(1));
     },
   );
 

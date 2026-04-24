@@ -6,7 +6,6 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_schema.dart';
-import '../../../core/system/system_config_service.dart';
 import '../../../core/utils/sync_id_generator.dart';
 import '../../../services/sync/sync_queue_service.dart';
 import '../../installments/domain/installment.dart';
@@ -25,6 +24,8 @@ class SalesRepository {
 
   final AppDatabase _appDatabase;
   final SyncQueueService _syncQueueService;
+
+  bool get _shouldRunBackgroundSync => identical(_appDatabase, AppDatabase.instance);
 
   void _log(String message) {
     developer.log(message, name: 'SistemaSolares.SalesSync');
@@ -52,6 +53,7 @@ class SalesRepository {
       '''
       SELECT
         v.id,
+        v.sync_status,
         v.fecha_venta,
         v.precio_venta,
         v.inicial_monto,
@@ -77,6 +79,7 @@ class SalesRepository {
       $whereClause
       GROUP BY
         v.id,
+        v.sync_status,
         v.fecha_venta,
         v.precio_venta,
         v.inicial_monto,
@@ -108,6 +111,7 @@ class SalesRepository {
       '''
       SELECT
         v.id,
+        v.sync_status,
         v.fecha_venta,
         v.precio_venta,
         v.inicial_monto,
@@ -136,6 +140,7 @@ class SalesRepository {
         AND s.deleted_at IS NULL
       GROUP BY
         v.id,
+        v.sync_status,
         v.fecha_venta,
         v.precio_venta,
         v.inicial_monto,
@@ -370,6 +375,7 @@ class SalesRepository {
           'deleted_at': null,
           'sync_status': DatabaseSchema.syncStatusPendingSync,
         });
+        print('[SALES][DB] Venta creada -> saleId=$saleId syncId=$saleSyncId');
 
         final batch = txn.batch();
         if (saleStatus == 'activa') {
@@ -381,6 +387,17 @@ class SalesRepository {
             installmentCount: draft.installmentCount,
             createdAt: createdAt,
           );
+          _validateInstallmentSequence(installments, saleId: saleId);
+          final deletedInstallments = await txn.delete(
+            DatabaseSchema.installmentsTable,
+            where: 'venta_id = ?',
+            whereArgs: [saleId],
+          );
+          if (deletedInstallments > 0) {
+            print(
+              '[SALES][DB] createSale deleting stale installments saleId=$saleId count=$deletedInstallments',
+            );
+          }
           for (final installment in installments) {
             batch.insert(
               DatabaseSchema.installmentsTable,
@@ -391,6 +408,9 @@ class SalesRepository {
                 ..remove('id'),
             );
           }
+          print(
+            '[SALES][DB] Cuotas generadas -> saleId=$saleId count=${installments.length}',
+          );
         }
 
         if (initialPaidAmount > 0) {
@@ -438,6 +458,9 @@ class SalesRepository {
       _log(
         'SALE LOCAL CREATED -> saleId=$saleId syncId=$saleSyncId status=${DatabaseSchema.syncStatusPendingSync} clientId=${draft.clientId} lotId=${draft.lotId} amount=${draft.salePrice}',
       );
+      _log(
+        'Guardado en local -> scope=sales operation=create saleId=$saleId sync_status=${DatabaseSchema.syncStatusPendingSync}',
+      );
       print(
         '[SALES][DB] createSale success -> saleId=$saleId syncId=$saleSyncId',
       );
@@ -451,8 +474,6 @@ class SalesRepository {
   }
 
   Future<void> updateSale(int saleId, SaleDraft draft) async {
-    SystemConfigService.instance.ensureWritable();
-
     final db = await _appDatabase.database;
     final deletedInstallmentPayloads = <Map<String, Object?>>[];
 
@@ -770,6 +791,9 @@ class SalesRepository {
       _log(
         'SALE LOCAL UPDATED -> saleId=$saleId installments=${draft.installmentCount}',
       );
+      _log(
+        'Guardado en local -> scope=sales operation=update saleId=$saleId sync_status=${DatabaseSchema.syncStatusPending}',
+      );
       _scheduleSaleMutationSync('update-sale:$saleId', const [
         'products',
         'sales',
@@ -795,8 +819,6 @@ class SalesRepository {
   }
 
   Future<void> deleteSale(int saleId) async {
-    SystemConfigService.instance.ensureWritable();
-
     final db = await _appDatabase.database;
     final deleteQueue =
         <({String scope, String syncId, Map<String, Object?> payload})>[];
@@ -917,26 +939,15 @@ class SalesRepository {
       );
     }
     _log('DELETE SALE -> local saleId=$saleId queued for backend deletion');
-    await _confirmSalesMutation('delete-sale:$saleId', const [
+    _log(
+      'Guardado en local -> scope=sales operation=delete saleId=$saleId sync_status=${DatabaseSchema.syncStatusPending}',
+    );
+    _scheduleSaleMutationSync('delete-sale:$saleId', const [
       'products',
       'sales',
       'installments',
       'payments',
     ]);
-    _log('DELETE SALE FINAL -> saleId=$saleId confirmado por backend');
-  }
-
-  Future<void> _confirmSalesMutation(
-    String operationLabel,
-    List<String> scopes,
-  ) async {
-    for (final scope in scopes) {
-      await _syncQueueService.refreshScope(scope);
-    }
-    await _syncQueueService.syncScopesNowOrThrow(
-      scopes,
-      operationLabel: operationLabel,
-    );
   }
 
   Future<void> _ensureReferencedRowsExist(
@@ -1022,10 +1033,16 @@ class SalesRepository {
     required int saleId,
     required String saleSyncId,
   }) {
+    if (!_shouldRunBackgroundSync) {
+      return;
+    }
     unawaited(_runCreateSaleSync(saleId: saleId, saleSyncId: saleSyncId));
   }
 
   void _scheduleSaleMutationSync(String operationLabel, List<String> scopes) {
+    if (!_shouldRunBackgroundSync) {
+      return;
+    }
     unawaited(_runSaleMutationSync(operationLabel, scopes));
   }
 
@@ -1035,7 +1052,7 @@ class SalesRepository {
   }) async {
     const scopes = ['products', 'sales', 'installments', 'payments'];
     _log(
-      'SALE SYNC ATTEMPT -> saleId=$saleId syncId=$saleSyncId scopes=${scopes.join(',')}',
+      'Intentando sync -> scope=sales saleId=$saleId syncId=$saleSyncId scopes=${scopes.join(',')}',
     );
 
     try {
@@ -1050,17 +1067,17 @@ class SalesRepository {
 
       if (saleSyncStatus == DatabaseSchema.syncStatusSynced) {
         _log(
-          'SALE SYNC SUCCESS -> saleId=$saleId syncId=$saleSyncId processed=$processed status=$saleSyncStatus',
+          'Sync exitoso -> scope=sales saleId=$saleId syncId=$saleSyncId processed=$processed status=$saleSyncStatus',
         );
         return;
       }
 
       _log(
-        'SALE SYNC ERROR -> saleId=$saleId syncId=$saleSyncId processed=$processed status=${saleSyncStatus ?? DatabaseSchema.syncStatusPendingSync} retry=automatico',
+        'Sync falló -> scope=sales saleId=$saleId syncId=$saleSyncId processed=$processed status=${saleSyncStatus ?? DatabaseSchema.syncStatusPendingSync} retry=automatico',
       );
     } catch (error) {
       _log(
-        'SALE SYNC ERROR -> saleId=$saleId syncId=$saleSyncId error=$error retry=automatico',
+        'Sync falló -> scope=sales saleId=$saleId syncId=$saleSyncId error=$error retry=automatico',
       );
     }
   }
@@ -1070,7 +1087,7 @@ class SalesRepository {
     List<String> scopes,
   ) async {
     _log(
-      'SALE SYNC ATTEMPT -> operation=$operationLabel scopes=${scopes.join(',')}',
+      'Intentando sync -> scope=sales operation=$operationLabel scopes=${scopes.join(',')}',
     );
     try {
       for (final scope in scopes) {
@@ -1080,11 +1097,11 @@ class SalesRepository {
         includeDeferred: true,
       );
       _log(
-        'SALE SYNC RESULT -> operation=$operationLabel processed=$processed',
+        'Sync exitoso -> scope=sales operation=$operationLabel processed=$processed',
       );
     } catch (error) {
       _log(
-        'SALE SYNC ERROR -> operation=$operationLabel error=$error retry=automatico',
+        'Sync falló -> scope=sales operation=$operationLabel error=$error retry=automatico',
       );
     }
   }

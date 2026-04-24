@@ -8,6 +8,11 @@ import { SystemSetupDto } from '../dto/system-setup.dto';
 
 @Injectable()
 export class SystemService {
+  private static readonly resetAdminEmail = 'admin@local.com';
+  private static readonly resetAdminPassword = '123456';
+  private static readonly resetAdminFullName = 'Admin';
+  private static readonly resetCompanyName = 'Sistema reiniciado';
+
   constructor(private readonly prisma: PrismaService) {}
 
   async getStatus() {
@@ -124,6 +129,59 @@ export class SystemService {
           name: company.name,
         },
         admin: user,
+      };
+    });
+  }
+
+  async resetAll() {
+    const email = SystemService.resetAdminEmail;
+    const fullName = SystemService.resetAdminFullName;
+    const password = SystemService.resetAdminPassword;
+    const username = this.normalizeUsername('admin', email, fullName);
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.payment.deleteMany({});
+      await tx.installment.deleteMany({});
+      await tx.sale.deleteMany({});
+      await tx.client.deleteMany({});
+      await tx.product.deleteMany({});
+      await tx.userRole.deleteMany({});
+      await tx.user.deleteMany({});
+      await tx.companyProfile.deleteMany({});
+
+      await this.ensurePermissions(tx);
+      const role = await this.ensureSuperAdminRole(tx);
+
+      await tx.companyProfile.create({
+        data: {
+          name: SystemService.resetCompanyName,
+        },
+      });
+
+      const admin = await tx.user.create({
+        data: {
+          email,
+          username,
+          fullName,
+          passwordHash,
+          isActive: true,
+          syncStatus: SyncStatus.synced,
+        },
+        select: { id: true, email: true, username: true },
+      });
+
+      await tx.userRole.create({
+        data: {
+          userId: admin.id,
+          roleId: role.id,
+          syncStatus: SyncStatus.synced,
+        },
+      });
+
+      return {
+        message: 'Sistema reiniciado correctamente',
+        admin: admin.email,
       };
     });
   }

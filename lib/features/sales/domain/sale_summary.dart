@@ -1,6 +1,7 @@
 class SaleSummary {
   const SaleSummary({
     required this.id,
+    required this.syncStatus,
     required this.clientName,
     required this.clientDocumentId,
     required this.lotDisplayCode,
@@ -21,6 +22,7 @@ class SaleSummary {
   });
 
   final int id;
+  final String syncStatus;
   final String clientName;
   final String clientDocumentId;
   final String lotDisplayCode;
@@ -42,6 +44,7 @@ class SaleSummary {
   factory SaleSummary.fromMap(Map<String, Object?> map) {
     return SaleSummary(
       id: map['id'] as int? ?? 0,
+      syncStatus: map['sync_status'] as String? ?? 'synced',
       clientName: map['cliente_nombre'] as String? ?? '',
       clientDocumentId: map['cliente_cedula'] as String? ?? '',
       lotDisplayCode:
@@ -76,4 +79,9 @@ class SaleSummary {
   }
 
   bool get isFinancingActive => status == 'activa' || status == 'pagada';
+
+  bool get isPendingSync =>
+      syncStatus == 'pending' || syncStatus == 'pending_sync';
+
+  bool get isSynced => syncStatus == 'synced';
 }

@@ -135,56 +135,21 @@ class AuthService {
     final remoteStatus = await _fetchRemoteSystemStatus();
     final localRequiresInitialSetup = await requiresInitialSetup();
 
-    if (remoteStatus.isReachable && !remoteStatus.initialized) {
-      if (!remoteStatus.statusAvailable) {
-        return AuthBootstrapResult(
-          requiresInitialSetup: false,
-          isOnline: true,
-          isCloudInitialized: !localRequiresInitialSetup,
-          backendStatus: remoteStatus.connectionStatus,
-          backendStatusMessage: remoteStatus.message,
-        );
-      }
-      await clearSession();
-      return AuthBootstrapResult(
-        requiresInitialSetup: true,
-        isOnline: true,
-        isCloudInitialized: false,
-        backendStatus: remoteStatus.connectionStatus,
-        backendStatusMessage: remoteStatus.message,
-      );
-    }
-
+    // The desktop app must always reopen behind the login screen.
+    // We keep the persisted local session for logout/revocation bookkeeping,
+    // but bootstrap no longer auto-restores it into an authenticated shell.
     UserModel? currentUser;
-    if (!localRequiresInitialSetup) {
-      currentUser = await restoreSession();
-      if (currentUser != null && remoteStatus.isReachable) {
-        if (await _requiresOnlineReauthentication(currentUser)) {
-          await clearSession();
-          return AuthBootstrapResult(
-            requiresInitialSetup: false,
-            isOnline: true,
-            isCloudInitialized:
-                remoteStatus.statusAvailable ? remoteStatus.initialized : true,
-            backendStatus: BackendConnectionStatus.connected,
-            backendStatusMessage:
-                'La sesion local sigue activa, pero la credencial de sincronizacion ya no es valida. Inicia sesion en linea nuevamente para reunificar la app local con la nube.',
-          );
-        }
-        await _runFullSyncIfPossible();
-      }
+    if (localRequiresInitialSetup) {
+      await clearSession();
     }
 
     return AuthBootstrapResult(
-      requiresInitialSetup:
-          remoteStatus.isReachable &&
-          remoteStatus.statusAvailable &&
-          !remoteStatus.initialized,
+      requiresInitialSetup: localRequiresInitialSetup,
       isOnline: remoteStatus.isReachable,
       isCloudInitialized:
           remoteStatus.isReachable && remoteStatus.statusAvailable
           ? remoteStatus.initialized
-          : !localRequiresInitialSetup,
+          : false,
       backendStatus: remoteStatus.connectionStatus,
       backendStatusMessage: remoteStatus.message,
       currentUser: currentUser,
@@ -196,28 +161,41 @@ class AuthService {
     required String password,
   }) async {
     final remoteStatus = await _fetchRemoteSystemStatus();
-    if (remoteStatus.isReachable) {
-      if (remoteStatus.statusAvailable && !remoteStatus.initialized) {
-        throw const AuthException(
-          'El sistema central aun no ha sido inicializado.',
-        );
+    try {
+      final localUser = await signIn(email: email, password: password);
+
+      if (remoteStatus.isReachable &&
+          remoteStatus.statusAvailable &&
+          remoteStatus.initialized) {
+        try {
+          final remoteUser = await loginOnline(email: email, password: password);
+          final syncTriggered = await _runFullSyncIfPossible();
+          return AuthSignInResult(
+            user: remoteUser,
+            mode: AuthSignInMode.online,
+            syncTriggered: syncTriggered,
+          );
+        } catch (_) {
+          // Local access stays available even if the backend credential refresh fails.
+        }
       }
 
-      final user = await loginOnline(email: email, password: password);
-      final syncTriggered = await _runFullSyncIfPossible();
       return AuthSignInResult(
-        user: user,
-        mode: AuthSignInMode.online,
-        syncTriggered: syncTriggered,
-      );
-    }
-
-    try {
-      return AuthSignInResult(
-        user: await loginOffline(email: email, password: password),
+        user: localUser,
         mode: AuthSignInMode.offline,
       );
     } on AuthException {
+      if (remoteStatus.isReachable &&
+          remoteStatus.statusAvailable &&
+          remoteStatus.initialized) {
+        final user = await loginOnline(email: email, password: password);
+        final syncTriggered = await _runFullSyncIfPossible();
+        return AuthSignInResult(
+          user: user,
+          mode: AuthSignInMode.online,
+          syncTriggered: syncTriggered,
+        );
+      }
       rethrow;
     }
   }
@@ -326,29 +304,6 @@ class AuthService {
       throw const AuthException('La clave de recuperacion no es valida.');
     }
 
-    final settings = await _syncConfigRepository.loadSettings();
-
-    final remoteStatus = await _fetchRemoteSystemStatus();
-    if (!remoteStatus.isReachable) {
-      throw const AuthException(serverConnectionErrorMessage);
-    }
-    if (remoteStatus.initialized) {
-      throw const AuthException('El sistema central ya fue inicializado.');
-    }
-
-    await _sendJsonRequest(
-      method: 'POST',
-      uri: Uri.parse('${settings.normalizedBaseUrl}/system/setup'),
-      payload: {
-        'company': {'name': normalizedCompanyName},
-        'admin': {
-          'fullName': normalizedName,
-          'email': normalizedEmail,
-          'password': normalizedPassword,
-        },
-      },
-    );
-
     final db = await _appDatabase.database;
     final now = DateTime.now().toIso8601String();
     await db.transaction((txn) async {
@@ -357,10 +312,21 @@ class AuthService {
         {
           'nombre': normalizedName,
           'email': normalizedEmail,
+          'password_hash': PasswordHasher.hashPassword(normalizedPassword),
+          'password_reset_required': 0,
+          'password_updated_at': now,
+          'rol': UserRole.admin.storageValue,
+          'activo': 1,
           'fecha_actualizacion': now,
         },
         where: 'id = 1',
       );
+      await txn.delete(
+        DatabaseSchema.authSessionsTable,
+        where: 'usuario_id = ?',
+        whereArgs: [1],
+      );
+      await _replacePermissions(txn, 1, _fullPermissions());
       await _upsertSetting(
         txn,
         _adminRecoveryCodeKey,
@@ -378,9 +344,8 @@ class AuthService {
       );
     });
     await _persistLocalCompanyProfile(normalizedCompanyName);
-    await loginOnline(email: normalizedEmail, password: normalizedPassword);
-
     await clearSession();
+    await signIn(email: normalizedEmail, password: normalizedPassword);
     return normalizedRecoveryCode;
   }
 

@@ -4,7 +4,6 @@ import 'dart:developer' as developer;
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_schema.dart';
 import '../../../core/config/app_flags.dart';
-import '../../../core/system/system_config_service.dart';
 import '../../../core/utils/client_data_guard.dart';
 import '../../../models/sync/sync_status.dart';
 import '../../../repositories/sync_repository.dart';
@@ -34,6 +33,7 @@ class ClientRepository implements SyncRepository {
 
   bool get _enforceProductionGuards =>
       isProductionMode && identical(_appDatabase, AppDatabase.instance);
+  bool get _shouldRunBackgroundSync => identical(_appDatabase, AppDatabase.instance);
 
   @override
   String get scope => 'clients';
@@ -101,8 +101,6 @@ class ClientRepository implements SyncRepository {
 
   Future<void> save(Client client) async {
     try {
-      SystemConfigService.instance.ensureWritable();
-
       final normalizedClientInput = client.copyWith(
         fullName: client.fullName.trim(),
         documentId: client.documentId.trim(),
@@ -141,6 +139,9 @@ class ClientRepository implements SyncRepository {
         _log(
           'CLIENT LOCAL CREATED -> id=$insertedId documentId=${normalizedClient.documentId}',
         );
+        _log(
+          'Guardado en local -> scope=clients operation=create id=$insertedId sync_status=${SyncStatus.pending.storageValue}',
+        );
         _scheduleBackgroundSync('create-client');
         return;
       }
@@ -154,6 +155,9 @@ class ClientRepository implements SyncRepository {
       _log(
         'CLIENT LOCAL UPDATED -> id=${normalizedClient.id} documentId=${normalizedClient.documentId}',
       );
+      _log(
+        'Guardado en local -> scope=clients operation=update id=${normalizedClient.id} sync_status=${SyncStatus.pending.storageValue}',
+      );
       _scheduleBackgroundSync('update-client:${normalizedClient.id}');
     } catch (error, stackTrace) {
       print('💥 ERROR SQLITE: $error');
@@ -165,8 +169,6 @@ class ClientRepository implements SyncRepository {
 
   Future<void> delete(int id) async {
     try {
-      SystemConfigService.instance.ensureWritable();
-
       final db = await _appDatabase.database;
       final rows = await db.query(
         DatabaseSchema.clientsTable,
@@ -192,6 +194,9 @@ class ClientRepository implements SyncRepository {
         whereArgs: [id],
       );
       _log('CLIENT LOCAL DELETED -> id=$id');
+      _log(
+        'Guardado en local -> scope=clients operation=delete id=$id sync_status=${SyncStatus.pending.storageValue}',
+      );
       _scheduleBackgroundSync('delete-client:$id');
     } catch (error, stackTrace) {
       print('💥 ERROR SQLITE: $error');
@@ -202,22 +207,25 @@ class ClientRepository implements SyncRepository {
   }
 
   void _scheduleBackgroundSync(String operationLabel) {
+    if (!_shouldRunBackgroundSync) {
+      return;
+    }
     unawaited(_runBackgroundSync(operationLabel));
   }
 
   Future<void> _runBackgroundSync(String operationLabel) async {
-    _log('CLIENT SYNC ATTEMPT -> operation=$operationLabel');
+    _log('Intentando sync -> scope=clients operation=$operationLabel');
     try {
       await _syncQueueService.refreshScope(scope);
       final processed = await _syncQueueService.processQueue(
         includeDeferred: true,
       );
       _log(
-        'CLIENT SYNC RESULT -> operation=$operationLabel processed=$processed',
+        'Sync exitoso -> scope=clients operation=$operationLabel processed=$processed',
       );
     } catch (error, stackTrace) {
       _log(
-        'CLIENT SYNC ERROR -> operation=$operationLabel',
+        'Sync falló -> scope=clients operation=$operationLabel error=$error',
         error: error,
         stackTrace: stackTrace,
       );
@@ -250,10 +258,14 @@ class ClientRepository implements SyncRepository {
 
     final db = await _appDatabase.database;
     final placeholders = List.filled(normalizedIds.length, '?').join(', ');
+    await db.rawDelete(
+      'DELETE FROM ${DatabaseSchema.clientsTable} WHERE deleted_at IS NOT NULL AND sync_id IN ($placeholders)',
+      normalizedIds,
+    );
     await db.rawUpdate(
       'UPDATE ${DatabaseSchema.clientsTable} '
       'SET sync_status = ? '
-      'WHERE sync_id IN ($placeholders)',
+      'WHERE deleted_at IS NULL AND sync_id IN ($placeholders)',
       [SyncStatus.synced.storageValue, ...normalizedIds],
     );
   }

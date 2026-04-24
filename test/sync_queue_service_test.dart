@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:io';
 
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -136,6 +138,32 @@ void main() {
     expect(processed, 1);
     expect(apiClient.uploadedScopes, ['sellers']);
     expect(queueRows.containsKey('sellers'), isFalse);
+  });
+
+  test('no marca synced cuando la API responde sin ack del registro', () async {
+    apiClient = _RecordingSyncApiClient(missingAckScopes: {'sales'});
+    service = SyncQueueService.test(
+      appDatabase: appDatabase,
+      configRepository: configRepository,
+      apiClient: apiClient,
+      conflictService: SyncConflictService(appDatabase: appDatabase),
+    );
+    service.registerRepository(
+      _FakeSyncRepository('sales', pendingSyncIds: {'sale-no-ack'}),
+    );
+
+    await _insertQueuedRecord(appDatabase, scope: 'sales', syncId: 'sale-no-ack');
+
+    final processed = await service.processQueue();
+    final queueRows = await _readQueueRows(appDatabase);
+
+    expect(processed, 0);
+    expect(apiClient.uploadedScopes, ['sales']);
+    expect(queueRows.containsKey('sales'), isTrue);
+    expect(
+      queueRows['sales']?['last_error'],
+      contains('La API no confirmo todos los registros de la cola.'),
+    );
   });
 
   test('elimina upserts huerfanos antes de sincronizar la cola', () async {
@@ -341,6 +369,45 @@ void main() {
     expect(apiClient.uploadedPayloads.single['status'], 'deleted');
     expect(apiClient.uploadedPayloads.single['deleted_at'], isNotNull);
   });
+
+  test('reintenta automaticamente al recibir reconexion de connectivity_plus', () async {
+    apiClient = _RecordingSyncApiClient();
+    var online = false;
+    final connectivityController =
+        StreamController<List<ConnectivityResult>>.broadcast();
+    addTearDown(connectivityController.close);
+
+    service = SyncQueueService.test(
+      appDatabase: appDatabase,
+      configRepository: configRepository,
+      apiClient: apiClient,
+      conflictService: SyncConflictService(appDatabase: appDatabase),
+      connectivityProbe: (_) async => online,
+      connectivityChanges: connectivityController.stream,
+    );
+    service.registerRepository(
+      _FakeSyncRepository('sales', pendingSyncIds: {'sale-reconnect'}),
+    );
+
+    await _insertQueuedRecord(
+      appDatabase,
+      scope: 'sales',
+      syncId: 'sale-reconnect',
+    );
+
+    final processedOffline = await service.processQueue();
+    expect(processedOffline, 0);
+    expect(apiClient.uploadedScopes, isEmpty);
+
+    await service.start();
+    online = true;
+    connectivityController.add(const [ConnectivityResult.wifi]);
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    final queueRows = await _readQueueRows(appDatabase);
+    expect(apiClient.uploadedScopes, contains('sales'));
+    expect(queueRows.containsKey('sales'), isFalse);
+  });
 }
 
 SyncSettings _buildSettings({required bool isConfigured}) {
@@ -432,9 +499,13 @@ class _FakeSyncConfigRepository extends SyncConfigRepository {
 }
 
 class _RecordingSyncApiClient extends SyncApiClient {
-  _RecordingSyncApiClient({this.failingScopes = const {}});
+  _RecordingSyncApiClient({
+    this.failingScopes = const {},
+    this.missingAckScopes = const {},
+  });
 
   final Set<String> failingScopes;
+  final Set<String> missingAckScopes;
   final List<String> uploadedScopes = [];
   final List<Map<String, Object?>> uploadedPayloads = [];
 
@@ -451,7 +522,18 @@ class _RecordingSyncApiClient extends SyncApiClient {
     }
 
     return SyncUploadResponse(
-      returnedRecordsByScope: {scope: const []},
+      returnedRecordsByScope: {
+        scope: missingAckScopes.contains(scope)
+            ? const []
+            : recordsByScope.values
+                  .expand((items) => items)
+                  .map(
+                    (item) => item.map(
+                      (key, value) => MapEntry(key, value),
+                    ),
+                  )
+                  .toList(growable: false),
+      },
     );
   }
 }

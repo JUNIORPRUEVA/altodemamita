@@ -5,7 +5,6 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_schema.dart';
-import '../../../core/system/system_config_service.dart';
 import '../../../models/sync/sync_status.dart';
 import '../../../repositories/sync_repository.dart';
 import '../../../services/sync/sync_queue_service.dart';
@@ -20,6 +19,8 @@ class SellerRepository implements SyncRepository {
 
   final AppDatabase _appDatabase;
   final SyncQueueService _syncQueueService;
+
+  bool get _shouldRunBackgroundSync => identical(_appDatabase, AppDatabase.instance);
 
   void _log(String message, {Object? error, StackTrace? stackTrace}) {
     developer.log(
@@ -68,8 +69,6 @@ class SellerRepository implements SyncRepository {
 
   Future<int> insert(Seller seller) async {
     try {
-      SystemConfigService.instance.ensureWritable();
-
       final db = await _appDatabase.database;
       final id = await db.insert(DatabaseSchema.sellersTable, {
         ...seller.toMap(),
@@ -90,8 +89,6 @@ class SellerRepository implements SyncRepository {
 
   Future<void> update(Seller seller) async {
     try {
-      SystemConfigService.instance.ensureWritable();
-
       if (seller.id == null) {
         throw ArgumentError('Seller must have an ID to update');
       }
@@ -117,8 +114,6 @@ class SellerRepository implements SyncRepository {
 
   Future<void> delete(int id) async {
     try {
-      SystemConfigService.instance.ensureWritable();
-
       final db = await _appDatabase.database;
       await db.update(
         DatabaseSchema.sellersTable,
@@ -140,6 +135,9 @@ class SellerRepository implements SyncRepository {
   }
 
   void _scheduleBackgroundSync(String operationLabel) {
+    if (!_shouldRunBackgroundSync) {
+      return;
+    }
     unawaited(_runBackgroundSync(operationLabel));
   }
 
@@ -285,8 +283,14 @@ class SellerRepository implements SyncRepository {
 
     final db = await _appDatabase.database;
     final placeholders = List.filled(ids.length, '?').join(', ');
+    if (status == SyncStatus.synced.storageValue) {
+      await db.rawDelete(
+        'DELETE FROM ${DatabaseSchema.sellersTable} WHERE deleted_at IS NOT NULL AND sync_id IN ($placeholders)',
+        ids,
+      );
+    }
     await db.rawUpdate(
-      'UPDATE ${DatabaseSchema.sellersTable} SET sync_status = ? WHERE sync_id IN ($placeholders)',
+      'UPDATE ${DatabaseSchema.sellersTable} SET sync_status = ? WHERE deleted_at IS NULL AND sync_id IN ($placeholders)',
       [status, ...ids],
     );
   }

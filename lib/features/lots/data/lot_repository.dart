@@ -3,7 +3,6 @@ import 'dart:developer' as developer;
 
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_schema.dart';
-import '../../../core/system/system_config_service.dart';
 import '../../../services/sync/sync_queue_service.dart';
 import '../domain/lot.dart';
 
@@ -33,6 +32,8 @@ class LotRepository {
 
   final AppDatabase _appDatabase;
   final SyncQueueService _syncQueueService;
+
+  bool get _shouldRunBackgroundSync => identical(_appDatabase, AppDatabase.instance);
 
   void _log(String message, {Object? error, StackTrace? stackTrace}) {
     developer.log(
@@ -95,8 +96,6 @@ class LotRepository {
 
   Future<void> updateStatus(int id, String status) async {
     try {
-      SystemConfigService.instance.ensureWritable();
-
       final db = await _appDatabase.database;
       await db.update(
         DatabaseSchema.lotsTable,
@@ -168,8 +167,6 @@ class LotRepository {
 
   Future<void> save(Lot lot) async {
     try {
-      SystemConfigService.instance.ensureWritable();
-
       final db = await _appDatabase.database;
       final now = DateTime.now();
       final normalizedBlock = lot.blockNumber.trim();
@@ -226,8 +223,6 @@ class LotRepository {
 
   Future<void> delete(int id) async {
     try {
-      SystemConfigService.instance.ensureWritable();
-
       final db = await _appDatabase.database;
       final rows = await db.query(
         DatabaseSchema.lotsTable,
@@ -284,6 +279,9 @@ class LotRepository {
   }
 
   void _scheduleBackgroundSync(String operationLabel) {
+    if (!_shouldRunBackgroundSync) {
+      return;
+    }
     unawaited(_runBackgroundSync(operationLabel));
   }
 

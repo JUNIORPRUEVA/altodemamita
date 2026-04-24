@@ -11,6 +11,14 @@ class AuthProvider extends ChangeNotifier {
     : _authService = authService ?? AuthService();
 
   static const Duration _adminOverrideLifetime = Duration(minutes: 10);
+  static const Set<String> _localFirstModules = {
+    PermissionCatalog.clients,
+    PermissionCatalog.lots,
+    PermissionCatalog.sales,
+    PermissionCatalog.payments,
+    PermissionCatalog.installments,
+    PermissionCatalog.sellers,
+  };
 
   final AuthService _authService;
   final Map<String, DateTime> _adminOverrideExpirations = {};
@@ -291,7 +299,7 @@ class AuthProvider extends ChangeNotifier {
     required String module,
     required PermissionAction action,
   }) {
-    if (isReadOnly && action != PermissionAction.read) {
+    if (_blocksActionInReadOnly(module: module, action: action)) {
       return false;
     }
 
@@ -309,7 +317,7 @@ class AuthProvider extends ChangeNotifier {
     required String scope,
     required String password,
   }) async {
-    if (isReadOnly) {
+    if (isReadOnly && !_localFirstModules.contains(scope)) {
       return false;
     }
 
@@ -348,7 +356,7 @@ class AuthProvider extends ChangeNotifier {
   }
 
   bool canAccess(String module, PermissionAction action) {
-    if (isReadOnly && action != PermissionAction.read) {
+    if (_blocksActionInReadOnly(module: module, action: action)) {
       return false;
     }
 
@@ -365,5 +373,16 @@ class AuthProvider extends ChangeNotifier {
 
   bool canAccessModule(AppModule module, PermissionAction action) {
     return canAccess(module.permissionKey, action);
+  }
+
+  bool _blocksActionInReadOnly({
+    required String module,
+    required PermissionAction action,
+  }) {
+    if (!isReadOnly || action == PermissionAction.read) {
+      return false;
+    }
+
+    return !_localFirstModules.contains(module);
   }
 }

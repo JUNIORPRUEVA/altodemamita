@@ -1,10 +1,10 @@
+import 'dart:async';
 import 'dart:developer' as developer;
 
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_schema.dart';
-import '../../../core/system/system_config_service.dart';
 import '../../../core/utils/sync_id_generator.dart';
 import '../../../services/sync/sync_queue_service.dart';
 import '../../installments/domain/installment.dart';
@@ -28,6 +28,8 @@ class PaymentsRepository {
   final AppDatabase _appDatabase;
   final SettingsRepository _settingsRepository;
   final SyncQueueService _syncQueueService;
+
+  bool get _shouldRunBackgroundSync => identical(_appDatabase, AppDatabase.instance);
 
   void _log(String message) {
     developer.log(message, name: 'SistemaSolares.PaymentsSync');
@@ -191,8 +193,6 @@ class PaymentsRepository {
   }
 
   Future<void> registerPayment(PaymentDraft draft) async {
-    SystemConfigService.instance.ensureWritable();
-
     final db = await _appDatabase.database;
     final deletedInstallmentPayloads = <Map<String, Object?>>[];
 
@@ -203,6 +203,9 @@ class PaymentsRepository {
         deletedInstallmentPayloads,
       );
     });
+    _log(
+      'Guardado en local -> scope=payments operation=create saleId=${draft.saleId} sync_status=${DatabaseSchema.syncStatusPending}',
+    );
 
     for (final payload in deletedInstallmentPayloads) {
       final syncId = payload['sync_id']?.toString().trim();
@@ -216,15 +219,13 @@ class PaymentsRepository {
       );
     }
 
-    await _confirmPaymentsMutation(
+    _scheduleBackgroundSync(
       'register-payment:${draft.saleId}',
       const ['products', 'sales', 'installments', 'payments'],
     );
   }
 
   Future<void> deletePayment(int paymentId) async {
-    SystemConfigService.instance.ensureWritable();
-
     final db = await _appDatabase.database;
     final deleteQueue =
         <({String scope, String syncId, Map<String, Object?> payload})>[];
@@ -565,11 +566,13 @@ class PaymentsRepository {
       );
     }
     _log('REFUND PAYMENT -> local paymentId=$paymentId queued for backend delete');
-    await _confirmPaymentsMutation(
+    _log(
+      'Guardado en local -> scope=payments operation=delete paymentId=$paymentId sync_status=${DatabaseSchema.syncStatusPending}',
+    );
+    _scheduleBackgroundSync(
       'refund-payment:$paymentId',
       const ['products', 'sales', 'installments', 'payments'],
     );
-    _log('REFUND PAYMENT FINAL -> paymentId=$paymentId confirmado por backend');
   }
 
   Future<void> _registerPaymentInTransaction(
@@ -953,6 +956,35 @@ class PaymentsRepository {
       scopes,
       operationLabel: operationLabel,
     );
+  }
+
+  void _scheduleBackgroundSync(String operationLabel, List<String> scopes) {
+    if (!_shouldRunBackgroundSync) {
+      return;
+    }
+    unawaited(_runBackgroundSync(operationLabel, scopes));
+  }
+
+  Future<void> _runBackgroundSync(
+    String operationLabel,
+    List<String> scopes,
+  ) async {
+    _log('Intentando sync -> scope=payments operation=$operationLabel');
+    try {
+      for (final scope in scopes) {
+        await _syncQueueService.refreshScope(scope);
+      }
+      final processed = await _syncQueueService.processQueue(
+        includeDeferred: true,
+      );
+      _log(
+        'Sync exitoso -> scope=payments operation=$operationLabel processed=$processed',
+      );
+    } catch (error, stackTrace) {
+      _log(
+        'Sync falló -> scope=payments operation=$operationLabel error=$error stack=$stackTrace',
+      );
+    }
   }
 
   Future<void> _recalculateFutureInstallments({

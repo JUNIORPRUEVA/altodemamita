@@ -32,6 +32,7 @@ import '../../repositories/payments_sync_repository.dart';
 import '../../repositories/products_sync_repository.dart';
 import '../../repositories/sales_sync_repository.dart';
 import '../../services/realtime_sync_service.dart';
+import '../../services/cloud_reset_service.dart';
 import '../../services/sync/sync_conflict_service.dart';
 import '../../services/sync/sync_manager.dart';
 import '../../services/sync/sync_queue_service.dart';
@@ -73,6 +74,7 @@ class _AppShellState extends State<AppShell> {
       'shell.sidebar.administration.expanded';
 
   final SyncQueueService _syncQueueService = SyncQueueService.instance;
+  final CloudResetService _cloudResetService = CloudResetService();
   late final ClientRepository _clientRepository = ClientRepository(
     syncQueueService: _syncQueueService,
   );
@@ -124,6 +126,7 @@ class _AppShellState extends State<AppShell> {
   String _companyDisplayName = 'Sistema Solares';
   bool _isSidebarExpanded = false;
   bool _isAdministrationMenuExpanded = false;
+  bool _isResettingCloud = false;
   int? _selectedInstallmentsSaleId;
   int? _selectedPaymentsSaleId;
 
@@ -144,6 +147,7 @@ class _AppShellState extends State<AppShell> {
     _realtimeSyncService.dispose();
     _syncQueueService.dispose();
     _syncService.dispose();
+    _cloudResetService.dispose();
     super.dispose();
   }
 
@@ -315,6 +319,79 @@ class _AppShellState extends State<AppShell> {
     ).showSnackBar(SnackBar(content: Text(report.summary)));
   }
 
+  Future<void> _resetCloudDatabase() async {
+    if (_isResettingCloud || _syncManager.state.isSyncing) {
+      return;
+    }
+
+    final confirmed = await _confirmCloudReset();
+    if (!confirmed || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _isResettingCloud = true;
+    });
+
+    try {
+      final result = await _cloudResetService.resetCloudDatabase();
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result.summary)),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('No se pudo resetear la nube: $error'),
+          backgroundColor: const Color(0xFFB3261E),
+        ),
+      );
+    } finally {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isResettingCloud = false;
+      });
+    }
+  }
+
+  Future<bool> _confirmCloudReset() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Resetear nube'),
+          content: const Text(
+            'Esto eliminará ventas, clientes, productos, cuotas y pagos de la nube. La base local de esta PC no se borrará.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFB3261E),
+              ),
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Resetear nube'),
+            ),
+          ],
+        );
+      },
+    );
+
+    return confirmed ?? false;
+  }
+
   Widget _buildCurrentPage(AppModule module) {
     switch (module) {
       case AppModule.dashboard:
@@ -384,7 +461,6 @@ class _AppShellState extends State<AppShell> {
           resolvedModule,
           _selectedInstallmentsSaleId,
           _selectedPaymentsSaleId,
-          syncState.dataVersion,
         ),
       ),
       child: ShellLayoutScope(child: _buildCurrentPage(resolvedModule)),
@@ -402,18 +478,23 @@ class _AppShellState extends State<AppShell> {
               centerTitle: true,
               toolbarHeight: 46,
               actions: [
-                IconButton(
-                  tooltip: 'Sincronizar ahora',
-                  onPressed: syncState.isSyncing || isReadOnly
-                      ? null
-                      : _runSync,
-                  icon: syncState.isSyncing
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.sync_rounded),
+                Padding(
+                  padding: const EdgeInsets.only(right: 4),
+                  child: _ManualSyncButton(
+                    isSyncing: syncState.isSyncing,
+                    isEnabled: !isReadOnly,
+                    compact: true,
+                    onPressed: _runSync,
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(right: 4),
+                  child: _CloudResetButton(
+                    isLoading: _isResettingCloud,
+                    isEnabled: !syncState.isSyncing,
+                    compact: true,
+                    onPressed: _resetCloudDatabase,
+                  ),
                 ),
                 if (syncState.unresolvedConflictCount > 0)
                   Padding(
@@ -529,9 +610,11 @@ class _AppShellState extends State<AppShell> {
                               pendingCount: syncState.pendingCount,
                               unresolvedConflictCount:
                                   syncState.unresolvedConflictCount,
+                                isResettingCloud: _isResettingCloud,
                               onTriggerSync: isReadOnly
                                   ? () async {}
                                   : _runSync,
+                                onResetCloud: _resetCloudDatabase,
                               onOpenProfile: _openProfile,
                             ),
                             Expanded(child: currentPage),
@@ -560,7 +643,9 @@ class _ShellHeader extends StatelessWidget {
     required this.currentErrors,
     required this.pendingCount,
     required this.unresolvedConflictCount,
+    required this.isResettingCloud,
     required this.onTriggerSync,
+    required this.onResetCloud,
     required this.onOpenProfile,
   });
 
@@ -571,7 +656,9 @@ class _ShellHeader extends StatelessWidget {
   final List<String> currentErrors;
   final int pendingCount;
   final int unresolvedConflictCount;
+  final bool isResettingCloud;
   final Future<void> Function() onTriggerSync;
+  final Future<void> Function() onResetCloud;
   final Future<void> Function() onOpenProfile;
 
   @override
@@ -617,16 +704,21 @@ class _ShellHeader extends StatelessWidget {
                   ],
                 ),
               ),
-              IconButton(
-                tooltip: 'Sincronizar ahora',
-                onPressed: isSyncing ? null : onTriggerSync,
-                icon: isSyncing
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.sync_rounded, color: Color(0xFF0D2640)),
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: _ManualSyncButton(
+                  isSyncing: isSyncing,
+                  isEnabled: true,
+                  onPressed: onTriggerSync,
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: _CloudResetButton(
+                  isLoading: isResettingCloud,
+                  isEnabled: !isSyncing,
+                  onPressed: onResetCloud,
+                ),
               ),
               Padding(
                 padding: const EdgeInsets.only(right: 10),
@@ -683,6 +775,98 @@ class _ShellHeader extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+class _ManualSyncButton extends StatelessWidget {
+  const _ManualSyncButton({
+    required this.isSyncing,
+    required this.isEnabled,
+    required this.onPressed,
+    this.compact = false,
+  });
+
+  final bool isSyncing;
+  final bool isEnabled;
+  final Future<void> Function() onPressed;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    return FilledButton.icon(
+      onPressed: isSyncing || !isEnabled ? null : onPressed,
+      style: FilledButton.styleFrom(
+        backgroundColor: const Color(0xFF0D2640),
+        foregroundColor: Colors.white,
+        disabledBackgroundColor: const Color(0xFF0D2640).withValues(alpha: 0.32),
+        disabledForegroundColor: Colors.white70,
+        padding: compact
+            ? const EdgeInsets.symmetric(horizontal: 10, vertical: 8)
+            : const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        textStyle: TextStyle(
+          fontSize: compact ? 11.5 : 12.5,
+          fontWeight: FontWeight.w700,
+        ),
+        visualDensity: compact ? VisualDensity.compact : VisualDensity.standard,
+      ),
+      icon: isSyncing
+          ? const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              ),
+            )
+          : const Icon(Icons.cloud_upload_rounded, size: 18),
+      label: Text(compact ? 'Sincronizar' : 'Sincronizar datos'),
+    );
+  }
+}
+
+class _CloudResetButton extends StatelessWidget {
+  const _CloudResetButton({
+    required this.isLoading,
+    required this.isEnabled,
+    required this.onPressed,
+    this.compact = false,
+  });
+
+  final bool isLoading;
+  final bool isEnabled;
+  final Future<void> Function() onPressed;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    return FilledButton.icon(
+      onPressed: isLoading || !isEnabled ? null : onPressed,
+      style: FilledButton.styleFrom(
+        backgroundColor: const Color(0xFFB3261E),
+        foregroundColor: Colors.white,
+        disabledBackgroundColor: const Color(0xFFB3261E).withValues(alpha: 0.32),
+        disabledForegroundColor: Colors.white70,
+        padding: compact
+            ? const EdgeInsets.symmetric(horizontal: 10, vertical: 8)
+            : const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        textStyle: TextStyle(
+          fontSize: compact ? 11.5 : 12.5,
+          fontWeight: FontWeight.w700,
+        ),
+        visualDensity: compact ? VisualDensity.compact : VisualDensity.standard,
+      ),
+      icon: isLoading
+          ? const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              ),
+            )
+          : const Icon(Icons.cloud_off_rounded, size: 18),
+      label: Text(compact ? 'Reset nube' : 'Resetear nube'),
     );
   }
 }

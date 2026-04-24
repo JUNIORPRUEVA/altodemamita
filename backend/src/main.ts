@@ -32,7 +32,13 @@ async function bootstrap(): Promise<void> {
       callback(new Error('Origen no autorizado por CORS.'), false);
     },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'Accept',
+      'Origin',
+      'x-admin-key',
+    ],
     credentials: false,
     optionsSuccessStatus: 204,
   });

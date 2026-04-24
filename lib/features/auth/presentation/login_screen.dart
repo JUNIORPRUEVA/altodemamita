@@ -164,7 +164,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                   ),
                                   const SizedBox(height: 6),
                                   Text(
-                                    'Iniciar sesion',
+                                    'Iniciar sesion local',
                                     textAlign: TextAlign.center,
                                     style: TextStyle(
                                       color: Colors.white.withValues(

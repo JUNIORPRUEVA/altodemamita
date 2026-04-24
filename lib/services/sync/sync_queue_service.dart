@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:developer' as developer;
 import 'dart:io';
 
+import 'package:connectivity_plus/connectivity_plus.dart';
+
 import '../../core/database/app_database.dart';
 import '../../core/database/database_schema.dart';
 import '../../core/config/app_flags.dart';
@@ -33,6 +35,7 @@ class SyncQueueService {
     SyncApiClient? apiClient,
     SyncConflictService? conflictService,
     Future<bool> Function(SyncSettings settings)? connectivityProbe,
+    Stream<List<ConnectivityResult>>? connectivityChanges,
   }) {
     return SyncQueueService._(
       appDatabase: appDatabase,
@@ -40,6 +43,7 @@ class SyncQueueService {
       apiClient: apiClient,
       conflictService: conflictService,
       connectivityProbe: connectivityProbe ?? ((_) async => true),
+      connectivityChanges: connectivityChanges,
     );
   }
 
@@ -49,11 +53,14 @@ class SyncQueueService {
     SyncApiClient? apiClient,
     SyncConflictService? conflictService,
     Future<bool> Function(SyncSettings settings)? connectivityProbe,
+    Stream<List<ConnectivityResult>>? connectivityChanges,
   }) : _appDatabase = appDatabase ?? AppDatabase.instance,
        _configRepository = configRepository ?? SyncConfigRepository(),
        _apiClient = apiClient ?? SyncApiClient(),
        _conflictService = conflictService ?? SyncConflictService(),
-       _connectivityProbe = connectivityProbe ?? _defaultConnectivityProbe;
+       _connectivityProbe = connectivityProbe ?? _defaultConnectivityProbe,
+       _connectivityChanges = connectivityChanges ??
+           Connectivity().onConnectivityChanged;
 
   static final SyncQueueService instance = SyncQueueService._();
 
@@ -62,6 +69,7 @@ class SyncQueueService {
   final SyncApiClient _apiClient;
   final SyncConflictService _conflictService;
   final Future<bool> Function(SyncSettings settings) _connectivityProbe;
+  final Stream<List<ConnectivityResult>> _connectivityChanges;
   final SyncLogger _syncLogger = SyncLogger.instance;
   final Map<String, SyncRepository> _repositoriesByScope = {};
   final StreamController<SyncQueueState> _stateController =
@@ -85,6 +93,7 @@ class SyncQueueService {
   };
 
   Timer? _retryTimer;
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
   bool _isProcessing = false;
   SyncQueueState _state = const SyncQueueState();
 
@@ -102,6 +111,10 @@ class SyncQueueService {
   Future<void> start() async {
     final settings = await _configRepository.loadSettings();
     _retryTimer?.cancel();
+    await _connectivitySubscription?.cancel();
+    _connectivitySubscription = _connectivityChanges.listen(
+      _handleConnectivityChanged,
+    );
     _retryTimer = Timer.periodic(settings.queueRetryInterval, (_) {
       unawaited(processQueue());
     });
@@ -112,6 +125,8 @@ class SyncQueueService {
   void dispose() {
     _retryTimer?.cancel();
     _retryTimer = null;
+    unawaited(_connectivitySubscription?.cancel());
+    _connectivitySubscription = null;
     if (!_stateController.isClosed) {
       unawaited(_stateController.close());
     }
@@ -122,8 +137,6 @@ class SyncQueueService {
     required String recordSyncId,
     required Map<String, Object?> payload,
   }) {
-    SystemConfigService.instance.ensureWritable();
-
     unawaited(_syncLogger.log(
       action: 'enqueue',
       entity: scope,
@@ -144,8 +157,6 @@ class SyncQueueService {
     required String recordSyncId,
     required Map<String, Object?> payload,
   }) {
-    SystemConfigService.instance.ensureWritable();
-
     unawaited(_syncLogger.log(
       action: 'enqueue',
       entity: scope,
@@ -356,7 +367,15 @@ class SyncQueueService {
             await repository.mergeRemoteRecords(returnedRecords);
           }
 
-            final acknowledgedSyncIds = [entryItems.single.recordSyncId];
+          final uploadedSyncIds = entryItems
+              .map((item) => item.recordSyncId)
+              .toSet();
+          final acknowledgedSyncIds = returnedRecords
+              .map(_readReturnedRecordSyncId)
+              .where((value) => value != null && uploadedSyncIds.contains(value))
+              .cast<String>()
+              .toSet()
+              .toList(growable: false);
 
           if (acknowledgedSyncIds.isNotEmpty) {
             await repository.markAsSynced(acknowledgedSyncIds);
@@ -490,6 +509,20 @@ class SyncQueueService {
     }
   }
 
+  Future<int> syncPending({Iterable<String>? scopes}) async {
+    final targetScopes = (scopes ?? _repositoriesByScope.keys)
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+
+    for (final scope in targetScopes) {
+      await refreshScope(scope);
+    }
+
+    return processQueue(includeDeferred: true);
+  }
+
   Future<void> _enqueue({
     required String scope,
     required String recordSyncId,
@@ -541,6 +574,17 @@ class SyncQueueService {
     }
   }
 
+  void _handleConnectivityChanged(List<ConnectivityResult> results) {
+    final hasInternet = results.any((result) => result != ConnectivityResult.none);
+    if (!hasInternet) {
+      _log('Sin internet -> la cola queda pendiente hasta reconectar');
+      return;
+    }
+
+    _log('Internet detectado -> reintentando sincronizacion pendiente');
+    unawaited(syncPending());
+  }
+
   bool _hasUnavailableDependency(String scope, Set<String> unavailableScopes) {
     return (_scopeDependencies[scope] ?? const <String>[]).any(
       unavailableScopes.contains,
@@ -566,6 +610,11 @@ class SyncQueueService {
 
   static Future<bool> _defaultConnectivityProbe(SyncSettings settings) async {
     try {
+      final connectivityResults = await Connectivity().checkConnectivity();
+      if (connectivityResults.contains(ConnectivityResult.none)) {
+        return false;
+      }
+
       final uri = Uri.parse(settings.normalizedBaseUrl);
       if (uri.host.trim().isEmpty) {
         return false;
@@ -595,6 +644,14 @@ class SyncQueueService {
       orderBy: 'updated_at ASC',
     );
     return rows.map(SyncQueueItem.fromMap).toList(growable: false);
+  }
+
+  String? _readReturnedRecordSyncId(Map<String, dynamic> record) {
+    final syncId =
+        record['sync_id']?.toString().trim() ??
+        record['record_sync_id']?.toString().trim() ??
+        '';
+    return syncId.isEmpty ? null : syncId;
   }
 
   Future<List<SyncQueueItem>> _filterBlockedClientQueueItems(

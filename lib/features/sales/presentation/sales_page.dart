@@ -719,6 +719,21 @@ class _SaleRow extends StatelessWidget {
                   ),
                 ),
               ),
+              const SizedBox(width: 10),
+              Tooltip(
+                message: sale.isPendingSync
+                    ? 'Pendiente de sincronizacion'
+                    : 'Sincronizado con la nube',
+                child: Icon(
+                  sale.isPendingSync
+                      ? Icons.cloud_upload_rounded
+                      : Icons.cloud_done_rounded,
+                  size: 18,
+                  color: sale.isPendingSync
+                      ? const Color(0xFFE0A800)
+                      : const Color(0xFF2E7D32),
+                ),
+              ),
               const SizedBox(width: 20),
               // Sale price + pending balance
               SizedBox(

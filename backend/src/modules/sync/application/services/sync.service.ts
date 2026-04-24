@@ -70,6 +70,7 @@ export class SyncService {
 
     try {
       const result = await this.persistBatch(records);
+      const acknowledgedRecords = await this.buildUploadAckRecords(records);
       job.status = 'completed';
       job.finishedAt = new Date().toISOString();
       job.result = result;
@@ -83,7 +84,7 @@ export class SyncService {
         device_id: batch.device_id ?? null,
         server_time: new Date().toISOString(),
         counts,
-        records: this.emptyRecords(),
+        records: acknowledgedRecords,
         result,
       };
     } catch (error) {
@@ -102,6 +103,30 @@ export class SyncService {
     }
 
     return this.sanitizeJob(job);
+  }
+
+  async resetDatabase() {
+    const result = await this.prisma.$transaction(async (tx) => {
+      const payments = await tx.payment.deleteMany({});
+      const installments = await tx.installment.deleteMany({});
+      const sales = await tx.sale.deleteMany({});
+      const clients = await tx.client.deleteMany({});
+      const products = await tx.product.deleteMany({});
+
+      return {
+        payments: payments.count,
+        installments: installments.count,
+        sales: sales.count,
+        clients: clients.count,
+        products: products.count,
+      };
+    });
+
+    return {
+      message: 'Base de datos nube reseteada correctamente.',
+      deleted: result,
+      reset_at: new Date().toISOString(),
+    };
   }
 
   private async persistBatch(records: SyncRecordCollections) {
@@ -1064,6 +1089,161 @@ export class SyncService {
       sales: [],
       installments: [],
       payments: [],
+    };
+  }
+
+  private async buildUploadAckRecords(
+    records: SyncRecordCollections,
+  ): Promise<SyncRecordCollections> {
+    const clientSyncIds = this.collectInputSyncIds(records.clients);
+    const productSyncIds = this.collectInputSyncIds(records.products);
+    const sellerSyncIds = this.collectInputSyncIds(records.sellers);
+    const saleSyncIds = this.collectInputSyncIds(records.sales);
+    const installmentSyncIds = this.collectInputSyncIds(records.installments);
+    const paymentSyncIds = this.collectInputSyncIds(records.payments);
+
+    const [clients, products, sellers, sales, installments, payments] = await Promise.all([
+      clientSyncIds.length === 0
+        ? Promise.resolve([])
+        : this.prisma.client.findMany({
+            where: { syncId: { in: clientSyncIds } },
+            orderBy: { updatedAt: 'asc' },
+          }),
+      productSyncIds.length === 0
+        ? Promise.resolve([])
+        : this.prisma.product.findMany({
+            where: { syncId: { in: productSyncIds } },
+            orderBy: { updatedAt: 'asc' },
+          }),
+      sellerSyncIds.length === 0
+        ? Promise.resolve([])
+        : this.prisma.seller.findMany({
+            where: { syncId: { in: sellerSyncIds } },
+            orderBy: { updatedAt: 'asc' },
+          }),
+      saleSyncIds.length === 0
+        ? Promise.resolve([])
+        : this.prisma.sale.findMany({
+            where: { syncId: { in: saleSyncIds } },
+            include: {
+              client: { select: { syncId: true } },
+              product: { select: { syncId: true } },
+              seller: { select: { syncId: true } },
+            },
+            orderBy: { updatedAt: 'asc' },
+          }),
+      installmentSyncIds.length === 0
+        ? Promise.resolve([])
+        : this.prisma.installment.findMany({
+            where: { syncId: { in: installmentSyncIds } },
+            include: {
+              sale: { select: { syncId: true } },
+            },
+            orderBy: { updatedAt: 'asc' },
+          }),
+      paymentSyncIds.length === 0
+        ? Promise.resolve([])
+        : this.prisma.payment.findMany({
+            where: { syncId: { in: paymentSyncIds } },
+            include: {
+              sale: {
+                select: {
+                  syncId: true,
+                  client: { select: { syncId: true } },
+                },
+              },
+              installment: { select: { syncId: true } },
+            },
+            orderBy: { updatedAt: 'asc' },
+          }),
+    ]);
+
+    return {
+      clients: this.mergeAcknowledgedRecords(
+        records.clients,
+        clients.map((item) => this.serializeClientRecord(item)),
+      ),
+      products: this.mergeAcknowledgedRecords(
+        records.products,
+        products.map((item) => this.serializeProductRecord(item)),
+      ),
+      sellers: this.mergeAcknowledgedRecords(
+        records.sellers,
+        sellers.map((item) => this.serializeSellerRecord(item)),
+      ),
+      sales: this.mergeAcknowledgedRecords(
+        records.sales,
+        sales.map((item) => this.serializeSaleRecord(item)),
+      ),
+      installments: this.mergeAcknowledgedRecords(
+        records.installments,
+        installments.map((item) => this.serializeInstallmentRecord(item)),
+      ),
+      payments: this.mergeAcknowledgedRecords(
+        records.payments,
+        payments.map((item) => this.serializePaymentRecord(item)),
+      ),
+    };
+  }
+
+  private collectInputSyncIds(records: Record<string, unknown>[]): string[] {
+    return Array.from(
+      new Set(
+        records
+          .map((record) => this.normalizeRecordSyncId(record))
+          .filter((value): value is string => Boolean(value)),
+      ),
+    );
+  }
+
+  private mergeAcknowledgedRecords(
+    inputRecords: Record<string, unknown>[],
+    persistedRecords: Record<string, unknown>[],
+  ): Record<string, unknown>[] {
+    const persistedBySyncId = new Map(
+      persistedRecords
+        .map((record) => [this.normalizeRecordSyncId(record), record] as const)
+        .filter((entry): entry is readonly [string, Record<string, unknown>] => Boolean(entry[0])),
+    );
+
+    return inputRecords
+      .map((record) => {
+        const syncId = this.normalizeRecordSyncId(record);
+        if (!syncId) {
+          return null;
+        }
+
+        const persisted = persistedBySyncId.get(syncId);
+        if (persisted) {
+          return persisted;
+        }
+
+        if (this.isDeletePayload(record)) {
+          return this.buildDeleteAckRecord(record, syncId);
+        }
+
+        return null;
+      })
+      .filter((record): record is Record<string, unknown> => record != null);
+  }
+
+  private buildDeleteAckRecord(
+    payload: Record<string, unknown>,
+    syncId: string,
+  ): Record<string, unknown> {
+    const updatedAt =
+      this.readDate(payload, ['updatedAt', 'updated_at']) ??
+      this.readDate(payload, ['deletedAt', 'deleted_at']) ??
+      new Date();
+    const deletedAt =
+      this.readDate(payload, ['deletedAt', 'deleted_at']) ?? updatedAt;
+
+    return {
+      sync_id: syncId,
+      version: this.readNumber(payload, ['version']) ?? 1,
+      updated_at: updatedAt.toISOString(),
+      deleted_at: deletedAt.toISOString(),
+      sync_status: SyncStatus.synced,
     };
   }
 

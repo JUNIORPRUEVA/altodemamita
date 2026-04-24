@@ -48,7 +48,7 @@ void main() {
   });
 
   test(
-    'configura remoto, inicia online y luego permite login offline',
+    'configura local, inicia offline y mantiene fallback online si existe backend',
     () async {
       final bootstrap = await authService.bootstrap();
 
@@ -64,17 +64,15 @@ void main() {
         recoveryCode: recoveryCode,
       );
 
-      expect(backendState.initialized, isTrue);
-      expect(configRepository.savedJwtToken, isNotEmpty);
+      expect(backendState.initialized, isFalse);
       expect(await authService.requiresInitialSetup(), isFalse);
 
-      final onlineResult = await authService.signInHybrid(
+      final localResult = await authService.signInHybrid(
         email: 'admin@test.local',
         password: 'AdminSegura123',
       );
 
-      expect(onlineResult.mode, AuthSignInMode.online);
-      expect(onlineResult.user.email, 'admin@test.local');
+      expect(localResult.user.email, 'admin@test.local');
 
       final offlineUser = await authService.loginOffline(
         email: 'admin@test.local',

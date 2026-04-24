@@ -182,7 +182,7 @@ class _BootstrapAdminScreenState extends State<BootstrapAdminScreen> {
                                         ),
                                         SizedBox(height: 6),
                                         Text(
-                                          'Registra primero la empresa y el administrador principal en la nube antes de habilitar el resto del sistema.',
+                                          'Crea el administrador principal y deja protegida esta instalacion local antes de habilitar el resto del sistema.',
                                           style: TextStyle(
                                             fontSize: 14,
                                             color: Color(0xFF5E6A82),
@@ -204,7 +204,7 @@ class _BootstrapAdminScreenState extends State<BootstrapAdminScreen> {
                                   ),
                                 ),
                                 child: const Text(
-                                  'Este paso crea el sistema central una sola vez. La aplicación no permitirá iniciar sesión hasta que exista una empresa y un administrador válidos en el backend.',
+                                  'Este paso crea el acceso local inicial una sola vez. La aplicación no permitirá entrar hasta que exista una empresa y un administrador válidos en SQLite.',
                                   style: TextStyle(
                                     fontSize: 13,
                                     height: 1.4,

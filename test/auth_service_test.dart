@@ -159,6 +159,8 @@ void main() {
         recoveryCode: recoveryCode,
       );
 
+      await authService.signOut();
+
       final isApproved = await authService.verifyAdminPassword(
         password: 'AdminLocalSegura123',
       );

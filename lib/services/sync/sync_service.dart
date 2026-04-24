@@ -16,6 +16,8 @@ import 'sync_logger.dart';
 import 'sync_queue_service.dart';
 
 class SyncService {
+  static const bool _downloadFromCloudEnabled = false;
+
   SyncService({
     required List<SyncRepository> repositories,
     Future<void> Function(SyncReport report)? onSyncFinished,
@@ -100,9 +102,9 @@ class SyncService {
       }
 
       final uploadedCount = await uploadPendingData();
-      final downloadedCount = await downloadUpdates(
-        forceFullDownload: forceFullDownload,
-      );
+      final downloadedCount = _downloadFromCloudEnabled
+          ? await downloadUpdates(forceFullDownload: forceFullDownload)
+          : 0;
       final warnings = List<String>.of(_lastScopeWarnings);
       final pendingRecords = await _syncQueueService.pendingCount();
       final report = SyncReport(
@@ -255,10 +257,17 @@ class SyncService {
   }
 
   Future<int> uploadPendingData() async {
-    return _syncQueueService.processQueue(includeDeferred: true);
+    return _syncQueueService.syncPending(scopes: _repositoriesByScope.keys);
+  }
+
+  Future<int> syncPending() {
+    return _syncQueueService.syncPending(scopes: _repositoriesByScope.keys);
   }
 
   Future<int> downloadUpdates({bool forceFullDownload = false}) async {
+    if (!_downloadFromCloudEnabled) {
+      return 0;
+    }
     return downloadUpdatesForScopes(
       _repositoriesByScope.keys,
       forceFullDownload: forceFullDownload,
@@ -269,6 +278,9 @@ class SyncService {
     Iterable<String> scopes, {
     bool forceFullDownload = false,
   }) async {
+    if (!_downloadFromCloudEnabled) {
+      return 0;
+    }
     final settings = await _configRepository.loadSettings();
     final targetScopes = scopes.toSet();
     _lastScopeWarnings = const [];
