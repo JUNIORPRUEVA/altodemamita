@@ -70,10 +70,10 @@ void main() {
       ],
     );
 
-    expect(
-      settings.baseUrl,
-      '',
+    final expectedBaseUrl = SyncConfigRepository.normalizeBackendBaseUrl(
+      DatabaseSchema.defaultSyncBaseUrl,
     );
+    expect(settings.baseUrl, expectedBaseUrl);
     expect(settings.queueRetryInterval, const Duration(seconds: 10));
     expect(settings.realtimePollingInterval, const Duration(seconds: 5));
     expect(persistedRows, isEmpty);

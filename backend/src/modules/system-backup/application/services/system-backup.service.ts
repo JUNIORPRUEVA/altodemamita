@@ -1,8 +1,9 @@
-import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import * as os from 'node:os';
 
-import { getCloudBackupsDir } from '../../system-backup.paths';
+import { resolveCloudBackupsDir } from '../../system-backup.paths';
 
 export interface CloudBackupFileInfo {
   id: string;
@@ -13,11 +14,14 @@ export interface CloudBackupFileInfo {
 
 @Injectable()
 export class SystemBackupService implements OnModuleInit, OnModuleDestroy {
-  private readonly storageDir = getCloudBackupsDir();
+  private readonly logger = new Logger(SystemBackupService.name);
+  private readonly storageResolution = resolveCloudBackupsDir();
+  private readonly storageDir = this.storageResolution.storageDir;
   private cleanupTimer?: NodeJS.Timeout;
 
   async onModuleInit(): Promise<void> {
-    await this.ensureStorageDir();
+    this.logStorageResolution();
+    await this._ensureStorageDir({ warnIfCreated: true });
     // Enforce retention periodically even if no requests are made.
     await this.cleanupOldBackups({ keepDays: 4 });
 
@@ -38,7 +42,51 @@ export class SystemBackupService implements OnModuleInit, OnModuleDestroy {
   }
 
   async ensureStorageDir(): Promise<void> {
+    await this._ensureStorageDir({ warnIfCreated: false });
+  }
+
+  private async _ensureStorageDir({ warnIfCreated }: { warnIfCreated: boolean }): Promise<void> {
+    let existed = true;
+    try {
+      await fs.access(this.storageDir);
+    } catch {
+      existed = false;
+    }
+
     await fs.mkdir(this.storageDir, { recursive: true });
+    if (!existed && warnIfCreated) {
+      this.logger.warn(`Cloud backups directory did not exist; created: ${this.storageDir}`);
+    }
+  }
+
+  private logStorageResolution(): void {
+    const isProduction = (process.env.NODE_ENV || '').toLowerCase() === 'production';
+    const envRaw = (process.env.CLOUD_BACKUPS_DIR || process.env.SYSTEM_BACKUP_STORAGE_DIR || '').trim();
+
+    this.logger.log(
+      `Cloud backups storage dir: ${this.storageDir} (source=${this.storageResolution.source})`,
+    );
+
+    if (isProduction) {
+      if (!envRaw) {
+        this.logger.warn(
+          'CLOUD_BACKUPS_DIR is not set in production; using /cloud_backups. Mount a persistent volume to avoid data loss.',
+        );
+      }
+
+      if (this.storageResolution.forcedFromUnsafeEnv) {
+        this.logger.warn(
+          `CLOUD_BACKUPS_DIR resolved to a temp directory (${this.storageResolution.envResolved}); ignoring in production and using ${this.storageDir}.`,
+        );
+      }
+
+      const tmpBase = os.tmpdir();
+      if (this.storageDir.startsWith(tmpBase)) {
+        this.logger.warn(
+          `Cloud backups directory is under OS temp (${tmpBase}). This is not recommended for production.`,
+        );
+      }
+    }
   }
 
   async listBackups(): Promise<CloudBackupFileInfo[]> {
@@ -74,14 +122,17 @@ export class SystemBackupService implements OnModuleInit, OnModuleDestroy {
 
     const safeName = path.basename(id);
     if (safeName !== id) {
+      this.logger.warn(`Cloud backup delete rejected (unsafe id): ${id}`);
       return { deleted: false };
     }
 
     const fullPath = path.join(this.storageDir, safeName);
     try {
       await fs.unlink(fullPath);
+      this.logger.log(`Cloud backup deleted: ${safeName}`);
       return { deleted: true };
     } catch {
+      this.logger.warn(`Cloud backup delete failed (not found or no access): ${safeName}`);
       return { deleted: false };
     }
   }
@@ -92,6 +143,8 @@ export class SystemBackupService implements OnModuleInit, OnModuleDestroy {
     const cutoff = Date.now() - keepDays * 24 * 60 * 60 * 1000;
     const entries = await fs.readdir(this.storageDir, { withFileTypes: true });
 
+    let deletedCount = 0;
+
     await Promise.all(
       entries.map(async (entry) => {
         if (!entry.isFile()) return;
@@ -101,12 +154,19 @@ export class SystemBackupService implements OnModuleInit, OnModuleDestroy {
           const stat = await fs.stat(fullPath);
           if (stat.mtimeMs < cutoff) {
             await fs.unlink(fullPath);
+            deletedCount++;
           }
         } catch {
           // Best effort.
         }
       }),
     );
+
+    if (deletedCount > 0) {
+      this.logger.log(
+        `Cloud backup retention: deleted ${deletedCount} file(s) older than ${keepDays} day(s).`,
+      );
+    }
   }
 
   getStorageDir(): string {

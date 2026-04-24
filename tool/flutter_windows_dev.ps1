@@ -207,6 +207,22 @@ if ($FlutterArgs -and $FlutterArgs.Count -gt 0) {
   $effectiveArgs += $FlutterArgs
 }
 
+# Stabilize Flutter tests on Windows by default.
+# Many tests use shared singletons / filesystem resources that can be flaky
+# when the test runner executes in parallel.
+if ($effectiveArgs[0] -eq 'test') {
+  $hasConcurrency = $false
+  foreach ($arg in $effectiveArgs) {
+    if ($arg -match '^--concurrency(=|$)') {
+      $hasConcurrency = $true
+      break
+    }
+  }
+  if (-not $hasConcurrency) {
+    $effectiveArgs += '--concurrency=1'
+  }
+}
+
 if ($env:DEV_SCRIPT_DEBUG -eq '1') {
   Write-Host "[DEV_SCRIPT] EffectiveFlutterArgs=$($effectiveArgs -join ' ')" -ForegroundColor DarkGray
 }

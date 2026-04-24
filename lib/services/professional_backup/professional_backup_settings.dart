@@ -21,7 +21,7 @@ class ProfessionalBackupSettings {
   factory ProfessionalBackupSettings.defaults() {
     return const ProfessionalBackupSettings(
       localBackupEnabled: true,
-      cloudBackupEnabled: false,
+      cloudBackupEnabled: true,
       cloudBackupHour: defaultHour,
       cloudBackupMinute: defaultMinute,
       lastCloudBackupDate: null,
@@ -69,7 +69,7 @@ class ProfessionalBackupSettings {
 
     return ProfessionalBackupSettings(
       localBackupEnabled: (json['localBackupEnabled'] as bool?) ?? true,
-      cloudBackupEnabled: (json['cloudBackupEnabled'] as bool?) ?? false,
+      cloudBackupEnabled: (json['cloudBackupEnabled'] as bool?) ?? true,
       cloudBackupHour: normalizedHour,
       cloudBackupMinute: normalizedMinute,
       lastCloudBackupDate: (json['lastCloudBackupDate'] as String?)?.trim().isEmpty == true

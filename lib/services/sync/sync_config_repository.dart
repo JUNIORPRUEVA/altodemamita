@@ -96,13 +96,19 @@ class SyncConfigRepository {
     ]);
     final storedBaseUrl = (values[syncBaseUrlKey]?.value ?? '').trim();
 
-    // Do not seed implicit defaults into settings.
-    // The UI flow requires operators to configure the backend URL explicitly.
-    var baseUrl = normalizeBackendBaseUrl(storedBaseUrl);
+    // Keep operators free to override the backend URL, but avoid breaking sync
+    // when a clean install has no stored value.
+    // IMPORTANT: We do NOT persist this fallback automatically.
+    var baseUrl = normalizeBackendBaseUrl(
+      storedBaseUrl.isEmpty ? defaultSyncBaseUrl : storedBaseUrl,
+    );
 
     // Avoid shipping a release build pointed to localhost.
     if (!kDebugMode && baseUrl.isNotEmpty && _looksLikeLocalhostUrl(baseUrl)) {
-      baseUrl = '';
+      baseUrl = normalizeBackendBaseUrl(defaultSyncBaseUrl);
+      if (_looksLikeLocalhostUrl(baseUrl)) {
+        baseUrl = '';
+      }
     }
 
     final token = await _sensitiveStorage.read(_jwtTokenPreferenceKey) ?? '';

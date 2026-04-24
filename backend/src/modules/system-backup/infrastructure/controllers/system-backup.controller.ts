@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Logger,
   Param,
   Post,
   UploadedFile,
@@ -25,6 +26,7 @@ import { SystemBackupService } from '../../application/services/system-backup.se
 import { getCloudBackupsDir } from '../../system-backup.paths';
 
 const storageDir = getCloudBackupsDir();
+const uploadStorageLogger = new Logger('SystemBackupUploadStorage');
 
 function sanitizeUploadFilename(originalName: string): string {
   const base = path.basename(originalName || '').trim();
@@ -37,6 +39,8 @@ function sanitizeUploadFilename(originalName: string): string {
 
 @Controller('system/backup')
 export class SystemBackupController {
+  private readonly logger = new Logger(SystemBackupController.name);
+
   constructor(private readonly service: SystemBackupService) {}
 
   @Post('upload')
@@ -51,6 +55,12 @@ export class SystemBackupController {
           cb: (error: Error | null, destination: string) => void,
         ) => {
           fs.mkdir(storageDir, { recursive: true }, (err) => {
+            if (err) {
+              uploadStorageLogger.error(
+                `Failed to create cloud backups directory: ${storageDir}`,
+                err instanceof Error ? err.stack : undefined,
+              );
+            }
             cb(err ?? null, storageDir);
           });
         },
@@ -74,13 +84,25 @@ export class SystemBackupController {
   ) {
     assertOperationalAccess(user, 'El respaldo en la nube');
 
-    await this.service.cleanupOldBackups({ keepDays: 4 });
+    try {
+      await this.service.cleanupOldBackups({ keepDays: 4 });
 
-    return {
-      ok: true,
-      filename: file?.filename,
-      sizeBytes: file?.size,
-    };
+      this.logger.log(
+        `Cloud backup uploaded: ${file?.filename} (${file?.size ?? 0} bytes) -> ${this.service.getStorageDir()}`,
+      );
+
+      return {
+        ok: true,
+        filename: file?.filename,
+        sizeBytes: file?.size,
+      };
+    } catch (error) {
+      this.logger.error(
+        `Cloud backup upload handler failed for ${file?.filename ?? '(unknown)'}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw error;
+    }
   }
 
   @Get('list')
