@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:developer' as developer;
 
 import 'package:http/http.dart' as http;
 import 'package:sistema_solares_ui/core/config/app_config.dart';
@@ -99,15 +98,13 @@ class ApiClient {
     Map<String, String>? queryParameters,
     bool authorized = true,
   }) async {
-    _assertPanelOperationAllowed(method, path);
-
     final cleanedQuery = <String, String>{
       for (final entry in (queryParameters ?? const <String, String>{}).entries)
         if (entry.value.trim().isNotEmpty) entry.key: entry.value,
     };
-    final uri = Uri.parse('${AppConfig.apiBaseUrl}$path').replace(
-      queryParameters: cleanedQuery.isEmpty ? null : cleanedQuery,
-    );
+    final uri = Uri.parse(
+      '${AppConfig.apiBaseUrl}$path',
+    ).replace(queryParameters: cleanedQuery.isEmpty ? null : cleanedQuery);
 
     final headers = <String, String>{
       'Accept': 'application/json',
@@ -117,25 +114,53 @@ class ApiClient {
       headers['Authorization'] = 'Bearer $_jwtToken';
     }
 
+    _assertPanelOperationAllowed(method, uri, headers: headers, body: body);
+
+    _debugRequest(
+      method: method,
+      uri: uri,
+      headers: headers,
+      body: body,
+      authorized: authorized,
+    );
+
     late http.Response response;
     final encodedBody = body == null ? null : jsonEncode(body);
 
-    switch (method) {
-      case 'GET':
-        response = await _client.get(uri, headers: headers);
-      case 'POST':
-        response = await _client.post(uri, headers: headers, body: encodedBody);
-      case 'PATCH':
-        response = await _client.patch(uri, headers: headers, body: encodedBody);
-      case 'DELETE':
-        response = await _client.delete(uri, headers: headers);
-      default:
-        throw ApiException('Metodo HTTP no soportado: $method');
+    try {
+      switch (method) {
+        case 'GET':
+          response = await _client.get(uri, headers: headers);
+        case 'POST':
+          response = await _client.post(
+            uri,
+            headers: headers,
+            body: encodedBody,
+          );
+        case 'PATCH':
+          response = await _client.patch(
+            uri,
+            headers: headers,
+            body: encodedBody,
+          );
+        case 'DELETE':
+          response = await _client.delete(uri, headers: headers);
+        default:
+          throw ApiException('Metodo HTTP no soportado: $method');
+      }
+    } catch (error) {
+      _debugTransportError(
+        method: method,
+        uri: uri,
+        headers: headers,
+        body: body,
+        error: error,
+      );
+      throw ApiException('No se pudo completar la solicitud HTTP: $error');
     }
 
-    final hasBody = response.body.trim().isNotEmpty;
-    final decoded = hasBody ? jsonDecode(response.body) : null;
-    _logPaymentsTraffic(
+    final decoded = _decodeResponseBody(response.body);
+    _debugResponse(
       method: method,
       uri: uri,
       statusCode: response.statusCode,
@@ -150,6 +175,13 @@ class ApiClient {
     }
 
     final extractedMessage = _extractMessage(decoded);
+    _debugApiError(
+      method: method,
+      uri: uri,
+      statusCode: response.statusCode,
+      extractedMessage: extractedMessage,
+      decoded: decoded,
+    );
 
     if (extractedMessage == 'READ_ONLY_MODE') {
       throw ApiException(
@@ -159,22 +191,47 @@ class ApiClient {
     }
 
     throw ApiException(
-      extractedMessage ?? 'La solicitud fallo con estado ${response.statusCode}.',
+      extractedMessage ??
+          'La solicitud fallo con estado ${response.statusCode}.',
       statusCode: response.statusCode,
     );
   }
 
-  void _assertPanelOperationAllowed(String method, String path) {
+  void _assertPanelOperationAllowed(
+    String method,
+    Uri uri, {
+    required Map<String, String> headers,
+    required Map<String, dynamic>? body,
+  }) {
     final normalizedMethod = method.trim().toUpperCase();
     if (normalizedMethod == 'GET') {
       return;
     }
 
-    final normalizedPath = path.trim().toLowerCase();
+    final normalizedPath = uri.path.trim().toLowerCase();
     for (final blockedPath in _blockedPanelWritePaths) {
       if (normalizedPath.contains(blockedPath)) {
+        _debugBlockedWrite(
+          method: method,
+          uri: uri,
+          headers: headers,
+          body: body,
+          blockedPath: blockedPath,
+        );
         throw ApiException('Esta accion no esta disponible en el panel web');
       }
+    }
+  }
+
+  dynamic _decodeResponseBody(String rawBody) {
+    if (rawBody.trim().isEmpty) {
+      return null;
+    }
+
+    try {
+      return jsonDecode(rawBody);
+    } catch (_) {
+      return rawBody;
     }
   }
 
@@ -201,25 +258,63 @@ class ApiClient {
     return null;
   }
 
-  void _logPaymentsTraffic({
+  void _debugRequest({
+    required String method,
+    required Uri uri,
+    required Map<String, String> headers,
+    required Map<String, dynamic>? body,
+    required bool authorized,
+  }) {
+    print(
+      '[API REQUEST] ${jsonEncode({'method': method, 'url': uri.toString(), 'authorized': authorized, 'token': headers['Authorization'], 'headers': headers, 'body': body})}',
+    );
+  }
+
+  void _debugResponse({
     required String method,
     required Uri uri,
     required int statusCode,
     required dynamic decoded,
   }) {
-    if (!_isPaymentsDebugPath(uri.path)) {
-      return;
-    }
-
-    developer.log(
-      'Payments request $method ${uri.toString()} -> $statusCode payload=${_summarizePayload(decoded)}',
-      name: 'SistemaSolares.PaymentsApi',
+    print(
+      '[API RESPONSE] ${jsonEncode({'method': method, 'url': uri.toString(), 'statusCode': statusCode, 'body': _summarizePayload(decoded)})}',
     );
   }
 
-  bool _isPaymentsDebugPath(String path) {
-    final normalized = path.toLowerCase();
-    return normalized.contains('/payments');
+  void _debugApiError({
+    required String method,
+    required Uri uri,
+    required int statusCode,
+    required String? extractedMessage,
+    required dynamic decoded,
+  }) {
+    print(
+      '[API ERROR] ${jsonEncode({'method': method, 'url': uri.toString(), 'statusCode': statusCode, 'message': extractedMessage, 'body': _summarizePayload(decoded)})}',
+    );
+  }
+
+  void _debugBlockedWrite({
+    required String method,
+    required Uri uri,
+    required Map<String, String> headers,
+    required Map<String, dynamic>? body,
+    required String blockedPath,
+  }) {
+    print(
+      '[API BLOCKED WRITE] ${jsonEncode({'method': method, 'url': uri.toString(), 'blockedPath': blockedPath, 'token': headers['Authorization'], 'body': body, 'reason': 'Esta accion no esta disponible en el panel web'})}',
+    );
+  }
+
+  void _debugTransportError({
+    required String method,
+    required Uri uri,
+    required Map<String, String> headers,
+    required Map<String, dynamic>? body,
+    required Object error,
+  }) {
+    print(
+      '[API TRANSPORT ERROR] ${jsonEncode({'method': method, 'url': uri.toString(), 'token': headers['Authorization'], 'body': body, 'error': error.toString()})}',
+    );
   }
 
   String _summarizePayload(dynamic decoded) {

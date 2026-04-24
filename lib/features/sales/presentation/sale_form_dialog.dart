@@ -164,6 +164,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
     PermissionCatalog.lots,
     PermissionAction.update,
   );
+  int? get _currentUserId => context.read<AuthProvider>().currentUser?.id;
   int _durationMonths = 0;
   final Set<int> _lotsCreatedInForm = {};
   DateTime? _initialPaymentDeadline;
@@ -1218,7 +1219,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
       id: 0,
       clientId: selectedClient.id ?? 0,
       lotId: selectedLot.id ?? 0,
-      userId: 1,
+      userId: _currentUserId ?? 0,
       sellerId: _selectedSellerId,
       saleDate: _saleDate,
       salePrice: _salePrice,
@@ -1944,6 +1945,19 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
       return;
     }
 
+    final currentUserId = _currentUserId;
+    if (currentUserId == null) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'No hay un usuario autenticado valido para registrar la venta.',
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     final salePrice = _salePrice;
     if (salePrice <= 0) {
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
@@ -1986,7 +2000,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
       SaleDraft(
         clientId: _selectedClientId!,
         lotId: selectedLot.id!,
-        userId: 1,
+        userId: currentUserId,
         sellerId: _selectedSellerId,
         saleDate: _saleDate,
         salePrice: salePrice,

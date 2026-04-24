@@ -46,6 +46,13 @@ class _SalesPageState extends State<SalesPage> {
   late final SalesController _controller;
   late final TextEditingController _searchController;
 
+  Future<void> _reloadControllerSafely() async {
+    if (!mounted || _controller.isDisposed) {
+      return;
+    }
+    await _controller.load(query: _controller.currentQuery);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -343,9 +350,9 @@ class _SalesPageState extends State<SalesPage> {
       clientRepository: widget.clientRepository,
       lotRepository: widget.lotRepository,
       sellerRepository: widget.sellerRepository,
-      onClientCreated: () => _controller.load(query: _controller.currentQuery),
-      onLotCreated: () => _controller.load(query: _controller.currentQuery),
-      onSellerCreated: () => _controller.load(query: _controller.currentQuery),
+      onClientCreated: _reloadControllerSafely,
+      onLotCreated: _reloadControllerSafely,
+      onSellerCreated: _reloadControllerSafely,
     );
     if (!mounted || draft == null) {
       return;
@@ -427,9 +434,9 @@ class _SalesPageState extends State<SalesPage> {
       ),
       dialogTitle: 'Editar venta',
       submitLabel: 'Guardar cambios',
-      onClientCreated: () => _controller.load(query: _controller.currentQuery),
-      onLotCreated: () => _controller.load(query: _controller.currentQuery),
-      onSellerCreated: () => _controller.load(query: _controller.currentQuery),
+      onClientCreated: _reloadControllerSafely,
+      onLotCreated: _reloadControllerSafely,
+      onSellerCreated: _reloadControllerSafely,
     );
     if (!mounted || draft == null) {
       return;

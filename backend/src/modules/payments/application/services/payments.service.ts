@@ -20,6 +20,7 @@ export class PaymentsService {
   ) {}
 
   async create(dto: CreatePaymentDto) {
+    this.logger.log(`CREATE payment dto=${this.serialize(dto)}`);
     const sale = await this.ensureSale(dto.saleId);
     const installment = dto.installmentId ? await this.ensureInstallment(dto.installmentId, dto.saleId) : null;
     const split = await this.resolvePaymentSplit(dto, installment?.id);
@@ -205,6 +206,7 @@ export class PaymentsService {
   }
 
   async update(id: string, dto: UpdatePaymentDto) {
+    this.logger.log(`UPDATE payment id=${id} dto=${this.serialize(dto)}`);
     const payment = await this.findOne(id);
     const installmentId = dto.installmentId ?? payment.installmentId ?? undefined;
     if (installmentId) {
@@ -335,6 +337,14 @@ export class PaymentsService {
 
   private round(value: number) {
     return Math.round((value + Number.EPSILON) * 100) / 100;
+  }
+
+  private serialize(payload: unknown): string {
+    try {
+      return JSON.stringify(payload);
+    } catch (_) {
+      return String(payload);
+    }
   }
 
   private buildPaymentSalesWhere(search?: string): Prisma.SaleWhereInput {

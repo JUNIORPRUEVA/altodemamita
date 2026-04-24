@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma, SyncStatus } from '@prisma/client';
 
 import { PrismaService } from 'src/infrastructure/prisma/prisma.service';
@@ -8,9 +8,13 @@ import { UpdateClientDto } from '../dto/update-client.dto';
 
 @Injectable()
 export class ClientsService {
+  private readonly logger = new Logger(ClientsService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   async create(dto: CreateClientDto) {
+    this.logger.log(`CREATE client dto=${this.serialize(dto)}`);
+
     if (dto.code) {
       await this.ensureUniqueCode(dto.code);
     }
@@ -64,6 +68,8 @@ export class ClientsService {
   }
 
   async update(id: string, dto: UpdateClientDto) {
+    this.logger.log(`UPDATE client id=${id} dto=${this.serialize(dto)}`);
+
     await this.findOne(id);
 
     if (dto.code) {
@@ -145,7 +151,16 @@ export class ClientsService {
     });
 
     if (client) {
+      this.logger.warn(`CLIENT DTO INVALID duplicate_code code=${code} id=${id ?? 'new'}`);
       throw new BadRequestException('Ya existe un cliente con ese código.');
+    }
+  }
+
+  private serialize(payload: unknown): string {
+    try {
+      return JSON.stringify(payload);
+    } catch (_) {
+      return String(payload);
     }
   }
 }

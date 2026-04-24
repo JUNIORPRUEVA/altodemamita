@@ -42,7 +42,7 @@ class BackupService {
        _configRepository = configRepository ?? BackupConfigRepository(),
        _diskDetectionService = diskDetectionService ?? DiskDetectionService(),
        _appPaths = appPaths ?? AppPaths(),
-       _logAgent = logAgent ?? BackupLogAgent(appPaths: appPaths);
+       _logAgent = logAgent ?? BackupLogAgent(appPaths: appPaths ?? AppPaths());
 
   final AppDatabase _appDatabase;
   final BackupConfigRepository _configRepository;
@@ -252,7 +252,7 @@ class BackupService {
         // Create error metadata
         final metadata = BackupMetadata(
           id: _generateId(),
-          filename: 'FAILED_$timestamp.db',
+          filename: 'FAILED_$timestamp.zip',
           filepath: '',
           timestamp: DateTime.now(),
           type: backupType,
@@ -566,8 +566,10 @@ class BackupService {
 
       // Keep at least the last 7 calendar days, even if it exceeds maxBackupRetention.
       final cutoff = DateTime.now().subtract(const Duration(days: _minHistoryDays));
-      final protected = cleanHistory.where((b) => b.timestamp.isAfter(cutoff)).toList();
-      final candidates = cleanHistory.where((b) => !b.timestamp.isAfter(cutoff)).toList();
+        final protected = cleanHistory
+          .where((b) => !b.timestamp.isBefore(cutoff))
+          .toList();
+        final candidates = cleanHistory.where((b) => b.timestamp.isBefore(cutoff)).toList();
 
       // Delete only from older-than-cutoff candidates until we reach maxBackupRetention.
       if (cleanHistory.length > config.maxBackupRetention && candidates.isNotEmpty) {
@@ -730,7 +732,10 @@ class BackupService {
     encoder.create(destinationZipPath);
 
     // Database.
-    encoder.addFile(databaseFile, path.join('database', DatabaseSchema.databaseName));
+    encoder.addFile(
+      databaseFile,
+      path.posix.join('database', DatabaseSchema.databaseName),
+    );
 
     // Config files.
     final configDir = Directory(_appPaths.configDirectory);
@@ -738,7 +743,10 @@ class BackupService {
       await for (final entity in configDir.list(recursive: true, followLinks: false)) {
         if (entity is! File) continue;
         final relative = path.relative(entity.path, from: configDir.path);
-        encoder.addFile(entity, path.join('config', relative));
+        encoder.addFile(
+          entity,
+          path.posix.joinAll(['config', ...path.split(relative)]),
+        );
       }
     }
 
@@ -748,7 +756,10 @@ class BackupService {
       await for (final entity in generatedDir.list(recursive: true, followLinks: false)) {
         if (entity is! File) continue;
         final relative = path.relative(entity.path, from: generatedDir.path);
-        encoder.addFile(entity, path.join('generated', relative));
+        encoder.addFile(
+          entity,
+          path.posix.joinAll(['generated', ...path.split(relative)]),
+        );
       }
     }
 
@@ -769,7 +780,7 @@ class BackupService {
       }),
       flush: true,
     );
-    encoder.addFile(manifestFile, 'manifest.json');
+    encoder.addFile(manifestFile, path.posix.join('manifest.json'));
 
     encoder.close();
 
@@ -795,8 +806,8 @@ class BackupService {
     await extractDir.create(recursive: true);
 
     try {
-      final input = InputFileStream(zipPath);
-      final archive = ZipDecoder().decodeBuffer(input, verify: true);
+      final bytes = await File(zipPath).readAsBytes();
+      final archive = ZipDecoder().decodeBytes(bytes, verify: true);
       extractArchiveToDisk(archive, extractDir.path);
 
       final extractedDbPath = path.join(
@@ -849,6 +860,7 @@ class BackupService {
   }
 
   Future<void> _validateSQLiteSourceDatabase(File databaseFile) async {
+    sqfliteFfiInit();
     final length = await databaseFile.length();
     if (length <= 0) {
       throw StateError('La base de datos está vacía.');

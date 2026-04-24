@@ -18,6 +18,7 @@ export class ProductsService {
   private readonly logger = new Logger(ProductsService.name);
 
   async create(dto: CreateProductDto) {
+    this.logger.log(`CREATE product dto=${this.serialize(dto)}`);
     await this.ensureUniqueCode(dto.code);
 
     return this.prisma.product.create({
@@ -82,6 +83,7 @@ export class ProductsService {
   }
 
   async update(id: string, dto: UpdateProductDto) {
+    this.logger.log(`UPDATE product id=${id} dto=${this.serialize(dto)}`);
     await this.findOne(id);
 
     if (dto.code) {
@@ -152,7 +154,16 @@ export class ProductsService {
     });
 
     if (product) {
+      this.logger.warn(`PRODUCT DTO INVALID duplicate_code code=${code} id=${id ?? 'new'}`);
       throw new BadRequestException('Ya existe un producto con ese código.');
+    }
+  }
+
+  private serialize(payload: unknown): string {
+    try {
+      return JSON.stringify(payload);
+    } catch (_) {
+      return String(payload);
     }
   }
 }

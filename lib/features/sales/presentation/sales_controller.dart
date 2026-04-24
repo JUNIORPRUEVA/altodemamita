@@ -46,15 +46,21 @@ class SalesController extends ChangeNotifier {
     monthlyInterest: 1,
     installmentCount: 12,
   );
+  bool _isDisposed = false;
+
+  bool get isDisposed => _isDisposed;
 
   Future<void> load({String? query}) async {
+    if (_isDisposed) {
+      return;
+    }
     if (query != null) {
       currentQuery = query;
     }
 
     isLoading = true;
     loadError = null;
-    notifyListeners();
+    _notifyIfActive();
 
     try {
       final settings = await _settingsRepository.fetchByKeysWithDefaults({
@@ -92,14 +98,17 @@ class SalesController extends ChangeNotifier {
       loadError = FriendlyErrorMessages.moduleLoad('ventas', error);
     } finally {
       isLoading = false;
-      notifyListeners();
+      _notifyIfActive();
     }
   }
 
   Future<int?> createSale(SaleDraft draft) async {
+    if (_isDisposed) {
+      return null;
+    }
     isSaving = true;
     loadError = null;
-    notifyListeners();
+    _notifyIfActive();
 
     try {
       final saleId = await _salesRepository.createSale(draft);
@@ -114,13 +123,16 @@ class SalesController extends ChangeNotifier {
       return null;
     } finally {
       isSaving = false;
-      notifyListeners();
+      _notifyIfActive();
     }
   }
 
   Future<String?> updateSale(int saleId, SaleDraft draft) async {
+    if (_isDisposed) {
+      return null;
+    }
     isSaving = true;
-    notifyListeners();
+    _notifyIfActive();
 
     try {
       await _salesRepository.updateSale(saleId, draft);
@@ -134,13 +146,16 @@ class SalesController extends ChangeNotifier {
       );
     } finally {
       isSaving = false;
-      notifyListeners();
+      _notifyIfActive();
     }
   }
 
   Future<String?> deleteSale(int saleId) async {
+    if (_isDisposed) {
+      return null;
+    }
     isSaving = true;
-    notifyListeners();
+    _notifyIfActive();
 
     try {
       await _salesRepository.deleteSale(saleId);
@@ -154,7 +169,7 @@ class SalesController extends ChangeNotifier {
       );
     } finally {
       isSaving = false;
-      notifyListeners();
+      _notifyIfActive();
     }
   }
 
@@ -176,5 +191,17 @@ class SalesController extends ChangeNotifier {
     }
 
     return int.tryParse(value.trim()) ?? fallback;
+  }
+
+  void _notifyIfActive() {
+    if (!_isDisposed) {
+      notifyListeners();
+    }
+  }
+
+  @override
+  void dispose() {
+    _isDisposed = true;
+    super.dispose();
   }
 }

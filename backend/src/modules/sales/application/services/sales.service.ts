@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma, SaleStatus, SyncStatus } from '@prisma/client';
 
 import { PrismaService } from 'src/infrastructure/prisma/prisma.service';
@@ -10,6 +10,8 @@ import { UpdateSaleDto } from '../dto/update-sale.dto';
 
 @Injectable()
 export class SalesService {
+  private readonly logger = new Logger(SalesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly accountingService: LoanAccountingService,
@@ -17,6 +19,7 @@ export class SalesService {
   ) {}
 
   async create(dto: CreateSaleDto, actorUserId: string) {
+    this.logger.log(`CREATE sale actorUserId=${actorUserId} dto=${this.serialize(dto)}`);
     const client = await this.prisma.client.findFirst({ where: { id: dto.clientId, deletedAt: null } });
     if (!client) {
       throw new BadRequestException('Cliente no encontrado.');
@@ -189,6 +192,7 @@ export class SalesService {
   }
 
   async update(id: string, dto: UpdateSaleDto) {
+    this.logger.log(`UPDATE sale id=${id} dto=${this.serialize(dto)}`);
     const sale = await this.findOne(id);
     const hasPayments = sale.payments.length > 0;
     const modifiesFinancials = [
@@ -403,6 +407,14 @@ export class SalesService {
         return SaleStatus.overdue;
       default:
         return null;
+    }
+  }
+
+  private serialize(payload: unknown): string {
+    try {
+      return JSON.stringify(payload);
+    } catch (_) {
+      return String(payload);
     }
   }
 }
