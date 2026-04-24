@@ -22,7 +22,9 @@ import { assertOperationalAccess } from 'src/shared/utils/panel-access.util';
 
 import { SystemBackupService } from '../../application/services/system-backup.service';
 
-const storageDir = path.join(process.cwd(), 'cloud_backups');
+import { getCloudBackupsDir } from '../../system-backup.paths';
+
+const storageDir = getCloudBackupsDir();
 
 function sanitizeUploadFilename(originalName: string): string {
   const base = path.basename(originalName || '').trim();

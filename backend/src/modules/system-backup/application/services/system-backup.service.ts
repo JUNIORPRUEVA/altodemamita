@@ -2,6 +2,8 @@ import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
+import { getCloudBackupsDir } from '../../system-backup.paths';
+
 export interface CloudBackupFileInfo {
   id: string;
   filename: string;
@@ -11,7 +13,7 @@ export interface CloudBackupFileInfo {
 
 @Injectable()
 export class SystemBackupService implements OnModuleInit, OnModuleDestroy {
-  private readonly storageDir = path.join(process.cwd(), 'cloud_backups');
+  private readonly storageDir = getCloudBackupsDir();
   private cleanupTimer?: NodeJS.Timeout;
 
   async onModuleInit(): Promise<void> {
