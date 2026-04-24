@@ -25,8 +25,6 @@ import '../../../repositories/payments_sync_repository.dart';
 import '../../../repositories/products_sync_repository.dart';
 import '../../../repositories/sales_sync_repository.dart';
 import '../../../repositories/users_sync_repository.dart';
-import '../../../services/professional_backup/backup_service.dart'
-  as professional_backup;
 import '../../../services/sync/sync_config_repository.dart';
 import '../../../services/sync/sync_queue_service.dart';
 import '../../../services/sync/sync_service.dart';
@@ -1968,19 +1966,9 @@ class AuthService {
         PaymentsSyncRepository(),
       ],
       syncQueueService: syncQueueService,
-      onSyncFinished: professional_backup.BackupService.instance.onSyncFinished,
     );
     final report = await syncService.syncNow(forceFullDownload: true);
     return !report.wasSkipped;
-  }
-
-  Future<bool> _requiresOnlineReauthentication(UserModel user) async {
-    if (user.authSource != AuthSource.cloud) {
-      return false;
-    }
-
-    final settings = await _syncConfigRepository.loadSettings();
-    return settings.jwtToken.trim().isEmpty;
   }
 
   String _normalizeRecoveryCode(String value) {

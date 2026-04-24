@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../../core/config/app_flags.dart';
 import '../../models/sync/sync_manager_state.dart';
 import '../../models/sync/sync_report.dart';
 import '../realtime_sync_service.dart';
@@ -70,7 +71,7 @@ class SyncManager extends ChangeNotifier {
     _handleRealtimeState(_realtimeSyncService.state);
     _setState(_state.copyWith(unresolvedConflictCount: _syncConflictService.unresolvedCount));
 
-    if (runInitialSync) {
+    if (runInitialSync && !manualCloudSyncOnly) {
       unawaited(syncNow(showAsBusy: false));
     }
   }

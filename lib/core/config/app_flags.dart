@@ -16,3 +16,10 @@ const bool allowLegacyMigration = bool.fromEnvironment(
   'ALLOW_LEGACY_MIGRATION',
   defaultValue: false,
 );
+
+/// When true, no background polling, queue retry loop, or startup sync runs.
+/// Explicit manual sync actions remain available.
+const bool manualCloudSyncOnly = bool.fromEnvironment(
+  'MANUAL_CLOUD_SYNC_ONLY',
+  defaultValue: true,
+);

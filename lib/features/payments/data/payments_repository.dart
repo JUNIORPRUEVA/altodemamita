@@ -945,19 +945,6 @@ class PaymentsRepository {
     );
   }
 
-  Future<void> _confirmPaymentsMutation(
-    String operationLabel,
-    List<String> scopes,
-  ) async {
-    for (final scope in scopes) {
-      await _syncQueueService.refreshScope(scope);
-    }
-    await _syncQueueService.syncScopesNowOrThrow(
-      scopes,
-      operationLabel: operationLabel,
-    );
-  }
-
   void _scheduleBackgroundSync(String operationLabel, List<String> scopes) {
     if (!_shouldRunBackgroundSync) {
       return;

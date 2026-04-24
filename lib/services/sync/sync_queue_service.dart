@@ -110,6 +110,14 @@ class SyncQueueService {
   }
 
   Future<void> start() async {
+    if (manualCloudSyncOnly) {
+      _retryTimer?.cancel();
+      await _connectivitySubscription?.cancel();
+      _connectivitySubscription = null;
+      await _refreshState();
+      return;
+    }
+
     final settings = await _configRepository.loadSettings();
     _retryTimer?.cancel();
     await _connectivitySubscription?.cancel();

@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
+import '../core/config/app_flags.dart';
 import '../models/sync/sync_connection_status.dart';
 import 'sync/sync_config_repository.dart';
 import 'sync/sync_logger.dart';
@@ -38,6 +39,19 @@ class RealtimeSyncService {
   RealtimeSyncState get state => _state;
 
   Future<void> start() async {
+    if (manualCloudSyncOnly) {
+      _disposeSocket();
+      _stopPolling();
+      _emitState(
+        RealtimeSyncState(
+          connectionStatus: SyncConnectionStatus.disconnected,
+          dataVersion: _state.dataVersion,
+          lastDataChangedAt: _state.lastDataChangedAt,
+        ),
+      );
+      return;
+    }
+
     final settings = await _configRepository.loadSettings();
     if (!settings.isConfigured) {
       _stopPolling();

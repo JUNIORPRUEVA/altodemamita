@@ -3,26 +3,20 @@ import 'dart:io';
 
 import '../../core/database/app_database.dart';
 import '../../core/resilience/app_paths.dart';
-import '../../models/sync/sync_report.dart';
 import 'backup_cleaner_agent.dart';
 import 'backup_log_agent.dart';
 import 'database_activity_guard.dart';
 import 'local_backup_agent.dart';
 import 'professional_restore_agent.dart';
-import 'professional_backup_settings.dart';
-import 'professional_backup_settings_repository.dart';
 
-enum BackupTrigger { appShutdown, syncCompleted, manual, periodic }
+enum BackupTrigger { manual }
 
 class BackupService {
   BackupService({
     AppDatabase? appDatabase,
     AppPaths? appPaths,
-    ProfessionalBackupSettingsRepository? settingsRepository,
   }) : _appDatabase = appDatabase ?? AppDatabase.instance,
        _appPaths = appPaths ?? AppPaths(),
-       _settingsRepository =
-           settingsRepository ?? ProfessionalBackupSettingsRepository(),
        _cleaner = const BackupCleanerAgent(),
        _logAgent = BackupLogAgent(appPaths: appPaths),
        _activityGuard = const DatabaseActivityGuard() {
@@ -38,47 +32,24 @@ class BackupService {
 
   final AppDatabase _appDatabase;
   final AppPaths _appPaths;
-  final ProfessionalBackupSettingsRepository _settingsRepository;
   final BackupCleanerAgent _cleaner;
   final BackupLogAgent _logAgent;
   final DatabaseActivityGuard _activityGuard;
-  Timer? _localPeriodicTimer;
-
-  static const Duration _localPeriodicInterval = Duration(hours: 6);
 
   late final ProfessionalRestoreAgent _restoreAgent;
 
   late final LocalBackupAgent _localAgent;
 
-  ProfessionalBackupSettings? _cachedSettings;
   Future<void> _queue = Future<void>.value();
 
   static final BackupService instance = BackupService();
 
-  Future<ProfessionalBackupSettings> getSettings() async {
-    final cached = _cachedSettings;
-    if (cached != null) {
-      return cached;
-    }
-    final loaded = await _settingsRepository.load();
-    _cachedSettings = loaded;
-    return loaded;
-  }
-
-  Future<void> saveSettings(ProfessionalBackupSettings settings) async {
-    _cachedSettings = settings;
-    await _settingsRepository.save(settings);
-    _rescheduleLocalPeriodicBackups(settings);
-  }
-
   Future<void> initialize() async {
-    final settings = await getSettings();
-    _rescheduleLocalPeriodicBackups(settings);
+    return;
   }
 
   void dispose() {
-    _localPeriodicTimer?.cancel();
-    _localPeriodicTimer = null;
+    return;
   }
 
   String get localBackupDirectoryPath => _localAgent.localBackupsDirectory.path;
@@ -86,11 +57,6 @@ class BackupService {
   Future<File?> createLocalBackup({
     BackupTrigger trigger = BackupTrigger.manual,
   }) async {
-    final settings = await getSettings();
-    if (!settings.localBackupEnabled) {
-      return null;
-    }
-
     return _enqueue<File?>(() async {
       final ts = DateTime.now();
       print('[PRO-BACKUP] Creando backup local (trigger=$trigger)');
@@ -128,23 +94,6 @@ class BackupService {
     });
   }
 
-  void _rescheduleLocalPeriodicBackups(ProfessionalBackupSettings settings) {
-    _localPeriodicTimer?.cancel();
-    _localPeriodicTimer = null;
-
-    if (!settings.localBackupEnabled) {
-      return;
-    }
-
-    _localPeriodicTimer = Timer.periodic(_localPeriodicInterval, (_) {
-      unawaited(
-        createLocalBackup(
-          trigger: BackupTrigger.periodic,
-        ).catchError((_, __) => null),
-      );
-    });
-  }
-
   Future<ProfessionalRestoreResult> restoreLocalBackup({
     required String backupPath,
   }) {
@@ -174,23 +123,6 @@ class BackupService {
     required String backupPath,
   }) {
     return restoreLocalBackup(backupPath: backupPath);
-  }
-
-  Future<void> onSyncStarted() async {
-    // Compatibility hook: sync can notify us, but we don't coordinate/lock.
-    print('[PRO-BACKUP] Sync iniciado');
-  }
-
-  Future<void> onSyncFinished(SyncReport report) async {
-    print('[PRO-BACKUP] Sync finalizado');
-    if (!report.isSuccess) {
-      return;
-    }
-    unawaited(
-      Future<void>.delayed(Duration.zero, () async {
-        await createLocalBackup(trigger: BackupTrigger.syncCompleted);
-      }).catchError((_) {}),
-    );
   }
 
   Future<T> _enqueue<T>(Future<T> Function() task) {

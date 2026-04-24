@@ -16,8 +16,6 @@ class BackupRestoreService {
     BackupLogAgent? logAgent,
     DatabaseActivityGuard? activityGuard,
   }) : _appDatabase = appDatabase ?? AppDatabase.instance,
-       _appPaths = appPaths ?? AppPaths(),
-       _validator = validator ?? const BackupValidatorAgent(),
        _restoreAgent =
            restoreAgent ??
            ProfessionalRestoreAgent(
@@ -29,8 +27,6 @@ class BackupRestoreService {
        _activityGuard = activityGuard ?? const DatabaseActivityGuard();
 
   final AppDatabase _appDatabase;
-  final AppPaths _appPaths;
-  final BackupValidatorAgent _validator;
   final ProfessionalRestoreAgent _restoreAgent;
   final BackupLogAgent _logAgent;
   final DatabaseActivityGuard _activityGuard;
