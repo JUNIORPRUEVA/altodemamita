@@ -118,14 +118,6 @@ class SyncApiClient {
     print(message);
   }
 
-  static String _previewResponseBody(String body) {
-    final trimmed = body.trim();
-    if (trimmed.isEmpty) return '<empty>';
-    final normalizedWhitespace = trimmed.replaceAll(RegExp(r'\s+'), ' ');
-    if (normalizedWhitespace.length <= 320) return normalizedWhitespace;
-    return '${normalizedWhitespace.substring(0, 320)}...';
-  }
-
   Future<SyncUploadResponse> uploadQueuedRecords({
     required SyncSettings settings,
     required Map<String, List<Map<String, Object?>>> recordsByScope,
@@ -221,29 +213,21 @@ class SyncApiClient {
     final trimmed = responseBody.trimLeft();
     final looksLikeJson = trimmed.startsWith('{') || trimmed.startsWith('[');
     if (!looksLikeJson) {
-      throw HttpException(
-        serverConnectionErrorMessage,
-        uri: uri,
-      );
+      throw HttpException(serverConnectionErrorMessage, uri: uri);
     }
 
     Map<String, dynamic> decodedBody;
     try {
       decodedBody = _unwrapResponseEnvelope(_decodeJsonObject(responseBody));
     } on FormatException {
-      throw HttpException(
-        serverConnectionErrorMessage,
-        uri: uri,
-      );
+      throw HttpException(serverConnectionErrorMessage, uri: uri);
     }
     if (response.statusCode == 409) {
       throw SyncConflictException(
         message:
             decodedBody['message']?.toString() ??
             'La API reporto un conflicto de version.',
-        scope:
-            decodedBody['scope']?.toString() ??
-            '',
+        scope: decodedBody['scope']?.toString() ?? '',
         strategy: SyncConflictStrategy.fromStorage(
           decodedBody['strategy'] ?? decodedBody['conflict_strategy'],
         ),
@@ -286,10 +270,7 @@ class SyncApiClient {
     }
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw HttpException(
-        serverConnectionErrorMessage,
-        uri: uri,
-      );
+      throw HttpException(serverConnectionErrorMessage, uri: uri);
     }
 
     return decodedBody;

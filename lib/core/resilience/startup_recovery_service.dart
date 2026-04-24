@@ -349,6 +349,14 @@ class StartupRecoveryService {
               'Se guardo una copia diagnostica del archivo actual para analisis y recuperacion posterior.',
             );
           }
+
+          if (_shouldRecreateDatabase(error)) {
+            await _recreateDatabase(databasePath);
+            repairs.add(
+              'Se forzo la recreacion de la base local despues de detectar que no aceptaba escritura.',
+            );
+            continue;
+          }
         }
 
         break;
@@ -373,6 +381,21 @@ class StartupRecoveryService {
 
     final fullRows = await db.rawQuery('PRAGMA integrity_check;');
     return fullRows.isNotEmpty ? '${fullRows.first.values.first}' : 'unknown';
+  }
+
+  bool _shouldRecreateDatabase(Object error) {
+    final message = error.toString().toLowerCase();
+    return message.contains('readonly') ||
+        message.contains('read only') ||
+        message.contains('writable') ||
+        message.contains('integrity_check=') ||
+        message.contains('missing_critical_tables=');
+  }
+
+  Future<void> _recreateDatabase(String databasePath) async {
+    await _appDatabase.close();
+    await databaseFactory.deleteDatabase(databasePath);
+    await _clearTransientDatabaseSidecars(databasePath);
   }
 
   Future<bool> _clearTransientDatabaseSidecars(String databasePath) async {

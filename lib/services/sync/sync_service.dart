@@ -135,7 +135,7 @@ class SyncService {
         unawaited(notify(report));
       }
       return report;
-    } on SocketException catch (error) {
+    } on SocketException {
       _lastScopeWarnings = const [];
       final report = SyncReport(
         startedAt: startedAt,
@@ -364,7 +364,9 @@ class SyncService {
     _lastScopeWarnings = scopeWarnings;
 
     await _syncLogger.log(
-      action: forceFullDownload ? 'download-full-complete' : 'download-complete',
+      action: forceFullDownload
+          ? 'download-full-complete'
+          : 'download-complete',
       entity: targetScopes.join(','),
       result: scopeWarnings.isEmpty ? 'ok' : 'warning',
       extra: {

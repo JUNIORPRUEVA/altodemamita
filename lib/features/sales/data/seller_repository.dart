@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:developer' as developer;
+
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../../../core/database/app_database.dart';
@@ -9,16 +12,23 @@ import '../../../services/sync/sync_queue_service.dart';
 import '../domain/seller.dart';
 
 class SellerRepository implements SyncRepository {
-  SellerRepository({
-    AppDatabase? database,
-    SyncQueueService? syncQueueService,
-  }) : _appDatabase = database ?? AppDatabase.instance,
-       _syncQueueService = syncQueueService ?? SyncQueueService.instance {
+  SellerRepository({AppDatabase? database, SyncQueueService? syncQueueService})
+    : _appDatabase = database ?? AppDatabase.instance,
+      _syncQueueService = syncQueueService ?? SyncQueueService.instance {
     _syncQueueService.registerRepository(this);
   }
 
   final AppDatabase _appDatabase;
   final SyncQueueService _syncQueueService;
+
+  void _log(String message, {Object? error, StackTrace? stackTrace}) {
+    developer.log(
+      message,
+      name: 'SistemaSolares.SellerRepository',
+      error: error,
+      stackTrace: stackTrace,
+    );
+  }
 
   @override
   String get scope => 'sellers';
@@ -57,65 +67,99 @@ class SellerRepository implements SyncRepository {
   }
 
   Future<int> insert(Seller seller) async {
-    SystemConfigService.instance.ensureWritable();
+    try {
+      SystemConfigService.instance.ensureWritable();
 
-    final db = await _appDatabase.database;
-    final id = await db.insert(
-      DatabaseSchema.sellersTable,
-      {
+      final db = await _appDatabase.database;
+      final id = await db.insert(DatabaseSchema.sellersTable, {
         ...seller.toMap(),
         'sync_id': _newSyncId(),
         'deleted_at': null,
         'sync_status': SyncStatus.pending.storageValue,
-      },
-      conflictAlgorithm: ConflictAlgorithm.abort,
-    );
-    await _confirmAuthoritativeSync('create-seller:$id');
-    return id;
+      }, conflictAlgorithm: ConflictAlgorithm.abort);
+      _log('SELLER LOCAL CREATED -> id=$id documentId=${seller.documentId}');
+      _scheduleBackgroundSync('create-seller:$id');
+      return id;
+    } catch (error, stackTrace) {
+      print('💥 ERROR SQLITE: $error');
+      print(stackTrace);
+      _log('SELLER INSERT ERROR', error: error, stackTrace: stackTrace);
+      rethrow;
+    }
   }
 
   Future<void> update(Seller seller) async {
-    SystemConfigService.instance.ensureWritable();
+    try {
+      SystemConfigService.instance.ensureWritable();
 
-    if (seller.id == null) {
-      throw ArgumentError('Seller must have an ID to update');
+      if (seller.id == null) {
+        throw ArgumentError('Seller must have an ID to update');
+      }
+
+      final db = await _appDatabase.database;
+      await db.update(
+        DatabaseSchema.sellersTable,
+        {...seller.toMap(), 'sync_status': SyncStatus.pending.storageValue},
+        where: 'id = ?',
+        whereArgs: [seller.id],
+      );
+      _log(
+        'SELLER LOCAL UPDATED -> id=${seller.id} documentId=${seller.documentId}',
+      );
+      _scheduleBackgroundSync('update-seller:${seller.id}');
+    } catch (error, stackTrace) {
+      print('💥 ERROR SQLITE: $error');
+      print(stackTrace);
+      _log('SELLER UPDATE ERROR', error: error, stackTrace: stackTrace);
+      rethrow;
     }
-
-    final db = await _appDatabase.database;
-    await db.update(
-      DatabaseSchema.sellersTable,
-      {
-        ...seller.toMap(),
-        'sync_status': SyncStatus.pending.storageValue,
-      },
-      where: 'id = ?',
-      whereArgs: [seller.id],
-    );
-    await _confirmAuthoritativeSync('update-seller:${seller.id}');
   }
 
   Future<void> delete(int id) async {
-    SystemConfigService.instance.ensureWritable();
+    try {
+      SystemConfigService.instance.ensureWritable();
 
-    final db = await _appDatabase.database;
-    await db.update(
-      DatabaseSchema.sellersTable,
-      {
-        'deleted_at': DateTime.now().toIso8601String(),
-        'sync_status': SyncStatus.pending.storageValue,
-      },
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-    await _confirmAuthoritativeSync('delete-seller:$id');
+      final db = await _appDatabase.database;
+      await db.update(
+        DatabaseSchema.sellersTable,
+        {
+          'deleted_at': DateTime.now().toIso8601String(),
+          'sync_status': SyncStatus.pending.storageValue,
+        },
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+      _log('SELLER LOCAL DELETED -> id=$id');
+      _scheduleBackgroundSync('delete-seller:$id');
+    } catch (error, stackTrace) {
+      print('💥 ERROR SQLITE: $error');
+      print(stackTrace);
+      _log('SELLER DELETE ERROR', error: error, stackTrace: stackTrace);
+      rethrow;
+    }
   }
 
-  Future<void> _confirmAuthoritativeSync(String operationLabel) async {
-    await _syncQueueService.refreshScope(scope);
-    await _syncQueueService.syncScopesNowOrThrow(
-      [scope],
-      operationLabel: operationLabel,
-    );
+  void _scheduleBackgroundSync(String operationLabel) {
+    unawaited(_runBackgroundSync(operationLabel));
+  }
+
+  Future<void> _runBackgroundSync(String operationLabel) async {
+    _log('SELLER SYNC ATTEMPT -> operation=$operationLabel');
+    try {
+      await _syncQueueService.refreshScope(scope);
+      final processed = await _syncQueueService.processQueue(
+        includeDeferred: true,
+      );
+      _log(
+        'SELLER SYNC RESULT -> operation=$operationLabel processed=$processed',
+      );
+    } catch (error, stackTrace) {
+      _log(
+        'SELLER SYNC ERROR -> operation=$operationLabel',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
   }
 
   Future<List<Seller>> search(String query) async {
@@ -143,21 +187,23 @@ class SellerRepository implements SyncRepository {
       orderBy: 'fecha_actualizacion ASC',
     );
 
-    return rows.map((row) {
-      return {
-        'id': row['id'],
-        'sync_id': row['sync_id'],
-        'version': 1,
-        'name': row['nombre'],
-        'full_name': row['nombre'],
-        'document_id': row['cedula'],
-        'phone': row['telefono'],
-        'created_at': row['fecha_creacion'],
-        'updated_at': row['fecha_actualizacion'],
-        'deleted_at': row['deleted_at'],
-        'sync_status': row['sync_status'],
-      };
-    }).toList(growable: false);
+    return rows
+        .map((row) {
+          return {
+            'id': row['id'],
+            'sync_id': row['sync_id'],
+            'version': 1,
+            'name': row['nombre'],
+            'full_name': row['nombre'],
+            'document_id': row['cedula'],
+            'phone': row['telefono'],
+            'created_at': row['fecha_creacion'],
+            'updated_at': row['fecha_actualizacion'],
+            'deleted_at': row['deleted_at'],
+            'sync_status': row['sync_status'],
+          };
+        })
+        .toList(growable: false);
   }
 
   @override
@@ -198,11 +244,18 @@ class SellerRepository implements SyncRepository {
         final values = {
           'sync_id': syncId,
           'version': _readVersion(record),
-          'nombre': record['name']?.toString() ?? record['full_name']?.toString() ?? '',
+          'nombre':
+              record['name']?.toString() ??
+              record['full_name']?.toString() ??
+              '',
           'cedula': record['document_id']?.toString() ?? '',
           'telefono': record['phone']?.toString() ?? '',
-          'fecha_creacion': record['created_at']?.toString() ?? DateTime.now().toIso8601String(),
-          'fecha_actualizacion': record['updated_at']?.toString() ?? DateTime.now().toIso8601String(),
+          'fecha_creacion':
+              record['created_at']?.toString() ??
+              DateTime.now().toIso8601String(),
+          'fecha_actualizacion':
+              record['updated_at']?.toString() ??
+              DateTime.now().toIso8601String(),
           'deleted_at': record['deleted_at']?.toString(),
           'sync_status': SyncStatus.synced.storageValue,
         };
@@ -250,8 +303,10 @@ class SellerRepository implements SyncRepository {
 
     final local = existingRows.first;
     final localPending =
-        (local['sync_status'] as String? ?? '') == SyncStatus.pending.storageValue ||
-        (local['sync_status'] as String? ?? '') == SyncStatus.conflict.storageValue;
+        (local['sync_status'] as String? ?? '') ==
+            SyncStatus.pending.storageValue ||
+        (local['sync_status'] as String? ?? '') ==
+            SyncStatus.conflict.storageValue;
     final localVersion = _readVersion(local);
     final remoteVersion = _readVersion(remoteRecord);
     final localUpdated = DateTime.tryParse(

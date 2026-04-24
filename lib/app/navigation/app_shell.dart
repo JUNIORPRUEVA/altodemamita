@@ -6,9 +6,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/database/app_database.dart';
 import '../../core/system/system_config_service.dart';
-import '../../features/auth/domain/admin_override_scope.dart';
-import '../../features/auth/domain/permission_model.dart';
-import '../../features/auth/presentation/admin_override_prompt.dart';
 import '../../features/auth/domain/user_model.dart';
 import '../../features/auth/presentation/auth_provider.dart';
 import '../../features/auth/presentation/profile_screen.dart';
@@ -40,7 +37,7 @@ import '../../services/sync/sync_manager.dart';
 import '../../services/sync/sync_queue_service.dart';
 import '../../services/sync/sync_service.dart';
 import '../../services/professional_backup/backup_service.dart'
-  as professional_backup;
+    as professional_backup;
 import '../../shared/widgets/base_layout.dart';
 import 'app_module.dart';
 
@@ -407,7 +404,9 @@ class _AppShellState extends State<AppShell> {
               actions: [
                 IconButton(
                   tooltip: 'Sincronizar ahora',
-                  onPressed: syncState.isSyncing || isReadOnly ? null : _runSync,
+                  onPressed: syncState.isSyncing || isReadOnly
+                      ? null
+                      : _runSync,
                   icon: syncState.isSyncing
                       ? const SizedBox(
                           width: 18,
@@ -530,7 +529,9 @@ class _AppShellState extends State<AppShell> {
                               pendingCount: syncState.pendingCount,
                               unresolvedConflictCount:
                                   syncState.unresolvedConflictCount,
-                              onTriggerSync: isReadOnly ? () async {} : _runSync,
+                              onTriggerSync: isReadOnly
+                                  ? () async {}
+                                  : _runSync,
                               onOpenProfile: _openProfile,
                             ),
                             Expanded(child: currentPage),
@@ -760,7 +761,9 @@ class _QueuePill extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFF173450).withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: const Color(0xFF173450).withValues(alpha: 0.18)),
+        border: Border.all(
+          color: const Color(0xFF173450).withValues(alpha: 0.18),
+        ),
       ),
       child: Text(
         'Pendientes: $count',
@@ -775,10 +778,7 @@ class _QueuePill extends StatelessWidget {
 }
 
 class _SyncAlertBanner extends StatelessWidget {
-  const _SyncAlertBanner({
-    required this.message,
-    this.onRetry,
-  });
+  const _SyncAlertBanner({required this.message, this.onRetry});
 
   final String message;
   final Future<void> Function()? onRetry;
@@ -797,7 +797,11 @@ class _SyncAlertBanner extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(Icons.warning_amber_rounded, color: Color(0xFF9A5B00), size: 18),
+          const Icon(
+            Icons.warning_amber_rounded,
+            color: Color(0xFF9A5B00),
+            size: 18,
+          ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
@@ -817,7 +821,10 @@ class _SyncAlertBanner extends StatelessWidget {
               onPressed: () => unawaited(onRetry!()),
               style: TextButton.styleFrom(
                 foregroundColor: const Color(0xFF6E4300),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
                 textStyle: const TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w800,

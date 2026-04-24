@@ -37,6 +37,7 @@ class SalesController extends ChangeNotifier {
   bool isSaving = false;
   String currentQuery = '';
   FriendlyErrorMessage? loadError;
+  String? lastSaveErrorMessage;
   List<SaleSummary> sales = const [];
   List<Client> clients = const [];
   List<Lot> availableLots = const [];
@@ -104,18 +105,26 @@ class SalesController extends ChangeNotifier {
 
   Future<int?> createSale(SaleDraft draft) async {
     if (_isDisposed) {
+      print('[SALES][CREATE] controller disposed -> abort');
       return null;
     }
     isSaving = true;
     loadError = null;
+    lastSaveErrorMessage = null;
     _notifyIfActive();
 
     try {
+      print(
+        '[SALES][CREATE] start clientId=${draft.clientId} lotId=${draft.lotId} sellerId=${draft.sellerId} price=${draft.salePrice}',
+      );
       final saleId = await _salesRepository.createSale(draft);
+      print('[SALES][CREATE] repository returned saleId=$saleId');
       await load(query: currentQuery);
       return saleId;
-    } catch (error) {
-      FriendlyErrorMessages.forOperation(
+    } catch (error, stack) {
+      print('[SALES][CREATE] ERROR $error');
+      print(stack);
+      lastSaveErrorMessage = FriendlyErrorMessages.forOperation(
         'guardar la venta',
         error,
         module: 'ventas',

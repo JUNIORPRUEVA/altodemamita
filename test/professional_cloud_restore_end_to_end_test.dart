@@ -65,7 +65,7 @@ void main() {
         final archive = Archive()
           ..addFile(ArchiveFile('app.db', dbBytes.length, dbBytes));
         final zipBytes = ZipEncoder().encode(archive);
-        if (zipBytes == null || zipBytes.isEmpty) {
+        if (zipBytes.isEmpty) {
           throw StateError('No se pudo generar el ZIP de prueba.');
         }
         await zipFile.writeAsBytes(zipBytes, flush: true);

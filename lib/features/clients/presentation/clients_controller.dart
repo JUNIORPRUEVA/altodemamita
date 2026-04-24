@@ -89,8 +89,8 @@ class ClientsController extends ChangeNotifier {
 
   String? _decodeClientWriteError(Object error) {
     if (error is StateError) {
-      final message = error.message?.toString().trim();
-      if (message != null && message.isNotEmpty) {
+      final message = error.message.toString().trim();
+      if (message.isNotEmpty) {
         return message;
       }
     }

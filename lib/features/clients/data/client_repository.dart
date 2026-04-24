@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:developer' as developer;
+
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_schema.dart';
 import '../../../core/config/app_flags.dart';
@@ -19,6 +22,15 @@ class ClientRepository implements SyncRepository {
 
   final AppDatabase _appDatabase;
   final SyncQueueService _syncQueueService;
+
+  void _log(String message, {Object? error, StackTrace? stackTrace}) {
+    developer.log(
+      message,
+      name: 'SistemaSolares.ClientRepository',
+      error: error,
+      stackTrace: stackTrace,
+    );
+  }
 
   bool get _enforceProductionGuards =>
       isProductionMode && identical(_appDatabase, AppDatabase.instance);
@@ -88,88 +100,128 @@ class ClientRepository implements SyncRepository {
   }
 
   Future<void> save(Client client) async {
-    SystemConfigService.instance.ensureWritable();
+    try {
+      SystemConfigService.instance.ensureWritable();
 
-    final normalizedClientInput = client.copyWith(
-      fullName: client.fullName.trim(),
-      documentId: client.documentId.trim(),
-      phone: _nullIfBlank(client.phone),
-      address: _nullIfBlank(client.address),
-    );
+      final normalizedClientInput = client.copyWith(
+        fullName: client.fullName.trim(),
+        documentId: client.documentId.trim(),
+        phone: _nullIfBlank(client.phone),
+        address: _nullIfBlank(client.address),
+      );
 
-    if (_enforceProductionGuards) {
-      if (ClientDataGuard.isTestLikeName(normalizedClientInput.fullName)) {
-        throw StateError('No se admiten clientes de prueba en producción.');
+      if (_enforceProductionGuards) {
+        if (ClientDataGuard.isTestLikeName(normalizedClientInput.fullName)) {
+          throw StateError('No se admiten clientes de prueba en producción.');
+        }
+        if (!ClientDataGuard.hasValidDocumentId(
+          normalizedClientInput.documentId,
+        )) {
+          throw StateError('La cédula del cliente no es válida.');
+        }
       }
-      if (!ClientDataGuard.hasValidDocumentId(normalizedClientInput.documentId)) {
-        throw StateError('La cédula del cliente no es válida.');
+
+      final db = await _appDatabase.database;
+      final now = DateTime.now();
+      final normalizedClient = normalizedClientInput.copyWith(
+        syncId: _normalizeSyncId(normalizedClientInput.syncId),
+        createdAt: normalizedClientInput.id == null
+            ? now
+            : normalizedClientInput.createdAt,
+        updatedAt: now,
+        clearDeletedAt: true,
+        syncStatus: SyncStatus.pending,
+      );
+
+      if (normalizedClient.id == null) {
+        final insertedId = await db.insert(
+          DatabaseSchema.clientsTable,
+          normalizedClient.toMap()..remove('id'),
+        );
+        _log(
+          'CLIENT LOCAL CREATED -> id=$insertedId documentId=${normalizedClient.documentId}',
+        );
+        _scheduleBackgroundSync('create-client');
+        return;
       }
-    }
 
-    final db = await _appDatabase.database;
-    final now = DateTime.now();
-    final normalizedClient = normalizedClientInput.copyWith(
-      syncId: _normalizeSyncId(normalizedClientInput.syncId),
-      createdAt: normalizedClientInput.id == null ? now : normalizedClientInput.createdAt,
-      updatedAt: now,
-      clearDeletedAt: true,
-      syncStatus: SyncStatus.pending,
-    );
-
-    if (normalizedClient.id == null) {
-      await db.insert(
+      await db.update(
         DatabaseSchema.clientsTable,
         normalizedClient.toMap()..remove('id'),
+        where: 'id = ?',
+        whereArgs: [normalizedClient.id],
       );
-      await _confirmAuthoritativeSync('create-client');
-      return;
+      _log(
+        'CLIENT LOCAL UPDATED -> id=${normalizedClient.id} documentId=${normalizedClient.documentId}',
+      );
+      _scheduleBackgroundSync('update-client:${normalizedClient.id}');
+    } catch (error, stackTrace) {
+      print('💥 ERROR SQLITE: $error');
+      print(stackTrace);
+      _log('CLIENT SAVE ERROR', error: error, stackTrace: stackTrace);
+      rethrow;
     }
-
-    await db.update(
-      DatabaseSchema.clientsTable,
-      normalizedClient.toMap()..remove('id'),
-      where: 'id = ?',
-      whereArgs: [normalizedClient.id],
-    );
-    await _confirmAuthoritativeSync('update-client:${normalizedClient.id}');
   }
 
   Future<void> delete(int id) async {
-    SystemConfigService.instance.ensureWritable();
+    try {
+      SystemConfigService.instance.ensureWritable();
 
-    final db = await _appDatabase.database;
-    final rows = await db.query(
-      DatabaseSchema.clientsTable,
-      where: 'id = ?',
-      whereArgs: [id],
-      limit: 1,
-    );
-    if (rows.isEmpty) {
-      return;
+      final db = await _appDatabase.database;
+      final rows = await db.query(
+        DatabaseSchema.clientsTable,
+        where: 'id = ?',
+        whereArgs: [id],
+        limit: 1,
+      );
+      if (rows.isEmpty) {
+        return;
+      }
+
+      final existing = Client.fromMap(rows.first);
+      final now = DateTime.now();
+      final deletedClient = existing.copyWith(
+        updatedAt: now,
+        deletedAt: now,
+        syncStatus: SyncStatus.pending,
+      );
+      await db.update(
+        DatabaseSchema.clientsTable,
+        deletedClient.toMap()..remove('id'),
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+      _log('CLIENT LOCAL DELETED -> id=$id');
+      _scheduleBackgroundSync('delete-client:$id');
+    } catch (error, stackTrace) {
+      print('💥 ERROR SQLITE: $error');
+      print(stackTrace);
+      _log('CLIENT DELETE ERROR', error: error, stackTrace: stackTrace);
+      rethrow;
     }
-
-    final existing = Client.fromMap(rows.first);
-    final now = DateTime.now();
-    final deletedClient = existing.copyWith(
-      updatedAt: now,
-      deletedAt: now,
-      syncStatus: SyncStatus.pending,
-    );
-    await db.update(
-      DatabaseSchema.clientsTable,
-      deletedClient.toMap()..remove('id'),
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-    await _confirmAuthoritativeSync('delete-client:$id');
   }
 
-  Future<void> _confirmAuthoritativeSync(String operationLabel) async {
-    await _syncQueueService.refreshScope(scope);
-    await _syncQueueService.syncScopesNowOrThrow(
-      [scope],
-      operationLabel: operationLabel,
-    );
+  void _scheduleBackgroundSync(String operationLabel) {
+    unawaited(_runBackgroundSync(operationLabel));
+  }
+
+  Future<void> _runBackgroundSync(String operationLabel) async {
+    _log('CLIENT SYNC ATTEMPT -> operation=$operationLabel');
+    try {
+      await _syncQueueService.refreshScope(scope);
+      final processed = await _syncQueueService.processQueue(
+        includeDeferred: true,
+      );
+      _log(
+        'CLIENT SYNC RESULT -> operation=$operationLabel processed=$processed',
+      );
+    } catch (error, stackTrace) {
+      _log(
+        'CLIENT SYNC ERROR -> operation=$operationLabel',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
   }
 
   @override

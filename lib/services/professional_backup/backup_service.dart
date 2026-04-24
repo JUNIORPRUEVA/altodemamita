@@ -14,12 +14,7 @@ import 'professional_restore_agent.dart';
 import 'professional_backup_settings.dart';
 import 'professional_backup_settings_repository.dart';
 
-enum BackupTrigger {
-  appShutdown,
-  syncCompleted,
-  manual,
-  periodic,
-}
+enum BackupTrigger { appShutdown, syncCompleted, manual, periodic }
 
 class BackupService {
   BackupService({
@@ -155,7 +150,9 @@ class BackupService {
 
     _localPeriodicTimer = Timer.periodic(_localPeriodicInterval, (_) {
       unawaited(
-        createLocalBackup(trigger: BackupTrigger.periodic).catchError((_) {}),
+        createLocalBackup(
+          trigger: BackupTrigger.periodic,
+        ).catchError((_, __) => null),
       );
     });
   }
@@ -216,7 +213,9 @@ class BackupService {
     }
 
     // If not pending and already backed up today, nothing to do.
-    if (!force && !settings.cloudBackupPending && settings.lastCloudBackupDate == today) {
+    if (!force &&
+        !settings.cloudBackupPending &&
+        settings.lastCloudBackupDate == today) {
       return;
     }
 
@@ -252,16 +251,16 @@ class BackupService {
       final dbPath = await _appDatabase.databasePath;
       await _activityGuard.waitForNoActiveWriters(databasePath: dbPath);
 
-      final result = await _createAndUploadCloudBackupWithRetries(date: uploadDate);
+      final result = await _createAndUploadCloudBackupWithRetries(
+        date: uploadDate,
+      );
       if (!result.success) {
         print(
           '[PRO-BACKUP] Backup nube falló: status=${result.statusCode} msg=${result.message ?? ''}',
         );
 
         await saveSettings(
-          (await getSettings()).copyWith(
-            cloudBackupPending: true,
-          ),
+          (await getSettings()).copyWith(cloudBackupPending: true),
         );
 
         await _logAgent.log(
@@ -290,7 +289,8 @@ class BackupService {
         type: 'cloud',
         operation: 'backup',
         result: 'ok',
-        message: 'status=${result.statusCode} filename=${result.remoteFilename}',
+        message:
+            'status=${result.statusCode} filename=${result.remoteFilename}',
       );
     });
   }

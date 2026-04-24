@@ -108,12 +108,9 @@ class _SalesPageState extends State<SalesPage> {
             Container(
               decoration: const BoxDecoration(
                 color: Colors.white,
-                border: Border(
-                  bottom: BorderSide(color: Color(0xFFE4EAF2)),
-                ),
+                border: Border(bottom: BorderSide(color: Color(0xFFE4EAF2))),
               ),
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
               child: LayoutBuilder(
                 builder: (context, constraints) {
                   final compact = constraints.maxWidth < 900;
@@ -124,21 +121,23 @@ class _SalesPageState extends State<SalesPage> {
                       controller: _searchController,
                       style: const TextStyle(fontSize: 14),
                       decoration: InputDecoration(
-                        hintText:
-                            'Buscar por cliente, cédula, solar o estado…',
+                        hintText: 'Buscar por cliente, cédula, solar o estado…',
                         prefixIcon: const Icon(Icons.search, size: 18),
                         isDense: true,
-                        contentPadding:
-                            const EdgeInsets.symmetric(vertical: 10),
+                        contentPadding: const EdgeInsets.symmetric(
+                          vertical: 10,
+                        ),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
-                          borderSide:
-                              const BorderSide(color: Color(0xFFD0D7E4)),
+                          borderSide: const BorderSide(
+                            color: Color(0xFFD0D7E4),
+                          ),
                         ),
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
-                          borderSide:
-                              const BorderSide(color: Color(0xFFD0D7E4)),
+                          borderSide: const BorderSide(
+                            color: Color(0xFFD0D7E4),
+                          ),
                         ),
                       ),
                       onSubmitted: (_) => _runSearch(),
@@ -151,17 +150,14 @@ class _SalesPageState extends State<SalesPage> {
                       FilledButton.icon(
                         style: FilledButton.styleFrom(
                           minimumSize: const Size(0, 38),
-                          padding:
-                              const EdgeInsets.symmetric(horizontal: 16),
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
                         ),
                         onPressed: !canCreateSales || _controller.isSaving
                             ? null
                             : _createSale,
                         icon: const Icon(Icons.add, size: 18),
                         label: Text(
-                          _controller.isSaving
-                              ? 'Guardando…'
-                              : 'Nueva venta',
+                          _controller.isSaving ? 'Guardando…' : 'Nueva venta',
                           style: const TextStyle(fontSize: 14),
                         ),
                       ),
@@ -169,23 +165,25 @@ class _SalesPageState extends State<SalesPage> {
                       OutlinedButton(
                         style: OutlinedButton.styleFrom(
                           minimumSize: const Size(0, 38),
-                          padding:
-                              const EdgeInsets.symmetric(horizontal: 14),
+                          padding: const EdgeInsets.symmetric(horizontal: 14),
                         ),
                         onPressed: _runSearch,
-                        child: const Text('Buscar',
-                            style: TextStyle(fontSize: 14)),
+                        child: const Text(
+                          'Buscar',
+                          style: TextStyle(fontSize: 14),
+                        ),
                       ),
                       const SizedBox(width: 6),
                       OutlinedButton(
                         style: OutlinedButton.styleFrom(
                           minimumSize: const Size(0, 38),
-                          padding:
-                              const EdgeInsets.symmetric(horizontal: 14),
+                          padding: const EdgeInsets.symmetric(horizontal: 14),
                         ),
                         onPressed: _clearSearch,
-                        child: const Text('Limpiar',
-                            style: TextStyle(fontSize: 14)),
+                        child: const Text(
+                          'Limpiar',
+                          style: TextStyle(fontSize: 14),
+                        ),
                       ),
                     ],
                   );
@@ -341,6 +339,7 @@ class _SalesPageState extends State<SalesPage> {
   }
 
   Future<void> _createSale() async {
+    print('[SALES][UI] _createSale pressed');
     final draft = await SaleFormDialog.show(
       context,
       clients: _controller.clients,
@@ -355,20 +354,36 @@ class _SalesPageState extends State<SalesPage> {
       onSellerCreated: _reloadControllerSafely,
     );
     if (!mounted || draft == null) {
+      print(
+        '[SALES][UI] dialog closed or not mounted (mounted=$mounted, draft=${draft != null})',
+      );
       return;
     }
 
+    print(
+      '[SALES][UI] draft ready -> calling controller.createSale clientId=${draft.clientId} lotId=${draft.lotId} sellerId=${draft.sellerId} price=${draft.salePrice}',
+    );
     final saleId = await _controller.createSale(draft);
     if (!mounted) {
+      print('[SALES][UI] not mounted after createSale');
       return;
     }
 
     if (saleId == null) {
+      final message =
+          _controller.lastSaveErrorMessage ??
+          'No se pudo guardar la venta. Revise los datos e intente nuevamente.';
+      print('[SALES][UI] createSale returned null -> $message');
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text(message), backgroundColor: Colors.red),
+      );
       return;
     }
 
+    print('[SALES][UI] saleId=$saleId -> fetching detail');
     final detail = await _controller.fetchDetail(saleId);
     if (!mounted) {
+      print('[SALES][UI] not mounted after fetchDetail');
       return;
     }
 
@@ -630,8 +645,9 @@ class _SaleRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final initials =
-        sale.clientName.isEmpty ? '?' : sale.clientName[0].toUpperCase();
+    final initials = sale.clientName.isEmpty
+        ? '?'
+        : sale.clientName[0].toUpperCase();
     final statusColor = _saleRowStatusColor(sale.status);
 
     return InkWell(
@@ -675,7 +691,9 @@ class _SaleRow extends StatelessWidget {
                     Text(
                       '${sale.lotDisplayCode}  ·  ${sale.clientDocumentId}',
                       style: const TextStyle(
-                          fontSize: 12, color: Color(0xFF8893AA)),
+                        fontSize: 12,
+                        color: Color(0xFF8893AA),
+                      ),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ],
@@ -684,8 +702,10 @@ class _SaleRow extends StatelessWidget {
               const SizedBox(width: 12),
               // Status badge
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: statusColor.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(20),
@@ -718,7 +738,9 @@ class _SaleRow extends StatelessWidget {
                     Text(
                       'Saldo RD\$${sale.pendingBalance.toStringAsFixed(2)}',
                       style: const TextStyle(
-                          fontSize: 11, color: Color(0xFF8893AA)),
+                        fontSize: 11,
+                        color: Color(0xFF8893AA),
+                      ),
                     ),
                   ],
                 ),
@@ -741,8 +763,7 @@ class _SaleRow extends StatelessWidget {
                     ),
                     const Text(
                       'cuotas',
-                      style: TextStyle(
-                          fontSize: 10, color: Color(0xFF8893AA)),
+                      style: TextStyle(fontSize: 10, color: Color(0xFF8893AA)),
                     ),
                   ],
                 ),

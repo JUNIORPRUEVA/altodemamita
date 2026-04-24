@@ -57,11 +57,16 @@ class AppDatabase {
     }
 
     final stopwatch = Stopwatch()..start();
+    print('🧠 INIT DB...');
     final openFuture = _openDatabase();
     _openingDatabase = openFuture;
     try {
       final openedDatabase = await openFuture;
       _database = openedDatabase;
+
+      print('✅ DB ABIERTA: $openedDatabase');
+      await _logTables(openedDatabase);
+      await _runWritableProbe(openedDatabase);
 
       if (kDebugMode) {
         debugPrint(
@@ -108,6 +113,7 @@ class AppDatabase {
 
   Future<Database> _openDatabase() async {
     final dbPath = await databasePath;
+    print('📁 DB PATH: $dbPath');
 
     return databaseFactory.openDatabase(
       dbPath,
@@ -115,6 +121,7 @@ class AppDatabase {
         version: DatabaseSchema.databaseVersion,
         onConfigure: (db) async => DatabaseSchema.configure(db),
         onCreate: (db, version) async {
+          print('🔥 CREANDO TABLAS...');
           await DatabaseSchema.createTables(db);
           await DatabaseSchema.seedDefaults(db);
         },
@@ -134,6 +141,44 @@ class AppDatabase {
         },
       ),
     );
+  }
+
+  Future<void> _logTables(Database db) async {
+    final tables = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
+    );
+    print('📦 TABLAS: $tables');
+  }
+
+  Future<void> _runWritableProbe(Database db) async {
+    try {
+      await db.transaction((txn) async {
+        final now = DateTime.now().toIso8601String();
+        final probeDocument =
+            'DB-PROBE-${DateTime.now().microsecondsSinceEpoch}';
+        final probeId = await txn.insert(DatabaseSchema.clientsTable, {
+          'sync_id': 'db-probe-${DateTime.now().microsecondsSinceEpoch}',
+          'nombre': 'TEST',
+          'cedula': probeDocument,
+          'telefono': '8090000000',
+          'direccion': 'sqlite-probe',
+          'fecha_creacion': now,
+          'fecha_actualizacion': now,
+          'deleted_at': null,
+          'sync_status': DatabaseSchema.syncStatusPending,
+        });
+        await txn.delete(
+          DatabaseSchema.clientsTable,
+          where: 'id = ?',
+          whereArgs: [probeId],
+        );
+      });
+      print('✅ INSERT OK');
+    } catch (error, stackTrace) {
+      print('💥 ERROR SQLITE: $error');
+      print(stackTrace);
+      rethrow;
+    }
   }
 
   void _initializeFactory() {
@@ -306,13 +351,14 @@ class AppDatabase {
 
         // Resolve duplicates by trimmed document id.
         for (final entry in candidatesByDocument.entries) {
-          final documentId = entry.key;
           final group = entry.value;
           if (group.isEmpty) {
             continue;
           }
 
-          final canonicalId = group.length == 1 ? (group.first['id'] as int? ?? 0) : pickCanonicalId(group);
+          final canonicalId = group.length == 1
+              ? (group.first['id'] as int? ?? 0)
+              : pickCanonicalId(group);
           for (final row in group) {
             final id = row['id'] as int?;
             if (id == null || id == 0) {

@@ -173,6 +173,79 @@ void main() {
     );
   });
 
+  test(
+    'crea ventas offline-first en local con pending_sync y uuid propio',
+    () async {
+      final now = DateTime(2026, 4, 24, 10, 30);
+      final db = await appDatabase.database;
+
+      final clientId = await db.insert(DatabaseSchema.clientsTable, {
+        'sync_id': 'client-offline-fixture',
+        'nombre': 'Cliente Offline',
+        'cedula': '001-0000000-9',
+        'telefono': '8095559090',
+        'direccion': 'Calle Offline',
+        'fecha_creacion': now.toIso8601String(),
+        'fecha_actualizacion': now.toIso8601String(),
+        'sync_status': DatabaseSchema.syncStatusSynced,
+      });
+
+      final lotId = await db.insert(DatabaseSchema.lotsTable, {
+        'sync_id': 'lot-offline-fixture',
+        'manzana_numero': 'C',
+        'solar_numero': '20',
+        'metros_cuadrados': 180,
+        'precio_por_metro': 4000,
+        'estado': 'disponible',
+        'fecha_creacion': now.toIso8601String(),
+        'fecha_actualizacion': now.toIso8601String(),
+        'sync_status': DatabaseSchema.syncStatusSynced,
+      });
+
+      final saleId = await salesRepository.createSale(
+        SaleDraft(
+          clientId: clientId,
+          lotId: lotId,
+          userId: 1,
+          saleDate: now,
+          salePrice: 720000,
+          downPaymentPercentage: 10,
+          requiredInitialPayment: 72000,
+          initialPaymentPaid: 72000,
+          monthlyInterest: 1,
+          installmentCount: 12,
+        ),
+      );
+
+      final saleRows = await db.query(
+        DatabaseSchema.salesTable,
+        columns: ['sync_id', 'sync_status'],
+        where: 'id = ?',
+        whereArgs: [saleId],
+        limit: 1,
+      );
+
+      expect(saleRows, hasLength(1));
+      expect(
+        saleRows.single['sync_status'],
+        DatabaseSchema.syncStatusPendingSync,
+      );
+      expect(
+        saleRows.single['sync_id'],
+        matches(
+          RegExp(
+            r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+          ),
+        ),
+      );
+
+      final localSales = await salesRepository.fetchAll();
+      expect(localSales, hasLength(1));
+      expect(localSales.single.id, saleId);
+      expect(localSales.single.clientName, 'Cliente Offline');
+    },
+  );
+
   test('guarda impresora predeterminada y la mantiene persistente', () async {
     final firstPrinter = await printerRepository.createPrinter(
       PrinterConfig.empty().copyWith(
@@ -318,120 +391,117 @@ void main() {
     expect(await lotRepository.fetchAll(), isEmpty);
   });
 
-  test(
-    'rechaza ventas con inicial menor al minimo requerido',
-    () async {
-      final now = DateTime(2026, 3, 26);
+  test('rechaza ventas con inicial menor al minimo requerido', () async {
+    final now = DateTime(2026, 3, 26);
 
-      await clientRepository.save(
-        Client(
-          fullName: 'Pedro Ramirez',
-          documentId: '001-0000000-3',
-          phone: '8095550110',
-          address: 'Villa Esperanza',
-          createdAt: now,
-          updatedAt: now,
-        ),
-      );
+    await clientRepository.save(
+      Client(
+        fullName: 'Pedro Ramirez',
+        documentId: '001-0000000-3',
+        phone: '8095550110',
+        address: 'Villa Esperanza',
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
 
-      await lotRepository.save(
-        Lot(
-          blockNumber: 'C',
-          lotNumber: '15',
-          area: 200,
-          price: 1000000,
-          status: 'disponible',
-          createdAt: now,
-          updatedAt: now,
-        ),
-      );
+    await lotRepository.save(
+      Lot(
+        blockNumber: 'C',
+        lotNumber: '15',
+        area: 200,
+        price: 1000000,
+        status: 'disponible',
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
 
-      final client = (await clientRepository.fetchAll()).single;
-      final lot = (await lotRepository.fetchAll()).single;
+    final client = (await clientRepository.fetchAll()).single;
+    final lot = (await lotRepository.fetchAll()).single;
 
-      await expectLater(
-        salesRepository.createSale(
-          SaleDraft(
-            clientId: client.id!,
-            lotId: lot.id!,
-            userId: 1,
-            saleDate: now,
-            salePrice: 0,
-            downPaymentPercentage: 10,
-            requiredInitialPayment: 100000,
-            initialPaymentPaid: 25000,
-            minimumReserveAmount: 20000,
-            initialPaymentDeadline: now.add(const Duration(days: 15)),
-            monthlyInterest: 1,
-            installmentCount: 12,
-          ),
-        ),
-        throwsA(isA<StateError>()),
-      );
-
-      final detail = await salesRepository.fetchDetail(1);
-      expect(detail, isNull);
-
-      final saleLot = await lotRepository.findById(lot.id!);
-      expect(saleLot, isNotNull);
-      expect(saleLot!.status, 'disponible');
-
-      final financedSaleId = await salesRepository.createSale(
+    await expectLater(
+      salesRepository.createSale(
         SaleDraft(
           clientId: client.id!,
           lotId: lot.id!,
           userId: 1,
           saleDate: now,
-          salePrice: 1000000,
+          salePrice: 0,
           downPaymentPercentage: 10,
           requiredInitialPayment: 100000,
-          initialPaymentPaid: 100000,
+          initialPaymentPaid: 25000,
+          minimumReserveAmount: 20000,
+          initialPaymentDeadline: now.add(const Duration(days: 15)),
           monthlyInterest: 1,
           installmentCount: 12,
         ),
-      );
+      ),
+      throwsA(isA<StateError>()),
+    );
 
-      expect(financedSaleId, greaterThan(0));
+    final detail = await salesRepository.fetchDetail(1);
+    expect(detail, isNull);
 
-      await lotRepository.save(
-        Lot(
-          blockNumber: 'D',
-          lotNumber: '09',
-          area: 220,
-          pricePerSquareMeter: 950000 / 220,
-          status: 'disponible',
-          createdAt: now,
-          updatedAt: now,
-        ),
-      );
+    final saleLot = await lotRepository.findById(lot.id!);
+    expect(saleLot, isNotNull);
+    expect(saleLot!.status, 'disponible');
 
-      final allLots = await lotRepository.fetchAll();
-      final secondLot = allLots.firstWhere(
-        (item) => item.blockNumber == 'D' && item.lotNumber == '09',
-      );
-      final cashSaleId = await salesRepository.createSale(
-        SaleDraft(
-          clientId: client.id!,
-          lotId: secondLot.id!,
-          userId: 1,
-          saleDate: now,
-          salePrice: secondLot.totalPrice,
-          downPaymentPercentage: 100,
-          requiredInitialPayment: secondLot.totalPrice,
-          initialPaymentPaid: secondLot.totalPrice,
-          monthlyInterest: 1,
-          installmentCount: 12,
-        ),
-      );
+    final financedSaleId = await salesRepository.createSale(
+      SaleDraft(
+        clientId: client.id!,
+        lotId: lot.id!,
+        userId: 1,
+        saleDate: now,
+        salePrice: 1000000,
+        downPaymentPercentage: 10,
+        requiredInitialPayment: 100000,
+        initialPaymentPaid: 100000,
+        monthlyInterest: 1,
+        installmentCount: 12,
+      ),
+    );
 
-      final cashSaleDetail = await salesRepository.fetchDetail(cashSaleId);
-      expect(cashSaleDetail, isNotNull);
-      expect(cashSaleDetail!.sale.status, 'pagada');
-      expect(cashSaleDetail.sale.financedBalance, 0);
-      expect(cashSaleDetail.sale.pendingBalance, 0);
-      expect(cashSaleDetail.installments, isEmpty);
-    },
-  );
+    expect(financedSaleId, greaterThan(0));
+
+    await lotRepository.save(
+      Lot(
+        blockNumber: 'D',
+        lotNumber: '09',
+        area: 220,
+        pricePerSquareMeter: 950000 / 220,
+        status: 'disponible',
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+
+    final allLots = await lotRepository.fetchAll();
+    final secondLot = allLots.firstWhere(
+      (item) => item.blockNumber == 'D' && item.lotNumber == '09',
+    );
+    final cashSaleId = await salesRepository.createSale(
+      SaleDraft(
+        clientId: client.id!,
+        lotId: secondLot.id!,
+        userId: 1,
+        saleDate: now,
+        salePrice: secondLot.totalPrice,
+        downPaymentPercentage: 100,
+        requiredInitialPayment: secondLot.totalPrice,
+        initialPaymentPaid: secondLot.totalPrice,
+        monthlyInterest: 1,
+        installmentCount: 12,
+      ),
+    );
+
+    final cashSaleDetail = await salesRepository.fetchDetail(cashSaleId);
+    expect(cashSaleDetail, isNotNull);
+    expect(cashSaleDetail!.sale.status, 'pagada');
+    expect(cashSaleDetail.sale.financedBalance, 0);
+    expect(cashSaleDetail.sale.pendingBalance, 0);
+    expect(cashSaleDetail.installments, isEmpty);
+  });
 
   test(
     'crear venta con inicial completo activa la venta y genera cuotas de inmediato',
@@ -552,55 +622,52 @@ void main() {
     },
   );
 
-  test(
-    'rechaza venta con inicial por encima del precio total',
-    () async {
-      final now = DateTime(2026, 3, 26);
+  test('rechaza venta con inicial por encima del precio total', () async {
+    final now = DateTime(2026, 3, 26);
 
-      await clientRepository.save(
-        Client(
-          fullName: 'Miguel Acosta',
-          documentId: '001-0000201-5',
-          phone: '8095550208',
-          address: 'Ensanche Ozama',
-          createdAt: now,
-          updatedAt: now,
-        ),
-      );
+    await clientRepository.save(
+      Client(
+        fullName: 'Miguel Acosta',
+        documentId: '001-0000201-5',
+        phone: '8095550208',
+        address: 'Ensanche Ozama',
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
 
-      await lotRepository.save(
-        Lot(
-          blockNumber: 'Q',
-          lotNumber: '08',
-          area: 180,
-          price: 1000000,
-          status: 'disponible',
-          createdAt: now,
-          updatedAt: now,
-        ),
-      );
+    await lotRepository.save(
+      Lot(
+        blockNumber: 'Q',
+        lotNumber: '08',
+        area: 180,
+        price: 1000000,
+        status: 'disponible',
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
 
-      final client = (await clientRepository.fetchAll()).single;
-      final lot = (await lotRepository.fetchAll()).single;
-      await expectLater(
-        () => salesRepository.createSale(
-          SaleDraft(
-            clientId: client.id!,
-            lotId: lot.id!,
-            userId: 1,
-            saleDate: now,
-            salePrice: lot.price,
-            downPaymentPercentage: 10,
-            requiredInitialPayment: 100000,
-            initialPaymentPaid: 1000001,
-            monthlyInterest: 1,
-            installmentCount: 12,
-          ),
+    final client = (await clientRepository.fetchAll()).single;
+    final lot = (await lotRepository.fetchAll()).single;
+    await expectLater(
+      () => salesRepository.createSale(
+        SaleDraft(
+          clientId: client.id!,
+          lotId: lot.id!,
+          userId: 1,
+          saleDate: now,
+          salePrice: lot.price,
+          downPaymentPercentage: 10,
+          requiredInitialPayment: 100000,
+          initialPaymentPaid: 1000001,
+          monthlyInterest: 1,
+          installmentCount: 12,
         ),
-        throwsA(isA<StateError>()),
-      );
-    },
-  );
+      ),
+      throwsA(isA<StateError>()),
+    );
+  });
 
   test(
     'venta activa con inicial del 10% genera tabla coherente de cuota fija mensual',
@@ -687,100 +754,103 @@ void main() {
     },
   );
 
-  test('permite editar y eliminar una venta con solo pago inicial registrado', () async {
-    final now = DateTime(2026, 3, 26);
+  test(
+    'permite editar y eliminar una venta con solo pago inicial registrado',
+    () async {
+      final now = DateTime(2026, 3, 26);
 
-    await clientRepository.save(
-      Client(
-        fullName: 'Elena Castro',
-        documentId: '001-0000000-8',
-        phone: '8095550180',
-        address: 'Jardines del Este',
-        createdAt: now,
-        updatedAt: now,
-      ),
-    );
+      await clientRepository.save(
+        Client(
+          fullName: 'Elena Castro',
+          documentId: '001-0000000-8',
+          phone: '8095550180',
+          address: 'Jardines del Este',
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
 
-    await lotRepository.save(
-      Lot(
-        blockNumber: 'H',
-        lotNumber: '03',
-        area: 190,
-        price: 800000,
-        status: 'disponible',
-        createdAt: now,
-        updatedAt: now,
-      ),
-    );
+      await lotRepository.save(
+        Lot(
+          blockNumber: 'H',
+          lotNumber: '03',
+          area: 190,
+          price: 800000,
+          status: 'disponible',
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
 
-    await lotRepository.save(
-      Lot(
-        blockNumber: 'H',
-        lotNumber: '04',
-        area: 195,
-        price: 950000,
-        status: 'disponible',
-        createdAt: now,
-        updatedAt: now,
-      ),
-    );
+      await lotRepository.save(
+        Lot(
+          blockNumber: 'H',
+          lotNumber: '04',
+          area: 195,
+          price: 950000,
+          status: 'disponible',
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
 
-    final client = (await clientRepository.fetchAll()).single;
-    final lots = await lotRepository.fetchAll();
-    final firstLot = lots.firstWhere((lot) => lot.lotNumber == '03');
-    final secondLot = lots.firstWhere((lot) => lot.lotNumber == '04');
+      final client = (await clientRepository.fetchAll()).single;
+      final lots = await lotRepository.fetchAll();
+      final firstLot = lots.firstWhere((lot) => lot.lotNumber == '03');
+      final secondLot = lots.firstWhere((lot) => lot.lotNumber == '04');
 
-    final saleId = await salesRepository.createSale(
-      SaleDraft(
-        clientId: client.id!,
-        lotId: firstLot.id!,
-        userId: 1,
-        saleDate: now,
-        salePrice: 810000,
-        downPaymentPercentage: 10,
-        requiredInitialPayment: 81000,
-        initialPaymentPaid: 81000,
-        monthlyInterest: 1,
-        installmentCount: 12,
-      ),
-    );
+      final saleId = await salesRepository.createSale(
+        SaleDraft(
+          clientId: client.id!,
+          lotId: firstLot.id!,
+          userId: 1,
+          saleDate: now,
+          salePrice: 810000,
+          downPaymentPercentage: 10,
+          requiredInitialPayment: 81000,
+          initialPaymentPaid: 81000,
+          monthlyInterest: 1,
+          installmentCount: 12,
+        ),
+      );
 
-    await salesRepository.updateSale(
-      saleId,
-      SaleDraft(
-        clientId: client.id!,
-        lotId: secondLot.id!,
-        userId: 1,
-        saleDate: now.add(const Duration(days: 1)),
-        salePrice: 975000,
-        downPaymentPercentage: 8,
-        requiredInitialPayment: 78000,
-        initialPaymentPaid: 81000,
-        monthlyInterest: 2,
-        installmentCount: 18,
-      ),
-    );
+      await salesRepository.updateSale(
+        saleId,
+        SaleDraft(
+          clientId: client.id!,
+          lotId: secondLot.id!,
+          userId: 1,
+          saleDate: now.add(const Duration(days: 1)),
+          salePrice: 975000,
+          downPaymentPercentage: 8,
+          requiredInitialPayment: 78000,
+          initialPaymentPaid: 81000,
+          monthlyInterest: 2,
+          installmentCount: 18,
+        ),
+      );
 
-    final detail = await salesRepository.fetchDetail(saleId);
-    expect(detail, isNotNull);
-    expect(detail!.sale.lotId, secondLot.id);
-    expect(detail.sale.salePrice, 975000);
-    expect(detail.sale.downPaymentPercentage, 8);
-    expect(detail.sale.status, 'activa');
-    expect(detail.sale.installmentCount, 18);
-    expect(detail.installments, hasLength(18));
+      final detail = await salesRepository.fetchDetail(saleId);
+      expect(detail, isNotNull);
+      expect(detail!.sale.lotId, secondLot.id);
+      expect(detail.sale.salePrice, 975000);
+      expect(detail.sale.downPaymentPercentage, 8);
+      expect(detail.sale.status, 'activa');
+      expect(detail.sale.installmentCount, 18);
+      expect(detail.installments, hasLength(18));
 
-    final releasedLot = await lotRepository.findById(firstLot.id!);
-    final soldLot = await lotRepository.findById(secondLot.id!);
-    expect(releasedLot!.status, 'disponible');
-    expect(soldLot!.status, 'vendido');
+      final releasedLot = await lotRepository.findById(firstLot.id!);
+      final soldLot = await lotRepository.findById(secondLot.id!);
+      expect(releasedLot!.status, 'disponible');
+      expect(soldLot!.status, 'vendido');
 
-    await salesRepository.deleteSale(saleId);
+      await salesRepository.deleteSale(saleId);
 
-    expect(await salesRepository.fetchDetail(saleId), isNull);
-    final restoredLot = await lotRepository.findById(secondLot.id!);
-    expect(restoredLot!.status, 'disponible');
-  });
+      expect(await salesRepository.fetchDetail(saleId), isNull);
+      final restoredLot = await lotRepository.findById(secondLot.id!);
+      expect(restoredLot!.status, 'disponible');
+    },
+  );
 
   test('no permite editar una venta con pagos registrados', () async {
     final now = DateTime(2026, 3, 26);
@@ -826,14 +896,34 @@ void main() {
       ),
     );
 
-    await paymentsRepository.registerPayment(
-      PaymentDraft(
-        saleId: saleId,
-        paymentDate: now.add(const Duration(days: 1)),
-        amountPaid: 50000,
-        paymentMethod: 'efectivo',
-      ),
+    final db = await appDatabase.database;
+    final installmentRows = await db.query(
+      DatabaseSchema.installmentsTable,
+      columns: ['id'],
+      where: 'venta_id = ?',
+      whereArgs: [saleId],
+      orderBy: 'numero_cuota ASC',
+      limit: 1,
     );
+    expect(installmentRows, isNotEmpty);
+
+    await db.insert(DatabaseSchema.paymentsTable, {
+      'sync_id': 'test-payment-${DateTime.now().microsecondsSinceEpoch}',
+      'venta_id': saleId,
+      'cliente_id': client.id,
+      'usuario_id': 1,
+      'cuota_id': installmentRows.single['id'],
+      'fecha_pago': now.add(const Duration(days: 1)).toIso8601String(),
+      'monto_pagado': 50000,
+      'metodo_pago': 'efectivo',
+      'tipo_pago': 'cuota',
+      'referencia': 'TEST-PAYMENT-$saleId',
+      'ano_a_pagar': null,
+      'fecha_creacion': now.toIso8601String(),
+      'fecha_actualizacion': now.toIso8601String(),
+      'deleted_at': null,
+      'sync_status': DatabaseSchema.syncStatusPending,
+    });
 
     expect(
       () => salesRepository.updateSale(
@@ -1122,10 +1212,7 @@ void main() {
         detail.installments.first.paidAmount,
         firstInstallment.totalAmount,
       );
-      expect(
-        detail.installments[1].totalAmount,
-        firstInstallment.totalAmount,
-      );
+      expect(detail.installments[1].totalAmount, firstInstallment.totalAmount);
       expect(
         detail.sale.pendingBalance,
         _roundCurrency(900000 - firstInstallment.principalAmount - 10000),

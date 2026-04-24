@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:developer' as developer;
+
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_schema.dart';
 import '../../../core/system/system_config_service.dart';
@@ -30,6 +33,15 @@ class LotRepository {
 
   final AppDatabase _appDatabase;
   final SyncQueueService _syncQueueService;
+
+  void _log(String message, {Object? error, StackTrace? stackTrace}) {
+    developer.log(
+      message,
+      name: 'SistemaSolares.LotRepository',
+      error: error,
+      stackTrace: stackTrace,
+    );
+  }
 
   Future<List<Lot>> fetchAll({String query = ''}) async {
     return _fetchWhere(
@@ -82,20 +94,28 @@ class LotRepository {
   }
 
   Future<void> updateStatus(int id, String status) async {
-    SystemConfigService.instance.ensureWritable();
+    try {
+      SystemConfigService.instance.ensureWritable();
 
-    final db = await _appDatabase.database;
-    await db.update(
-      DatabaseSchema.lotsTable,
-      {
-        'estado': status,
-        'fecha_actualizacion': DateTime.now().toIso8601String(),
-        'sync_status': DatabaseSchema.syncStatusPending,
-      },
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-    await _confirmAuthoritativeSync('update-lot-status:$id');
+      final db = await _appDatabase.database;
+      await db.update(
+        DatabaseSchema.lotsTable,
+        {
+          'estado': status,
+          'fecha_actualizacion': DateTime.now().toIso8601String(),
+          'sync_status': DatabaseSchema.syncStatusPending,
+        },
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+      _log('LOT LOCAL STATUS UPDATED -> id=$id status=$status');
+      _scheduleBackgroundSync('update-lot-status:$id');
+    } catch (error, stackTrace) {
+      print('💥 ERROR SQLITE: $error');
+      print(stackTrace);
+      _log('LOT STATUS ERROR', error: error, stackTrace: stackTrace);
+      rethrow;
+    }
   }
 
   Future<List<Lot>> _fetchWhere({
@@ -147,107 +167,141 @@ class LotRepository {
   }
 
   Future<void> save(Lot lot) async {
-    SystemConfigService.instance.ensureWritable();
+    try {
+      SystemConfigService.instance.ensureWritable();
 
-    final db = await _appDatabase.database;
-    final now = DateTime.now();
-    final normalizedBlock = lot.blockNumber.trim();
-    final normalizedLotNumber = lot.lotNumber.trim();
-    final existingLot = await findByBlockAndLotNumber(
-      blockNumber: normalizedBlock,
-      lotNumber: normalizedLotNumber,
-    );
+      final db = await _appDatabase.database;
+      final now = DateTime.now();
+      final normalizedBlock = lot.blockNumber.trim();
+      final normalizedLotNumber = lot.lotNumber.trim();
+      final existingLot = await findByBlockAndLotNumber(
+        blockNumber: normalizedBlock,
+        lotNumber: normalizedLotNumber,
+      );
 
-    if (existingLot != null && existingLot.id != lot.id) {
-      throw DuplicateLotException(existingLot);
-    }
+      if (existingLot != null && existingLot.id != lot.id) {
+        throw DuplicateLotException(existingLot);
+      }
 
-    final normalizedLot = lot.copyWith(
-      blockNumber: normalizedBlock,
-      lotNumber: normalizedLotNumber,
-    );
+      final normalizedLot = lot.copyWith(
+        blockNumber: normalizedBlock,
+        lotNumber: normalizedLotNumber,
+      );
 
-    if (normalizedLot.id == null) {
-      await db.insert(
+      if (normalizedLot.id == null) {
+        final insertedId = await db.insert(
+          DatabaseSchema.lotsTable,
+          normalizedLot.copyWith(createdAt: now, updatedAt: now).toMap()
+            ..['sync_id'] = _newSyncId()
+            ..['deleted_at'] = null
+            ..['sync_status'] = DatabaseSchema.syncStatusPending
+            ..remove('id'),
+        );
+        _log(
+          'LOT LOCAL CREATED -> id=$insertedId code=${normalizedLot.displayCode}',
+        );
+        _scheduleBackgroundSync('create-lot');
+        return;
+      }
+
+      await db.update(
         DatabaseSchema.lotsTable,
-        normalizedLot.copyWith(createdAt: now, updatedAt: now).toMap()
-          ..['sync_id'] = _newSyncId()
-          ..['deleted_at'] = null
+        normalizedLot.copyWith(updatedAt: now).toMap()
           ..['sync_status'] = DatabaseSchema.syncStatusPending
           ..remove('id'),
+        where: 'id = ?',
+        whereArgs: [normalizedLot.id],
       );
-      await _confirmAuthoritativeSync('create-lot');
-      return;
+      _log(
+        'LOT LOCAL UPDATED -> id=${normalizedLot.id} code=${normalizedLot.displayCode}',
+      );
+      _scheduleBackgroundSync('update-lot:${normalizedLot.id}');
+    } catch (error, stackTrace) {
+      print('💥 ERROR SQLITE: $error');
+      print(stackTrace);
+      _log('LOT SAVE ERROR', error: error, stackTrace: stackTrace);
+      rethrow;
     }
-
-    await db.update(
-      DatabaseSchema.lotsTable,
-      normalizedLot.copyWith(updatedAt: now).toMap()
-        ..['sync_status'] = DatabaseSchema.syncStatusPending
-        ..remove('id'),
-      where: 'id = ?',
-      whereArgs: [normalizedLot.id],
-    );
-    await _confirmAuthoritativeSync('update-lot:${normalizedLot.id}');
   }
 
   Future<void> delete(int id) async {
-    SystemConfigService.instance.ensureWritable();
+    try {
+      SystemConfigService.instance.ensureWritable();
 
-    final db = await _appDatabase.database;
-    final rows = await db.query(
-      DatabaseSchema.lotsTable,
-      where: 'id = ?',
-      whereArgs: [id],
-      limit: 1,
-    );
-    if (rows.isEmpty) {
-      return;
-    }
-
-    final row = rows.first;
-    final payload = {
-      'id': row['id'],
-      'sync_id': row['sync_id'],
-      'version': ((row['version'] as int?) ?? 1) + 1,
-      'block_number': row['manzana_numero'],
-      'lot_number': row['solar_numero'],
-      'area': row['metros_cuadrados'],
-      'price_per_square_meter': row['precio_por_metro'],
-      'status': row['estado'],
-      'created_at': row['fecha_creacion'],
-      'updated_at': DateTime.now().toIso8601String(),
-      'deleted_at': DateTime.now().toIso8601String(),
-      'sync_status': DatabaseSchema.syncStatusPending,
-    };
-    final syncId = (row['sync_id'] as String?)?.trim();
-
-    await db.update(
-      DatabaseSchema.lotsTable,
-      {
-        'deleted_at': payload['deleted_at'],
-        'fecha_actualizacion': payload['updated_at'],
-        'sync_status': DatabaseSchema.syncStatusPending,
-      },
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-    if (syncId != null && syncId.isNotEmpty) {
-      await _syncQueueService.enqueueDelete(
-        scope: 'products',
-        recordSyncId: syncId,
-        payload: payload,
+      final db = await _appDatabase.database;
+      final rows = await db.query(
+        DatabaseSchema.lotsTable,
+        where: 'id = ?',
+        whereArgs: [id],
+        limit: 1,
       );
+      if (rows.isEmpty) {
+        return;
+      }
+
+      final row = rows.first;
+      final payload = {
+        'id': row['id'],
+        'sync_id': row['sync_id'],
+        'version': ((row['version'] as int?) ?? 1) + 1,
+        'block_number': row['manzana_numero'],
+        'lot_number': row['solar_numero'],
+        'area': row['metros_cuadrados'],
+        'price_per_square_meter': row['precio_por_metro'],
+        'status': row['estado'],
+        'created_at': row['fecha_creacion'],
+        'updated_at': DateTime.now().toIso8601String(),
+        'deleted_at': DateTime.now().toIso8601String(),
+        'sync_status': DatabaseSchema.syncStatusPending,
+      };
+      final syncId = (row['sync_id'] as String?)?.trim();
+
+      await db.update(
+        DatabaseSchema.lotsTable,
+        {
+          'deleted_at': payload['deleted_at'],
+          'fecha_actualizacion': payload['updated_at'],
+          'sync_status': DatabaseSchema.syncStatusPending,
+        },
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+      if (syncId != null && syncId.isNotEmpty) {
+        await _syncQueueService.enqueueDelete(
+          scope: 'products',
+          recordSyncId: syncId,
+          payload: payload,
+        );
+      }
+      _log('LOT LOCAL DELETED -> id=$id');
+      _scheduleBackgroundSync('delete-lot:$id');
+    } catch (error, stackTrace) {
+      print('💥 ERROR SQLITE: $error');
+      print(stackTrace);
+      _log('LOT DELETE ERROR', error: error, stackTrace: stackTrace);
+      rethrow;
     }
-    await _confirmAuthoritativeSync('delete-lot:$id');
   }
 
-  Future<void> _confirmAuthoritativeSync(String operationLabel) async {
-    await _syncQueueService.refreshScope('products');
-    await _syncQueueService.syncScopesNowOrThrow(
-      const ['products'],
-      operationLabel: operationLabel,
-    );
+  void _scheduleBackgroundSync(String operationLabel) {
+    unawaited(_runBackgroundSync(operationLabel));
+  }
+
+  Future<void> _runBackgroundSync(String operationLabel) async {
+    _log('LOT SYNC ATTEMPT -> operation=$operationLabel');
+    try {
+      await _syncQueueService.refreshScope('products');
+      final processed = await _syncQueueService.processQueue(
+        includeDeferred: true,
+      );
+      _log('LOT SYNC RESULT -> operation=$operationLabel processed=$processed');
+    } catch (error, stackTrace) {
+      _log(
+        'LOT SYNC ERROR -> operation=$operationLabel',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
   }
 
   int _readCount(List<Map<String, Object?>> rows) {

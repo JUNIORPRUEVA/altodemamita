@@ -44,12 +44,17 @@ class CloudRestoreAgent {
   Future<List<CloudBackupListItem>> listBackups() async {
     final settings = await _syncConfigRepository.loadSettings();
     if (!settings.isConfigured) {
-      throw StateError('La sincronización no está configurada (baseUrl/token).');
+      throw StateError(
+        'La sincronización no está configurada (baseUrl/token).',
+      );
     }
 
     final uri = _buildApiUri(settings.normalizedBaseUrl, '/system/backup/list');
     final request = await _httpClient.getUrl(uri);
-    request.headers.set(HttpHeaders.authorizationHeader, 'Bearer ${settings.jwtToken}');
+    request.headers.set(
+      HttpHeaders.authorizationHeader,
+      'Bearer ${settings.jwtToken}',
+    );
     request.headers.set(HttpHeaders.acceptHeader, ContentType.json.mimeType);
 
     final response = await request.close();
@@ -62,7 +67,9 @@ class CloudRestoreAgent {
       );
     }
 
-    final decoded = body.trim().isEmpty ? const <String, dynamic>{} : jsonDecode(body);
+    final decoded = body.trim().isEmpty
+        ? const <String, dynamic>{}
+        : jsonDecode(body);
     final payload = _unwrapEnvelope(decoded);
 
     final itemsAny = payload['items'];
@@ -83,7 +90,9 @@ class CloudRestoreAgent {
   }) async {
     final settings = await _syncConfigRepository.loadSettings();
     if (!settings.isConfigured) {
-      throw StateError('La sincronización no está configurada (baseUrl/token).');
+      throw StateError(
+        'La sincronización no está configurada (baseUrl/token).',
+      );
     }
 
     final safeId = path.basename(id);
@@ -93,7 +102,10 @@ class CloudRestoreAgent {
     );
 
     final request = await _httpClient.getUrl(uri);
-    request.headers.set(HttpHeaders.authorizationHeader, 'Bearer ${settings.jwtToken}');
+    request.headers.set(
+      HttpHeaders.authorizationHeader,
+      'Bearer ${settings.jwtToken}',
+    );
     request.headers.set(HttpHeaders.acceptHeader, '*/*');
 
     final response = await request.close();
@@ -157,10 +169,7 @@ class CloudRestoreAgent {
       if (data is Map) {
         return data.map((k, v) => MapEntry(k.toString(), v));
       }
-      if (map is Map<String, dynamic>) {
-        return map;
-      }
-      return map.cast<String, dynamic>();
+      return map;
     }
     return const <String, dynamic>{};
   }

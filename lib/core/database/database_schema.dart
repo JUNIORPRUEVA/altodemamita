@@ -30,6 +30,7 @@ class DatabaseSchema {
   static const String syncQueueTable = 'sync_queue';
   static const String conflictLogsTable = 'conflict_logs';
   static const String syncStatusPending = 'pending';
+  static const String syncStatusPendingSync = 'pending_sync';
   static const String syncStatusSynced = 'synced';
   static const String syncStatusConflict = 'conflict';
   static const Set<String> criticalTables = {

@@ -39,8 +39,6 @@ class LocalBackupAgent {
     );
     final tmpPath = '$outputPath.tmp';
 
-    final finalFile = File(outputPath);
-
     final sourcePath = await _appDatabase.databasePath;
     final sourceFile = File(sourcePath);
 
@@ -113,6 +111,8 @@ class LocalBackupAgent {
       }
     }
 
-    throw StateError('No se pudo reservar un nombre de archivo de backup local.');
+    throw StateError(
+      'No se pudo reservar un nombre de archivo de backup local.',
+    );
   }
 }

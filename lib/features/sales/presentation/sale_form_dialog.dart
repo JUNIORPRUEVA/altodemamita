@@ -1604,11 +1604,16 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
 
   Future<void> _createClientQuickly() async {
     if (!_canCreateClients) {
+      print('[SALE-FORM][CLIENT] stop: no permission to create clients');
       return;
     }
 
+    print('[SALE-FORM][CLIENT] start create client');
     final clientDraft = await ClientFormDialog.show(context);
     if (!mounted || clientDraft == null) {
+      print(
+        '[SALE-FORM][CLIENT] stop: dialog closed or not mounted (mounted=$mounted, draft=${clientDraft != null})',
+      );
       return;
     }
 
@@ -1617,10 +1622,16 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
     });
 
     try {
+      print(
+        '[SALE-FORM][CLIENT] after dialog -> docId=${clientDraft.documentId} name=${clientDraft.fullName}',
+      );
       final existingClient = await widget.clientRepository.findByDocumentId(
         clientDraft.documentId,
       );
       if (existingClient != null) {
+        print(
+          '[SALE-FORM][CLIENT] existing client found -> selecting id=${existingClient.id}',
+        );
         final updatedClients = await widget.clientRepository.fetchAll();
 
         setState(() {
@@ -1643,7 +1654,9 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
         return;
       }
 
+      print('[SALE-FORM][CLIENT] saving new client to repository...');
       await widget.clientRepository.save(clientDraft);
+      print('[SALE-FORM][CLIENT] saved -> reloading clients');
       final updatedClients = await widget.clientRepository.fetchAll();
       final createdClient = updatedClients.firstWhere(
         (client) => client.documentId == clientDraft.documentId,
@@ -1668,7 +1681,9 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
           content: Text('Cliente creado y seleccionado en la venta.'),
         ),
       );
-    } catch (error) {
+    } catch (error, stack) {
+      print('[SALE-FORM][CLIENT] ERROR $error');
+      print(stack);
       if (!mounted) {
         return;
       }
@@ -1688,11 +1703,16 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
 
   Future<void> _createLotQuickly() async {
     if (!_canCreateLots) {
+      print('[SALE-FORM][LOT] stop: no permission to create lots');
       return;
     }
 
+    print('[SALE-FORM][LOT] start create lot');
     final lotDraft = await LotFormDialog.show(context, showStatusField: false);
     if (!mounted || lotDraft == null) {
+      print(
+        '[SALE-FORM][LOT] stop: dialog closed or not mounted (mounted=$mounted, draft=${lotDraft != null})',
+      );
       return;
     }
 
@@ -1701,7 +1721,9 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
     });
 
     try {
+      print('[SALE-FORM][LOT] saving lot to repository...');
       await widget.lotRepository.save(lotDraft.copyWith(status: 'disponible'));
+      print('[SALE-FORM][LOT] saved -> reloading available lots');
       final updatedLots = await widget.lotRepository.fetchAvailable();
       final createdLot = updatedLots.firstWhere(
         (lot) =>
@@ -1732,6 +1754,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
         ),
       );
     } on DuplicateLotException catch (error) {
+      print('[SALE-FORM][LOT] DuplicateLotException: ${error.message}');
       if (!mounted) {
         return;
       }
@@ -1739,7 +1762,9 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
       ScaffoldMessenger.maybeOf(
         context,
       )?.showSnackBar(SnackBar(content: Text(error.message)));
-    } catch (error) {
+    } catch (error, stack) {
+      print('[SALE-FORM][LOT] ERROR $error');
+      print(stack);
       if (!mounted) {
         return;
       }
@@ -1760,11 +1785,16 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
 
   Future<void> _createSellerQuickly() async {
     if (!_canCreateSellers) {
+      print('[SALE-FORM][SELLER] stop: no permission to create sellers');
       return;
     }
 
+    print('[SALE-FORM][SELLER] start create seller');
     final sellerDraft = await SellerFormDialog.show(context);
     if (!mounted || sellerDraft == null) {
+      print(
+        '[SALE-FORM][SELLER] stop: dialog closed or not mounted (mounted=$mounted, draft=${sellerDraft != null})',
+      );
       return;
     }
 
@@ -1773,6 +1803,9 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
     });
 
     try {
+      print(
+        '[SALE-FORM][SELLER] after dialog -> docId=${sellerDraft.documentId} name=${sellerDraft.name}',
+      );
       final existingSeller = await widget.sellerRepository
           .search(sellerDraft.documentId)
           .then(
@@ -1782,6 +1815,9 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
           );
 
       if (existingSeller != null) {
+        print(
+          '[SALE-FORM][SELLER] existing seller found -> selecting id=${existingSeller.id}',
+        );
         final updatedSellers = await widget.sellerRepository.getAll();
 
         setState(() {
@@ -1803,7 +1839,9 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
         return;
       }
 
+      print('[SALE-FORM][SELLER] inserting seller...');
       await widget.sellerRepository.insert(sellerDraft);
+      print('[SALE-FORM][SELLER] inserted -> reloading sellers');
       final updatedSellers = await widget.sellerRepository.getAll();
       final createdSeller = updatedSellers.firstWhere(
         (seller) => seller.documentId == sellerDraft.documentId,
@@ -1827,7 +1865,9 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
           content: Text('Vendedor creado y seleccionado en la venta.'),
         ),
       );
-    } catch (error) {
+    } catch (error, stack) {
+      print('[SALE-FORM][SELLER] ERROR $error');
+      print(stack);
       if (!mounted) {
         return;
       }
@@ -1934,7 +1974,11 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
   }
 
   void _save() {
-    if (!_formKey.currentState!.validate()) {
+    print('[SALE-FORM][SAVE] start');
+    final valid = _formKey.currentState!.validate();
+    print('[SALE-FORM][SAVE] form validate -> $valid');
+    if (!valid) {
+      print('[SALE-FORM][SAVE] stop: invalid form');
       return;
     }
 
@@ -1942,11 +1986,15 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
     if (_selectedClientId == null ||
         selectedLot == null ||
         selectedLot.id == null) {
+      print(
+        '[SALE-FORM][SAVE] stop: missing selection clientId=$_selectedClientId lot=${selectedLot?.id}',
+      );
       return;
     }
 
     final currentUserId = _currentUserId;
     if (currentUserId == null) {
+      print('[SALE-FORM][SAVE] stop: currentUserId is null');
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         const SnackBar(
           content: Text(
@@ -1960,6 +2008,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
 
     final salePrice = _salePrice;
     if (salePrice <= 0) {
+      print('[SALE-FORM][SAVE] stop: salePrice <= 0 ($salePrice)');
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         const SnackBar(
           content: Text('El precio total de la venta debe ser mayor que cero.'),
@@ -1970,6 +2019,9 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
     }
 
     if (_initialPaymentPaid - salePrice > 0.009) {
+      print(
+        '[SALE-FORM][SAVE] stop: initialPaid exceeds salePrice initial=$_initialPaymentPaid salePrice=$salePrice',
+      );
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         const SnackBar(
           content: Text(
@@ -1983,6 +2035,9 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
 
     // Validación crítica: el solar debe estar disponible
     if (!_isEditingSale && selectedLot.status != 'disponible') {
+      print(
+        '[SALE-FORM][SAVE] stop: lot not available status=${selectedLot.status} code=${selectedLot.displayCode}',
+      );
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         SnackBar(
           content: Text(
@@ -1996,6 +2051,9 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
       return;
     }
 
+    print(
+      '[SALE-FORM][SAVE] ok -> pop draft clientId=$_selectedClientId lotId=${selectedLot.id} sellerId=$_selectedSellerId userId=$currentUserId price=$salePrice',
+    );
     Navigator.of(context).pop(
       SaleDraft(
         clientId: _selectedClientId!,

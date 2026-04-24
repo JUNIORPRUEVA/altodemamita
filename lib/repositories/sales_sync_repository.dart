@@ -31,10 +31,10 @@ class SalesSyncRepository implements SyncRepository {
       INNER JOIN ${DatabaseSchema.clientsTable} c ON c.id = v.cliente_id
       INNER JOIN ${DatabaseSchema.lotsTable} s ON s.id = v.solar_id
       LEFT JOIN ${DatabaseSchema.sellersTable} vd ON vd.id = v.vendedor_id
-      WHERE v.sync_status = ?
+      WHERE v.sync_status IN (?, ?)
       ORDER BY v.fecha_actualizacion ASC
     ''',
-      [DatabaseSchema.syncStatusPending],
+      [DatabaseSchema.syncStatusPending, DatabaseSchema.syncStatusPendingSync],
     );
     return rows.map(_toPayload).toList(growable: false);
   }
@@ -86,7 +86,7 @@ class SalesSyncRepository implements SyncRepository {
         if (_isDeleted(record['deleted_at'])) {
           if (existingRows.isNotEmpty) {
             await txn.update(
-            DatabaseSchema.salesTable,
+              DatabaseSchema.salesTable,
               {
                 'version': _readVersion(record),
                 'fecha_actualizacion': _readDate(record['updated_at']),
@@ -296,11 +296,11 @@ bool _shouldKeepLocal(
     return false;
   }
   final local = existingRows.first;
+  final localSyncStatus = (local['sync_status'] as String? ?? '').trim();
   final localPending =
-      (local['sync_status'] as String? ?? '') ==
-          DatabaseSchema.syncStatusPending ||
-      (local['sync_status'] as String? ?? '') ==
-          DatabaseSchema.syncStatusConflict;
+      localSyncStatus == DatabaseSchema.syncStatusPending ||
+      localSyncStatus == DatabaseSchema.syncStatusPendingSync ||
+      localSyncStatus == DatabaseSchema.syncStatusConflict;
   final localVersion = _readVersion(local);
   final remoteVersion = _readVersion(remoteRecord);
   final localUpdated = DateTime.tryParse(

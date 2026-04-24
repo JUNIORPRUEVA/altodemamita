@@ -12,6 +12,11 @@ set(WRAPPER_ROOT "${EPHEMERAL_DIR}/cpp_client_wrapper")
 
 if (NOT EXISTS "${WRAPPER_ROOT}/core_implementations.cc")
   message(WARNING "cpp_client_wrapper sources not found at: ${WRAPPER_ROOT}")
+  set(FLUTTER_SDK_WRAPPER_ROOT "${FLUTTER_ROOT}/bin/cache/artifacts/engine/windows-x64/cpp_client_wrapper")
+  if (EXISTS "${FLUTTER_SDK_WRAPPER_ROOT}/core_implementations.cc")
+    message(STATUS "Using Flutter SDK cpp_client_wrapper fallback: ${FLUTTER_SDK_WRAPPER_ROOT}")
+    set(WRAPPER_ROOT "${FLUTTER_SDK_WRAPPER_ROOT}")
+  endif()
 endif()
 
 # Set fallback configurations for older versions of the flutter tool.

@@ -96,7 +96,10 @@ class BackupRestoreService {
         databasePath: await _appDatabase.databasePath,
       );
 
-      final zipPath = path.join(_appPaths.tempDirectory, 'cloud_restore_$backupId');
+      final zipPath = path.join(
+        _appPaths.tempDirectory,
+        'cloud_restore_$backupId',
+      );
       zipFile = await _cloudRestoreAgent.downloadBackup(
         id: backupId,
         destinationPath: zipPath,
@@ -170,10 +173,6 @@ class BackupRestoreService {
     await outFile.parent.create(recursive: true);
 
     final data = candidate.content;
-    if (data is! List<int>) {
-      throw StateError('No se pudo leer el contenido del .db dentro del ZIP.');
-    }
-
     await outFile.writeAsBytes(data, flush: true);
     return outFile;
   }

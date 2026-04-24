@@ -12,6 +12,7 @@ enum SyncStatus {
     final normalized = value?.toString().trim().toLowerCase();
     switch (normalized) {
       case 'pending':
+      case 'pending_sync':
         return SyncStatus.pending;
       case 'conflict':
         return SyncStatus.conflict;
