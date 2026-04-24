@@ -26,8 +26,7 @@ class SyncConfigRepository {
            preferencesFactory ?? SharedPreferences.getInstance;
 
   static const syncBaseUrlKey = 'sync.base_url';
-  static const defaultSyncBaseUrl =
-      'https://altodemanita-altodemamita-backent.onqyr1.easypanel.host';
+  static const defaultSyncBaseUrl = DatabaseSchema.defaultSyncBaseUrl;
   static const syncQueueRetrySecondsKey = 'sync.queue_retry_seconds';
   static const syncRealtimePollingSecondsKey = 'sync.realtime_polling_seconds';
   static const syncConflictStrategyKey = 'sync.conflict_strategy';
@@ -97,17 +96,13 @@ class SyncConfigRepository {
     ]);
     final storedBaseUrl = (values[syncBaseUrlKey]?.value ?? '').trim();
 
-    // Prefer stored URL when present, but never allow empty or localhost URLs
-    // to leak into release builds.
-    var candidate = storedBaseUrl.isEmpty ? defaultSyncBaseUrl : storedBaseUrl;
-    var baseUrl = normalizeBackendBaseUrl(candidate);
+    // Do not seed implicit defaults into settings.
+    // The UI flow requires operators to configure the backend URL explicitly.
+    var baseUrl = normalizeBackendBaseUrl(storedBaseUrl);
 
-    if (baseUrl.isEmpty) {
-      baseUrl = normalizeBackendBaseUrl(defaultSyncBaseUrl);
-    }
-
+    // Avoid shipping a release build pointed to localhost.
     if (!kDebugMode && baseUrl.isNotEmpty && _looksLikeLocalhostUrl(baseUrl)) {
-      baseUrl = normalizeBackendBaseUrl(defaultSyncBaseUrl);
+      baseUrl = '';
     }
 
     final token = await _sensitiveStorage.read(_jwtTokenPreferenceKey) ?? '';
