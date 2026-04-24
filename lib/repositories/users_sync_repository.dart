@@ -62,12 +62,23 @@ class UsersSyncRepository implements SyncRepository {
           continue;
         }
 
-        final existingRows = await txn.query(
+        final normalizedEmail =
+            record['email']?.toString().trim().toLowerCase() ?? '';
+
+        var existingRows = await txn.query(
           DatabaseSchema.usersTable,
           where: 'sync_id = ?',
           whereArgs: [syncId],
           limit: 1,
         );
+        if (existingRows.isEmpty && normalizedEmail.isNotEmpty) {
+          existingRows = await txn.query(
+            DatabaseSchema.usersTable,
+            where: 'LOWER(email) = ?',
+            whereArgs: [normalizedEmail],
+            limit: 1,
+          );
+        }
         if (_shouldKeepLocal(
           existingRows,
           record,
@@ -119,11 +130,12 @@ class UsersSyncRepository implements SyncRepository {
         if (existingRows.isEmpty) {
           await txn.insert(DatabaseSchema.usersTable, values);
         } else {
+          final localId = existingRows.first['id'] as int?;
           await txn.update(
             DatabaseSchema.usersTable,
             values,
-            where: 'sync_id = ?',
-            whereArgs: [syncId],
+            where: localId != null ? 'id = ?' : 'sync_id = ?',
+            whereArgs: localId != null ? [localId] : [syncId],
           );
         }
       }

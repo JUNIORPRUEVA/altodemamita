@@ -48,7 +48,7 @@ void main() {
   });
 
   test(
-    'configura local, inicia offline y mantiene fallback online si existe backend',
+    'configura local, bootstrapea nube si esta disponible y mantiene fallback offline',
     () async {
       final bootstrap = await authService.bootstrap();
 
@@ -64,7 +64,7 @@ void main() {
         recoveryCode: recoveryCode,
       );
 
-      expect(backendState.initialized, isFalse);
+      expect(backendState.initialized, isTrue);
       expect(await authService.requiresInitialSetup(), isFalse);
 
       final localResult = await authService.signInHybrid(
@@ -73,6 +73,8 @@ void main() {
       );
 
       expect(localResult.user.email, 'admin@test.local');
+      expect(localResult.mode, AuthSignInMode.online);
+      expect(localResult.syncTriggered, isFalse);
 
       final offlineUser = await authService.loginOffline(
         email: 'admin@test.local',

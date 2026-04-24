@@ -269,6 +269,33 @@ class _ReportsScreenState extends State<ReportsScreen> {
           ),
         ];
 
+        final salesRows = reports.sales.map((item) {
+          return [
+            _readClientName(item['client']),
+            _readNested(item, ['product', 'name']) ?? '-',
+            item['status']?.toString() ?? '-',
+            currency.format(_asNum(item['totalAmount'])),
+          ];
+        }).toList();
+
+        final paymentsRows = reports.payments.map((item) {
+          return [
+            _readClientName(item['sale']?['client']),
+            item['method']?.toString() ?? '-',
+            item['paymentDate']?.toString().split('T').first ?? '-',
+            currency.format(_asNum(item['amount'])),
+          ];
+        }).toList();
+
+        final delinquencyRows = reports.delinquency.map((item) {
+          return [
+            _readClientName(item['sale']?['client']),
+            _readNested(item, ['sale', 'product', 'name']) ?? '-',
+            item['dueDate']?.toString().split('T').first ?? '-',
+            currency.format(_readDelinquencyAmount(item)),
+          ];
+        }).toList();
+
         if (compact) {
           return DesktopPageScaffold(
             title: 'Reportes',
@@ -332,37 +359,46 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     ),
                   ],
                 ),
+                const SizedBox(height: 12),
+                const _SectionHeader(
+                  title: 'Detalle del periodo',
+                  subtitle:
+                      'Ventas, pagos y morosidad visibles en el rango seleccionado.',
+                ),
+                const SizedBox(height: 12),
+                _ReportTable(
+                  title: 'Ventas',
+                  compact: true,
+                  columns: const ['Cliente', 'Solar', 'Estado', 'Total'],
+                  rows: salesRows,
+                  emptyTitle: 'Sin ventas en el periodo',
+                  emptyMessage:
+                      'Amplia el rango o espera nueva sincronizacion para ver ventas recientes.',
+                ),
+                const SizedBox(height: 12),
+                _ReportTable(
+                  title: 'Pagos',
+                  compact: true,
+                  columns: const ['Cliente', 'Metodo', 'Fecha', 'Monto'],
+                  rows: paymentsRows,
+                  emptyTitle: 'Sin pagos en el periodo',
+                  emptyMessage:
+                      'No hay pagos sincronizados dentro del rango seleccionado.',
+                ),
+                const SizedBox(height: 12),
+                _ReportTable(
+                  title: 'Morosidad',
+                  compact: true,
+                  columns: const ['Cliente', 'Solar', 'Vencimiento', 'Saldo'],
+                  rows: delinquencyRows,
+                  emptyTitle: 'Sin cuotas vencidas',
+                  emptyMessage:
+                      'La cartera no reporta morosidad para este corte.',
+                ),
               ],
             ),
           );
         }
-
-        final salesRows = reports.sales.map((item) {
-          return [
-            _readClientName(item['client']),
-            _readNested(item, ['product', 'name']) ?? '-',
-            item['status']?.toString() ?? '-',
-            currency.format(_asNum(item['totalAmount'])),
-          ];
-        }).toList();
-
-        final paymentsRows = reports.payments.map((item) {
-          return [
-            _readClientName(item['sale']?['client']),
-            item['method']?.toString() ?? '-',
-            item['paymentDate']?.toString().split('T').first ?? '-',
-            currency.format(_asNum(item['amount'])),
-          ];
-        }).toList();
-
-        final delinquencyRows = reports.delinquency.map((item) {
-          return [
-            _readClientName(item['sale']?['client']),
-            _readNested(item, ['sale', 'product', 'name']) ?? '-',
-            item['dueDate']?.toString().split('T').first ?? '-',
-            currency.format(_readDelinquencyAmount(item)),
-          ];
-        }).toList();
 
         return DesktopPageScaffold(
           title: 'Reporte',
@@ -658,7 +694,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   Future<_ReportsScreenData> _loadData(BuildContext context) async {
     final apiClient = context.read<ApiClient>();
-    final isDesktop = MediaQuery.sizeOf(context).width >= 760;
     String? warningMessage;
 
     final dashboard = await DashboardService(apiClient)
@@ -681,8 +716,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           return _emptyReportsBundle();
         });
 
-    if (isDesktop &&
-        _isRangeEqual(_selectedRange, _defaultRange()) &&
+    if (_isRangeEqual(_selectedRange, _defaultRange()) &&
         _reportsBundleIsEmpty(reports) &&
         _dashboardHasActivity(dashboard)) {
       final fallbackRange = _rangeForLastDays(90);
@@ -693,7 +727,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
       if (!_reportsBundleIsEmpty(reports)) {
         warningMessage = _mergeWarning(
           warningMessage,
-          'No hubo movimientos visibles en los ultimos 30 dias. Se muestran los ultimos 90 dias para presentar datos en escritorio.',
+          'No hubo movimientos visibles en los ultimos 30 dias. Se muestran los ultimos 90 dias para presentar actividad reciente.',
         );
       }
     }

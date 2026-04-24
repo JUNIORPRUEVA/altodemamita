@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sistema_solares/core/database/app_database.dart';
 import 'package:sistema_solares/core/database/database_schema.dart';
 import 'package:sistema_solares/core/resilience/app_paths.dart';
+import 'package:sistema_solares/repositories/users_sync_repository.dart';
 import 'package:sistema_solares/features/sales/data/seller_repository.dart';
 import 'package:sistema_solares/models/sync/sync_conflict_strategy.dart';
 import 'package:sistema_solares/models/sync/sync_settings.dart';
@@ -93,6 +94,59 @@ void main() {
     expect(rows.first['nombre'], 'Vendedor local');
     expect(rows.first['version'], 3);
     expect(rows.first['sync_status'], DatabaseSchema.syncStatusPending);
+  });
+
+  test('reconcilia usuario remoto por email cuando cambia sync_id', () async {
+    final db = await appDatabase.database;
+    final now = DateTime.now().toIso8601String();
+
+    await db.insert(DatabaseSchema.usersTable, {
+      'sync_id': 'local-user-sync',
+      'version': 1,
+      'nombre': 'Administrador principal',
+      'email': 'admin@gmail.com',
+      'password_hash': 'hash-local',
+      'password_reset_required': 0,
+      'rol': 'admin',
+      'activo': 1,
+      'telefono': null,
+      'fecha_creacion': now,
+      'fecha_actualizacion': now,
+      'password_updated_at': now,
+      'deleted_at': null,
+      'sync_status': DatabaseSchema.syncStatusSynced,
+      'auth_source': 'local',
+      'last_online_login_at': null,
+    });
+
+    final repository = UsersSyncRepository(appDatabase: appDatabase);
+    await repository.mergeRemoteRecords([
+      {
+        'sync_id': 'remote-user-sync',
+        'version': 1,
+        'full_name': 'Administrador principal',
+        'email': 'admin@gmail.com',
+        'password_hash': 'hash-remoto',
+        'password_reset_required': false,
+        'role': 'admin',
+        'is_active': true,
+        'created_at': now,
+        'updated_at': now,
+        'password_updated_at': now,
+        'deleted_at': null,
+        'sync_status': DatabaseSchema.syncStatusSynced,
+      },
+    ]);
+
+    final rows = await db.query(
+      DatabaseSchema.usersTable,
+      where: 'LOWER(email) = ?',
+      whereArgs: ['admin@gmail.com'],
+    );
+    expect(rows, hasLength(1));
+    expect(rows.first['sync_id'], 'remote-user-sync');
+    expect(rows.first['email'], 'admin@gmail.com');
+    expect(rows.first['password_hash'], 'hash-remoto');
   });
 
   test('delete remoto de producto se replica como soft delete local', () async {

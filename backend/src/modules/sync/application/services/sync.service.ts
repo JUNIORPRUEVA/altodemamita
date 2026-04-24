@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, HttpException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { Prisma, RoleCode, SyncStatus } from '@prisma/client';
 
@@ -142,10 +142,55 @@ export class SyncService {
         const payload = user as Record<string, unknown>;
         const recordSyncId = this.readRecordSyncId(payload);
         const deletedAt = this.readDate(payload, ['deletedAt', 'deleted_at']);
-        const incomingUpdatedAt = this.readDate(payload, ['updatedAt', 'updated_at']);
+        const incomingUpdatedAt =
+          this.readDate(payload, ['updatedAt', 'updated_at']) ?? deletedAt;
         const existing = await this.findExistingUserRecord(tx, payload, recordSyncId);
-        if (this.shouldSkipWrite(existing?.updatedAt, incomingUpdatedAt)) {
-          continue;
+        if (existing?.updatedAt) {
+          if (!incomingUpdatedAt) {
+            const server = await tx.user.findUnique({
+              where: { id: existing.id },
+              include: {
+                userRoles: {
+                  where: { deletedAt: null },
+                  include: { role: true },
+                },
+              },
+            });
+            this.throwManualConflict({
+              scope: 'users',
+              recordSyncId,
+              localRecord: payload,
+              serverRecord: server ? this.serializeUserRecord(server) : null,
+              message:
+                'Conflicto de sincronizacion: falta updated_at/deleted_at en el registro entrante.',
+            });
+          }
+
+          const existingMs = existing.updatedAt.getTime();
+          const incomingMs = incomingUpdatedAt.getTime();
+          if (existingMs > incomingMs) {
+            const server = await tx.user.findUnique({
+              where: { id: existing.id },
+              include: {
+                userRoles: {
+                  where: { deletedAt: null },
+                  include: { role: true },
+                },
+              },
+            });
+            this.throwManualConflict({
+              scope: 'users',
+              recordSyncId,
+              localRecord: payload,
+              serverRecord: server ? this.serializeUserRecord(server) : null,
+              message:
+                'Conflicto de sincronizacion: el servidor tiene una version mas reciente. No se aplico el cambio local automaticamente.',
+            });
+          }
+
+          if (deletedAt == null && existingMs === incomingMs) {
+            continue;
+          }
         }
 
         if (deletedAt != null) {
@@ -226,14 +271,66 @@ export class SyncService {
         const payload = client as Record<string, unknown>;
         const recordSyncId = this.readRecordSyncId(payload);
         const deletedAt = this.readDate(payload, ['deletedAt', 'deleted_at']);
-        const incomingUpdatedAt = this.readDate(payload, ['updatedAt', 'updated_at']);
+        const incomingUpdatedAt =
+          this.readDate(payload, ['updatedAt', 'updated_at']) ?? deletedAt;
         if (deletedAt != null) {
           const existing = await tx.client.findUnique({
             where: { syncId: recordSyncId },
             select: { id: true, syncId: true, updatedAt: true },
           });
-          if (this.shouldSkipWrite(existing?.updatedAt, incomingUpdatedAt)) {
-            continue;
+          if (existing?.updatedAt) {
+            if (!incomingUpdatedAt) {
+              const server = await tx.client.findUnique({
+                where: { id: existing.id },
+                select: {
+                  id: true,
+                  syncId: true,
+                  firstName: true,
+                  lastName: true,
+                  documentId: true,
+                  phone: true,
+                  address: true,
+                  createdAt: true,
+                  updatedAt: true,
+                  deletedAt: true,
+                  syncStatus: true,
+                },
+              });
+              this.throwManualConflict({
+                scope: 'clients',
+                recordSyncId,
+                localRecord: payload,
+                serverRecord: server ? this.serializeClientRecord(server) : null,
+                message:
+                  'Conflicto de sincronizacion: falta updated_at/deleted_at en el registro entrante.',
+              });
+            }
+            if (existing.updatedAt.getTime() > incomingUpdatedAt.getTime()) {
+              const server = await tx.client.findUnique({
+                where: { id: existing.id },
+                select: {
+                  id: true,
+                  syncId: true,
+                  firstName: true,
+                  lastName: true,
+                  documentId: true,
+                  phone: true,
+                  address: true,
+                  createdAt: true,
+                  updatedAt: true,
+                  deletedAt: true,
+                  syncStatus: true,
+                },
+              });
+              this.throwManualConflict({
+                scope: 'clients',
+                recordSyncId,
+                localRecord: payload,
+                serverRecord: server ? this.serializeClientRecord(server) : null,
+                message:
+                  'Conflicto de sincronizacion: el servidor tiene una version mas reciente. No se aplico el cambio local automaticamente.',
+              });
+            }
           }
           if (!existing) {
             continue;
@@ -267,8 +364,65 @@ export class SyncService {
 
         const { firstName, lastName } = this.resolveClientNames(payload);
         const existing = await this.findExistingClientRecord(tx, payload, recordSyncId, firstName, lastName);
-        if (this.shouldSkipWrite(existing?.updatedAt, incomingUpdatedAt)) {
-          continue;
+        if (existing?.updatedAt) {
+          if (!incomingUpdatedAt) {
+            const server = await tx.client.findUnique({
+              where: { id: existing.id },
+              select: {
+                id: true,
+                syncId: true,
+                firstName: true,
+                lastName: true,
+                documentId: true,
+                phone: true,
+                address: true,
+                createdAt: true,
+                updatedAt: true,
+                deletedAt: true,
+                syncStatus: true,
+              },
+            });
+            this.throwManualConflict({
+              scope: 'clients',
+              recordSyncId,
+              localRecord: payload,
+              serverRecord: server ? this.serializeClientRecord(server) : null,
+              message:
+                'Conflicto de sincronizacion: falta updated_at/deleted_at en el registro entrante.',
+            });
+          }
+          const existingMs = existing.updatedAt.getTime();
+          const incomingMs = incomingUpdatedAt.getTime();
+          if (existingMs > incomingMs) {
+            const server = await tx.client.findUnique({
+              where: { id: existing.id },
+              select: {
+                id: true,
+                syncId: true,
+                firstName: true,
+                lastName: true,
+                documentId: true,
+                phone: true,
+                address: true,
+                createdAt: true,
+                updatedAt: true,
+                deletedAt: true,
+                syncStatus: true,
+              },
+            });
+            this.throwManualConflict({
+              scope: 'clients',
+              recordSyncId,
+              localRecord: payload,
+              serverRecord: server ? this.serializeClientRecord(server) : null,
+              message:
+                'Conflicto de sincronizacion: el servidor tiene una version mas reciente. No se aplico el cambio local automaticamente.',
+            });
+          }
+
+          if (deletedAt == null && existingMs === incomingMs) {
+            continue;
+          }
         }
 
         const clientData = {
@@ -321,14 +475,77 @@ export class SyncService {
       for (const product of records.products) {
         const payload = product as Record<string, unknown>;
         const recordSyncId = this.readRecordSyncId(payload);
-        const incomingUpdatedAt = this.readDate(payload, ['updatedAt', 'updated_at']);
         const deletedAt = this.readDate(payload, ['deletedAt', 'deleted_at']);
+        const incomingUpdatedAt =
+          this.readDate(payload, ['updatedAt', 'updated_at']) ?? deletedAt;
         const existing = await tx.product.findUnique({
           where: { syncId: recordSyncId },
           select: { id: true, syncId: true, updatedAt: true },
         });
-        if (this.shouldSkipWrite(existing?.updatedAt, incomingUpdatedAt)) {
-          continue;
+        if (existing?.updatedAt) {
+          if (!incomingUpdatedAt) {
+            const server = await tx.product.findUnique({
+              where: { id: existing.id },
+              select: {
+                id: true,
+                syncId: true,
+                code: true,
+                name: true,
+                price: true,
+                financingPrice: true,
+                stock: true,
+                isActive: true,
+                createdAt: true,
+                updatedAt: true,
+                deletedAt: true,
+                syncStatus: true,
+                syncPayload: true,
+              },
+            });
+            this.throwManualConflict({
+              scope: 'products',
+              recordSyncId,
+              localRecord: payload,
+              serverRecord: server ? this.serializeProductRecord(server) : null,
+              message:
+                'Conflicto de sincronizacion: falta updated_at/deleted_at en el registro entrante.',
+            });
+          }
+
+          const existingMs = existing.updatedAt.getTime();
+          const incomingMs = incomingUpdatedAt.getTime();
+          if (existingMs > incomingMs) {
+            const server = await tx.product.findUnique({
+              where: { id: existing.id },
+              select: {
+                id: true,
+                syncId: true,
+                code: true,
+                name: true,
+                price: true,
+                financingPrice: true,
+                stock: true,
+                isActive: true,
+                createdAt: true,
+                updatedAt: true,
+                deletedAt: true,
+                syncStatus: true,
+                syncPayload: true,
+              },
+            });
+            this.throwManualConflict({
+              scope: 'products',
+              recordSyncId,
+              localRecord: payload,
+              serverRecord: server ? this.serializeProductRecord(server) : null,
+              message:
+                'Conflicto de sincronizacion: el servidor tiene una version mas reciente. No se aplico el cambio local automaticamente.',
+            });
+          }
+
+          if (deletedAt == null && existingMs === incomingMs) {
+            continue;
+          }
         }
         if (deletedAt != null) {
           if (!existing) {
@@ -437,14 +654,69 @@ export class SyncService {
       for (const seller of records.sellers) {
         const payload = seller as Record<string, unknown>;
         const recordSyncId = this.readRecordSyncId(payload);
-        const incomingUpdatedAt = this.readDate(payload, ['updatedAt', 'updated_at']);
         const deletedAt = this.readDate(payload, ['deletedAt', 'deleted_at']);
+        const incomingUpdatedAt =
+          this.readDate(payload, ['updatedAt', 'updated_at']) ?? deletedAt;
         const existing = await tx.seller.findUnique({
           where: { syncId: recordSyncId },
           select: { id: true, syncId: true, updatedAt: true },
         });
-        if (this.shouldSkipWrite(existing?.updatedAt, incomingUpdatedAt)) {
-          continue;
+        if (existing?.updatedAt) {
+          if (!incomingUpdatedAt) {
+            const server = await tx.seller.findUnique({
+              where: { id: existing.id },
+              select: {
+                id: true,
+                syncId: true,
+                name: true,
+                documentId: true,
+                phone: true,
+                createdAt: true,
+                updatedAt: true,
+                deletedAt: true,
+                syncStatus: true,
+              },
+            });
+            this.throwManualConflict({
+              scope: 'sellers',
+              recordSyncId,
+              localRecord: payload,
+              serverRecord: server ? this.serializeSellerRecord(server) : null,
+              message:
+                'Conflicto de sincronizacion: falta updated_at/deleted_at en el registro entrante.',
+            });
+          }
+
+          const existingMs = existing.updatedAt.getTime();
+          const incomingMs = incomingUpdatedAt.getTime();
+          if (existingMs > incomingMs) {
+            const server = await tx.seller.findUnique({
+              where: { id: existing.id },
+              select: {
+                id: true,
+                syncId: true,
+                name: true,
+                documentId: true,
+                phone: true,
+                createdAt: true,
+                updatedAt: true,
+                deletedAt: true,
+                syncStatus: true,
+              },
+            });
+            this.throwManualConflict({
+              scope: 'sellers',
+              recordSyncId,
+              localRecord: payload,
+              serverRecord: server ? this.serializeSellerRecord(server) : null,
+              message:
+                'Conflicto de sincronizacion: el servidor tiene una version mas reciente. No se aplico el cambio local automaticamente.',
+            });
+          }
+
+          if (deletedAt == null && existingMs === incomingMs) {
+            continue;
+          }
         }
         if (deletedAt != null) {
           if (!existing) {
@@ -520,17 +792,58 @@ export class SyncService {
       for (const sale of records.sales) {
         const payload = sale as Record<string, unknown>;
         const recordSyncId = this.readRecordSyncId(payload);
-        const incomingUpdatedAt = this.readDate(payload, ['updatedAt', 'updated_at']);
         const deletedAt = this.readDate(payload, ['deletedAt', 'deleted_at']);
+        const incomingUpdatedAt =
+          this.readDate(payload, ['updatedAt', 'updated_at']) ?? deletedAt;
         const existing = await tx.sale.findUnique({
           where: { syncId: recordSyncId },
           select: { id: true, syncId: true, updatedAt: true },
         });
-        if (this.shouldSkipWrite(existing?.updatedAt, incomingUpdatedAt)) {
-          if (existing?.id) {
-            affectedSales.add(existing.id);
+        if (existing?.updatedAt) {
+          if (!incomingUpdatedAt) {
+            const server = await tx.sale.findUnique({
+              where: { id: existing.id },
+              include: {
+                client: { select: { syncId: true } },
+                product: { select: { syncId: true } },
+                seller: { select: { syncId: true } },
+              },
+            });
+            this.throwManualConflict({
+              scope: 'sales',
+              recordSyncId,
+              localRecord: payload,
+              serverRecord: server ? this.serializeSaleRecord(server) : null,
+              message:
+                'Conflicto de sincronizacion: falta updated_at/deleted_at en el registro entrante.',
+            });
           }
-          continue;
+
+          const existingMs = existing.updatedAt.getTime();
+          const incomingMs = incomingUpdatedAt.getTime();
+          if (existingMs > incomingMs) {
+            const server = await tx.sale.findUnique({
+              where: { id: existing.id },
+              include: {
+                client: { select: { syncId: true } },
+                product: { select: { syncId: true } },
+                seller: { select: { syncId: true } },
+              },
+            });
+            this.throwManualConflict({
+              scope: 'sales',
+              recordSyncId,
+              localRecord: payload,
+              serverRecord: server ? this.serializeSaleRecord(server) : null,
+              message:
+                'Conflicto de sincronizacion: el servidor tiene una version mas reciente. No se aplico el cambio local automaticamente.',
+            });
+          }
+
+          if (deletedAt == null && existingMs === incomingMs) {
+            affectedSales.add(existing.id);
+            continue;
+          }
         }
         if (deletedAt != null) {
           if (!existing) {
@@ -672,17 +985,52 @@ export class SyncService {
       for (const installment of records.installments) {
         const payload = installment as Record<string, unknown>;
         const recordSyncId = this.readRecordSyncId(payload);
-        const incomingUpdatedAt = this.readDate(payload, ['updatedAt', 'updated_at']);
         const deletedAt = this.readDate(payload, ['deletedAt', 'deleted_at']);
+        const incomingUpdatedAt =
+          this.readDate(payload, ['updatedAt', 'updated_at']) ?? deletedAt;
         const existing = await tx.installment.findUnique({
           where: { syncId: recordSyncId },
           select: { id: true, syncId: true, updatedAt: true, saleId: true },
         });
-        if (this.shouldSkipWrite(existing?.updatedAt, incomingUpdatedAt)) {
-          if (existing?.saleId) {
-            affectedSales.add(existing.saleId);
+        if (existing?.updatedAt) {
+          if (!incomingUpdatedAt) {
+            const server = await tx.installment.findUnique({
+              where: { id: existing.id },
+              include: { sale: { select: { syncId: true } } },
+            });
+            this.throwManualConflict({
+              scope: 'installments',
+              recordSyncId,
+              localRecord: payload,
+              serverRecord: server ? this.serializeInstallmentRecord(server) : null,
+              message:
+                'Conflicto de sincronizacion: falta updated_at/deleted_at en el registro entrante.',
+            });
           }
-          continue;
+
+          const existingMs = existing.updatedAt.getTime();
+          const incomingMs = incomingUpdatedAt.getTime();
+          if (existingMs > incomingMs) {
+            const server = await tx.installment.findUnique({
+              where: { id: existing.id },
+              include: { sale: { select: { syncId: true } } },
+            });
+            this.throwManualConflict({
+              scope: 'installments',
+              recordSyncId,
+              localRecord: payload,
+              serverRecord: server ? this.serializeInstallmentRecord(server) : null,
+              message:
+                'Conflicto de sincronizacion: el servidor tiene una version mas reciente. No se aplico el cambio local automaticamente.',
+            });
+          }
+
+          if (deletedAt == null && existingMs === incomingMs) {
+            if (existing.saleId) {
+              affectedSales.add(existing.saleId);
+            }
+            continue;
+          }
         }
         if (deletedAt != null) {
           if (!existing) {
@@ -793,17 +1141,68 @@ export class SyncService {
       for (const payment of records.payments) {
         const payload = payment as Record<string, unknown>;
         const recordSyncId = this.readRecordSyncId(payload);
-        const incomingUpdatedAt = this.readDate(payload, ['updatedAt', 'updated_at']);
         const deletedAt = this.readDate(payload, ['deletedAt', 'deleted_at']);
+        const incomingUpdatedAt =
+          this.readDate(payload, ['updatedAt', 'updated_at']) ?? deletedAt;
         const existing = await tx.payment.findUnique({
           where: { syncId: recordSyncId },
           select: { id: true, syncId: true, updatedAt: true, saleId: true },
         });
-        if (this.shouldSkipWrite(existing?.updatedAt, incomingUpdatedAt)) {
-          if (existing?.saleId) {
-            affectedSales.add(existing.saleId);
+        if (existing?.updatedAt) {
+          if (!incomingUpdatedAt) {
+            const server = await tx.payment.findUnique({
+              where: { id: existing.id },
+              include: {
+                sale: {
+                  select: {
+                    syncId: true,
+                    client: { select: { syncId: true } },
+                  },
+                },
+                installment: { select: { syncId: true } },
+              },
+            });
+            this.throwManualConflict({
+              scope: 'payments',
+              recordSyncId,
+              localRecord: payload,
+              serverRecord: server ? this.serializePaymentRecord(server) : null,
+              message:
+                'Conflicto de sincronizacion: falta updated_at/deleted_at en el registro entrante.',
+            });
           }
-          continue;
+
+          const existingMs = existing.updatedAt.getTime();
+          const incomingMs = incomingUpdatedAt.getTime();
+          if (existingMs > incomingMs) {
+            const server = await tx.payment.findUnique({
+              where: { id: existing.id },
+              include: {
+                sale: {
+                  select: {
+                    syncId: true,
+                    client: { select: { syncId: true } },
+                  },
+                },
+                installment: { select: { syncId: true } },
+              },
+            });
+            this.throwManualConflict({
+              scope: 'payments',
+              recordSyncId,
+              localRecord: payload,
+              serverRecord: server ? this.serializePaymentRecord(server) : null,
+              message:
+                'Conflicto de sincronizacion: el servidor tiene una version mas reciente. No se aplico el cambio local automaticamente.',
+            });
+          }
+
+          if (deletedAt == null && existingMs === incomingMs) {
+            if (existing.saleId) {
+              affectedSales.add(existing.saleId);
+            }
+            continue;
+          }
         }
         if (deletedAt != null) {
           if (!existing) {
@@ -1480,6 +1879,51 @@ export class SyncService {
       return true;
     }
     return existingUpdatedAt.getTime() >= incomingUpdatedAt.getTime();
+  }
+
+  private buildManualConflictPayload(params: {
+    scope: string;
+    recordSyncId: string;
+    message: string;
+    localRecord: Record<string, unknown>;
+    serverRecord: Record<string, unknown> | null;
+  }): Record<string, unknown> {
+    const localVersion = this.readNumber(params.localRecord, ['version']);
+    const serverVersion = params.serverRecord
+      ? this.readNumber(params.serverRecord, ['version'])
+      : null;
+
+    return {
+      message: params.message,
+      scope: params.scope,
+      strategy: 'manual',
+      server_time: new Date().toISOString(),
+      conflicts: [
+        {
+          scope: params.scope,
+          record_sync_id: params.recordSyncId,
+          local_version: localVersion,
+          server_version: serverVersion,
+          local_record: params.localRecord,
+          server_record: params.serverRecord,
+          message: params.message,
+        },
+      ],
+      records: params.serverRecord ? [params.serverRecord] : [],
+    };
+  }
+
+  private throwManualConflict(params: {
+    scope: string;
+    recordSyncId: string;
+    message: string;
+    localRecord: Record<string, unknown>;
+    serverRecord: Record<string, unknown> | null;
+  }): never {
+    throw new HttpException(
+      this.buildManualConflictPayload(params),
+      HttpStatus.CONFLICT,
+    );
   }
 
   private resolveClientNames(payload: Record<string, unknown>): { firstName: string; lastName: string } {

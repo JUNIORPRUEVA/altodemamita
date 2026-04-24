@@ -99,12 +99,6 @@ class AdminShell extends StatelessWidget {
         label: 'Ventas',
         enabled: authController.canAccessSales,
       ),
-      _NavItem(
-        route: '/payments',
-        icon: Icons.payments_outlined,
-        label: 'Pagos',
-        enabled: authController.canAccessPayments,
-      ),
     ];
     final mobileNavRoutes = mobileNavItems
         .where((item) => item.enabled)
@@ -115,10 +109,29 @@ class AdminShell extends StatelessWidget {
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 1120;
         final compact = constraints.maxWidth < 760;
+        if (compact && location == '/payments') {
+          final redirectRoute = authController.canAccessSales
+              ? '/sales'
+              : '/reports';
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (context.mounted) {
+              context.go(redirectRoute);
+            }
+          });
+
+          return const Scaffold(
+            backgroundColor: Color(0xFFF0F3F8),
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
         final drawerWidth = math.min(constraints.maxWidth * 0.9, 348.0);
         final drawerSummaryItems = compact
             ? summaryItems
-                  .where((item) => !mobileNavRoutes.contains(item.route))
+                  .where(
+                    (item) =>
+                        !mobileNavRoutes.contains(item.route) &&
+                        item.route != '/payments',
+                  )
                   .toList(growable: false)
             : summaryItems;
         final currentItem = contextItems.cast<_NavItem?>().firstWhere(

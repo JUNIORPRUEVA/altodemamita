@@ -145,6 +145,12 @@ class _SalesScreenState extends State<SalesScreen> {
                       background: const Color(0xFFF6EFE3),
                       foreground: const Color(0xFF8C5A2C),
                     ),
+                    if (compact)
+                      const DesktopTag(
+                        label: 'Toca una venta para ver cuotas y pagos',
+                        background: Color(0xFFEAF0F7),
+                        foreground: Color(0xFF21486A),
+                      ),
                     if (!compact)
                       DesktopTag(
                         label: 'Pag. ${data.page}/${data.totalPages}',

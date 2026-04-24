@@ -238,7 +238,7 @@ void main() {
     expect(queueRows.containsKey('sales'), isFalse);
   });
 
-  test('start no dispara sincronizacion automatica en modo manual-only', () async {
+  test('start dispara sincronizacion automatica cuando hay conectividad', () async {
     apiClient = _RecordingSyncApiClient();
     service = SyncQueueService.test(
       appDatabase: appDatabase,
@@ -252,11 +252,12 @@ void main() {
 
     await _insertQueuedRecord(appDatabase, scope: 'sales', syncId: 'sale-1');
     await service.start();
+    await Future<void>.delayed(const Duration(milliseconds: 50));
 
     final queueRows = await _readQueueRows(appDatabase);
-    expect(apiClient.uploadedScopes, isEmpty);
-    expect(queueRows.containsKey('sales'), isTrue);
-    expect(await service.pendingCount(), 1);
+    expect(apiClient.uploadedScopes, ['sales']);
+    expect(queueRows.containsKey('sales'), isFalse);
+    expect(await service.pendingCount(), 0);
   });
 
   test('lanza pending exception cuando backend deja registros pendientes', () async {
@@ -391,7 +392,7 @@ void main() {
     expect(apiClient.uploadedPayloads.single['deleted_at'], isNotNull);
   });
 
-  test('no reintenta automaticamente al recibir reconexion en modo manual-only', () async {
+  test('reintenta automaticamente al recibir reconexion de connectivity_plus', () async {
     apiClient = _RecordingSyncApiClient();
     var online = false;
     final connectivityController =
@@ -426,8 +427,8 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 50));
 
     final queueRows = await _readQueueRows(appDatabase);
-    expect(apiClient.uploadedScopes, isEmpty);
-    expect(queueRows.containsKey('sales'), isTrue);
+    expect(apiClient.uploadedScopes, contains('sales'));
+    expect(queueRows.containsKey('sales'), isFalse);
   });
 }
 

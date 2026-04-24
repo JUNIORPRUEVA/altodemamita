@@ -195,6 +195,27 @@ class _FakeHttpClientRequest implements HttpClientRequest {
       );
     }
 
+    if (_method == 'GET' && path.endsWith('/sync/download')) {
+      return _jsonResponse(
+        status: HttpStatus.ok,
+        body: {
+          'success': true,
+          'data': {
+            'server_time': DateTime.now().toIso8601String(),
+            'records': const <String, dynamic>{
+              'users': <Map<String, dynamic>>[],
+              'clients': <Map<String, dynamic>>[],
+              'products': <Map<String, dynamic>>[],
+              'sellers': <Map<String, dynamic>>[],
+              'sales': <Map<String, dynamic>>[],
+              'installments': <Map<String, dynamic>>[],
+              'payments': <Map<String, dynamic>>[],
+            },
+          },
+        },
+      );
+    }
+
     return _jsonResponse(
       status: HttpStatus.notFound,
       body: {'success': false, 'message': 'Not found'},

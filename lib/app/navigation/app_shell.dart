@@ -33,7 +33,6 @@ import '../../repositories/products_sync_repository.dart';
 import '../../repositories/sales_sync_repository.dart';
 import '../../repositories/users_sync_repository.dart';
 import '../../services/realtime_sync_service.dart';
-import '../../services/cloud_reset_service.dart';
 import '../../services/sync/sync_conflict_service.dart';
 import '../../services/sync/sync_manager.dart';
 import '../../services/sync/sync_queue_service.dart';
@@ -73,7 +72,6 @@ class _AppShellState extends State<AppShell> {
       'shell.sidebar.administration.expanded';
 
   final SyncQueueService _syncQueueService = SyncQueueService.instance;
-  final CloudResetService _cloudResetService = CloudResetService();
   late final ClientRepository _clientRepository = ClientRepository(
     syncQueueService: _syncQueueService,
   );
@@ -126,7 +124,6 @@ class _AppShellState extends State<AppShell> {
   String _companyDisplayName = 'Sistema Solares';
   bool _isSidebarExpanded = false;
   bool _isAdministrationMenuExpanded = false;
-  bool _isResettingCloud = false;
   int? _selectedInstallmentsSaleId;
   int? _selectedPaymentsSaleId;
 
@@ -147,7 +144,6 @@ class _AppShellState extends State<AppShell> {
     _realtimeSyncService.dispose();
     _syncQueueService.dispose();
     _syncService.dispose();
-    _cloudResetService.dispose();
     super.dispose();
   }
 
@@ -319,79 +315,6 @@ class _AppShellState extends State<AppShell> {
     ).showSnackBar(SnackBar(content: Text(report.summary)));
   }
 
-  Future<void> _resetCloudDatabase() async {
-    if (_isResettingCloud || _syncManager.state.isSyncing) {
-      return;
-    }
-
-    final confirmed = await _confirmCloudReset();
-    if (!confirmed || !mounted) {
-      return;
-    }
-
-    setState(() {
-      _isResettingCloud = true;
-    });
-
-    try {
-      final result = await _cloudResetService.resetCloudDatabase();
-      if (!mounted) {
-        return;
-      }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(result.summary)),
-      );
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('No se pudo resetear la nube: $error'),
-          backgroundColor: const Color(0xFFB3261E),
-        ),
-      );
-    } finally {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _isResettingCloud = false;
-      });
-    }
-  }
-
-  Future<bool> _confirmCloudReset() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Resetear nube'),
-          content: const Text(
-            'Esto eliminará ventas, clientes, productos, cuotas y pagos de la nube. La base local de esta PC no se borrará.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancelar'),
-            ),
-            FilledButton(
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFB3261E),
-              ),
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Resetear nube'),
-            ),
-          ],
-        );
-      },
-    );
-
-    return confirmed ?? false;
-  }
-
   Widget _buildCurrentPage(AppModule module) {
     switch (module) {
       case AppModule.dashboard:
@@ -479,32 +402,19 @@ class _AppShellState extends State<AppShell> {
               toolbarHeight: 46,
               actions: [
                 Padding(
-                  padding: const EdgeInsets.only(right: 4),
-                  child: _ManualSyncButton(
-                    isSyncing: syncState.isSyncing,
-                    isEnabled: !isReadOnly,
-                    compact: true,
-                    onPressed: _runSync,
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.only(right: 4),
-                  child: _CloudResetButton(
-                    isLoading: _isResettingCloud,
-                    isEnabled: !syncState.isSyncing,
-                    compact: true,
-                    onPressed: _resetCloudDatabase,
-                  ),
-                ),
-                if (syncState.unresolvedConflictCount > 0)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: Center(
-                      child: _ConflictPill(
-                        count: syncState.unresolvedConflictCount,
-                      ),
+                  padding: const EdgeInsets.only(right: 8),
+                  child: Center(
+                    child: _SyncStatusBadge(
+                      isSyncing: syncState.isSyncing,
+                      connectionStatus: syncState.connectionStatus,
+                      hasErrors: syncState.currentErrors.isNotEmpty,
+                      pendingCount: syncState.pendingCount,
+                      unresolvedConflictCount:
+                          syncState.unresolvedConflictCount,
+                      compact: true,
                     ),
                   ),
+                ),
                 if (user != null)
                   Padding(
                     padding: const EdgeInsets.only(right: 6),
@@ -610,11 +520,9 @@ class _AppShellState extends State<AppShell> {
                               pendingCount: syncState.pendingCount,
                               unresolvedConflictCount:
                                   syncState.unresolvedConflictCount,
-                                isResettingCloud: _isResettingCloud,
                               onTriggerSync: isReadOnly
                                   ? () async {}
                                   : _runSync,
-                                onResetCloud: _resetCloudDatabase,
                               onOpenProfile: _openProfile,
                             ),
                             Expanded(child: currentPage),
@@ -643,9 +551,7 @@ class _ShellHeader extends StatelessWidget {
     required this.currentErrors,
     required this.pendingCount,
     required this.unresolvedConflictCount,
-    required this.isResettingCloud,
     required this.onTriggerSync,
-    required this.onResetCloud,
     required this.onOpenProfile,
   });
 
@@ -656,9 +562,7 @@ class _ShellHeader extends StatelessWidget {
   final List<String> currentErrors;
   final int pendingCount;
   final int unresolvedConflictCount;
-  final bool isResettingCloud;
   final Future<void> Function() onTriggerSync;
-  final Future<void> Function() onResetCloud;
   final Future<void> Function() onOpenProfile;
 
   @override
@@ -705,39 +609,15 @@ class _ShellHeader extends StatelessWidget {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: _ManualSyncButton(
-                  isSyncing: isSyncing,
-                  isEnabled: true,
-                  onPressed: onTriggerSync,
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: _CloudResetButton(
-                  isLoading: isResettingCloud,
-                  isEnabled: !isSyncing,
-                  onPressed: onResetCloud,
-                ),
-              ),
-              Padding(
                 padding: const EdgeInsets.only(right: 10),
                 child: _SyncStatusBadge(
                   isSyncing: isSyncing,
                   connectionStatus: connectionStatus,
                   hasErrors: currentErrors.isNotEmpty,
+                  pendingCount: pendingCount,
+                  unresolvedConflictCount: unresolvedConflictCount,
                 ),
               ),
-              if (pendingCount > 0)
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: _QueuePill(count: pendingCount),
-                ),
-              if (unresolvedConflictCount > 0)
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: _ConflictPill(count: unresolvedConflictCount),
-                ),
               if (user != null) ...[
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
@@ -779,136 +659,50 @@ class _ShellHeader extends StatelessWidget {
   }
 }
 
-class _ManualSyncButton extends StatelessWidget {
-  const _ManualSyncButton({
-    required this.isSyncing,
-    required this.isEnabled,
-    required this.onPressed,
-    this.compact = false,
-  });
-
-  final bool isSyncing;
-  final bool isEnabled;
-  final Future<void> Function() onPressed;
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context) {
-    return FilledButton.icon(
-      onPressed: isSyncing || !isEnabled ? null : onPressed,
-      style: FilledButton.styleFrom(
-        backgroundColor: const Color(0xFF0D2640),
-        foregroundColor: Colors.white,
-        disabledBackgroundColor: const Color(0xFF0D2640).withValues(alpha: 0.32),
-        disabledForegroundColor: Colors.white70,
-        padding: compact
-            ? const EdgeInsets.symmetric(horizontal: 10, vertical: 8)
-            : const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        textStyle: TextStyle(
-          fontSize: compact ? 11.5 : 12.5,
-          fontWeight: FontWeight.w700,
-        ),
-        visualDensity: compact ? VisualDensity.compact : VisualDensity.standard,
-      ),
-      icon: isSyncing
-          ? const SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-              ),
-            )
-          : const Icon(Icons.cloud_upload_rounded, size: 18),
-      label: Text(compact ? 'Sincronizar' : 'Sincronizar datos'),
-    );
-  }
-}
-
-class _CloudResetButton extends StatelessWidget {
-  const _CloudResetButton({
-    required this.isLoading,
-    required this.isEnabled,
-    required this.onPressed,
-    this.compact = false,
-  });
-
-  final bool isLoading;
-  final bool isEnabled;
-  final Future<void> Function() onPressed;
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context) {
-    return FilledButton.icon(
-      onPressed: isLoading || !isEnabled ? null : onPressed,
-      style: FilledButton.styleFrom(
-        backgroundColor: const Color(0xFFB3261E),
-        foregroundColor: Colors.white,
-        disabledBackgroundColor: const Color(0xFFB3261E).withValues(alpha: 0.32),
-        disabledForegroundColor: Colors.white70,
-        padding: compact
-            ? const EdgeInsets.symmetric(horizontal: 10, vertical: 8)
-            : const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        textStyle: TextStyle(
-          fontSize: compact ? 11.5 : 12.5,
-          fontWeight: FontWeight.w700,
-        ),
-        visualDensity: compact ? VisualDensity.compact : VisualDensity.standard,
-      ),
-      icon: isLoading
-          ? const SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-              ),
-            )
-          : const Icon(Icons.cloud_off_rounded, size: 18),
-      label: Text(compact ? 'Reset nube' : 'Resetear nube'),
-    );
-  }
-}
-
 class _SyncStatusBadge extends StatelessWidget {
   const _SyncStatusBadge({
     required this.isSyncing,
     required this.connectionStatus,
     required this.hasErrors,
+    required this.pendingCount,
+    required this.unresolvedConflictCount,
+    this.compact = false,
   });
 
   final bool isSyncing;
   final SyncConnectionStatus connectionStatus;
   final bool hasErrors;
+  final int pendingCount;
+  final int unresolvedConflictCount;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     late final Color color;
     late final String label;
+    late final IconData icon;
 
-    if (isSyncing) {
+    if (hasErrors || unresolvedConflictCount > 0) {
+      color = const Color(0xFFD9534F);
+      label = 'Error';
+      icon = Icons.error_rounded;
+    } else if (isSyncing ||
+        pendingCount > 0 ||
+        connectionStatus != SyncConnectionStatus.connected) {
       color = const Color(0xFFE2A400);
-      label = 'Sincronizando';
-    } else if (connectionStatus == SyncConnectionStatus.error) {
-      color = const Color(0xFFD9534F);
-      label = 'Error conectando con la nube';
-    } else if (hasErrors) {
-      color = const Color(0xFFD9534F);
-      label = 'Error de sync';
-    } else if (connectionStatus == SyncConnectionStatus.connected) {
-      color = const Color(0xFF2BB673);
-      label = 'Realtime activo';
-    } else if (connectionStatus == SyncConnectionStatus.connecting) {
-      color = const Color(0xFF4E7AC7);
-      label = 'Conectando';
+      label = 'Pendiente';
+      icon = Icons.schedule_rounded;
     } else {
-      color = const Color(0xFF6B7682);
-      label = 'Realtime desconectado';
+      color = const Color(0xFF2BB673);
+      label = 'Sincronizado';
+      icon = Icons.check_circle_rounded;
     }
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 8 : 10,
+        vertical: compact ? 5 : 6,
+      ),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(999),
@@ -917,45 +711,17 @@ class _SyncStatusBadge extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.circle, size: 10, color: color),
-          const SizedBox(width: 7),
+          Icon(icon, size: compact ? 14 : 15, color: color),
+          SizedBox(width: compact ? 5 : 7),
           Text(
             label,
-            style: const TextStyle(
-              fontSize: 11.5,
+            style: TextStyle(
+              fontSize: compact ? 10.5 : 11.5,
               fontWeight: FontWeight.w700,
-              color: Color(0xFF0D2640),
+              color: const Color(0xFF0D2640),
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _QueuePill extends StatelessWidget {
-  const _QueuePill({required this.count});
-
-  final int count;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: const Color(0xFF173450).withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(
-          color: const Color(0xFF173450).withValues(alpha: 0.18),
-        ),
-      ),
-      child: Text(
-        'Pendientes: $count',
-        style: const TextStyle(
-          fontSize: 11.5,
-          fontWeight: FontWeight.w700,
-          color: Color(0xFF0D2640),
-        ),
       ),
     );
   }
@@ -1350,32 +1116,6 @@ class _ShellNavigation extends StatelessWidget {
           ),
         );
       },
-    );
-  }
-}
-
-class _ConflictPill extends StatelessWidget {
-  const _ConflictPill({required this.count});
-
-  final int count;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFFF1F0),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: const Color(0xFFF5A3A1)),
-      ),
-      child: Text(
-        '$count conflicto${count == 1 ? '' : 's'}',
-        style: const TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-          color: Color(0xFFB42318),
-        ),
-      ),
     );
   }
 }

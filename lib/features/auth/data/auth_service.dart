@@ -1954,18 +1954,23 @@ class AuthService {
       return false;
     }
 
-    final syncQueueService = SyncQueueService.instance;
     final syncService = SyncService(
       repositories: [
-        UsersSyncRepository(),
-        ClientRepository(syncQueueService: syncQueueService),
-        ProductsSyncRepository(),
-        SellerRepository(syncQueueService: syncQueueService),
-        SalesSyncRepository(),
-        InstallmentsSyncRepository(),
-        PaymentsSyncRepository(),
+        UsersSyncRepository(appDatabase: _appDatabase),
+        ClientRepository(
+          appDatabase: _appDatabase,
+          syncQueueService: _syncQueueService,
+        ),
+        ProductsSyncRepository(appDatabase: _appDatabase),
+        SellerRepository(
+          database: _appDatabase,
+          syncQueueService: _syncQueueService,
+        ),
+        SalesSyncRepository(appDatabase: _appDatabase),
+        InstallmentsSyncRepository(appDatabase: _appDatabase),
+        PaymentsSyncRepository(appDatabase: _appDatabase),
       ],
-      syncQueueService: syncQueueService,
+      syncQueueService: _syncQueueService,
     );
     final report = await syncService.syncNow(forceFullDownload: true);
     return !report.wasSkipped;

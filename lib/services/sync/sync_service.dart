@@ -16,7 +16,7 @@ import 'sync_logger.dart';
 import 'sync_queue_service.dart';
 
 class SyncService {
-  static const bool _downloadFromCloudEnabled = false;
+  static const bool _downloadFromCloudEnabled = true;
 
   SyncService({
     required List<SyncRepository> repositories,
