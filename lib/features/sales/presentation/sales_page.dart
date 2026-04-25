@@ -649,11 +649,12 @@ class _SaleRow extends StatelessWidget {
         ? '?'
         : sale.clientName[0].toUpperCase();
     final statusColor = _saleRowStatusColor(sale.status);
+    final dateLabel = _formatShortDate(context, sale.saleDate);
 
     return InkWell(
       onTap: onTap,
       child: SizedBox(
-        height: 62,
+        height: 64,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Row(
@@ -671,114 +672,96 @@ class _SaleRow extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(width: 14),
-              // Client name + lot + document
+              const SizedBox(width: 12),
               Expanded(
-                flex: 3,
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      sale.clientName,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF1A2235),
-                      ),
-                      overflow: TextOverflow.ellipsis,
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            sale.clientName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF1A2235),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          'RD\$${sale.salePrice.toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF1A2235),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Tooltip(
+                          message: sale.isPendingSync
+                              ? 'Pendiente de sincronizacion'
+                              : 'Sincronizado con la nube',
+                          child: Icon(
+                            sale.isPendingSync
+                                ? Icons.cloud_upload_rounded
+                                : Icons.cloud_done_rounded,
+                            size: 18,
+                            color: sale.isPendingSync
+                                ? const Color(0xFFE0A800)
+                                : const Color(0xFF2E7D32),
+                          ),
+                        ),
+                      ],
                     ),
-                    Text(
-                      '${sale.lotDisplayCode}  ·  ${sale.clientDocumentId}',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Color(0xFF8893AA),
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              // Status badge
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: statusColor.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  sale.status,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: statusColor,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Tooltip(
-                message: sale.isPendingSync
-                    ? 'Pendiente de sincronizacion'
-                    : 'Sincronizado con la nube',
-                child: Icon(
-                  sale.isPendingSync
-                      ? Icons.cloud_upload_rounded
-                      : Icons.cloud_done_rounded,
-                  size: 18,
-                  color: sale.isPendingSync
-                      ? const Color(0xFFE0A800)
-                      : const Color(0xFF2E7D32),
-                ),
-              ),
-              const SizedBox(width: 20),
-              // Sale price + pending balance
-              SizedBox(
-                width: 150,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      'RD\$${sale.salePrice.toStringAsFixed(2)}',
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF1A2235),
-                      ),
-                    ),
-                    Text(
-                      'Saldo RD\$${sale.pendingBalance.toStringAsFixed(2)}',
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: Color(0xFF8893AA),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 16),
-              // Installments count
-              SizedBox(
-                width: 64,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Text(
-                      '${sale.generatedInstallments}/${sale.installmentCount}',
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF3B5BDB),
-                      ),
-                    ),
-                    const Text(
-                      'cuotas',
-                      style: TextStyle(fontSize: 10, color: Color(0xFF8893AA)),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: statusColor.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            sale.status,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: statusColor,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            sale.lotDisplayCode,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Color(0xFF8893AA),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          dateLabel,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF8893AA),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -804,6 +787,10 @@ class _SaleRow extends StatelessWidget {
       ),
     );
   }
+}
+
+String _formatShortDate(BuildContext context, DateTime date) {
+  return MaterialLocalizations.of(context).formatShortDate(date);
 }
 
 String _saleAdminActionLabel(_SaleAdminAction action) {

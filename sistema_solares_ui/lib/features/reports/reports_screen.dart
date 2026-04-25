@@ -50,6 +50,24 @@ class _ReportsScreenState extends State<ReportsScreen> {
     return DateTime(date.year, date.month, date.day, 23, 59, 59, 999);
   }
 
+  static String _formatLocalDateCell(Object? raw) {
+    if (raw == null) {
+      return '-';
+    }
+
+    final value = raw.toString();
+    if (value.trim().isEmpty) {
+      return '-';
+    }
+
+    try {
+      final parsed = DateTime.parse(value).toLocal();
+      return DateFormat('dd MMM yyyy', 'es_DO').format(parsed);
+    } catch (_) {
+      return value.split('T').first;
+    }
+  }
+
   DateTimeRange _rangeForLastDays(int days) {
     final now = DateTime.now();
     return DateTimeRange(
@@ -282,7 +300,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           return [
             _readClientName(item['sale']?['client']),
             item['method']?.toString() ?? '-',
-            item['paymentDate']?.toString().split('T').first ?? '-',
+            _formatLocalDateCell(item['paymentDate']),
             currency.format(_asNum(item['amount'])),
           ];
         }).toList();
@@ -291,7 +309,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           return [
             _readClientName(item['sale']?['client']),
             _readNested(item, ['sale', 'product', 'name']) ?? '-',
-            item['dueDate']?.toString().split('T').first ?? '-',
+            _formatLocalDateCell(item['dueDate']),
             currency.format(_readDelinquencyAmount(item)),
           ];
         }).toList();

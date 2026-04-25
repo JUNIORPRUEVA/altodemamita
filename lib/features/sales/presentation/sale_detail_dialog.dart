@@ -4,6 +4,43 @@ import '../domain/sale_calculator.dart';
 import '../domain/sale_detail.dart';
 import 'documents/sale_documents_dialog.dart';
 
+enum _SaleDetailHeaderAction { export, print }
+
+Future<void> _printSaleDocument(BuildContext context, SaleDetail detail) async {
+  final selectedType = await SaleDocumentsDialog.chooseType(
+    context,
+    title: '¿Que deseas imprimir?',
+  );
+  if (!context.mounted || selectedType == null) {
+    return;
+  }
+
+  await SaleDocumentsDialog.printQuick(
+    context,
+    detail: detail,
+    type: selectedType,
+  );
+}
+
+Future<void> _exportSaleDocument(
+  BuildContext context,
+  SaleDetail detail,
+) async {
+  final selectedType = await SaleDocumentsDialog.chooseType(
+    context,
+    title: '¿Que deseas exportar?',
+  );
+  if (!context.mounted || selectedType == null) {
+    return;
+  }
+
+  await SaleDocumentsDialog.exportQuick(
+    context,
+    detail: detail,
+    type: selectedType,
+  );
+}
+
 class SaleDetailDialog extends StatelessWidget {
   const SaleDetailDialog({super.key, required this.detail});
 
@@ -103,7 +140,9 @@ class _DialogHeader extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Venta #${detail.sale.id ?? 0}  ·  ${detail.clientName}',
+                  detail.clientName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 17,
                     fontWeight: FontWeight.w700,
@@ -137,7 +176,32 @@ class _DialogHeader extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 4),
+          PopupMenuButton<_SaleDetailHeaderAction>(
+            tooltip: '',
+            icon: const Icon(Icons.more_vert, size: 20),
+            onSelected: (action) async {
+              switch (action) {
+                case _SaleDetailHeaderAction.export:
+                  await _exportSaleDocument(context, detail);
+                  break;
+                case _SaleDetailHeaderAction.print:
+                  await _printSaleDocument(context, detail);
+                  break;
+              }
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem<_SaleDetailHeaderAction>(
+                value: _SaleDetailHeaderAction.export,
+                child: Text('Exportar'),
+              ),
+              PopupMenuItem<_SaleDetailHeaderAction>(
+                value: _SaleDetailHeaderAction.print,
+                child: Text('Imprimir'),
+              ),
+            ],
+          ),
+          const SizedBox(width: 4),
           IconButton(
             onPressed: () => Navigator.of(context).pop(),
             icon: const Icon(Icons.close, size: 20),
@@ -173,52 +237,37 @@ class _TopDetailsBand extends StatelessWidget {
             _TopInfoColumn(
               title: 'Cliente y solar',
               items: [
-                _CompactInfoItem('Cliente', detail.clientName),
                 _CompactInfoItem('Cédula', detail.clientDocumentId),
-                _CompactInfoItem('Solar', detail.lotDisplayCode),
                 _CompactInfoItem(
-                  'Metros cuadrados',
-                  '${detail.lotArea.toStringAsFixed(2)} m²',
+                  'Solar',
+                  '${detail.lotDisplayCode} · ${detail.lotArea.toStringAsFixed(2)} m²',
                 ),
               ],
             ),
             _TopInfoColumn(
               title: 'Venta y seguimiento',
               items: [
-                _CompactInfoItem(
-                  'Precio por metro',
-                  'RD\$${detail.lotPricePerSquareMeter.toStringAsFixed(2)} /m²',
-                ),
-                _CompactInfoItem(
-                  'Inicial mínimo',
-                  _money(sale.requiredInitialPayment),
-                ),
-                _CompactInfoItem(
-                  'Inicial real',
-                  _money(sale.paidInitialPayment),
-                ),
                 _CompactInfoItem('Fecha venta', _formatDate(sale.saleDate)),
                 _CompactInfoItem(
-                  'Activación',
-                  sale.activationDate == null
-                      ? '-'
-                      : _formatDate(sale.activationDate!),
-                ),
-                _CompactInfoItem(
-                  'Límite inicial',
-                  sale.initialPaymentDeadline == null
-                      ? '-'
-                      : _formatDate(sale.initialPaymentDeadline!),
+                  'Inicial',
+                  '${_money(sale.paidInitialPayment)} / ${_money(sale.requiredInitialPayment)}'
+                      '${sale.initialPaymentDeadline == null ? '' : ' · Límite ${_formatDate(sale.initialPaymentDeadline!)}'}',
                 ),
               ],
             ),
             _TopInfoColumn(
               title: 'Vendedor y plan',
               items: [
-                _CompactInfoItem('Atendido por', detail.userName),
-                _CompactInfoItem('Vendedor', detail.sellerName ?? '-'),
-                _CompactInfoItem('Cédula vend.', detail.sellerDocumentId ?? '-'),
-                _CompactInfoItem('Tel. vendedor', detail.sellerPhone ?? '-'),
+                _CompactInfoItem(
+                  'Vendedor',
+                  (detail.sellerName ?? '').trim().isEmpty
+                      ? detail.userName
+                      : detail.sellerName!,
+                ),
+                _CompactInfoItem(
+                  'Plan',
+                  '${sale.installmentCount} cuotas · ${sale.monthlyInterest.toStringAsFixed(2)}% mensual',
+                ),
               ],
             ),
           ];
@@ -265,35 +314,45 @@ class _SummarySection extends StatelessWidget {
     final remainingTermLabel = detail.remainingInstallmentCount == 1
         ? '1 cuota'
         : '${detail.remainingInstallmentCount} cuotas';
-    return Wrap(
-      spacing: 10,
-      runSpacing: 10,
-      children: [
-        _SummaryCard(
-          label: 'Precio total',
-          value: _money(detail.sale.salePrice),
-          icon: Icons.sell_outlined,
-          color: const Color(0xFF3B5BDB),
-        ),
-        _SummaryCard(
-          label: 'Cuota fija mensual',
-          value: _money(fixedInstallmentAmount),
-          icon: Icons.calendar_view_month_outlined,
-          color: const Color(0xFF1565C0),
-        ),
-        _SummaryCard(
-          label: 'Saldo pendiente',
-          value: _money(detail.sale.pendingBalance),
-          icon: Icons.account_balance_wallet_outlined,
-          color: pendingColor,
-        ),
-        _SummaryCard(
-          label: 'Plazo restante',
-          value: remainingTermLabel,
-          icon: Icons.format_list_numbered_outlined,
-          color: const Color(0xFF6A1B9A),
-        ),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final cardWidth = (constraints.maxWidth - 10) / 2;
+
+        return Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            _SummaryCard(
+              width: cardWidth,
+              label: 'Precio total',
+              value: _money(detail.sale.salePrice),
+              icon: Icons.sell_outlined,
+              color: const Color(0xFF3B5BDB),
+            ),
+            _SummaryCard(
+              width: cardWidth,
+              label: 'Cuota fija mensual',
+              value: _money(fixedInstallmentAmount),
+              icon: Icons.calendar_view_month_outlined,
+              color: const Color(0xFF1565C0),
+            ),
+            _SummaryCard(
+              width: cardWidth,
+              label: 'Saldo pendiente',
+              value: _money(detail.sale.pendingBalance),
+              icon: Icons.account_balance_wallet_outlined,
+              color: pendingColor,
+            ),
+            _SummaryCard(
+              width: cardWidth,
+              label: 'Plazo restante',
+              value: remainingTermLabel,
+              icon: Icons.format_list_numbered_outlined,
+              color: const Color(0xFF6A1B9A),
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -304,17 +363,19 @@ class _SummaryCard extends StatelessWidget {
     required this.value,
     required this.icon,
     required this.color,
+    this.width,
   });
 
   final String label;
   final String value;
   final IconData icon;
   final Color color;
+  final double? width;
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 205,
+      width: width ?? 205,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
         decoration: BoxDecoration(
@@ -364,141 +425,62 @@ class _SummaryCard extends StatelessWidget {
   }
 }
 
-class _InstallmentsSection extends StatefulWidget {
+class _InstallmentsSection extends StatelessWidget {
   const _InstallmentsSection({required this.detail});
 
   final SaleDetail detail;
 
   @override
-  State<_InstallmentsSection> createState() => _InstallmentsSectionState();
-}
-
-class _InstallmentsSectionState extends State<_InstallmentsSection> {
-  late final ScrollController _horizontalController;
-  late final ScrollController _verticalController;
-
-  Future<void> _openFullScreenInstallments(SaleDetail detail) async {
-    await openInstallmentsFullscreen(context, detail);
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _horizontalController = ScrollController();
-    _verticalController = ScrollController();
-  }
-
-  @override
-  void dispose() {
-    _horizontalController.dispose();
-    _verticalController.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final detail = widget.detail;
-    final title = detail.sale.isFinancingActive
-        ? 'Tabla de amortización'
-        : 'Financiamiento pendiente de activación';
-    final paidCount = detail.paidInstallmentCount;
-    final pendingCount = detail.remainingInstallmentCount;
-    final fixedInstallmentAmount = _resolveFixedInstallmentAmount(detail);
+    final emptyMessage = detail.sale.isFinancingActive
+        ? 'Esta venta no tiene cuotas generadas.'
+        : 'Las cuotas se generarán cuando el inicial quede completado.';
+    final bodyMessage = detail.installments.isEmpty
+        ? emptyMessage
+        : 'Las cuotas y la tabla de amortización están disponibles en pantalla completa.';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SectionTitle(title: title),
+        const _SectionTitle(title: 'Cuotas'),
         const SizedBox(height: 10),
-        if (detail.installments.isNotEmpty)
-          SizedBox(
-            width: double.infinity,
-            child: Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                _InstallmentSummaryChip(
-                  label: 'Cuota fija mensual',
-                  value: _money(fixedInstallmentAmount),
-                  color: const Color(0xFF1565C0),
-                ),
-                _InstallmentSummaryChip(
-                  label: 'Cuotas pagadas',
-                  value: '$paidCount',
-                  color: const Color(0xFF2E7D32),
-                ),
-                _InstallmentSummaryChip(
-                  label: 'Cuotas restantes',
-                  value: '$pendingCount',
-                  color: const Color(0xFFE67E00),
-                ),
-                if (detail.reducedInstallmentCount > 0)
-                  _InstallmentSummaryChip(
-                    label: 'Plazo reducido',
-                    value: '-${detail.reducedInstallmentCount} cuota${detail.reducedInstallmentCount == 1 ? '' : 's'}',
-                    color: const Color(0xFF8E24AA),
-                  )
-                else
-                  _InstallmentSummaryChip(
-                    label: 'Plazo activo',
-                    value: '${detail.activeInstallmentCount}/${detail.sale.installmentCount}',
-                    color: const Color(0xFF8E24AA),
+        Expanded(
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFCFDFE),
+                    border: Border.all(color: const Color(0xFFE4EAF2)),
+                    borderRadius: BorderRadius.circular(14),
                   ),
-                _InstallmentSummaryChip(
-                  label: 'Saldo pendiente',
-                  value: _money(detail.sale.pendingBalance),
-                  color: const Color(0xFF455A64),
+                  alignment: Alignment.center,
+                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                  child: Text(
+                    bodyMessage,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: Color(0xFF8893AA),
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
                 ),
-              ],
-            ),
-          ),
-        if (detail.installments.isNotEmpty) const SizedBox(height: 12),
-        if (detail.installments.isEmpty)
-          Container(
-            height: 96,
-            decoration: BoxDecoration(
-              color: const Color(0xFFF5F7FA),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: const Color(0xFFE4EAF2)),
-            ),
-            alignment: Alignment.center,
-            child: Text(
-              detail.sale.isFinancingActive
-                  ? 'Esta venta no tiene cuotas generadas.'
-                  : 'Las cuotas se generarán cuando el inicial quede completado.',
-              style: const TextStyle(
-                fontSize: 14,
-                color: Color(0xFF8893AA),
               ),
-              textAlign: TextAlign.center,
-            ),
-          )
-        else
-          Expanded(
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: _InstallmentsTableViewport(
-                    detail: detail,
-                    horizontalController: _horizontalController,
-                    verticalController: _verticalController,
-                  ),
+              Positioned(
+                right: 16,
+                bottom: 16,
+                child: FloatingActionButton.extended(
+                  heroTag: 'sale-installments-fullscreen',
+                  onPressed: () => openInstallmentsFullscreen(context, detail),
+                  backgroundColor: const Color(0xFF1F4B99),
+                  foregroundColor: Colors.white,
+                  icon: const Icon(Icons.open_in_full, size: 18),
+                  label: const Text('Cuotas'),
                 ),
-                Positioned(
-                  right: 16,
-                  bottom: 16,
-                  child: FloatingActionButton.extended(
-                    heroTag: 'sale-installments-fullscreen',
-                    onPressed: () => _openFullScreenInstallments(detail),
-                    backgroundColor: const Color(0xFF1F4B99),
-                    foregroundColor: Colors.white,
-                    icon: const Icon(Icons.open_in_full, size: 18),
-                    label: const Text('Ver cuotas'),
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
+        ),
       ],
     );
   }
@@ -522,7 +504,8 @@ class _InstallmentsTableViewport extends StatefulWidget {
       _InstallmentsTableViewportState();
 }
 
-class _InstallmentsTableViewportState extends State<_InstallmentsTableViewport> {
+class _InstallmentsTableViewportState
+    extends State<_InstallmentsTableViewport> {
   int? _selectedInstallmentNumber;
   int? _hoveredInstallmentNumber;
 
@@ -616,6 +599,30 @@ class _InstallmentsFullscreenPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (detail.installments.isEmpty) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF6F8FC),
+        appBar: AppBar(
+          title: const Text('Cuotas'),
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.white,
+        ),
+        body: Center(
+          child: Text(
+            detail.sale.isFinancingActive
+                ? 'Esta venta no tiene cuotas generadas.'
+                : 'Las cuotas se generarán cuando el inicial quede completado.',
+            style: const TextStyle(
+              fontSize: 14,
+              color: Color(0xFF8893AA),
+              fontWeight: FontWeight.w600,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
+    }
+
     final totalPrincipal = detail.installments.fold<double>(
       0,
       (sum, installment) => sum + installment.principalAmount,
@@ -631,36 +638,26 @@ class _InstallmentsFullscreenPage extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF6F8FC),
+      appBar: AppBar(
+        title: const Text('Cuotas'),
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
+      ),
       body: SafeArea(
-        child: Stack(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 56, 12, 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(child: _FullscreenInstallmentsTable(detail: detail)),
-                  const SizedBox(height: 8),
-                  _FullscreenTotalsFooter(
-                    totalPrincipal: totalPrincipal,
-                    totalInterest: totalInterest,
-                    totalPlan: totalPlan,
-                  ),
-                ],
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(child: _FullscreenInstallmentsTable(detail: detail)),
+              const SizedBox(height: 8),
+              _FullscreenTotalsFooter(
+                totalPrincipal: totalPrincipal,
+                totalInterest: totalInterest,
+                totalPlan: totalPlan,
               ),
-            ),
-            Positioned(
-              top: 10,
-              left: 12,
-              child: FloatingActionButton.small(
-                heroTag: 'installments-fullscreen-back',
-                backgroundColor: Colors.white,
-                foregroundColor: const Color(0xFF1F4B99),
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Icon(Icons.arrow_back),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -673,10 +670,12 @@ class _FullscreenInstallmentsTable extends StatefulWidget {
   final SaleDetail detail;
 
   @override
-  State<_FullscreenInstallmentsTable> createState() => _FullscreenInstallmentsTableState();
+  State<_FullscreenInstallmentsTable> createState() =>
+      _FullscreenInstallmentsTableState();
 }
 
-class _FullscreenInstallmentsTableState extends State<_FullscreenInstallmentsTable> {
+class _FullscreenInstallmentsTableState
+    extends State<_FullscreenInstallmentsTable> {
   late final ScrollController _horizontalController;
   late final ScrollController _verticalController;
 
@@ -768,15 +767,35 @@ class _InstallmentsTableHeader extends StatelessWidget {
       child: Row(
         children: [
           _TableHeaderCell('Cuota', width: 84, dense: dense),
-          _TableHeaderCell('Vence', width: 112, dense: dense),
-          _TableHeaderCell('Saldo inicial', width: 128, alignEnd: true, dense: dense),
-          _TableHeaderCell('Interés', width: 118, alignEnd: true, dense: dense),
-          _TableHeaderCell('Capital', width: 118, alignEnd: true, dense: dense),
-          _TableHeaderCell('Cuota fija', width: 126, alignEnd: true, dense: dense),
-          _TableHeaderCell('Pagado', width: 118, alignEnd: true, dense: dense),
-          _TableHeaderCell('Pendiente', width: 126, alignEnd: true, dense: dense),
-          _TableHeaderCell('Saldo final', width: 128, alignEnd: true, dense: dense),
           _TableHeaderCell('Estado', width: 110, dense: dense),
+          _TableHeaderCell('Vence', width: 112, dense: dense),
+          _TableHeaderCell(
+            'Cuota fija',
+            width: 126,
+            alignEnd: true,
+            dense: dense,
+          ),
+          _TableHeaderCell(
+            'Pendiente',
+            width: 126,
+            alignEnd: true,
+            dense: dense,
+          ),
+          _TableHeaderCell('Pagado', width: 118, alignEnd: true, dense: dense),
+          _TableHeaderCell('Capital', width: 118, alignEnd: true, dense: dense),
+          _TableHeaderCell('Interés', width: 118, alignEnd: true, dense: dense),
+          _TableHeaderCell(
+            'Saldo inicial',
+            width: 128,
+            alignEnd: true,
+            dense: dense,
+          ),
+          _TableHeaderCell(
+            'Saldo final',
+            width: 128,
+            alignEnd: true,
+            dense: dense,
+          ),
         ],
       ),
     );
@@ -854,13 +873,13 @@ class _InstallmentTableRow extends StatelessWidget {
     final backgroundColor = selected
         ? const Color(0xFFEAF2FF)
         : hovered
-            ? const Color(0xFFF6F9FF)
-            : Colors.white;
+        ? const Color(0xFFF6F9FF)
+        : Colors.white;
     final borderColor = selected
         ? const Color(0xFF3B5BDB)
         : hovered
-            ? const Color(0xFFD7E4FF)
-            : Colors.transparent;
+        ? const Color(0xFFD7E4FF)
+        : Colors.transparent;
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -878,9 +897,7 @@ class _InstallmentTableRow extends StatelessWidget {
             ),
             decoration: BoxDecoration(
               color: backgroundColor,
-              border: Border(
-                left: BorderSide(color: borderColor, width: 3),
-              ),
+              border: Border(left: BorderSide(color: borderColor, width: 3)),
             ),
             child: Row(
               children: [
@@ -895,29 +912,6 @@ class _InstallmentTableRow extends StatelessWidget {
                     ),
                   ),
                 ),
-                SizedBox(
-                  width: 112,
-                  child: Text(
-                    dueDate,
-                    style: TextStyle(
-                      fontSize: dense ? 11.5 : 13,
-                      fontWeight: FontWeight.w600,
-                      color: const Color(0xFF54627B),
-                    ),
-                  ),
-                ),
-                _TableValueCell(_money(openingBalance), width: 128, dense: dense),
-                _TableValueCell(_money(interestAmount), width: 118, dense: dense),
-                _TableValueCell(_money(principalAmount), width: 118, dense: dense),
-                _TableValueCell(
-                  _money(totalAmount),
-                  width: 126,
-                  emphasize: true,
-                  dense: dense,
-                ),
-                _TableValueCell(_money(paidAmount), width: 118, dense: dense),
-                _TableValueCell(_money(remainingAmount), width: 126, dense: dense),
-                _TableValueCell(_money(endingBalance), width: 128, dense: dense),
                 SizedBox(
                   width: 110,
                   child: Align(
@@ -941,6 +935,49 @@ class _InstallmentTableRow extends StatelessWidget {
                       ),
                     ),
                   ),
+                ),
+                SizedBox(
+                  width: 112,
+                  child: Text(
+                    dueDate,
+                    style: TextStyle(
+                      fontSize: dense ? 11.5 : 13,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF54627B),
+                    ),
+                  ),
+                ),
+                _TableValueCell(
+                  _money(totalAmount),
+                  width: 126,
+                  emphasize: true,
+                  dense: dense,
+                ),
+                _TableValueCell(
+                  _money(remainingAmount),
+                  width: 126,
+                  dense: dense,
+                ),
+                _TableValueCell(_money(paidAmount), width: 118, dense: dense),
+                _TableValueCell(
+                  _money(principalAmount),
+                  width: 118,
+                  dense: dense,
+                ),
+                _TableValueCell(
+                  _money(interestAmount),
+                  width: 118,
+                  dense: dense,
+                ),
+                _TableValueCell(
+                  _money(openingBalance),
+                  width: 128,
+                  dense: dense,
+                ),
+                _TableValueCell(
+                  _money(endingBalance),
+                  width: 128,
+                  dense: dense,
                 ),
               ],
             ),
@@ -1004,11 +1041,24 @@ class _FullscreenTotalsFooter extends StatelessWidget {
       ),
       child: Row(
         children: [
-          _FooterMetric(label: 'Capital', value: _money(totalPrincipal), color: const Color(0xFF1565C0)),
+          _FooterMetric(
+            label: 'Capital',
+            value: _money(totalPrincipal),
+            color: const Color(0xFF1565C0),
+          ),
           const SizedBox(width: 18),
-          _FooterMetric(label: 'Interés', value: _money(totalInterest), color: const Color(0xFFE67E00)),
+          _FooterMetric(
+            label: 'Interés',
+            value: _money(totalInterest),
+            color: const Color(0xFFE67E00),
+          ),
           const Spacer(),
-          _FooterMetric(label: 'Total', value: _money(totalPlan), color: const Color(0xFF2E7D32), emphasize: true),
+          _FooterMetric(
+            label: 'Total',
+            value: _money(totalPlan),
+            color: const Color(0xFF2E7D32),
+            emphasize: true,
+          ),
         ],
       ),
     );
@@ -1059,38 +1109,6 @@ class _BottomBar extends StatelessWidget {
 
   final SaleDetail detail;
 
-  Future<void> _printDocument(BuildContext context) async {
-    final selectedType = await SaleDocumentsDialog.chooseType(
-      context,
-      title: '¿Que deseas imprimir?',
-    );
-    if (!context.mounted || selectedType == null) {
-      return;
-    }
-
-    await SaleDocumentsDialog.printQuick(
-      context,
-      detail: detail,
-      type: selectedType,
-    );
-  }
-
-  Future<void> _exportDocument(BuildContext context) async {
-    final selectedType = await SaleDocumentsDialog.chooseType(
-      context,
-      title: '¿Que deseas exportar?',
-    );
-    if (!context.mounted || selectedType == null) {
-      return;
-    }
-
-    await SaleDocumentsDialog.exportQuick(
-      context,
-      detail: detail,
-      type: selectedType,
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final totalPrincipal = detail.installments.fold<double>(
@@ -1108,57 +1126,35 @@ class _BottomBar extends StatelessWidget {
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Wrap(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final chipWidth = (constraints.maxWidth - 12) / 2;
+
+          return Wrap(
             spacing: 12,
             runSpacing: 12,
-            alignment: WrapAlignment.spaceBetween,
             children: [
               _BottomTotalChip(
+                width: chipWidth,
                 label: 'Capital total',
                 value: _money(totalPrincipal),
                 color: const Color(0xFF1565C0),
               ),
               _BottomTotalChip(
+                width: chipWidth,
                 label: 'Interés total',
                 value: _money(totalInterest),
                 color: const Color(0xFFE67E00),
               ),
               _BottomTotalChip(
+                width: chipWidth,
                 label: 'Total del plan',
                 value: _money(totalPlan),
                 color: const Color(0xFF2E7D32),
               ),
             ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(minimumSize: const Size(0, 40)),
-                onPressed: () => _exportDocument(context),
-                icon: const Icon(Icons.save_alt_outlined, size: 16),
-                label: const Text('Exportar PDF'),
-              ),
-              const SizedBox(width: 10),
-              FilledButton.icon(
-                style: OutlinedButton.styleFrom(minimumSize: const Size(0, 40)),
-                onPressed: () => _printDocument(context),
-                icon: const Icon(Icons.print_outlined, size: 16),
-                label: const Text('Imprimir'),
-              ),
-              const SizedBox(width: 10),
-              FilledButton(
-                style: FilledButton.styleFrom(minimumSize: const Size(0, 40)),
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Cerrar'),
-              ),
-            ],
-          ),
-        ],
+          );
+        },
       ),
     );
   }
@@ -1169,16 +1165,18 @@ class _BottomTotalChip extends StatelessWidget {
     required this.label,
     required this.value,
     required this.color,
+    this.width,
   });
 
   final String label;
   final String value;
   final Color color;
+  final double? width;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 220,
+      width: width ?? 220,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.08),

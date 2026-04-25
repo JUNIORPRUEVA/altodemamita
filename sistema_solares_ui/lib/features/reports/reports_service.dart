@@ -1,4 +1,5 @@
 import 'package:sistema_solares_ui/core/network/api_client.dart';
+import 'package:flutter/foundation.dart';
 
 class ReportsBundle {
   ReportsBundle({
@@ -54,11 +55,22 @@ class ReportsService {
     return payments.map(_asMap).toList();
   }
 
+  @visibleForTesting
+  static Map<String, String> buildUtcRangeQuery({
+    required DateTime from,
+    required DateTime to,
+  }) {
+    return {
+      'from': from.toUtc().toIso8601String(),
+      'to': to.toUtc().toIso8601String(),
+    };
+  }
+
   Map<String, String> _buildRangeQuery({
     required DateTime from,
     required DateTime to,
   }) {
-    return {'from': from.toIso8601String(), 'to': to.toIso8601String()};
+    return buildUtcRangeQuery(from: from, to: to);
   }
 
   Map<String, dynamic> _asMap(dynamic value) {
