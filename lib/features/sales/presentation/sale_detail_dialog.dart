@@ -69,11 +69,11 @@ class SaleDetailDialog extends StatelessWidget {
             vertical: screenSize.height * 0.10,
           );
 
-    final maxDialogWidth = isWindows
-        ? math.min(1020, math.max(560, screenSize.width - 48))
+    final double maxDialogWidth = isWindows
+        ? math.min(1020.0, math.max(560.0, screenSize.width - 48.0))
         : screenSize.width * 0.80;
-    final maxDialogHeight = isWindows
-        ? math.min(900, math.max(520, screenSize.height - 48))
+    final double maxDialogHeight = isWindows
+        ? math.min(900.0, math.max(520.0, screenSize.height - 48.0))
         : screenSize.height * 0.80;
     return Dialog(
       insetPadding: dialogInsetPadding,

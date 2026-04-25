@@ -5,6 +5,25 @@ import 'package:intl/intl.dart';
 import 'package:sistema_solares_ui/core/formatters/app_number_formats.dart';
 import 'package:sistema_solares_ui/shared/desktop_ui.dart';
 
+enum _SaleDetailMenuAction { export, print, close }
+
+bool _isMeaningfulText(String value) {
+  final normalized = value.trim();
+  if (normalized.isEmpty) return false;
+  if (normalized == '-' || normalized == '—') return false;
+  return true;
+}
+
+void _showPrintHint(BuildContext context, String action) {
+  ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+    SnackBar(
+      content: Text(
+        '$action usa la impresion del navegador en la PWA. Si necesitas PDF, selecciona Guardar como PDF en el dialogo de impresion.',
+      ),
+    ),
+  );
+}
+
 class SaleDetailDialog extends StatelessWidget {
   const SaleDetailDialog({super.key, required this.detail});
 
@@ -112,8 +131,10 @@ class SaleDetailDialog extends StatelessWidget {
                   ],
                 ),
               ),
-              const Divider(height: 1),
-              _DialogFooter(viewModel: viewModel),
+              if (!compact) ...[
+                const Divider(height: 1),
+                _DialogFooter(viewModel: viewModel),
+              ],
             ],
           ),
         ),
@@ -141,6 +162,56 @@ class _DetailHeader extends StatelessWidget {
         builder: (context, constraints) {
           final stacked = constraints.maxWidth < 560;
 
+          final menuButton = PopupMenuButton<_SaleDetailMenuAction>(
+            tooltip: '',
+            icon: const Icon(Icons.more_vert, size: 20),
+            onSelected: (action) {
+              switch (action) {
+                case _SaleDetailMenuAction.export:
+                  _showPrintHint(context, 'Exportar PDF');
+                  break;
+                case _SaleDetailMenuAction.print:
+                  _showPrintHint(context, 'Imprimir');
+                  break;
+                case _SaleDetailMenuAction.close:
+                  Navigator.of(context).pop();
+                  break;
+              }
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem<_SaleDetailMenuAction>(
+                value: _SaleDetailMenuAction.export,
+                child: Row(
+                  children: [
+                    Icon(Icons.file_download_outlined, size: 18),
+                    SizedBox(width: 10),
+                    Text('Exportar'),
+                  ],
+                ),
+              ),
+              PopupMenuItem<_SaleDetailMenuAction>(
+                value: _SaleDetailMenuAction.print,
+                child: Row(
+                  children: [
+                    Icon(Icons.print_outlined, size: 18),
+                    SizedBox(width: 10),
+                    Text('Imprimir'),
+                  ],
+                ),
+              ),
+              PopupMenuItem<_SaleDetailMenuAction>(
+                value: _SaleDetailMenuAction.close,
+                child: Row(
+                  children: [
+                    Icon(Icons.close, size: 18),
+                    SizedBox(width: 10),
+                    Text('Cerrar'),
+                  ],
+                ),
+              ),
+            ],
+          );
+
           final leading = Container(
             width: compact ? 36 : 42,
             height: compact ? 36 : 42,
@@ -160,7 +231,9 @@ class _DetailHeader extends StatelessWidget {
             children: [
               if (!compact)
                 Text(
-                  'Venta #${viewModel.saleId}  ·  ${viewModel.clientName}',
+                  viewModel.saleId.trim().isEmpty
+                      ? viewModel.clientName
+                      : 'Venta #${viewModel.saleId}  ·  ${viewModel.clientName}',
                   maxLines: stacked ? 2 : 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -170,49 +243,15 @@ class _DetailHeader extends StatelessWidget {
                   ),
                 ),
               if (compact)
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 3,
-                      ),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF1F4FA),
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(color: const Color(0xFFE0E7F0)),
-                      ),
-                      child: Text(
-                        '#${viewModel.saleId}',
-                        style: const TextStyle(
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w800,
-                          color: Color(0xFF506078),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        viewModel.clientName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w800,
-                          color: Color(0xFF14273F),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Flexible(
-                      child: _StatusChip(
-                        label: viewModel.statusLabel,
-                        tone: viewModel.statusTone,
-                        compact: true,
-                      ),
-                    ),
-                  ],
+                Text(
+                  viewModel.clientName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF14273F),
+                  ),
                 ),
               const SizedBox(height: 3),
               Text(
@@ -238,15 +277,23 @@ class _DetailHeader extends StatelessWidget {
                     leading,
                     const SizedBox(width: 8),
                     Expanded(child: titleBlock),
-                    IconButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      icon: const Icon(Icons.close),
-                      style: IconButton.styleFrom(
-                        padding: EdgeInsets.zero,
-                        minimumSize: const Size(32, 32),
-                        foregroundColor: const Color(0xFF6A7684),
-                      ),
-                    ),
+                    compact
+                        ? IconTheme(
+                            data: const IconThemeData(
+                              color: Color(0xFF6A7684),
+                              size: 22,
+                            ),
+                            child: menuButton,
+                          )
+                        : IconButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            icon: const Icon(Icons.close),
+                            style: IconButton.styleFrom(
+                              padding: EdgeInsets.zero,
+                              minimumSize: const Size(32, 32),
+                              foregroundColor: const Color(0xFF6A7684),
+                            ),
+                          ),
                   ],
                 ),
                 if (!compact) ...[
@@ -275,15 +322,23 @@ class _DetailHeader extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
               ],
-              IconButton(
-                onPressed: () => Navigator.of(context).pop(),
-                icon: const Icon(Icons.close),
-                style: IconButton.styleFrom(
-                  padding: EdgeInsets.zero,
-                  minimumSize: const Size(34, 34),
-                  foregroundColor: const Color(0xFF6A7684),
-                ),
-              ),
+              compact
+                  ? IconTheme(
+                      data: const IconThemeData(
+                        color: Color(0xFF6A7684),
+                        size: 22,
+                      ),
+                      child: menuButton,
+                    )
+                  : IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close),
+                      style: IconButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        minimumSize: const Size(34, 34),
+                        foregroundColor: const Color(0xFF6A7684),
+                      ),
+                    ),
             ],
           );
         },
@@ -318,10 +373,7 @@ class _TopInfoBand extends StatelessWidget {
               : constraints.maxWidth >= 720
               ? 2
               : 1;
-          final itemWidth = columns == 1
-              ? constraints.maxWidth
-              : (constraints.maxWidth - ((columns - 1) * 22)) / columns;
-          final children = [
+          final infoColumns = [
             _InfoColumn(
               title: 'CLIENTE Y SOLAR',
               items: [
@@ -361,11 +413,24 @@ class _TopInfoBand extends StatelessWidget {
             ),
           ];
 
+          final visibleColumns = infoColumns
+              .where((column) => column.hasVisibleItems)
+              .toList(growable: false);
+          if (visibleColumns.isEmpty) {
+            return const SizedBox.shrink();
+          }
+
+          final effectiveColumns = math.min(columns, visibleColumns.length);
+          final itemWidth = effectiveColumns == 1
+              ? constraints.maxWidth
+              : (constraints.maxWidth - ((effectiveColumns - 1) * 22)) /
+                    effectiveColumns;
+
           return Wrap(
             spacing: 22,
             runSpacing: 18,
             children: [
-              for (final child in children)
+              for (final child in visibleColumns)
                 SizedBox(width: itemWidth, child: child),
             ],
           );
@@ -904,16 +969,6 @@ class _DialogFooter extends StatelessWidget {
             ),
     );
   }
-
-  void _showPrintHint(BuildContext context, String action) {
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      SnackBar(
-        content: Text(
-          '$action usa la impresion del navegador en la PWA. Si necesitas PDF, selecciona Guardar como PDF en el dialogo de impresion.',
-        ),
-      ),
-    );
-  }
 }
 
 class _InfoColumn extends StatelessWidget {
@@ -922,8 +977,17 @@ class _InfoColumn extends StatelessWidget {
   final String title;
   final List<_InfoItem> items;
 
+  bool get hasVisibleItems => items.any((item) => item.isVisible);
+
   @override
   Widget build(BuildContext context) {
+    final visibleItems = items
+        .where((item) => item.isVisible)
+        .toList(growable: false);
+    if (visibleItems.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -937,9 +1001,9 @@ class _InfoColumn extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 10),
-        for (var index = 0; index < items.length; index++) ...[
-          items[index],
-          if (index != items.length - 1) const SizedBox(height: 8),
+        for (var index = 0; index < visibleItems.length; index++) ...[
+          visibleItems[index],
+          if (index != visibleItems.length - 1) const SizedBox(height: 8),
         ],
       ],
     );
@@ -952,8 +1016,14 @@ class _InfoItem extends StatelessWidget {
   final String label;
   final String value;
 
+  bool get isVisible => _isMeaningfulText(value);
+
   @override
   Widget build(BuildContext context) {
+    if (!isVisible) {
+      return const SizedBox.shrink();
+    }
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final stacked = constraints.maxWidth < 280;
@@ -1411,9 +1481,9 @@ class _SaleDetailViewModel {
     final user = _map(detail['user']);
     final seller = _map(detail['seller']);
 
-    final saleId = _string(detail['id'], fallback: '-');
+    final saleId = _string(detail['id']);
     final clientName = _fullName(client, fallback: 'Sin cliente');
-    final clientDocumentId = _string(client['documentId'], fallback: '-');
+    final clientDocumentId = _string(client['documentId']);
     final productCode = _string(product['code']);
     final productName = _string(product['name'], fallback: 'Sin solar');
     final blockNumber = _string(productSync['block_number']);
@@ -1626,13 +1696,14 @@ class _SaleDetailViewModel {
     final statusRaw = _string(detail['status'], fallback: 'active');
     final statusLabel = _saleStatusLabel(statusRaw);
     final statusTone = _saleStatusTone(statusRaw, pendingBalance);
+    final saleDateHeaderLabel = _formatDate(saleDate);
     final headerSubtitleParts = <String>[
       lotDisplayLabel,
       if (lotCodeLabel.trim().isNotEmpty && lotCodeLabel != lotDisplayLabel)
         lotCodeLabel,
       if (_string(detail['contractNumber']).isNotEmpty)
         _string(detail['contractNumber']),
-      _formatDate(saleDate),
+      if (saleDateHeaderLabel != '-') saleDateHeaderLabel,
     ];
 
     return _SaleDetailViewModel(
@@ -1641,18 +1712,22 @@ class _SaleDetailViewModel {
       clientDocumentId: clientDocumentId,
       lotCodeLabel: lotCodeLabel,
       lotDisplayLabel: lotDisplayLabel,
-      lotAreaLabel: lotArea > 0 ? '${lotArea.toStringAsFixed(2)} m²' : '-',
+      lotAreaLabel: lotArea > 0 ? '${lotArea.toStringAsFixed(2)} m²' : '',
       pricePerSquareMeterLabel: pricePerSquareMeter > 0
           ? '${currency.format(pricePerSquareMeter)} /m²'
-          : '-',
-      saleDateLabel: _formatDate(saleDate),
-      activationDateLabel: _formatDate(activationDate),
-      initialDeadlineLabel: _formatDate(initialDeadline),
-      userName: _string(user['fullName'], fallback: 'No disponible'),
-      sellerName: _string(seller['name'], fallback: '-'),
-      sellerDocumentId: _string(seller['documentId'], fallback: '-'),
-      sellerPhone: _string(seller['phone'], fallback: '-'),
-      contractNumber: _string(detail['contractNumber'], fallback: '-'),
+          : '',
+      saleDateLabel: saleDateHeaderLabel == '-' ? '' : saleDateHeaderLabel,
+      activationDateLabel: _formatDate(activationDate) == '-'
+          ? ''
+          : _formatDate(activationDate),
+      initialDeadlineLabel: _formatDate(initialDeadline) == '-'
+          ? ''
+          : _formatDate(initialDeadline),
+      userName: _string(user['fullName']),
+      sellerName: _string(seller['name']),
+      sellerDocumentId: _string(seller['documentId']),
+      sellerPhone: _string(seller['phone']),
+      contractNumber: _string(detail['contractNumber']),
       statusLabel: statusLabel,
       statusTone: statusTone,
       salePriceLabel: currency.format(salePrice),

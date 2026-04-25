@@ -17,7 +17,7 @@ class ReportsScreen extends StatefulWidget {
 }
 
 class _ReportsScreenState extends State<ReportsScreen> {
-  DateTimeRange _selectedRange = _defaultRange();
+  final DateTimeRange _selectedRange = _defaultRange();
   Future<_ReportsScreenData>? _future;
   int _lastTick = -1;
 
