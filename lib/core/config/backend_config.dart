@@ -1,4 +1,5 @@
-const String BASE_URL = 'https://altodemamita.com/';
+const String BASE_URL =
+    'https://altodemanita-altodemamita-backent.onqyr1.easypanel.host/';
 
 const String serverConnectionErrorMessage = 'Error de conexion con el servidor';
 
