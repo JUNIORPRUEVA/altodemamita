@@ -430,10 +430,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 runSpacing: 10,
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  const Text(
-                    'Corte operativo:',
-                    style: TextStyle(fontWeight: FontWeight.w700),
-                  ),
                   ...[
                     _QuickRangeOption(label: 'Hoy', days: 1),
                     _QuickRangeOption(label: 'Ayer', days: 0),

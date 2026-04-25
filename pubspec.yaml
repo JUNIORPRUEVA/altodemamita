@@ -36,6 +36,7 @@ dependencies:
   cupertino_icons: ^1.0.8
   path: ^1.9.1
   sqflite_common_ffi: ^2.3.6
+  sqlite3_flutter_libs: ^0.5.0
   pdf: ^3.11.3
   printing: ^5.14.2
   file_picker: ^8.1.2

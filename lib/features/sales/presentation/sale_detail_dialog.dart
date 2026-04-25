@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../installments/domain/installment.dart';
 import '../domain/sale_calculator.dart';
 import '../domain/sale_detail.dart';
 import 'documents/sale_documents_dialog.dart';
@@ -437,7 +438,7 @@ class _InstallmentsSection extends StatelessWidget {
         : 'Las cuotas se generarán cuando el inicial quede completado.';
     final bodyMessage = detail.installments.isEmpty
         ? emptyMessage
-        : 'Las cuotas y la tabla de amortización están disponibles en pantalla completa.';
+        : 'Las cuotas están disponibles en pantalla completa.';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -487,17 +488,9 @@ class _InstallmentsSection extends StatelessWidget {
 }
 
 class _InstallmentsTableViewport extends StatefulWidget {
-  const _InstallmentsTableViewport({
-    required this.detail,
-    required this.horizontalController,
-    required this.verticalController,
-    this.dense = false,
-  });
+  const _InstallmentsTableViewport({required this.detail});
 
   final SaleDetail detail;
-  final ScrollController horizontalController;
-  final ScrollController verticalController;
-  final bool dense;
 
   @override
   State<_InstallmentsTableViewport> createState() =>
@@ -506,8 +499,19 @@ class _InstallmentsTableViewport extends StatefulWidget {
 
 class _InstallmentsTableViewportState
     extends State<_InstallmentsTableViewport> {
-  int? _selectedInstallmentNumber;
-  int? _hoveredInstallmentNumber;
+  late final ScrollController _verticalController;
+
+  @override
+  void initState() {
+    super.initState();
+    _verticalController = ScrollController();
+  }
+
+  @override
+  void dispose() {
+    _verticalController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -520,71 +524,18 @@ class _InstallmentsTableViewportState
       child: ClipRRect(
         borderRadius: BorderRadius.circular(14),
         child: Scrollbar(
-          controller: widget.horizontalController,
+          controller: _verticalController,
           thumbVisibility: true,
-          child: SingleChildScrollView(
-            controller: widget.horizontalController,
-            scrollDirection: Axis.horizontal,
-            child: SizedBox(
-              width: 1220,
-              child: Column(
-                children: [
-                  _InstallmentsTableHeader(dense: widget.dense),
-                  const Divider(height: 1),
-                  Expanded(
-                    child: Scrollbar(
-                      controller: widget.verticalController,
-                      thumbVisibility: true,
-                      child: ListView.separated(
-                        controller: widget.verticalController,
-                        primary: false,
-                        padding: EdgeInsets.zero,
-                        itemCount: widget.detail.installments.length,
-                        separatorBuilder: (_, _) => const Divider(height: 1),
-                        itemBuilder: (context, index) {
-                          final inst = widget.detail.installments[index];
-                          return _InstallmentTableRow(
-                            installmentNumber: inst.installmentNumber,
-                            dueDate: _formatDate(inst.dueDate),
-                            openingBalance: inst.openingBalance,
-                            interestAmount: inst.interestAmount,
-                            principalAmount: inst.principalAmount,
-                            totalAmount: inst.totalAmount,
-                            paidAmount: inst.paidAmount,
-                            remainingAmount: inst.remainingAmount,
-                            endingBalance: inst.endingBalance,
-                            status: inst.status,
-                            dense: widget.dense,
-                            selected:
-                                _selectedInstallmentNumber ==
-                                inst.installmentNumber,
-                            hovered:
-                                _hoveredInstallmentNumber ==
-                                inst.installmentNumber,
-                            onTap: () {
-                              setState(() {
-                                _selectedInstallmentNumber =
-                                    inst.installmentNumber;
-                              });
-                            },
-                            onHoverChanged: (hovered) {
-                              setState(() {
-                                _hoveredInstallmentNumber = hovered
-                                    ? inst.installmentNumber
-                                    : (_hoveredInstallmentNumber ==
-                                              inst.installmentNumber
-                                          ? null
-                                          : _hoveredInstallmentNumber);
-                              });
-                            },
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+          child: ListView.separated(
+            controller: _verticalController,
+            padding: EdgeInsets.zero,
+            itemCount: widget.detail.installments.length,
+            separatorBuilder: (_, _) => const Divider(height: 1),
+            itemBuilder: (context, index) {
+              return _InstallmentCompactLine(
+                installment: widget.detail.installments[index],
+              );
+            },
           ),
         ),
       ),
@@ -649,7 +600,7 @@ class _InstallmentsFullscreenPage extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(child: _FullscreenInstallmentsTable(detail: detail)),
+              Expanded(child: _InstallmentsTableViewport(detail: detail)),
               const SizedBox(height: 8),
               _FullscreenTotalsFooter(
                 totalPrincipal: totalPrincipal,
@@ -664,137 +615,115 @@ class _InstallmentsFullscreenPage extends StatelessWidget {
   }
 }
 
-class _FullscreenInstallmentsTable extends StatefulWidget {
-  const _FullscreenInstallmentsTable({required this.detail});
+class _InstallmentCompactLine extends StatelessWidget {
+  const _InstallmentCompactLine({required this.installment});
 
-  final SaleDetail detail;
-
-  @override
-  State<_FullscreenInstallmentsTable> createState() =>
-      _FullscreenInstallmentsTableState();
-}
-
-class _FullscreenInstallmentsTableState
-    extends State<_FullscreenInstallmentsTable> {
-  late final ScrollController _horizontalController;
-  late final ScrollController _verticalController;
-
-  @override
-  void initState() {
-    super.initState();
-    _horizontalController = ScrollController();
-    _verticalController = ScrollController();
-  }
-
-  @override
-  void dispose() {
-    _horizontalController.dispose();
-    _verticalController.dispose();
-    super.dispose();
-  }
+  final Installment installment;
 
   @override
   Widget build(BuildContext context) {
-    return _InstallmentsTableViewport(
-      detail: widget.detail,
-      horizontalController: _horizontalController,
-      verticalController: _verticalController,
-      dense: true,
-    );
-  }
-}
+    final statusColor = _installmentStatusColor(installment.status);
 
-class _InstallmentSummaryChip extends StatelessWidget {
-  const _InstallmentSummaryChip({
-    required this.label,
-    required this.value,
-    required this.color,
-  });
-
-  final String label;
-  final String value;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
     return Container(
-      width: 180,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.16)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF6B7494),
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-              color: color,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _InstallmentsTableHeader extends StatelessWidget {
-  const _InstallmentsTableHeader({this.dense = false});
-
-  final bool dense;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      color: const Color(0xFFF4F7FB),
-      padding: EdgeInsets.symmetric(
-        horizontal: dense ? 12 : 16,
-        vertical: dense ? 9 : 14,
-      ),
+      color: Colors.white,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       child: Row(
         children: [
-          _TableHeaderCell('Cuota', width: 84, dense: dense),
-          _TableHeaderCell('Estado', width: 110, dense: dense),
-          _TableHeaderCell('Vence', width: 112, dense: dense),
-          _TableHeaderCell(
-            'Cuota fija',
-            width: 126,
-            alignEnd: true,
-            dense: dense,
+          SizedBox(
+            width: 80,
+            child: Text(
+              'Cuota ${installment.installmentNumber}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF1A2235),
+              ),
+            ),
           ),
-          _TableHeaderCell(
-            'Pendiente',
-            width: 126,
-            alignEnd: true,
-            dense: dense,
+          const SizedBox(width: 10),
+          SizedBox(
+            width: 96,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: statusColor.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  installment.status,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: statusColor,
+                  ),
+                ),
+              ),
+            ),
           ),
-          _TableHeaderCell('Pagado', width: 118, alignEnd: true, dense: dense),
-          _TableHeaderCell('Capital', width: 118, alignEnd: true, dense: dense),
-          _TableHeaderCell('Interés', width: 118, alignEnd: true, dense: dense),
-          _TableHeaderCell(
-            'Saldo inicial',
-            width: 128,
-            alignEnd: true,
-            dense: dense,
+          const SizedBox(width: 10),
+          SizedBox(
+            width: 92,
+            child: Text(
+              _formatDate(installment.dueDate),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF54627B),
+              ),
+            ),
           ),
-          _TableHeaderCell(
-            'Saldo final',
-            width: 128,
-            alignEnd: true,
-            dense: dense,
+          const SizedBox(width: 10),
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _InlineMetricChip(
+                    label: 'Fija',
+                    value: _money(installment.totalAmount),
+                    emphasize: true,
+                  ),
+                  const SizedBox(width: 8),
+                  _InlineMetricChip(
+                    label: 'Pend',
+                    value: _money(installment.remainingAmount),
+                  ),
+                  const SizedBox(width: 8),
+                  _InlineMetricChip(
+                    label: 'Pag',
+                    value: _money(installment.paidAmount),
+                  ),
+                  const SizedBox(width: 8),
+                  _InlineMetricChip(
+                    label: 'Cap',
+                    value: _money(installment.principalAmount),
+                  ),
+                  const SizedBox(width: 8),
+                  _InlineMetricChip(
+                    label: 'Int',
+                    value: _money(installment.interestAmount),
+                  ),
+                  const SizedBox(width: 8),
+                  _InlineMetricChip(
+                    label: 'Ini',
+                    value: _money(installment.openingBalance),
+                  ),
+                  const SizedBox(width: 8),
+                  _InlineMetricChip(
+                    label: 'Fin',
+                    value: _money(installment.endingBalance),
+                  ),
+                ],
+              ),
+            ),
           ),
         ],
       ),
@@ -802,217 +731,49 @@ class _InstallmentsTableHeader extends StatelessWidget {
   }
 }
 
-class _TableHeaderCell extends StatelessWidget {
-  const _TableHeaderCell(
-    this.label, {
-    required this.width,
-    this.alignEnd = false,
-    this.dense = false,
+class _InlineMetricChip extends StatelessWidget {
+  const _InlineMetricChip({
+    required this.label,
+    required this.value,
+    this.emphasize = false,
   });
 
   final String label;
-  final double width;
-  final bool alignEnd;
-  final bool dense;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: width,
-      child: Text(
-        label,
-        textAlign: alignEnd ? TextAlign.right : TextAlign.left,
-        style: TextStyle(
-          fontSize: dense ? 10.5 : 12,
-          fontWeight: FontWeight.w700,
-          color: const Color(0xFF7C89A3),
-        ),
-      ),
-    );
-  }
-}
-
-class _InstallmentTableRow extends StatelessWidget {
-  const _InstallmentTableRow({
-    required this.installmentNumber,
-    required this.dueDate,
-    required this.openingBalance,
-    required this.interestAmount,
-    required this.principalAmount,
-    required this.totalAmount,
-    required this.paidAmount,
-    required this.remainingAmount,
-    required this.endingBalance,
-    required this.status,
-    this.dense = false,
-    this.selected = false,
-    this.hovered = false,
-    this.onTap,
-    this.onHoverChanged,
-  });
-
-  final int installmentNumber;
-  final String dueDate;
-  final double openingBalance;
-  final double interestAmount;
-  final double principalAmount;
-  final double totalAmount;
-  final double paidAmount;
-  final double remainingAmount;
-  final double endingBalance;
-  final String status;
-  final bool dense;
-  final bool selected;
-  final bool hovered;
-  final VoidCallback? onTap;
-  final ValueChanged<bool>? onHoverChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final statusColor = _installmentStatusColor(status);
-    final backgroundColor = selected
-        ? const Color(0xFFEAF2FF)
-        : hovered
-        ? const Color(0xFFF6F9FF)
-        : Colors.white;
-    final borderColor = selected
-        ? const Color(0xFF3B5BDB)
-        : hovered
-        ? const Color(0xFFD7E4FF)
-        : Colors.transparent;
-
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => onHoverChanged?.call(true),
-      onExit: (_) => onHoverChanged?.call(false),
-      child: Material(
-        color: backgroundColor,
-        child: InkWell(
-          onTap: onTap,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 120),
-            padding: EdgeInsets.symmetric(
-              horizontal: dense ? 12 : 16,
-              vertical: dense ? 8 : 14,
-            ),
-            decoration: BoxDecoration(
-              color: backgroundColor,
-              border: Border(left: BorderSide(color: borderColor, width: 3)),
-            ),
-            child: Row(
-              children: [
-                SizedBox(
-                  width: 84,
-                  child: Text(
-                    'Cuota $installmentNumber',
-                    style: TextStyle(
-                      fontSize: dense ? 11.5 : 13,
-                      fontWeight: FontWeight.w700,
-                      color: const Color(0xFF1A2235),
-                    ),
-                  ),
-                ),
-                SizedBox(
-                  width: 110,
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Container(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: dense ? 8 : 10,
-                        vertical: dense ? 4 : 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: statusColor.withValues(alpha: 0.10),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Text(
-                        status,
-                        style: TextStyle(
-                          fontSize: dense ? 10.5 : 12,
-                          fontWeight: FontWeight.w700,
-                          color: statusColor,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                SizedBox(
-                  width: 112,
-                  child: Text(
-                    dueDate,
-                    style: TextStyle(
-                      fontSize: dense ? 11.5 : 13,
-                      fontWeight: FontWeight.w600,
-                      color: const Color(0xFF54627B),
-                    ),
-                  ),
-                ),
-                _TableValueCell(
-                  _money(totalAmount),
-                  width: 126,
-                  emphasize: true,
-                  dense: dense,
-                ),
-                _TableValueCell(
-                  _money(remainingAmount),
-                  width: 126,
-                  dense: dense,
-                ),
-                _TableValueCell(_money(paidAmount), width: 118, dense: dense),
-                _TableValueCell(
-                  _money(principalAmount),
-                  width: 118,
-                  dense: dense,
-                ),
-                _TableValueCell(
-                  _money(interestAmount),
-                  width: 118,
-                  dense: dense,
-                ),
-                _TableValueCell(
-                  _money(openingBalance),
-                  width: 128,
-                  dense: dense,
-                ),
-                _TableValueCell(
-                  _money(endingBalance),
-                  width: 128,
-                  dense: dense,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _TableValueCell extends StatelessWidget {
-  const _TableValueCell(
-    this.value, {
-    required this.width,
-    this.emphasize = false,
-    this.dense = false,
-  });
-
   final String value;
-  final double width;
   final bool emphasize;
-  final bool dense;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: width,
-      child: Text(
-        value,
-        textAlign: TextAlign.right,
-        style: TextStyle(
-          fontSize: dense ? (emphasize ? 12 : 11.5) : (emphasize ? 14 : 13),
-          fontWeight: emphasize ? FontWeight.w800 : FontWeight.w600,
-          color: const Color(0xFF1A2235),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF6F8FC),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFE4EAF2)),
+      ),
+      child: Text.rich(
+        TextSpan(
+          children: [
+            TextSpan(
+              text: '$label: ',
+              style: const TextStyle(
+                fontSize: 10.5,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF6B7494),
+              ),
+            ),
+            TextSpan(
+              text: value,
+              style: TextStyle(
+                fontSize: emphasize ? 11.5 : 11,
+                fontWeight: emphasize ? FontWeight.w900 : FontWeight.w800,
+                color: const Color(0xFF1A2235),
+              ),
+            ),
+          ],
         ),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
       ),
     );
   }
