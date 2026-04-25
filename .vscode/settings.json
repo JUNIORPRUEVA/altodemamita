@@ -1,0 +1,11 @@
+{
+  "dart.analysisExcludedFolders": [
+    "sistema_solares_ui"
+  ],
+  "files.exclude": {
+    "sistema_solares_ui/**": true
+  },
+  "search.exclude": {
+    "sistema_solares_ui/**": true
+  }
+}
