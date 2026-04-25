@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../services/backup_service.dart';
 
@@ -7,6 +10,7 @@ class BackupLifecycleObserver extends WidgetsBindingObserver {
 
   final BackupService backupService;
   bool _hasPerformedStartupBackup = false;
+  Timer? _startupBackupTimer;
 
   @override
   Future<void> didChangeAppLifecycleState(AppLifecycleState state) async {
@@ -14,16 +18,27 @@ class BackupLifecycleObserver extends WidgetsBindingObserver {
       case AppLifecycleState.resumed:
         // App just came to foreground - perform startup backup once
         if (!_hasPerformedStartupBackup) {
-          print('[LIFECYCLE] App resumed - performing startup backup if configured');
-          await _performStartupBackup();
+          print(
+            '[LIFECYCLE] App resumed - performing startup backup if configured',
+          );
           _hasPerformedStartupBackup = true;
+
+          // Do not block app startup/resume with heavy IO.
+          // BackupService closes/reopens SQLite; deferring avoids stalling the UI
+          // and reduces perceived startup time.
+          _startupBackupTimer?.cancel();
+          _startupBackupTimer = Timer(const Duration(seconds: 4), () {
+            unawaited(_performStartupBackup());
+          });
         }
         break;
       case AppLifecycleState.paused:
       case AppLifecycleState.detached:
       case AppLifecycleState.hidden:
         // App is being backgrounded or closed
-        print('[LIFECYCLE] App paused/closed - performing shutdown backup if configured');
+        print(
+          '[LIFECYCLE] App paused/closed - performing shutdown backup if configured',
+        );
         await _performShutdownBackup();
         break;
       case AppLifecycleState.inactive:
@@ -35,16 +50,33 @@ class BackupLifecycleObserver extends WidgetsBindingObserver {
   Future<void> _performStartupBackup() async {
     try {
       final config = await backupService.getConfig();
+
+      // Throttle: avoid repeated backups on quick restarts.
+      final lastBackup = config.lastBackupTimestamp;
+      if (lastBackup != null) {
+        final elapsed = DateTime.now().difference(lastBackup);
+        if (elapsed.inMinutes < 10) {
+          print(
+            '[STARTUP_BACKUP] Omitido: ya se ejecutó un backup recientemente (${elapsed.inMinutes} min)',
+          );
+          return;
+        }
+      }
+
       if (config.autoBackupEnabled && config.autoBackupOnStartup) {
         print('[STARTUP_BACKUP] Iniciando backup automático en startup...');
         final result = await backupService.createBackup(backupType: 'startup');
         if (result.success) {
-          print('[STARTUP_BACKUP] ✓ Backup de startup creado: ${result.metadata.formattedDate}');
+          print(
+            '[STARTUP_BACKUP] ✓ Backup de startup creado: ${result.metadata.formattedDate}',
+          );
         } else {
           print('[STARTUP_BACKUP] ERROR: ${result.errorMessage}');
         }
       } else {
-        print('[STARTUP_BACKUP] Backup automático deshabilitado o no configurado para startup');
+        print(
+          '[STARTUP_BACKUP] Backup automático deshabilitado o no configurado para startup',
+        );
       }
     } catch (e) {
       print('[STARTUP_BACKUP] Error en backup de startup: $e');
@@ -58,12 +90,16 @@ class BackupLifecycleObserver extends WidgetsBindingObserver {
         print('[SHUTDOWN_BACKUP] Iniciando backup automático en shutdown...');
         final result = await backupService.createBackup(backupType: 'shutdown');
         if (result.success) {
-          print('[SHUTDOWN_BACKUP] ✓ Backup de shutdown creado: ${result.metadata.formattedDate}');
+          print(
+            '[SHUTDOWN_BACKUP] ✓ Backup de shutdown creado: ${result.metadata.formattedDate}',
+          );
         } else {
           print('[SHUTDOWN_BACKUP] ERROR: ${result.errorMessage}');
         }
       } else {
-        print('[SHUTDOWN_BACKUP] Backup automático deshabilitado o no configurado para shutdown');
+        print(
+          '[SHUTDOWN_BACKUP] Backup automático deshabilitado o no configurado para shutdown',
+        );
       }
     } catch (e) {
       print('[SHUTDOWN_BACKUP] Error en backup de shutdown: $e');

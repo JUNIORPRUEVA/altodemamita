@@ -543,37 +543,44 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
       key: _formKey,
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final content = Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _buildSelectorGroup(),
-              const SizedBox(height: 12),
-              Divider(
-                height: 1,
-                color: Theme.of(context).colorScheme.outlineVariant,
-              ),
-              const SizedBox(height: 12),
-              _buildSaleTermsBand(),
-              const SizedBox(height: 10),
-              _buildInitialPaymentBand(),
-              const Spacer(),
-              Divider(
-                height: 1,
-                color: Theme.of(context).colorScheme.outlineVariant,
-              ),
-              const SizedBox(height: 10),
-              _buildLiveSummary(),
-            ],
-          );
+          Widget buildContent({required bool allowFlexibleSpacing}) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _buildSelectorGroup(),
+                const SizedBox(height: 12),
+                Divider(
+                  height: 1,
+                  color: Theme.of(context).colorScheme.outlineVariant,
+                ),
+                const SizedBox(height: 12),
+                _buildSaleTermsBand(),
+                const SizedBox(height: 10),
+                _buildInitialPaymentBand(),
+                if (allowFlexibleSpacing)
+                  const Spacer()
+                else
+                  const SizedBox(height: 16),
+                Divider(
+                  height: 1,
+                  color: Theme.of(context).colorScheme.outlineVariant,
+                ),
+                const SizedBox(height: 10),
+                _buildLiveSummary(),
+              ],
+            );
+          }
 
           final needsScroll =
               constraints.maxWidth < 1024 || constraints.maxHeight < 560;
 
           if (needsScroll) {
-            return SingleChildScrollView(child: content);
+            return SingleChildScrollView(
+              child: buildContent(allowFlexibleSpacing: false),
+            );
           }
 
-          return content;
+          return buildContent(allowFlexibleSpacing: true);
         },
       ),
     );
@@ -1936,7 +1943,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
   }
 
   Future<void> _pickInitialDeadline() async {
-    if (_pendingInitialPayment <= 0) {
+    if (_pendingInitialPayment <= 0.009) {
       return;
     }
 
@@ -1972,7 +1979,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
   }
 
   void _syncInitialDeadline() {
-    if (_pendingInitialPayment <= 0) {
+    if (_pendingInitialPayment <= 0.009) {
       _initialPaymentDeadline = null;
       _initialDeadlineController.clear();
       _isInitialDeadlineManuallyEdited = false;

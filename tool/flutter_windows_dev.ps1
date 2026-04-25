@@ -132,23 +132,28 @@ if ($plannedCommand -eq 'test') {
       }
     }
   }
-} elseif (-not (Test-Path $sqliteDestination)) {
-  $sqliteCandidates = @(
-    (Join-Path $asciiRoot '.dart_tool\lib\sqlite3.dll')
-  )
+} else {
+  # For `run`/`build`, Flutter will install native assets and copy sqlite3.dll into
+  # build/native_assets/windows. If the destination file already exists, some
+  # Flutter versions fail with errno 183 (PathExistsException).
+  if (Test-Path $sqliteDestination) {
+    try {
+      Remove-Item -LiteralPath $sqliteDestination -Force -ErrorAction Stop
+    } catch {
+      Get-Process sistema_solares -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
-  if (Test-Path $sqliteCacheRoot) {
-    $cached = Get-ChildItem $sqliteCacheRoot -Recurse -Filter sqlite3.dll -File -ErrorAction SilentlyContinue |
-      Sort-Object LastWriteTime -Descending |
-      Select-Object -First 1
-    if ($cached) {
-      $sqliteCandidates += $cached.FullName
+      try {
+        Remove-Item -LiteralPath $sqliteDestination -Force -ErrorAction Stop
+      } catch {
+        $backupName = "sqlite3.dll.bak.$(Get-Date -Format 'yyyyMMddHHmmss')"
+        try {
+          Rename-Item -LiteralPath $sqliteDestination -NewName $backupName -Force -ErrorAction Stop
+        } catch {
+          Write-Error "No se pudo eliminar sqlite3.dll en $nativeAssetsDir (probablemente está bloqueado por una app en ejecución). Cierra la app y vuelve a ejecutar el task de run."
+          exit 1
+        }
+      }
     }
-  }
-
-  $sqliteSource = $sqliteCandidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
-  if ($sqliteSource) {
-    Copy-Item $sqliteSource $sqliteDestination -Force
   }
 }
 

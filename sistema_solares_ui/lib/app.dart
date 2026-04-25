@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:sistema_solares_ui/core/auth/auth_controller.dart';
@@ -181,6 +182,16 @@ class _AppState extends State<App> {
         title: 'Sistema Solares | Panel Web',
         debugShowCheckedModeBanner: false,
         theme: buildAppTheme(),
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        supportedLocales: const [
+          Locale('es', 'DO'),
+          Locale('es'),
+          Locale('en', 'US'),
+        ],
         routerConfig: _router,
         builder: (context, child) =>
             _ReadOnlyShell(child: child ?? const SizedBox.shrink()),
