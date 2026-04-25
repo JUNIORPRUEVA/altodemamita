@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
 import 'package:sistema_solares_ui/core/config/app_config.dart';
 
@@ -110,6 +111,11 @@ class ApiClient {
       'Accept': 'application/json',
       'Content-Type': 'application/json',
     };
+
+    if (kIsWeb && method.toUpperCase() == 'GET') {
+      headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
+      headers['Pragma'] = 'no-cache';
+    }
     if (authorized && _jwtToken?.isNotEmpty == true) {
       headers['Authorization'] = 'Bearer $_jwtToken';
     }
