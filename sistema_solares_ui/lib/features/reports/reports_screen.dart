@@ -29,25 +29,20 @@ class _ReportsScreenState extends State<ReportsScreen> {
     );
   }
 
-  static DateTimeRange _todayRange() {
-    final now = DateTime.now();
-    return DateTimeRange(start: _startOfDay(now), end: _endOfDay(now));
-  }
-
-  static DateTimeRange _yesterdayRange() {
-    final yesterday = DateTime.now().subtract(const Duration(days: 1));
-    return DateTimeRange(
-      start: _startOfDay(yesterday),
-      end: _endOfDay(yesterday),
-    );
-  }
-
   static DateTime _startOfDay(DateTime date) {
     return DateTime(date.year, date.month, date.day);
   }
 
   static DateTime _endOfDay(DateTime date) {
     return DateTime(date.year, date.month, date.day, 23, 59, 59, 999);
+  }
+
+  DateTimeRange _rangeForLastDays(int days) {
+    final now = DateTime.now();
+    return DateTimeRange(
+      start: _startOfDay(now.subtract(Duration(days: days - 1))),
+      end: _endOfDay(now),
+    );
   }
 
   static String _formatLocalDateCell(Object? raw) {
@@ -68,69 +63,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
     }
   }
 
-  DateTimeRange _rangeForLastDays(int days) {
-    final now = DateTime.now();
-    return DateTimeRange(
-      start: _startOfDay(now.subtract(Duration(days: days - 1))),
-      end: _endOfDay(now),
-    );
-  }
-
-  void _reloadForRange(DateTimeRange range) {
+  void _reload() {
     setState(() {
-      _selectedRange = DateTimeRange(
-        start: _startOfDay(range.start),
-        end: _endOfDay(range.end),
-      );
       _future = null;
     });
-  }
-
-  Future<void> _selectCustomRange() async {
-    final picked = await showDateRangePicker(
-      context: context,
-      locale: const Locale('es', 'DO'),
-      initialDateRange: _selectedRange,
-      firstDate: DateTime(DateTime.now().year - 5),
-      lastDate: DateTime(DateTime.now().year + 1, 12, 31),
-      helpText: 'Selecciona el intervalo',
-      saveText: 'Aplicar',
-      cancelText: 'Cancelar',
-      confirmText: 'Aplicar',
-      fieldStartHintText: 'Desde',
-      fieldEndHintText: 'Hasta',
-    );
-
-    if (picked != null) {
-      _reloadForRange(picked);
-    }
-  }
-
-  bool _matchesRange(DateTimeRange range) {
-    return _selectedRange.start.year == range.start.year &&
-        _selectedRange.start.month == range.start.month &&
-        _selectedRange.start.day == range.start.day &&
-        _selectedRange.end.year == range.end.year &&
-        _selectedRange.end.month == range.end.month &&
-        _selectedRange.end.day == range.end.day;
-  }
-
-  String _mobileRangeLabel() {
-    if (_matchesRange(_todayRange())) {
-      return 'Hoy';
-    }
-
-    if (_matchesRange(_yesterdayRange())) {
-      return 'Ayer';
-    }
-
-    final formatter = DateFormat('dd MMM', 'es_DO');
-    return '${formatter.format(_selectedRange.start)} - ${formatter.format(_selectedRange.end)}';
-  }
-
-  String _desktopRangeLabel() {
-    final formatter = DateFormat('dd MMM yyyy', 'es_DO');
-    return '${formatter.format(_selectedRange.start)} - ${formatter.format(_selectedRange.end)}';
   }
 
   @override
@@ -153,7 +89,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           return DesktopPageError(
             message:
                 snapshot.error?.toString() ?? 'No se pudo cargar reportes.',
-            onRetry: () => _reloadForRange(_selectedRange),
+            onRetry: _reload,
           );
         }
         final summary = data.dashboard;
@@ -318,16 +254,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
           return DesktopPageScaffold(
             title: 'Reportes',
             showMobileTitle: false,
-            toolbar: DesktopFieldToolbar(
-              child: _MobileReportsFilterBar(
-                activeLabel: _mobileRangeLabel(),
-                isTodaySelected: _matchesRange(_todayRange()),
-                isYesterdaySelected: _matchesRange(_yesterdayRange()),
-                onSelectToday: () => _reloadForRange(_todayRange()),
-                onSelectYesterday: () => _reloadForRange(_yesterdayRange()),
-                onOpenFilter: _selectCustomRange,
-              ),
-            ),
             child: ListView(
               children: [
                 if (warningMessage != null) ...[
@@ -422,41 +348,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
           title: 'Reporte',
           subtitle:
               'Vista unificada y ordenada del resumen general y la operacion del periodo.',
-          toolbar: DesktopFieldToolbar(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  ...[
-                    _QuickRangeOption(label: 'Hoy', days: 1),
-                    _QuickRangeOption(label: 'Ayer', days: 0),
-                    _QuickRangeOption(label: '7 dias', days: 7),
-                    _QuickRangeOption(label: '30 dias', days: 30),
-                  ].map(
-                    (option) => ChoiceChip(
-                      label: Text(option.label),
-                      selected: option.days == 0
-                          ? _matchesRange(_yesterdayRange())
-                          : _matchesRange(_rangeForLastDays(option.days)),
-                      onSelected: (_) => _reloadForRange(
-                        option.days == 0
-                            ? _yesterdayRange()
-                            : _rangeForLastDays(option.days),
-                      ),
-                    ),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: _selectCustomRange,
-                    icon: const Icon(Icons.date_range_rounded, size: 18),
-                    label: Text(_desktopRangeLabel()),
-                  ),
-                ],
-              ),
-            ),
-          ),
           child: ListView(
             children: [
               if (warningMessage != null) ...[
@@ -931,120 +822,6 @@ class _ReportsWarningBanner extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-class _QuickRangeOption {
-  const _QuickRangeOption({required this.label, required this.days});
-
-  final String label;
-  final int days;
-}
-
-class _MobileReportsFilterBar extends StatelessWidget {
-  const _MobileReportsFilterBar({
-    required this.activeLabel,
-    required this.isTodaySelected,
-    required this.isYesterdaySelected,
-    required this.onSelectToday,
-    required this.onSelectYesterday,
-    required this.onOpenFilter,
-  });
-
-  final String activeLabel;
-  final bool isTodaySelected;
-  final bool isYesterdaySelected;
-  final VoidCallback onSelectToday;
-  final VoidCallback onSelectYesterday;
-  final Future<void> Function() onOpenFilter;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFE3EAF3)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text(
-                      'Rango activo',
-                      style: TextStyle(
-                        color: Color(0xFF788396),
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      activeLabel,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(0xFF12385F),
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            SizedBox(
-              height: 44,
-              child: OutlinedButton.icon(
-                onPressed: onOpenFilter,
-                icon: const Icon(Icons.tune_rounded, size: 18),
-                label: const Text('Filtrar'),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 10,
-                  ),
-                  side: const BorderSide(color: Color(0xFFD8E2EE)),
-                  foregroundColor: const Color(0xFF173450),
-                  backgroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            ChoiceChip(
-              label: const Text('Hoy'),
-              selected: isTodaySelected,
-              onSelected: (_) => onSelectToday(),
-            ),
-            ChoiceChip(
-              label: const Text('Ayer'),
-              selected: isYesterdaySelected,
-              onSelected: (_) => onSelectYesterday(),
-            ),
-          ],
-        ),
-      ],
     );
   }
 }

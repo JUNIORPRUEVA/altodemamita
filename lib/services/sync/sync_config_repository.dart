@@ -54,11 +54,18 @@ class SyncConfigRepository {
 
   Future<SyncSettings> loadSettings() async {
     final values = await _settingsRepository.fetchByKeys([
+      syncBaseUrlKey,
       syncQueueRetrySecondsKey,
       syncRealtimePollingSecondsKey,
       syncConflictStrategyKey,
     ]);
-    final baseUrl = normalizeBackendBaseUrl(defaultSyncBaseUrl);
+
+    final configuredBaseUrl = values[syncBaseUrlKey]?.value;
+    final baseUrl = normalizeBackendBaseUrl(
+      (configuredBaseUrl == null || configuredBaseUrl.trim().isEmpty)
+          ? defaultSyncBaseUrl
+          : configuredBaseUrl,
+    );
 
     final token = await _sensitiveStorage.read(_jwtTokenPreferenceKey) ?? '';
     final retrySeconds =
@@ -78,7 +85,10 @@ class SyncConfigRepository {
     );
   }
 
-  Future<void> saveBaseUrl(String baseUrl) async {}
+  Future<void> saveBaseUrl(String baseUrl) {
+    final normalized = normalizeBackendBaseUrl(baseUrl);
+    return _settingsRepository.upsert(syncBaseUrlKey, normalized);
+  }
 
   Future<void> saveJwtToken(String jwtToken) async {
     await _sensitiveStorage.write(_jwtTokenPreferenceKey, jwtToken);
@@ -185,7 +195,9 @@ class SyncConfigRepository {
     ]);
     final lastRunAt = DateTime.tryParse(values[syncLastRunAtKey]?.value ?? '');
     final lastError = values[syncLastErrorKey]?.value.trim();
-    final normalizedStatus = values[syncLastStatusKey]?.value.trim().toLowerCase();
+    final normalizedStatus = values[syncLastStatusKey]?.value
+        .trim()
+        .toLowerCase();
     final status = switch (normalizedStatus) {
       'error' => SyncRuntimeStatus.error,
       'pending' => SyncRuntimeStatus.pending,
