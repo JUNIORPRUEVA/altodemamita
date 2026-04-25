@@ -23,12 +23,60 @@ Future<void> main() async {
     _count(db, DatabaseSchema.installmentsTable),
     _count(db, DatabaseSchema.paymentsTable),
     _count(db, DatabaseSchema.syncQueueTable),
+    _count(db, DatabaseSchema.conflictLogsTable),
   ]);
   print(
-    'Counts => sales=${counts[0]} installments=${counts[1]} payments=${counts[2]} queue=${counts[3]}',
+    'Counts => sales=${counts[0]} installments=${counts[1]} payments=${counts[2]} queue=${counts[3]} conflicts=${counts[4]}',
   );
 
-  final pendingSales = await db.rawQuery('''
+  final unresolvedConflicts = await db.rawQuery('''
+    SELECT
+      scope,
+      record_sync_id,
+      local_version,
+      server_version,
+      strategy,
+      message,
+      detected_at
+    FROM ${DatabaseSchema.conflictLogsTable}
+    WHERE resolved_at IS NULL
+    ORDER BY detected_at DESC, id DESC
+    LIMIT 20
+  ''');
+  print(
+    '\nUnresolved conflicts: ${unresolvedConflicts.length} (showing up to 20)',
+  );
+  for (final row in unresolvedConflicts) {
+    print(jsonEncode(row));
+  }
+
+  final installmentStatusCounts = await db.rawQuery('''
+    SELECT sync_status, COUNT(*) AS total
+    FROM ${DatabaseSchema.installmentsTable}
+    GROUP BY sync_status
+    ORDER BY total DESC
+  ''');
+  print('\nInstallments sync_status breakdown:');
+  for (final row in installmentStatusCounts) {
+    print(jsonEncode(row));
+  }
+
+  final conflictedInstallments = await db.rawQuery('''
+    SELECT sync_id, version, fecha_actualizacion, sync_status
+    FROM ${DatabaseSchema.installmentsTable}
+    WHERE sync_status = ?
+    ORDER BY fecha_actualizacion DESC
+    LIMIT 5
+  ''', [DatabaseSchema.syncStatusConflict]);
+  print(
+    '\nSample conflicted installments: ${conflictedInstallments.length} (up to 5)',
+  );
+  for (final row in conflictedInstallments) {
+    print(jsonEncode(row));
+  }
+
+  final pendingSales = await db.rawQuery(
+    '''
     SELECT
       v.id,
       v.sync_id,
@@ -52,7 +100,9 @@ Future<void> main() async {
     LEFT JOIN ${DatabaseSchema.sellersTable} vd ON vd.id = v.vendedor_id
     WHERE v.sync_status = ?
     ORDER BY v.fecha_actualizacion ASC, v.id ASC
-  ''', [DatabaseSchema.syncStatusPending]);
+  ''',
+    [DatabaseSchema.syncStatusPending],
+  );
 
   print('\nPending sales rows: ${pendingSales.length}');
   for (final row in pendingSales) {

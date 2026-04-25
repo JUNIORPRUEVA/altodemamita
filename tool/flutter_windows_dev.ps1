@@ -99,6 +99,14 @@ $plannedCommand = if ($Command) {
   'run'
 }
 
+# Windows linker/build can fail with LNK1104 when the previous runner exe is
+# still running (file locked). Stop the app process early so rebuilds are stable.
+try {
+  Get-Process sistema_solares -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+} catch {
+  # ignore
+}
+
 # Some generated Windows install scripts expect this directory to exist even
 # when there are no native assets to copy.
 if (-not (Test-Path $nativeAssetsDir)) {

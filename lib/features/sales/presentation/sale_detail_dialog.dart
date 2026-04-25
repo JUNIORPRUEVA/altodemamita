@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../installments/domain/installment.dart';
+import '../../payments/data/payments_repository.dart';
+import '../../payments/presentation/payments_page.dart';
 import '../domain/sale_calculator.dart';
 import '../domain/sale_detail.dart';
 import 'documents/sale_documents_dialog.dart';
@@ -123,6 +125,20 @@ Future<void> openInstallmentsFullscreen(
   return Navigator.of(context).push(
     MaterialPageRoute(
       builder: (_) => _InstallmentsFullscreenPage(detail: detail),
+    ),
+  );
+}
+
+Future<void> openPaymentsFullscreen(
+  BuildContext context, {
+  required int saleId,
+}) {
+  return Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (_) => PaymentsPage(
+        paymentsRepository: PaymentsRepository(),
+        initialSaleId: saleId,
+      ),
     ),
   );
 }
@@ -447,6 +463,34 @@ class _InstallmentsSection extends StatelessWidget {
     final hasInstallments = detail.installments.isNotEmpty;
     final viewportHeight = hasInstallments ? 160.0 : 120.0;
 
+    final actionButtons = Positioned(
+      right: 14,
+      bottom: 22,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          if (hasInstallments)
+            _CompactFloatingActionButton.extended(
+              heroTag: 'sale-installments-fullscreen',
+              onPressed: () => openInstallmentsFullscreen(context, detail),
+              icon: Icons.open_in_full,
+              label: 'Ver cuotas',
+            ),
+          if (hasInstallments) const SizedBox(height: 10),
+          _CompactFloatingActionButton.extended(
+            heroTag: 'sale-payments-fullscreen',
+            onPressed: () => openPaymentsFullscreen(
+              context,
+              saleId: detail.sale.id,
+            ),
+            icon: Icons.payments_outlined,
+            label: 'Ver pagos',
+          ),
+        ],
+      ),
+    );
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -467,7 +511,7 @@ class _InstallmentsSection extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 18),
                   child: Text(
                     hasInstallments
-                        ? 'Abre “Cuotas” para ver el detalle amortizado.'
+                        ? 'Usa “Ver cuotas” o “Ver pagos” para ver el detalle.'
                         : emptyMessage,
                     style: const TextStyle(
                       fontSize: 14,
@@ -477,24 +521,47 @@ class _InstallmentsSection extends StatelessWidget {
                   ),
                 ),
               ),
-              if (hasInstallments)
-                Positioned(
-                  right: 16,
-                  bottom: 16,
-                  child: FloatingActionButton.extended(
-                    heroTag: 'sale-installments-fullscreen',
-                    onPressed: () =>
-                        openInstallmentsFullscreen(context, detail),
-                    backgroundColor: const Color(0xFF1F4B99),
-                    foregroundColor: Colors.white,
-                    icon: const Icon(Icons.open_in_full, size: 18),
-                    label: const Text('Cuotas'),
-                  ),
-                ),
+              actionButtons,
             ],
           ),
         ),
       ],
+    );
+  }
+}
+
+class _CompactFloatingActionButton extends StatelessWidget {
+  const _CompactFloatingActionButton.extended({
+    required this.heroTag,
+    required this.onPressed,
+    required this.icon,
+    required this.label,
+  });
+
+  final String heroTag;
+  final VoidCallback? onPressed;
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return FloatingActionButton.extended(
+      heroTag: heroTag,
+      onPressed: onPressed,
+      backgroundColor: const Color(0xFF1F4B99),
+      foregroundColor: Colors.white,
+      elevation: 2,
+      highlightElevation: 4,
+      extendedPadding: const EdgeInsets.symmetric(horizontal: 14),
+      icon: Icon(icon, size: 17),
+      label: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 12.5,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.1,
+        ),
+      ),
     );
   }
 }

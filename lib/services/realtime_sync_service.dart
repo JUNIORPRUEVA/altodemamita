@@ -159,14 +159,18 @@ class RealtimeSyncService {
         _syncLogger.log(
           action: 'realtime-connect-error',
           entity: 'sync',
-          result: 'error',
+          result: 'pending',
           error: error.toString(),
         ),
       );
       _emitState(
         RealtimeSyncState(
-          connectionStatus: SyncConnectionStatus.error,
-          lastError: error.toString(),
+          // Websocket errors are non-fatal because polling still provides sync.
+          // Avoid showing a global "Error" badge when HTTP sync is healthy.
+          connectionStatus: SyncConnectionStatus.disconnected,
+          lastError: null,
+          dataVersion: _state.dataVersion,
+          lastDataChangedAt: _state.lastDataChangedAt,
         ),
       );
     });
@@ -176,14 +180,18 @@ class RealtimeSyncService {
         _syncLogger.log(
           action: 'realtime-error',
           entity: 'sync',
-          result: 'error',
+          result: 'pending',
           error: error?.toString(),
         ),
       );
       _emitState(
         RealtimeSyncState(
-          connectionStatus: SyncConnectionStatus.error,
-          lastError: error?.toString(),
+          // Websocket errors are non-fatal because polling still provides sync.
+          // Avoid showing a global "Error" badge when HTTP sync is healthy.
+          connectionStatus: SyncConnectionStatus.disconnected,
+          lastError: null,
+          dataVersion: _state.dataVersion,
+          lastDataChangedAt: _state.lastDataChangedAt,
         ),
       );
     });
@@ -257,6 +265,7 @@ class RealtimeSyncService {
     _isApplyingRealtimeEvent = true;
     try {
       final downloadedCount = await _syncService.downloadUpdates();
+      _clearRecoveredErrorIfNeeded();
       await _syncLogger.log(
         action: 'realtime-download',
         entity: 'sync',
@@ -288,6 +297,27 @@ class RealtimeSyncService {
     } finally {
       _isApplyingRealtimeEvent = false;
     }
+  }
+
+  void _clearRecoveredErrorIfNeeded() {
+    final lastError = _state.lastError?.trim();
+    final hadError = lastError != null && lastError.isNotEmpty;
+    if (!hadError && _state.connectionStatus != SyncConnectionStatus.error) {
+      return;
+    }
+
+    final normalizedStatus =
+        _state.connectionStatus == SyncConnectionStatus.connected
+        ? SyncConnectionStatus.connected
+        : SyncConnectionStatus.disconnected;
+    _emitState(
+      RealtimeSyncState(
+        connectionStatus: normalizedStatus,
+        lastError: null,
+        dataVersion: _state.dataVersion,
+        lastDataChangedAt: _state.lastDataChangedAt,
+      ),
+    );
   }
 
   Future<void> _handleEvent(String eventName, dynamic payload) async {

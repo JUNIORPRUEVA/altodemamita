@@ -13,6 +13,32 @@ class FakeBackendState {
   String adminPassword = '';
   String adminFullName = '';
   Map<String, dynamic> lastSyncUploadPayload = const {};
+
+  bool forceSyncUploadConflict = false;
+  bool wrapUploadConflictInErrorEnvelope = true;
+  Map<String, dynamic> syncUploadConflictPayload = const {
+    'message': 'Conflicto de version detectado.',
+    'scope': 'installments',
+    'strategy': 'manual',
+    'conflicts': [
+      {
+        'scope': 'installments',
+        'record_sync_id': 'installment-1',
+        'local_version': 1,
+        'server_version': 2,
+        'server_record': {
+          'sync_id': 'installment-1',
+          'version': 2,
+        },
+      },
+    ],
+    'records': [
+      {
+        'sync_id': 'installment-1',
+        'version': 2,
+      },
+    ],
+  };
 }
 
 class FakeBackendHttpClient implements HttpClient {
@@ -176,6 +202,26 @@ class _FakeHttpClientRequest implements HttpClientRequest {
 
     if (_method == 'POST' && path.endsWith('/sync/upload')) {
       _state.lastSyncUploadPayload = payload;
+
+      if (_state.forceSyncUploadConflict) {
+        final conflictPayload = _state.syncUploadConflictPayload;
+        if (_state.wrapUploadConflictInErrorEnvelope) {
+          return _jsonResponse(
+            status: HttpStatus.conflict,
+            body: {
+              'success': false,
+              'statusCode': HttpStatus.conflict,
+              'message': 'Conflict',
+              'error': conflictPayload,
+            },
+          );
+        }
+        return _jsonResponse(
+          status: HttpStatus.conflict,
+          body: conflictPayload,
+        );
+      }
+
       final records = payload['records'] is Map<String, dynamic>
           ? payload['records'] as Map<String, dynamic>
           : payload['records'] is Map

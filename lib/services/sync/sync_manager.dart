@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../core/config/app_flags.dart';
+import '../../models/sync/sync_connection_status.dart';
 import '../../models/sync/sync_manager_state.dart';
 import '../../models/sync/sync_report.dart';
 import '../realtime_sync_service.dart';
@@ -45,11 +46,15 @@ class SyncManager extends ChangeNotifier {
     }
 
     _started = true;
-    _queueSubscription = _syncQueueService.stateStream.listen(_handleQueueState);
+    _queueSubscription = _syncQueueService.stateStream.listen(
+      _handleQueueState,
+    );
     _realtimeSubscription = _realtimeSyncService.stateStream.listen(
       _handleRealtimeState,
     );
-    _dataChangedSubscription = _realtimeSyncService.dataChangedStream.listen((_) {
+    _dataChangedSubscription = _realtimeSyncService.dataChangedStream.listen((
+      _,
+    ) {
       _setState(
         _state.copyWith(
           dataVersion: _state.dataVersion + 1,
@@ -58,18 +63,22 @@ class SyncManager extends ChangeNotifier {
       );
       unawaited(_syncConflictService.unresolvedConflictCount());
     });
-    _conflictSubscription = _syncConflictService.unresolvedCountStream.listen(
-      (count) {
-        _setState(_state.copyWith(unresolvedConflictCount: count));
-      },
-    );
+    _conflictSubscription = _syncConflictService.unresolvedCountStream.listen((
+      count,
+    ) {
+      _setState(_state.copyWith(unresolvedConflictCount: count));
+    });
 
     await _syncQueueService.start();
     await _realtimeSyncService.start();
     await _syncConflictService.unresolvedConflictCount();
     _handleQueueState(_syncQueueService.state);
     _handleRealtimeState(_realtimeSyncService.state);
-    _setState(_state.copyWith(unresolvedConflictCount: _syncConflictService.unresolvedCount));
+    _setState(
+      _state.copyWith(
+        unresolvedConflictCount: _syncConflictService.unresolvedCount,
+      ),
+    );
 
     if (runInitialSync && !manualCloudSyncOnly) {
       unawaited(syncNow(showAsBusy: false));
@@ -80,13 +89,14 @@ class SyncManager extends ChangeNotifier {
     _manualSyncInProgress = showAsBusy;
     _setState(
       _state.copyWith(
-        isSyncing: _manualSyncInProgress || _syncQueueService.state.isProcessing,
+        isSyncing:
+            _manualSyncInProgress || _syncQueueService.state.isProcessing,
       ),
     );
 
     final report = await _syncService.syncNow();
+    // Warnings are non-fatal and should not force the global badge into "Error".
     final syncIssues = <String>[
-      ...report.warnings,
       if (report.errorMessage != null && report.errorMessage!.trim().isNotEmpty)
         report.errorMessage!.trim(),
     ];
@@ -123,27 +133,47 @@ class SyncManager extends ChangeNotifier {
   }
 
   void _handleQueueState(SyncQueueState queueState) {
+    final realtimeState = _realtimeSyncService.state;
+    final shouldClearStaleIssues = _shouldClearStaleSyncIssues(
+      queueState: queueState,
+      realtimeState: realtimeState,
+    );
+    final effectiveSyncIssues = shouldClearStaleIssues
+        ? const <String>[]
+        : _state.lastSyncIssues;
+
     _setState(
       _state.copyWith(
         pendingCount: queueState.pendingCount,
         isSyncing: _manualSyncInProgress || queueState.isProcessing,
+        lastSyncIssues: effectiveSyncIssues,
         currentErrors: _combineErrors(
           queueError: queueState.lastError,
-          realtimeError: _realtimeSyncService.state.lastError,
-          syncIssues: _state.lastSyncIssues,
+          realtimeError: realtimeState.lastError,
+          syncIssues: effectiveSyncIssues,
         ),
       ),
     );
   }
 
   void _handleRealtimeState(RealtimeSyncState realtimeState) {
+    final queueState = _syncQueueService.state;
+    final shouldClearStaleIssues = _shouldClearStaleSyncIssues(
+      queueState: queueState,
+      realtimeState: realtimeState,
+    );
+    final effectiveSyncIssues = shouldClearStaleIssues
+        ? const <String>[]
+        : _state.lastSyncIssues;
+
     _setState(
       _state.copyWith(
         connectionStatus: realtimeState.connectionStatus,
+        lastSyncIssues: effectiveSyncIssues,
         currentErrors: _combineErrors(
-          queueError: _syncQueueService.state.lastError,
+          queueError: queueState.lastError,
           realtimeError: realtimeState.lastError,
-          syncIssues: _state.lastSyncIssues,
+          syncIssues: effectiveSyncIssues,
         ),
         dataVersion: realtimeState.dataVersion > _state.dataVersion
             ? realtimeState.dataVersion
@@ -152,6 +182,33 @@ class SyncManager extends ChangeNotifier {
             realtimeState.lastDataChangedAt ?? _state.lastRealtimeEventAt,
       ),
     );
+  }
+
+  bool _shouldClearStaleSyncIssues({
+    required SyncQueueState queueState,
+    required RealtimeSyncState realtimeState,
+  }) {
+    if (_state.lastSyncIssues.isEmpty) {
+      return false;
+    }
+    if (_manualSyncInProgress) {
+      return false;
+    }
+
+    final queueError = queueState.lastError?.trim();
+    final realtimeError = realtimeState.lastError?.trim();
+    final hasActiveError =
+        (queueError != null && queueError.isNotEmpty) ||
+        (realtimeError != null && realtimeError.isNotEmpty);
+    if (hasActiveError) {
+      return false;
+    }
+
+    final isHealthy =
+        realtimeState.connectionStatus == SyncConnectionStatus.connected &&
+        !queueState.isProcessing &&
+        queueState.pendingCount == 0;
+    return isHealthy;
   }
 
   List<String> _combineErrors({
@@ -163,9 +220,9 @@ class SyncManager extends ChangeNotifier {
       if (queueError != null && queueError.trim().isNotEmpty) queueError.trim(),
       if (realtimeError != null && realtimeError.trim().isNotEmpty)
         realtimeError.trim(),
-      ...syncIssues.where((issue) => issue.trim().isNotEmpty).map(
-        (issue) => issue.trim(),
-      ),
+      ...syncIssues
+          .where((issue) => issue.trim().isNotEmpty)
+          .map((issue) => issue.trim()),
     }.toList(growable: false);
   }
 

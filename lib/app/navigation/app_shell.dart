@@ -652,6 +652,12 @@ class _ShellHeader extends StatelessWidget {
               message: currentErrors.first,
               onRetry: isSyncing ? null : onTriggerSync,
             ),
+          ] else if (unresolvedConflictCount > 0) ...[
+            const SizedBox(height: 10),
+            _SyncAlertBanner(
+              message:
+                  'Hay $unresolvedConflictCount conflicto(s) de sincronización por resolver.',
+            ),
           ],
         ],
       ),
@@ -682,10 +688,14 @@ class _SyncStatusBadge extends StatelessWidget {
     late final String label;
     late final IconData icon;
 
-    if (hasErrors || unresolvedConflictCount > 0) {
+    if (hasErrors) {
       color = const Color(0xFFD9534F);
       label = 'Error';
       icon = Icons.error_rounded;
+    } else if (unresolvedConflictCount > 0) {
+      color = const Color(0xFFE2A400);
+      label = 'Conflictos';
+      icon = Icons.warning_amber_rounded;
     } else if (isSyncing ||
         pendingCount > 0 ||
         connectionStatus != SyncConnectionStatus.connected) {

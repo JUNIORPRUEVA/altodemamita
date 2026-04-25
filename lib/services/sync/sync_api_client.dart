@@ -226,7 +226,9 @@ class SyncApiClient {
 
     Map<String, dynamic> decodedBody;
     try {
-      decodedBody = _unwrapResponseEnvelope(_decodeJsonObject(responseBody));
+      decodedBody = _unwrapErrorEnvelope(
+        _unwrapResponseEnvelope(_decodeJsonObject(responseBody)),
+      );
     } on FormatException {
       throw HttpException(serverConnectionErrorMessage, uri: uri);
     }
@@ -282,6 +284,17 @@ class SyncApiClient {
     }
 
     return decodedBody;
+  }
+
+  Map<String, dynamic> _unwrapErrorEnvelope(Map<String, dynamic> payload) {
+    final error = payload['error'];
+    if (error is Map<String, dynamic>) {
+      return error;
+    }
+    if (error is Map) {
+      return error.map((key, value) => MapEntry(key.toString(), value));
+    }
+    return payload;
   }
 
   Map<String, dynamic> _unwrapResponseEnvelope(Map<String, dynamic> payload) {

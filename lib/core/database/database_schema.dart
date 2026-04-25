@@ -7,7 +7,7 @@ import '../security/password_hasher.dart';
 
 class DatabaseSchema {
   static const String databaseName = 'sistema_solares.db';
-  static const int databaseVersion = 17;
+  static const int databaseVersion = 18;
   static const String defaultSyncBaseUrl = BASE_URL;
 
   static const String clientsTable = 'clientes';
@@ -91,6 +91,7 @@ class DatabaseSchema {
     await _migrateToVersion15(db);
     await _migrateToVersion16(db);
     await _migrateToVersion17(db);
+    await _migrateToVersion18(db);
   }
 
   static Future<void> ensureCoreStructures(DatabaseExecutor db) async {
@@ -317,7 +318,85 @@ class DatabaseSchema {
       await _migrateToVersion17(db);
     }
 
+    if (oldVersion < 18 && newVersion >= 18) {
+      await _migrateToVersion18(db);
+    }
+
     await seedDefaults(db);
+  }
+
+  static Future<void> _migrateToVersion18(DatabaseExecutor db) async {
+    if (!await _tableExists(db, conflictLogsTable)) {
+      return;
+    }
+
+    // Deduplicate open conflicts (same scope + record_sync_id) by keeping only
+    // the latest row and auto-resolving older duplicates.
+    await db.execute('''
+      UPDATE $conflictLogsTable
+      SET
+        resolution = COALESCE(resolution, 'deduped'),
+        resolved_at = COALESCE(
+          resolved_at,
+          strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        )
+      WHERE resolved_at IS NULL
+        AND id NOT IN (
+          SELECT MAX(id)
+          FROM $conflictLogsTable
+          WHERE resolved_at IS NULL
+          GROUP BY scope, record_sync_id
+        )
+    ''');
+
+    // Prevent future duplicates for unresolved conflicts.
+    await db.execute('''
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_conflict_logs_open
+      ON $conflictLogsTable(scope, record_sync_id)
+      WHERE resolved_at IS NULL
+    ''');
+
+    // Existing clients might be stuck because older builds marked records as
+    // sync_status='conflict' and removed them from the queue. There's no UI to
+    // manually resolve conflicts yet, so we unblock by:
+    // 1) resetting scope tables back to sync_status='synced'
+    // 2) marking any remaining open conflict logs as resolved.
+    final now = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
+    final scopeToTable = <String, String>{
+      'clients': clientsTable,
+      'sellers': sellersTable,
+      'products': lotsTable,
+      'sales': salesTable,
+      'installments': installmentsTable,
+      'payments': paymentsTable,
+    };
+
+    for (final entry in scopeToTable.entries) {
+      final scope = entry.key;
+      final tableName = entry.value;
+      if (!await _tableExists(db, tableName)) {
+        continue;
+      }
+
+      await db.execute('''
+        UPDATE $tableName
+        SET sync_status = '$syncStatusSynced'
+        WHERE sync_status = '$syncStatusConflict'
+          AND sync_id IN (
+            SELECT record_sync_id
+            FROM $conflictLogsTable
+            WHERE scope = '$scope' AND resolved_at IS NULL
+          )
+      ''');
+    }
+
+    await db.execute('''
+      UPDATE $conflictLogsTable
+      SET
+        resolution = COALESCE(resolution, 'migrated_autoresolved'),
+        resolved_at = COALESCE(resolved_at, $now)
+      WHERE resolved_at IS NULL
+    ''');
   }
 
   static Future<void> _migrateToVersion17(DatabaseExecutor db) async {

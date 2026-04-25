@@ -11,6 +11,7 @@ import '../../core/database/database_schema.dart';
 import '../../core/config/app_flags.dart';
 import '../../core/system/system_config_service.dart';
 import '../../core/utils/client_data_guard.dart';
+import '../../models/sync/sync_conflict_strategy.dart';
 import '../../models/sync/sync_runtime_state.dart';
 import '../../models/sync/sync_settings.dart';
 import '../../repositories/sync_repository.dart';
@@ -78,6 +79,7 @@ class SyncQueueService {
   final Map<String, SyncRepository> _repositoriesByScope = {};
   final StreamController<SyncQueueState> _stateController =
       StreamController<SyncQueueState>.broadcast();
+  final Set<String> _conflictRecoveryDownloadedScopes = {};
 
   static const List<String> _syncOrder = [
     'clients',
@@ -94,6 +96,15 @@ class SyncQueueService {
     'sales': ['clients', 'products'],
     'installments': ['sales'],
     'payments': ['sales'],
+  };
+
+  static const Map<String, String> _scopeTableMap = {
+    'clients': DatabaseSchema.clientsTable,
+    'products': DatabaseSchema.lotsTable,
+    'sellers': DatabaseSchema.sellersTable,
+    'sales': DatabaseSchema.salesTable,
+    'installments': DatabaseSchema.installmentsTable,
+    'payments': DatabaseSchema.paymentsTable,
   };
 
   Timer? _retryTimer;
@@ -131,7 +142,124 @@ class SyncQueueService {
       unawaited(processQueue());
     });
     await _refreshState();
+
+    // Recovery: records marked as conflict are not enqueued by refreshScope()
+    // (only pending records are). If the backend conflict payload is now
+    // parseable, we can safely re-queue these so the queue can attempt upload
+    // again and auto-resolve when the server returns authoritative records.
+    unawaited(requeueUnresolvedConflicts());
+
     unawaited(processQueue());
+  }
+
+  Future<int> requeueUnresolvedConflicts({Iterable<String>? scopes}) async {
+    if (SystemConfigService.instance.isReadOnly) {
+      return 0;
+    }
+
+    final normalizedScopes = (scopes ?? _scopeTableMap.keys)
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toSet();
+    if (normalizedScopes.isEmpty) {
+      return 0;
+    }
+
+    final db = await _appDatabase.database;
+    final rows = await db.rawQuery(
+      'SELECT DISTINCT scope, record_sync_id '
+      'FROM ${DatabaseSchema.conflictLogsTable} '
+      'WHERE resolved_at IS NULL',
+    );
+
+    final idsByScope = <String, Set<String>>{};
+    for (final row in rows) {
+      final scope = row['scope']?.toString().trim() ?? '';
+      if (scope.isEmpty || !normalizedScopes.contains(scope)) {
+        continue;
+      }
+      final recordSyncId = row['record_sync_id']?.toString().trim() ?? '';
+      if (recordSyncId.isEmpty) {
+        continue;
+      }
+      idsByScope.putIfAbsent(scope, () => <String>{}).add(recordSyncId);
+    }
+
+    var updatedCount = 0;
+    for (final entry in idsByScope.entries) {
+      final scope = entry.key;
+      final table = _scopeTableMap[scope];
+      final repository = _repositoriesByScope[scope];
+      if (table == null || repository == null) {
+        continue;
+      }
+
+      try {
+        final tableRows = await db.rawQuery(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+          [table],
+        );
+        if (tableRows.isEmpty) {
+          continue;
+        }
+
+        final columns = await db.rawQuery('PRAGMA table_info($table)');
+        final columnNames = columns
+            .map((row) => row['name'])
+            .whereType<String>()
+            .toSet();
+        if (!columnNames.contains('sync_id') ||
+            !columnNames.contains('sync_status')) {
+          continue;
+        }
+      } on DatabaseException catch (error) {
+        _log(
+          'requeueUnresolvedConflicts -> no se pudo inspeccionar tabla $table ($scope): $error',
+        );
+        continue;
+      }
+
+      final ids = entry.value.toList(growable: false);
+      const chunkSize = 200;
+      for (var offset = 0; offset < ids.length; offset += chunkSize) {
+        final chunk = ids.sublist(
+          offset,
+          (offset + chunkSize) > ids.length ? ids.length : (offset + chunkSize),
+        );
+        final placeholders = List.filled(chunk.length, '?').join(', ');
+        try {
+          updatedCount += await db.rawUpdate(
+            'UPDATE $table '
+            'SET sync_status = ? '
+            'WHERE sync_status = ? AND sync_id IN ($placeholders)',
+            [
+              DatabaseSchema.syncStatusPending,
+              DatabaseSchema.syncStatusConflict,
+              ...chunk,
+            ],
+          );
+        } on DatabaseException catch (error) {
+          _log(
+            'requeueUnresolvedConflicts -> fallo UPDATE en $table ($scope): $error',
+          );
+        }
+      }
+
+      try {
+        await refreshScope(scope);
+      } catch (error) {
+        _log(
+          'requeueUnresolvedConflicts -> fallo refreshScope($scope): $error',
+        );
+      }
+    }
+
+    if (updatedCount > 0) {
+      await _refreshState(clearLastError: true);
+      unawaited(processQueue());
+    }
+
+    return updatedCount;
   }
 
   void dispose() {
@@ -471,12 +599,49 @@ class SyncQueueService {
               ? [entryItems.single.recordSyncId]
               : conflictIds;
 
-          await repository.markAsConflict(affectedIds);
+          final returnedSyncIds = error.returnedRecords
+              .map(_readReturnedRecordSyncId)
+              .whereType<String>()
+              .toSet();
+          final autoResolvedIds = affectedIds
+              .where((id) => returnedSyncIds.contains(id))
+              .toList(growable: false);
+          final stillConflictedIds = affectedIds
+              .where((id) => !returnedSyncIds.contains(id))
+              .toList(growable: false);
+
+          if (stillConflictedIds.isNotEmpty) {
+            await repository.markAsConflict(stillConflictedIds);
+          }
+
           await _conflictService.logUploadConflicts(
             scope: scope,
             queuedItems: entryItems,
             exception: error,
           );
+
+          // If the backend didn't include authoritative records in the 409 payload,
+          // try recovering by downloading the server state once for this scope.
+          if (stillConflictedIds.isNotEmpty && error.returnedRecords.isEmpty) {
+            await _attemptConflictRecoveryDownload(
+              scope: scope,
+              settings: settings,
+              repository: repository,
+              conflictedIds: stillConflictedIds,
+            );
+          }
+
+          if (autoResolvedIds.isNotEmpty) {
+            await repository.markAsSynced(autoResolvedIds);
+            await _conflictService.resolveConflicts(
+              scope: scope,
+              recordSyncIds: autoResolvedIds,
+              resolution: error.strategy == SyncConflictStrategy.manual
+                  ? 'server_won'
+                  : error.strategy.storageValue,
+            );
+          }
+
           await _deleteQueuedRecords(scope, affectedIds);
 
           final retryIds = entryItems
@@ -490,7 +655,9 @@ class SyncQueueService {
               errorMessage: error.message,
             );
           }
-          unavailableScopes.add(scope);
+          if (stillConflictedIds.isNotEmpty) {
+            unavailableScopes.add(scope);
+          }
         } on SocketException catch (error) {
           await _syncLogger.log(
             action: 'upload',
@@ -546,6 +713,7 @@ class SyncQueueService {
           errorMessage: null,
           status: SyncRuntimeStatus.pending,
         );
+        await _refreshState(clearLastError: true);
         return 0;
       }
       rethrow;
@@ -571,7 +739,7 @@ class SyncQueueService {
     } on DatabaseException catch (error) {
       if (_isDatabaseClosedError(error)) {
         _log('SQLite se cerro durante syncPending -> se reintentara luego');
-        await _refreshState();
+        await _refreshState(clearLastError: true);
         return 0;
       }
       rethrow;
@@ -838,9 +1006,16 @@ class SyncQueueService {
     await _refreshState(lastError: errorMessage);
   }
 
-  Future<void> _refreshState({String? lastError}) async {
+  Future<void> _refreshState({
+    String? lastError,
+    bool clearLastError = false,
+  }) async {
     final pending = await pendingCount();
-    final resolvedError = lastError ?? (pending == 0 ? null : _state.lastError);
+    final resolvedError = await _resolveLastError(
+      pendingCount: pending,
+      lastErrorOverride: lastError,
+      clearLastError: clearLastError,
+    );
     final nextState = SyncQueueState(
       pendingCount: pending,
       isProcessing: _isProcessing,
@@ -849,6 +1024,53 @@ class SyncQueueService {
     _state = nextState;
     if (!_stateController.isClosed) {
       _stateController.add(nextState);
+    }
+  }
+
+  Future<String?> _resolveLastError({
+    required int pendingCount,
+    required String? lastErrorOverride,
+    required bool clearLastError,
+  }) async {
+    if (clearLastError || pendingCount == 0) {
+      return null;
+    }
+
+    final override = lastErrorOverride?.trim();
+    if (override != null && override.isNotEmpty) {
+      return override;
+    }
+
+    // If there are pending items but none has a recorded `last_error`,
+    // we should not show a global "Error" badge.
+    // Instead, leave it null so the UI shows "Pendiente".
+    final latestItemError = await _loadLatestQueueItemError();
+    final normalized = latestItemError?.trim();
+    return normalized == null || normalized.isEmpty ? null : normalized;
+  }
+
+  Future<String?> _loadLatestQueueItemError() async {
+    try {
+      final db = await _appDatabase.database;
+      final rows = await db.query(
+        DatabaseSchema.syncQueueTable,
+        columns: ['last_error'],
+        where: "last_error IS NOT NULL AND TRIM(last_error) != ''",
+        orderBy: 'updated_at DESC, id DESC',
+        limit: 1,
+      );
+      if (rows.isEmpty) {
+        return null;
+      }
+      return rows.first['last_error']?.toString();
+    } on DatabaseException catch (error) {
+      if (_isDatabaseClosedError(error)) {
+        _log(
+          'SQLite cerrandose durante _loadLatestQueueItemError -> se conserva estado local',
+        );
+        return _state.lastError;
+      }
+      rethrow;
     }
   }
 
@@ -902,6 +1124,59 @@ class SyncQueueService {
       }
     }
     return latest;
+  }
+
+  Future<void> _attemptConflictRecoveryDownload({
+    required String scope,
+    required SyncSettings settings,
+    required SyncRepository repository,
+    required List<String> conflictedIds,
+  }) async {
+    if (_conflictRecoveryDownloadedScopes.contains(scope)) {
+      return;
+    }
+    _conflictRecoveryDownloadedScopes.add(scope);
+
+    try {
+      _log(
+        'CONFLICT RECOVERY -> scope=$scope conflicted=${conflictedIds.length} descargando estado remoto completo',
+      );
+      final response = await _apiClient.downloadChanges(
+        settings: settings,
+        updatedSince: null,
+      );
+      final scopeRecords = response.recordsForScope(scope);
+      if (scopeRecords.isEmpty) {
+        return;
+      }
+
+      await repository.mergeRemoteRecords(scopeRecords);
+
+      final downloadedIds = scopeRecords
+          .map(_readReturnedRecordSyncId)
+          .whereType<String>()
+          .toSet();
+      final resolvedIds = conflictedIds
+          .where((id) => downloadedIds.contains(id))
+          .toList(growable: false);
+      if (resolvedIds.isEmpty) {
+        return;
+      }
+
+      await repository.markAsSynced(resolvedIds);
+      await _conflictService.resolveConflicts(
+        scope: scope,
+        recordSyncIds: resolvedIds,
+        resolution: 'server_won',
+      );
+
+      final cursor = _findLatestTimestamp(scopeRecords);
+      if (cursor != null) {
+        await _configRepository.saveCursor(scope, cursor);
+      }
+    } catch (error) {
+      _log('CONFLICT RECOVERY ERROR -> scope=$scope : $error');
+    }
   }
 }
 
