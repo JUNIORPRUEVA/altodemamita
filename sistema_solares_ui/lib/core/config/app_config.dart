@@ -7,8 +7,7 @@ import 'package:http/http.dart' as http;
 class AppConfig {
   static const String _defaultApiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue:
-        'https://altodemanita-altodemamita-backend.onqyr1.easypanel.host/api',
+    defaultValue: 'https://altodemamita.com/api',
   );
 
   static String _apiBaseUrl = _defaultApiBaseUrl;

@@ -219,11 +219,21 @@ class _DetailHeader extends StatelessWidget {
               color: const Color(0xFFF1F4FA),
               borderRadius: BorderRadius.circular(compact ? 12 : 14),
             ),
-            child: Icon(
-              Icons.receipt_long_outlined,
-              size: compact ? 18 : 20,
-              color: const Color(0xFF274567),
-            ),
+            child: compact
+                ? IconButton(
+                    tooltip: 'Atrás',
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.arrow_back, size: 18),
+                    style: IconButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      foregroundColor: const Color(0xFF274567),
+                    ),
+                  )
+                : const Icon(
+                    Icons.receipt_long_outlined,
+                    size: 20,
+                    color: Color(0xFF274567),
+                  ),
           );
 
           final titleBlock = Column(
@@ -504,6 +514,7 @@ class _SaleInstallmentsPage extends StatelessWidget {
     return Scaffold(
       backgroundColor: const Color(0xFFF6F8FC),
       appBar: AppBar(
+        leading: BackButton(onPressed: () => Navigator.of(context).pop()),
         title: const Text('Cuotas'),
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,

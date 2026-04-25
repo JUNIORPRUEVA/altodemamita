@@ -1,8 +1,6 @@
-const String BASE_URL =
-  'https://altodemanita-altodemamita-backend.onqyr1.easypanel.host/';
+const String BASE_URL = 'https://altodemamita.com/';
 
-const String serverConnectionErrorMessage =
-    'Error de conexion con el servidor';
+const String serverConnectionErrorMessage = 'Error de conexion con el servidor';
 
 String normalizeBackendBaseUrl(String baseUrl) {
   final trimmed = baseUrl.trim();
