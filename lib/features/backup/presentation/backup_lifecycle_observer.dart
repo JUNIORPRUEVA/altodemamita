@@ -27,17 +27,21 @@ class BackupLifecycleObserver extends WidgetsBindingObserver {
           // BackupService closes/reopens SQLite; deferring avoids stalling the UI
           // and reduces perceived startup time.
           _startupBackupTimer?.cancel();
-          _startupBackupTimer = Timer(const Duration(seconds: 4), () {
+          _startupBackupTimer = Timer(const Duration(seconds: 30), () {
             unawaited(_performStartupBackup());
           });
         }
         break;
       case AppLifecycleState.paused:
-      case AppLifecycleState.detached:
       case AppLifecycleState.hidden:
-        // App is being backgrounded or closed
+        // Desktop apps can enter paused/hidden while still running.
+        // Avoid closing/reopening SQLite here because it can race with sync.
+        print('[LIFECYCLE] App paused/hidden - omitiendo backup de shutdown');
+        break;
+      case AppLifecycleState.detached:
+        // App is being closed
         print(
-          '[LIFECYCLE] App paused/closed - performing shutdown backup if configured',
+          '[LIFECYCLE] App detached - performing shutdown backup if configured',
         );
         await _performShutdownBackup();
         break;

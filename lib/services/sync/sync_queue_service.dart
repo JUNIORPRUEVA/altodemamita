@@ -20,7 +20,10 @@ import 'sync_config_repository.dart';
 import 'sync_logger.dart';
 
 class SyncOperationPendingException implements Exception {
-  const SyncOperationPendingException(this.message, {this.pendingItems = const []});
+  const SyncOperationPendingException(
+    this.message, {
+    this.pendingItems = const [],
+  });
 
   final String message;
   final List<SyncQueueItem> pendingItems;
@@ -60,8 +63,8 @@ class SyncQueueService {
        _apiClient = apiClient ?? SyncApiClient(),
        _conflictService = conflictService ?? SyncConflictService(),
        _connectivityProbe = connectivityProbe ?? _defaultConnectivityProbe,
-       _connectivityChanges = connectivityChanges ??
-           Connectivity().onConnectivityChanged;
+       _connectivityChanges =
+           connectivityChanges ?? Connectivity().onConnectivityChanged;
 
   static final SyncQueueService instance = SyncQueueService._();
 
@@ -146,12 +149,14 @@ class SyncQueueService {
     required String recordSyncId,
     required Map<String, Object?> payload,
   }) {
-    unawaited(_syncLogger.log(
-      action: 'enqueue',
-      entity: scope,
-      result: 'pending',
-      extra: {'operation': 'upsert', 'recordSyncId': recordSyncId},
-    ));
+    unawaited(
+      _syncLogger.log(
+        action: 'enqueue',
+        entity: scope,
+        result: 'pending',
+        extra: {'operation': 'upsert', 'recordSyncId': recordSyncId},
+      ),
+    );
 
     return _enqueue(
       scope: scope,
@@ -166,12 +171,14 @@ class SyncQueueService {
     required String recordSyncId,
     required Map<String, Object?> payload,
   }) {
-    unawaited(_syncLogger.log(
-      action: 'enqueue',
-      entity: scope,
-      result: 'pending',
-      extra: {'operation': 'delete', 'recordSyncId': recordSyncId},
-    ));
+    unawaited(
+      _syncLogger.log(
+        action: 'enqueue',
+        entity: scope,
+        result: 'pending',
+        extra: {'operation': 'delete', 'recordSyncId': recordSyncId},
+      ),
+    );
 
     return _enqueue(
       scope: scope,
@@ -217,7 +224,9 @@ class SyncQueueService {
       return int.tryParse(value.toString()) ?? 0;
     } on DatabaseException catch (error) {
       if (_isDatabaseClosedError(error)) {
-        _log('SQLite cerrandose durante pendingCount -> se conserva estado local');
+        _log(
+          'SQLite cerrandose durante pendingCount -> se conserva estado local',
+        );
         return _state.pendingCount;
       }
       rethrow;
@@ -251,11 +260,10 @@ class SyncQueueService {
 
     final pendingSummary = pendingItems
         .map((item) {
-        final resolvedError = item.lastError?.trim();
-        final lastError =
-          resolvedError == null || resolvedError.isEmpty
-          ? null
-          : resolvedError;
+          final resolvedError = item.lastError?.trim();
+          final lastError = resolvedError == null || resolvedError.isEmpty
+              ? null
+              : resolvedError;
           return lastError == null
               ? '${item.scope}:${item.recordSyncId}'
               : '${item.scope}:${item.recordSyncId} -> $lastError';
@@ -277,7 +285,10 @@ class SyncQueueService {
     throw SyncOperationPendingException(message, pendingItems: pendingItems);
   }
 
-  Future<int> processQueue({int limit = 100, bool includeDeferred = false}) async {
+  Future<int> processQueue({
+    int limit = 100,
+    bool includeDeferred = false,
+  }) async {
     if (SystemConfigService.instance.isReadOnly) {
       await _refreshState();
       return 0;
@@ -323,8 +334,12 @@ class SyncQueueService {
         ..sort((left, right) {
           final leftIndex = _syncOrder.indexOf(left.scope);
           final rightIndex = _syncOrder.indexOf(right.scope);
-          final normalizedLeft = leftIndex == -1 ? _syncOrder.length : leftIndex;
-          final normalizedRight = rightIndex == -1 ? _syncOrder.length : rightIndex;
+          final normalizedLeft = leftIndex == -1
+              ? _syncOrder.length
+              : leftIndex;
+          final normalizedRight = rightIndex == -1
+              ? _syncOrder.length
+              : rightIndex;
           final byScope = normalizedLeft.compareTo(normalizedRight);
           if (byScope != 0) {
             return byScope;
@@ -389,7 +404,9 @@ class SyncQueueService {
               .toSet();
           final acknowledgedSyncIds = returnedRecords
               .map(_readReturnedRecordSyncId)
-              .where((value) => value != null && uploadedSyncIds.contains(value))
+              .where(
+                (value) => value != null && uploadedSyncIds.contains(value),
+              )
               .cast<String>()
               .toSet()
               .toList(growable: false);
@@ -520,6 +537,18 @@ class SyncQueueService {
       }
 
       return processedCount;
+    } on DatabaseException catch (error) {
+      if (_isDatabaseClosedError(error)) {
+        _log(
+          'SQLite se cerro durante processQueue -> se omite ciclo y se reintentara',
+        );
+        await _configRepository.saveLastRun(
+          errorMessage: null,
+          status: SyncRuntimeStatus.pending,
+        );
+        return 0;
+      }
+      rethrow;
     } finally {
       _isProcessing = false;
       await _refreshState();
@@ -533,11 +562,20 @@ class SyncQueueService {
         .toSet()
         .toList(growable: false);
 
-    for (final scope in targetScopes) {
-      await refreshScope(scope);
-    }
+    try {
+      for (final scope in targetScopes) {
+        await refreshScope(scope);
+      }
 
-    return processQueue(includeDeferred: true);
+      return processQueue(includeDeferred: true);
+    } on DatabaseException catch (error) {
+      if (_isDatabaseClosedError(error)) {
+        _log('SQLite se cerro durante syncPending -> se reintentara luego');
+        await _refreshState();
+        return 0;
+      }
+      rethrow;
+    }
   }
 
   Future<void> _enqueue({
@@ -592,7 +630,9 @@ class SyncQueueService {
   }
 
   void _handleConnectivityChanged(List<ConnectivityResult> results) {
-    final hasInternet = results.any((result) => result != ConnectivityResult.none);
+    final hasInternet = results.any(
+      (result) => result != ConnectivityResult.none,
+    );
     if (!hasInternet) {
       _log('Sin internet -> la cola queda pendiente hasta reconectar');
       return;
@@ -616,9 +656,7 @@ class SyncQueueService {
     final rows = await db.query(
       DatabaseSchema.syncQueueTable,
       where: includeDeferred ? null : 'next_attempt_at <= ?',
-      whereArgs: includeDeferred
-          ? null
-          : [DateTime.now().toIso8601String()],
+      whereArgs: includeDeferred ? null : [DateTime.now().toIso8601String()],
       orderBy: 'created_at ASC, updated_at ASC, id ASC',
       limit: limit,
     );
@@ -712,12 +750,7 @@ class SyncQueueService {
       'UPDATE ${DatabaseSchema.clientsTable} '
       'SET deleted_at = ?, fecha_actualizacion = ?, sync_status = ? '
       'WHERE sync_id IN ($placeholders)',
-      [
-        now,
-        now,
-        DatabaseSchema.syncStatusSynced,
-        ...normalized,
-      ],
+      [now, now, DatabaseSchema.syncStatusSynced, ...normalized],
     );
   }
 
@@ -773,22 +806,22 @@ class SyncQueueService {
     final db = await _appDatabase.database;
     final now = DateTime.now();
     final placeholders = List.filled(ids.length, '?').join(', ');
-  final currentAttemptsRows = await db.rawQuery(
-    'SELECT MAX(attempt_count) AS attempt_count FROM ${DatabaseSchema.syncQueueTable} '
-    'WHERE scope = ? AND record_sync_id IN ($placeholders)',
-    [scope, ...ids],
-  );
-  final currentAttemptsValue = currentAttemptsRows.isEmpty
-    ? 0
-    : currentAttemptsRows.first['attempt_count'];
-  final currentAttempts = currentAttemptsValue is num
-    ? currentAttemptsValue.toInt()
-    : int.tryParse(currentAttemptsValue?.toString() ?? '') ?? 0;
-  final retryNumber = currentAttempts + 1;
-  final retryDelay = retryNumber <= 3
-    ? Duration(seconds: settings.queueRetryInterval.inSeconds * retryNumber)
-    : const Duration(minutes: 5);
-  final nextAttemptAt = now.add(retryDelay).toIso8601String();
+    final currentAttemptsRows = await db.rawQuery(
+      'SELECT MAX(attempt_count) AS attempt_count FROM ${DatabaseSchema.syncQueueTable} '
+      'WHERE scope = ? AND record_sync_id IN ($placeholders)',
+      [scope, ...ids],
+    );
+    final currentAttemptsValue = currentAttemptsRows.isEmpty
+        ? 0
+        : currentAttemptsRows.first['attempt_count'];
+    final currentAttempts = currentAttemptsValue is num
+        ? currentAttemptsValue.toInt()
+        : int.tryParse(currentAttemptsValue?.toString() ?? '') ?? 0;
+    final retryNumber = currentAttempts + 1;
+    final retryDelay = retryNumber <= 3
+        ? Duration(seconds: settings.queueRetryInterval.inSeconds * retryNumber)
+        : const Duration(minutes: 5);
+    final nextAttemptAt = now.add(retryDelay).toIso8601String();
     await db.rawUpdate(
       'UPDATE ${DatabaseSchema.syncQueueTable} '
       'SET attempt_count = attempt_count + 1, '
@@ -914,12 +947,16 @@ class SyncQueueItem {
         : <String, Object?>{};
 
     return SyncQueueItem(
-      id: map['id'] is int ? map['id'] as int : int.tryParse(map['id']?.toString() ?? '') ?? 0,
+      id: map['id'] is int
+          ? map['id'] as int
+          : int.tryParse(map['id']?.toString() ?? '') ?? 0,
       scope: map['scope'] as String? ?? '',
       recordSyncId: map['record_sync_id'] as String? ?? '',
       operation: map['operation'] as String? ?? 'upsert',
       payload: payload,
-      createdAt: DateTime.tryParse(map['created_at']?.toString() ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0),
+      createdAt:
+          DateTime.tryParse(map['created_at']?.toString() ?? '') ??
+          DateTime.fromMillisecondsSinceEpoch(0),
       lastError: map['last_error'] as String?,
     );
   }

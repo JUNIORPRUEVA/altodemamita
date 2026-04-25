@@ -206,12 +206,17 @@ class RealtimeSyncService {
       return normalizedBaseUrl.replaceFirst(RegExp(r'/api/?$'), '');
     }
 
-    final segments = parsed.pathSegments.where((segment) => segment.isNotEmpty).toList();
+    final segments = parsed.pathSegments
+        .where((segment) => segment.isNotEmpty)
+        .toList();
     if (segments.isNotEmpty && segments.last.toLowerCase() == 'api') {
       segments.removeLast();
     }
 
-    return parsed.replace(pathSegments: segments).toString().replaceAll(RegExp(r'/$'), '');
+    return parsed
+        .replace(pathSegments: segments)
+        .toString()
+        .replaceAll(RegExp(r'/$'), '');
   }
 
   Future<int> pollNow() async {
@@ -230,7 +235,18 @@ class RealtimeSyncService {
   }
 
   void _enqueueEvent(String eventName, dynamic payload) {
-    _eventQueue = _eventQueue.then((_) => _handleEvent(eventName, payload));
+    // Never let an exception permanently break the event queue.
+    // If a previous event failed, we still want to process future events.
+    _eventQueue = _eventQueue
+        .catchError((error, stackTrace) async {
+          await _syncLogger.log(
+            action: 'realtime-event-queue',
+            entity: 'sync',
+            result: 'error',
+            error: error.toString(),
+          );
+        })
+        .then((_) => _handleEvent(eventName, payload));
   }
 
   Future<int> _syncFromServer() async {
@@ -253,6 +269,15 @@ class RealtimeSyncService {
       }
       return downloadedCount;
     } catch (error) {
+      if (_isDatabaseClosedError(error)) {
+        await _syncLogger.log(
+          action: 'realtime-download',
+          entity: 'sync',
+          result: 'idle',
+          error: 'database_closed',
+        );
+        return 0;
+      }
       await _syncLogger.log(
         action: 'realtime-download',
         entity: 'sync',
@@ -266,26 +291,53 @@ class RealtimeSyncService {
   }
 
   Future<void> _handleEvent(String eventName, dynamic payload) async {
-    final deduplicationContext = _buildDeduplicationContext(eventName, payload);
-    if (_isDuplicateEvent(deduplicationContext)) {
+    try {
+      final deduplicationContext = _buildDeduplicationContext(
+        eventName,
+        payload,
+      );
+      if (_isDuplicateEvent(deduplicationContext)) {
+        return;
+      }
+
+      final scopes = resolveAffectedScopes(eventName, payload);
+      if (scopes.isEmpty) {
+        await _syncFromServer();
+        return;
+      }
+
+      int totalUpdated = 0;
+      for (final scope in scopes) {
+        totalUpdated += await _syncService.downloadUpdatesForScopes([scope]);
+      }
+
+      if (totalUpdated > 0) {
+        _notifyDataChanged();
+        _onDataChanged?.call();
+      }
+    } catch (error) {
+      if (_isDatabaseClosedError(error)) {
+        await _syncLogger.log(
+          action: 'realtime-event',
+          entity: eventName,
+          result: 'idle',
+          error: 'database_closed',
+        );
+        return;
+      }
+      await _syncLogger.log(
+        action: 'realtime-event',
+        entity: eventName,
+        result: 'error',
+        error: error.toString(),
+      );
+      // Swallow to keep the queue alive; polling/manual sync will recover.
       return;
     }
+  }
 
-    final scopes = resolveAffectedScopes(eventName, payload);
-    if (scopes.isEmpty) {
-      await _syncFromServer();
-      return;
-    }
-
-    int totalUpdated = 0;
-    for (final scope in scopes) {
-      totalUpdated += await _syncService.downloadUpdatesForScopes([scope]);
-    }
-
-    if (totalUpdated > 0) {
-      _notifyDataChanged();
-      _onDataChanged?.call();
-    }
+  bool _isDatabaseClosedError(Object error) {
+    return error.toString().toLowerCase().contains('database_closed');
   }
 
   bool registerEventForDeduplication(String eventName, dynamic payload) {
@@ -330,7 +382,13 @@ class RealtimeSyncService {
   List<String> resolveAffectedScopes(String eventName, dynamic payload) {
     switch (eventName) {
       case 'sale.created':
-        return const ['clients', 'products', 'sales', 'installments', 'payments'];
+        return const [
+          'clients',
+          'products',
+          'sales',
+          'installments',
+          'payments',
+        ];
       case 'payment.created':
         return const ['sales', 'installments', 'payments'];
       case 'entity.updated':
@@ -340,7 +398,13 @@ class RealtimeSyncService {
         }
         switch (inferredScope) {
           case 'sales':
-            return const ['clients', 'products', 'sales', 'installments', 'payments'];
+            return const [
+              'clients',
+              'products',
+              'sales',
+              'installments',
+              'payments',
+            ];
           case 'payments':
             return const ['sales', 'installments', 'payments'];
           case 'installments':
@@ -468,7 +532,10 @@ class RealtimeSyncService {
         _logEventDiagnostics('Realtime duplicate ignored', context);
         return true;
       }
-      _logEventDiagnostics('Realtime duplicate key reused with different content', context);
+      _logEventDiagnostics(
+        'Realtime duplicate key reused with different content',
+        context,
+      );
     }
 
     _recentEvents[context.key] = _RecentRealtimeEvent(
@@ -505,7 +572,8 @@ class RealtimeSyncService {
 
   dynamic _sortForSerialization(dynamic value) {
     if (value is Map) {
-      final sortedKeys = value.keys.map((key) => key.toString()).toList()..sort();
+      final sortedKeys = value.keys.map((key) => key.toString()).toList()
+        ..sort();
       return <String, dynamic>{
         for (final key in sortedKeys) key: _sortForSerialization(value[key]),
       };
