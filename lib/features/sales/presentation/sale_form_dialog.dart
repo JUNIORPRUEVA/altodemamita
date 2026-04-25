@@ -23,6 +23,10 @@ import '../domain/seller.dart';
 import '../presentation/sale_detail_dialog.dart';
 import '../presentation/seller_form_dialog.dart';
 
+const Key saleFormCreateClientButtonKey = Key('sale_form_create_client');
+const Key saleFormCreateSellerButtonKey = Key('sale_form_create_seller');
+const Key saleFormCreateLotButtonKey = Key('sale_form_create_lot');
+
 class SaleFormDialog extends StatefulWidget {
   const SaleFormDialog({
     super.key,
@@ -687,6 +691,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
       ),
       onSearch: _pickClientFromDialog,
       createLabel: _isCreatingClient ? 'Guardando...' : 'Nuevo cliente',
+      createKey: saleFormCreateClientButtonKey,
       onCreate: !_canCreateClients || _isCreatingClient
           ? null
           : _createClientQuickly,
@@ -731,6 +736,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
       ),
       onSearch: _pickSellerFromDialog,
       createLabel: _isCreatingSeller ? 'Guardando...' : 'Nuevo vendedor',
+      createKey: saleFormCreateSellerButtonKey,
       onCreate: !_canCreateSellers || _isCreatingSeller
           ? null
           : _createSellerQuickly,
@@ -794,6 +800,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
           ),
           onSearch: _pickLotFromDialog,
           createLabel: _isCreatingLot ? 'Guardando...' : 'Nuevo solar',
+          createKey: saleFormCreateLotButtonKey,
           onCreate: !_canCreateLots || _isCreatingLot
               ? null
               : _createLotQuickly,
@@ -1134,6 +1141,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
     required Widget field,
     required VoidCallback onSearch,
     required String createLabel,
+    Key? createKey,
     required VoidCallback? onCreate,
     List<Widget> trailingActions = const <Widget>[],
   }) {
@@ -1145,7 +1153,11 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
             tooltip: 'Buscar',
             onPressed: onSearch,
           ),
-          _buildCompactActionButton(label: createLabel, onPressed: onCreate),
+          _buildCompactActionButton(
+            key: createKey,
+            label: createLabel,
+            onPressed: onCreate,
+          ),
           ...trailingActions,
         ];
 
@@ -1267,10 +1279,12 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
   }
 
   Widget _buildCompactActionButton({
+    Key? key,
     required String label,
     required VoidCallback? onPressed,
   }) {
     return FilledButton.tonal(
+      key: key,
       onPressed: onPressed,
       style: FilledButton.styleFrom(
         minimumSize: const Size(0, 42),

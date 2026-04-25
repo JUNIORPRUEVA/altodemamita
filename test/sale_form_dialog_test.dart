@@ -351,8 +351,9 @@ void main() {
       );
       await _settle(tester);
 
-      await tester.ensureVisible(find.text('Nuevo cliente'));
-      await tester.tap(find.text('Nuevo cliente'));
+      final createClientButton = find.byKey(saleFormCreateClientButtonKey);
+      expect(createClientButton, findsOneWidget);
+      await tester.tap(createClientButton);
       await _settle(tester);
 
       await tester.enterText(
@@ -435,8 +436,9 @@ void main() {
       );
       await _settle(tester);
 
-      await tester.ensureVisible(find.text('Nuevo cliente'));
-      await tester.tap(find.text('Nuevo cliente'));
+      final createClientButton = find.byKey(saleFormCreateClientButtonKey);
+      expect(createClientButton, findsOneWidget);
+      await tester.tap(createClientButton);
       await _settle(tester);
 
       await tester.enterText(
@@ -508,11 +510,11 @@ void main() {
         ),
         findsOneWidget,
       );
-      expect(find.text('Nuevo cliente'), findsOneWidget);
+      expect(find.byKey(saleFormCreateClientButtonKey), findsOneWidget);
       expect(find.text('Seleccionar solar'), findsOneWidget);
       expect(find.text('Precio total'), findsOneWidget);
 
-      await tester.tap(find.text('Nuevo cliente'));
+      await tester.tap(find.byKey(saleFormCreateClientButtonKey));
       await _settle(tester);
 
       await tester.enterText(
@@ -588,8 +590,9 @@ void main() {
       );
       await _settle(tester);
 
-      await tester.ensureVisible(find.text('Nuevo solar'));
-      await tester.tap(find.text('Nuevo solar').last);
+      final createLotButton = find.byKey(saleFormCreateLotButtonKey);
+      expect(createLotButton, findsOneWidget);
+      await tester.tap(createLotButton);
       await _settle(tester);
 
       await tester.enterText(
@@ -651,7 +654,9 @@ void main() {
       );
       await _settle(tester);
 
-      await tester.tap(find.text('Nuevo solar'));
+      final createLotButton = find.byKey(saleFormCreateLotButtonKey);
+      expect(createLotButton, findsOneWidget);
+      await tester.tap(createLotButton);
       await _settle(tester);
 
       await tester.enterText(
@@ -787,7 +792,9 @@ void main() {
       );
       await _settle(tester);
 
-      await tester.tap(find.text('Nuevo solar'));
+      final createLotButton = find.byKey(saleFormCreateLotButtonKey);
+      expect(createLotButton, findsOneWidget);
+      await tester.tap(createLotButton);
       await _settle(tester);
 
       await tester.enterText(
@@ -935,8 +942,9 @@ void main() {
       );
       await _settle(tester);
 
-      await tester.ensureVisible(find.text('Nuevo vendedor'));
-      await tester.tap(find.text('Nuevo vendedor'));
+      final createSellerButton = find.byKey(saleFormCreateSellerButtonKey);
+      expect(createSellerButton, findsOneWidget);
+      await tester.tap(createSellerButton);
       await _settle(tester);
 
       await tester.enterText(

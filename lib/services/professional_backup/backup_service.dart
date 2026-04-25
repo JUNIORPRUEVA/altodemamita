@@ -9,7 +9,7 @@ import 'database_activity_guard.dart';
 import 'local_backup_agent.dart';
 import 'professional_restore_agent.dart';
 
-enum BackupTrigger { manual }
+enum BackupTrigger { manual, appShutdown }
 
 class BackupService {
   BackupService({
