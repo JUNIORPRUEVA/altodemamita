@@ -1,5 +1,6 @@
 import 'secure_token_storage_stub.dart'
-    if (dart.library.html) 'secure_token_storage_web.dart' as implementation;
+  if (dart.library.html) 'secure_token_storage_web.dart'
+  if (dart.library.io) 'secure_token_storage_io.dart' as implementation;
 
 abstract class SecureTokenStorage {
   factory SecureTokenStorage() => implementation.createSecureTokenStorage();

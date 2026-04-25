@@ -17,6 +17,22 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   String? _errorText;
   bool _obscurePassword = true;
+  bool _rememberMe = true;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final authController = context.read<AuthController>();
+      final rememberMe = await authController.getRememberMe();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _rememberMe = rememberMe;
+      });
+    });
+  }
 
   @override
   void dispose() {
@@ -38,6 +54,7 @@ class _LoginScreenState extends State<LoginScreen> {
       await authController.signIn(
         identifier: _identifierController.text,
         password: _passwordController.text,
+        rememberMe: _rememberMe,
       );
       if (!mounted) {
         return;
@@ -183,6 +200,35 @@ class _LoginScreenState extends State<LoginScreen> {
                                     },
                                   ),
                                   const SizedBox(height: 24),
+                                  SwitchListTile.adaptive(
+                                    contentPadding: EdgeInsets.zero,
+                                    title: const Text(
+                                      'Recordarme',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    subtitle: Text(
+                                      'Mantener sesion iniciada en este dispositivo',
+                                      style: TextStyle(
+                                        color: Colors.white.withValues(alpha: 0.72),
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                    value: _rememberMe,
+                                    onChanged: authController.isBusy
+                                        ? null
+                                        : (value) async {
+                                            setState(() {
+                                              _rememberMe = value;
+                                            });
+                                            await authController.setRememberMe(
+                                              value,
+                                            );
+                                          },
+                                  ),
+                                  const SizedBox(height: 16),
                                   FilledButton(
                                     onPressed: authController.isBusy ? null : _submit,
                                     style: FilledButton.styleFrom(

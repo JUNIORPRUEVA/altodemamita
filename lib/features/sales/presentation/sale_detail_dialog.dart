@@ -194,32 +194,23 @@ class _DialogHeader extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(width: 4),
-          PopupMenuButton<_SaleDetailHeaderAction>(
-            tooltip: '',
-            icon: const Icon(Icons.more_vert, size: 20),
-            onSelected: (action) async {
-              switch (action) {
-                case _SaleDetailHeaderAction.export:
-                  await _exportSaleDocument(context, detail);
-                  break;
-                case _SaleDetailHeaderAction.print:
-                  await _printSaleDocument(context, detail);
-                  break;
-              }
-            },
-            itemBuilder: (context) => const [
-              PopupMenuItem<_SaleDetailHeaderAction>(
-                value: _SaleDetailHeaderAction.export,
-                child: Text('Exportar'),
-              ),
-              PopupMenuItem<_SaleDetailHeaderAction>(
-                value: _SaleDetailHeaderAction.print,
-                child: Text('Imprimir'),
-              ),
-            ],
+          const SizedBox(width: 10),
+          IconButton(
+            tooltip: 'Exportar',
+            onPressed: () => _exportSaleDocument(context, detail),
+            icon: const Icon(Icons.file_download_outlined, size: 20),
+            style: IconButton.styleFrom(
+              foregroundColor: const Color(0xFF6B7494),
+            ),
           ),
-          const SizedBox(width: 4),
+          IconButton(
+            tooltip: 'Imprimir',
+            onPressed: () => _printSaleDocument(context, detail),
+            icon: const Icon(Icons.print_outlined, size: 20),
+            style: IconButton.styleFrom(
+              foregroundColor: const Color(0xFF6B7494),
+            ),
+          ),
           IconButton(
             onPressed: () => Navigator.of(context).pop(),
             icon: const Icon(Icons.close, size: 20),
@@ -450,48 +441,41 @@ class _InstallmentsSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isWindows =
-        !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
     final emptyMessage = detail.sale.isFinancingActive
         ? 'Esta venta no tiene cuotas generadas.'
         : 'Las cuotas se generarán cuando el inicial quede completado.';
     final hasInstallments = detail.installments.isNotEmpty;
-    final viewportHeight = math.min(
-      420.0,
-      math.max(180.0, MediaQuery.sizeOf(context).height * 0.42),
-    );
+    final viewportHeight = hasInstallments ? 160.0 : 120.0;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SectionTitle(title: 'Cuotas'),
+        const _SectionTitle(title: 'Cuotas amortizadas'),
         const SizedBox(height: 10),
         SizedBox(
-          height: hasInstallments ? viewportHeight : 120,
+          height: viewportHeight,
           child: Stack(
             children: [
               Positioned.fill(
-                child: hasInstallments && isWindows
-                    ? _InstallmentsTableViewport(detail: detail)
-                    : Container(
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFCFDFE),
-                          border: Border.all(color: const Color(0xFFE4EAF2)),
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        alignment: Alignment.center,
-                        padding: const EdgeInsets.symmetric(horizontal: 18),
-                        child: Text(
-                          hasInstallments
-                              ? 'Las cuotas están disponibles en pantalla completa.'
-                              : emptyMessage,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            color: Color(0xFF8893AA),
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFCFDFE),
+                    border: Border.all(color: const Color(0xFFE4EAF2)),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  alignment: Alignment.center,
+                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                  child: Text(
+                    hasInstallments
+                        ? 'Abre “Cuotas” para ver el detalle amortizado.'
+                        : emptyMessage,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: Color(0xFF8893AA),
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
               ),
               if (hasInstallments)
                 Positioned(
@@ -618,7 +602,7 @@ class _InstallmentsFullscreenPage extends StatelessWidget {
     return Scaffold(
       backgroundColor: const Color(0xFFF6F8FC),
       appBar: AppBar(
-        title: const Text('Cuotas'),
+        title: const Text('Cuotas amortizadas'),
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
       ),
@@ -772,13 +756,8 @@ class _InlineMetricChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF6F8FC),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFE4EAF2)),
-      ),
+    return SizedBox(
+      width: 108,
       child: Text.rich(
         TextSpan(
           children: [

@@ -212,6 +212,42 @@ class _DetailHeader extends StatelessWidget {
             ],
           );
 
+          final actions = Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                tooltip: 'Exportar',
+                onPressed: () => _showPrintHint(context, 'Exportar PDF'),
+                icon: const Icon(Icons.file_download_outlined, size: 20),
+                style: IconButton.styleFrom(
+                  padding: EdgeInsets.zero,
+                  minimumSize: const Size(34, 34),
+                  foregroundColor: const Color(0xFF6A7684),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Imprimir',
+                onPressed: () => _showPrintHint(context, 'Imprimir'),
+                icon: const Icon(Icons.print_outlined, size: 20),
+                style: IconButton.styleFrom(
+                  padding: EdgeInsets.zero,
+                  minimumSize: const Size(34, 34),
+                  foregroundColor: const Color(0xFF6A7684),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Cerrar',
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.close),
+                style: IconButton.styleFrom(
+                  padding: EdgeInsets.zero,
+                  minimumSize: const Size(34, 34),
+                  foregroundColor: const Color(0xFF6A7684),
+                ),
+              ),
+            ],
+          );
+
           final leading = Container(
             width: compact ? 36 : 42,
             height: compact ? 36 : 42,
@@ -295,15 +331,7 @@ class _DetailHeader extends StatelessWidget {
                             ),
                             child: menuButton,
                           )
-                        : IconButton(
-                            onPressed: () => Navigator.of(context).pop(),
-                            icon: const Icon(Icons.close),
-                            style: IconButton.styleFrom(
-                              padding: EdgeInsets.zero,
-                              minimumSize: const Size(32, 32),
-                              foregroundColor: const Color(0xFF6A7684),
-                            ),
-                          ),
+                        : actions,
                   ],
                 ),
                 if (!compact) ...[
@@ -340,15 +368,7 @@ class _DetailHeader extends StatelessWidget {
                       ),
                       child: menuButton,
                     )
-                  : IconButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      icon: const Icon(Icons.close),
-                      style: IconButton.styleFrom(
-                        padding: EdgeInsets.zero,
-                        minimumSize: const Size(34, 34),
-                        foregroundColor: const Color(0xFF6A7684),
-                      ),
-                    ),
+                  : actions,
             ],
           );
         },
@@ -515,7 +535,7 @@ class _SaleInstallmentsPage extends StatelessWidget {
       backgroundColor: const Color(0xFFF6F8FC),
       appBar: AppBar(
         leading: BackButton(onPressed: () => Navigator.of(context).pop()),
-        title: const Text('Cuotas'),
+        title: const Text('Cuotas amortizadas'),
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
       ),
@@ -686,34 +706,31 @@ class _AmountChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final tone = emphasize ? const Color(0xFF14385F) : const Color(0xFF6B7682);
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF7F9FC),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: const Color(0xFFE4EAF2)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            '$label:',
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
-              color: tone,
+    return SizedBox(
+      width: 108,
+      child: Text.rich(
+        TextSpan(
+          children: [
+            TextSpan(
+              text: '$label: ',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+                color: tone,
+              ),
             ),
-          ),
-          const SizedBox(width: 6),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 11.5,
-              fontWeight: FontWeight.w800,
-              color: tone,
+            TextSpan(
+              text: value,
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w800,
+                color: tone,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
       ),
     );
   }

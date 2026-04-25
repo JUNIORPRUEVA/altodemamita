@@ -83,14 +83,6 @@
           await Promise.all(cacheKeys.map((cacheKey) => caches.delete(cacheKey)));
         }
 
-        if (window.localStorage) {
-          window.localStorage.clear();
-        }
-
-        if (window.sessionStorage) {
-          window.sessionStorage.clear();
-        }
-
         if (window.indexedDB && typeof window.indexedDB.databases === 'function') {
           const databases = await window.indexedDB.databases();
           await Promise.all(
@@ -109,8 +101,8 @@
 
       async function runPreflightCacheReset() {
         const expectedMarker = `${window.location.origin}|cache-reset-v2`;
-        const previousMarker = window.sessionStorage
-          ? window.sessionStorage.getItem(preflightResetKey)
+        const previousMarker = window.localStorage
+          ? window.localStorage.getItem(preflightResetKey)
           : null;
 
         if (previousMarker === expectedMarker) {
@@ -121,8 +113,8 @@
         const hasCacheStorage = 'caches' in window;
 
         if (!hasController && !hasCacheStorage) {
-          if (window.sessionStorage) {
-            window.sessionStorage.setItem(preflightResetKey, expectedMarker);
+          if (window.localStorage) {
+            window.localStorage.setItem(preflightResetKey, expectedMarker);
           }
           return false;
         }
@@ -133,8 +125,8 @@
           hasCacheStorage,
         });
         await clearBrowserState();
-        if (window.sessionStorage) {
-          window.sessionStorage.setItem(preflightResetKey, expectedMarker);
+        if (window.localStorage) {
+          window.localStorage.setItem(preflightResetKey, expectedMarker);
         }
         return true;
       }

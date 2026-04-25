@@ -75,6 +75,7 @@ class AuthController extends ChangeNotifier {
 
   static const _jwtStorageKey = 'panel.jwt';
   static const _userStorageKey = 'panel.user.basic';
+  static const _rememberMeStorageKey = 'panel.remember_me';
   static const Duration _refreshThreshold = Duration(hours: 6);
 
   final ApiClient _apiClient;
@@ -162,12 +163,14 @@ class AuthController extends ChangeNotifier {
   Future<void> signIn({
     required String identifier,
     required String password,
+    bool rememberMe = true,
   }) async {
     _busy = true;
     _errorMessage = null;
     notifyListeners();
 
     try {
+      await setRememberMe(rememberMe);
       final response =
           await _apiClient.post(
                 '/auth/login',
@@ -212,6 +215,25 @@ class AuthController extends ChangeNotifier {
       _busy = false;
       notifyListeners();
     }
+  }
+
+  Future<bool> getRememberMe() async {
+    final raw = await _tokenStorage.readToken(_rememberMeStorageKey);
+    if (raw == null) {
+      return true;
+    }
+    final normalized = raw.trim().toLowerCase();
+    if (normalized.isEmpty) {
+      return true;
+    }
+    return normalized == '1' || normalized == 'true' || normalized == 'yes';
+  }
+
+  Future<void> setRememberMe(bool enabled) {
+    return _tokenStorage.writeToken(
+      _rememberMeStorageKey,
+      enabled ? '1' : '0',
+    );
   }
 
   Future<void> signOut({bool notify = true}) async {
