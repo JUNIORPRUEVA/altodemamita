@@ -34,6 +34,8 @@ const salesAgentPermissions = [
   'installments.write',
 ];
 
+const REFRESH_GRACE_SECONDS = 30 * 24 * 60 * 60; // 30 days
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -74,6 +76,72 @@ export class AuthService {
     }
 
     const payload = this.buildJwtPayload(user, dto.clientType ?? 'desktop');
+    const accessToken = await this.jwtService.signAsync(payload);
+
+    return {
+      accessToken,
+      user: payload,
+    };
+  }
+
+  async refreshToken(params: {
+    token?: string;
+    clientType?: 'desktop' | 'panel';
+    authorization?: string;
+  }) {
+    const tokenFromHeader = (params.authorization ?? '').startsWith('Bearer ')
+      ? (params.authorization ?? '').slice('Bearer '.length).trim()
+      : '';
+    const rawToken = (params.token ?? '').trim() || tokenFromHeader;
+
+    if (!rawToken) {
+      throw new UnauthorizedException('Token requerido para refrescar la sesión.');
+    }
+
+    let decoded: Record<string, unknown>;
+    try {
+      decoded = (await this.jwtService.verifyAsync(rawToken, {
+        ignoreExpiration: true,
+      })) as Record<string, unknown>;
+    } catch {
+      throw new UnauthorizedException('Token inválido.');
+    }
+
+    const sub = decoded['sub']?.toString() ?? '';
+    if (!sub) {
+      throw new UnauthorizedException('Token inválido.');
+    }
+
+    const iatRaw = decoded['iat'];
+    const iatSeconds =
+      typeof iatRaw === 'number'
+        ? iatRaw
+        : Number.isFinite(Number(iatRaw))
+          ? Number(iatRaw)
+          : null;
+
+    if (iatSeconds == null) {
+      throw new UnauthorizedException('Token inválido.');
+    }
+
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    if (nowSeconds - iatSeconds > REFRESH_GRACE_SECONDS) {
+      throw new UnauthorizedException(
+        'La sesión expiró. Inicia sesión nuevamente para continuar.',
+      );
+    }
+
+    const tokenClientType = decoded['type']?.toString();
+    const clientType =
+      params.clientType ??
+      (tokenClientType === 'panel' ? 'panel' : 'desktop');
+
+    const user = await this.findUserEntity(sub);
+    if (!user || user.deletedAt != null || user.isActive !== true) {
+      throw new UnauthorizedException('El usuario ya no está activo.');
+    }
+
+    const payload = this.buildJwtPayload(user, clientType);
     const accessToken = await this.jwtService.signAsync(payload);
 
     return {

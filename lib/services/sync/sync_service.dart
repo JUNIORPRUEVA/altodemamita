@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import '../../core/config/backend_config.dart';
@@ -100,6 +101,8 @@ class SyncService {
         }
         return skipped;
       }
+
+      await _refreshJwtTokenIfNeeded(settings);
 
       final uploadedCount = await uploadPendingData();
       final downloadedCount = _downloadFromCloudEnabled
@@ -253,6 +256,100 @@ class SyncService {
       return report;
     } finally {
       _isSyncing = false;
+    }
+  }
+
+  static const Duration _jwtRefreshThreshold = Duration(hours: 6);
+
+  bool _isJwtExpiringSoon(String token) {
+    final parts = token.split('.');
+    if (parts.length != 3) {
+      return false;
+    }
+    try {
+      final normalized = base64Url.normalize(parts[1]);
+      final payload = jsonDecode(utf8.decode(base64Url.decode(normalized)));
+      if (payload is! Map) {
+        return false;
+      }
+      final expRaw = payload['exp'];
+      final expSeconds = expRaw is num
+          ? expRaw.toInt()
+          : int.tryParse('$expRaw');
+      if (expSeconds == null) {
+        return false;
+      }
+      final expiresAt = DateTime.fromMillisecondsSinceEpoch(expSeconds * 1000);
+      return expiresAt.isBefore(DateTime.now().add(_jwtRefreshThreshold));
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _refreshJwtTokenIfNeeded(SyncSettings settings) async {
+    final token = settings.jwtToken.trim();
+    if (token.isEmpty) {
+      return;
+    }
+
+    if (!_isJwtExpiringSoon(token)) {
+      return;
+    }
+
+    try {
+      final refreshed = await _requestJwtRefresh(settings);
+      if (refreshed != null && refreshed.trim().isNotEmpty) {
+        await _configRepository.saveJwtToken(refreshed.trim());
+      }
+    } catch (_) {
+      // If refresh fails, keep the current token and let sync proceed.
+    }
+  }
+
+  Future<String?> _requestJwtRefresh(SyncSettings settings) async {
+    final refreshUri = Uri.parse('${settings.normalizedBaseUrl}/auth/refresh');
+    final httpClient = HttpClient();
+    httpClient.connectionTimeout = const Duration(seconds: 8);
+    try {
+      final request = await httpClient.postUrl(refreshUri);
+      request.headers.contentType = ContentType.json;
+      request.headers.set(HttpHeaders.acceptHeader, ContentType.json.mimeType);
+      request.write(
+        jsonEncode({
+          'token': settings.jwtToken.trim(),
+          'clientType': 'desktop',
+        }),
+      );
+
+      final response = await request.close();
+      final responseBody = await utf8.decoder.bind(response).join();
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        return null;
+      }
+
+      dynamic decoded;
+      try {
+        decoded = jsonDecode(responseBody);
+      } catch (_) {
+        return null;
+      }
+
+      final unwrapped =
+          decoded is Map<String, dynamic> && decoded.containsKey('success')
+          ? decoded['data']
+          : decoded;
+
+      if (unwrapped is! Map) {
+        return null;
+      }
+
+      final newToken = unwrapped['accessToken']?.toString() ?? '';
+      if (newToken.trim().isEmpty) {
+        return null;
+      }
+      return newToken.trim();
+    } finally {
+      httpClient.close(force: true);
     }
   }
 

@@ -1,25 +1,25 @@
-import 'package:web/web.dart' as web;
+import 'dart:html' as html;
 
 import 'secure_token_storage.dart';
 
 class _PersistentSecureTokenStorage implements SecureTokenStorage {
   @override
   Future<void> clearToken(String key) async {
-    web.window.localStorage.removeItem(key);
-    web.window.sessionStorage.removeItem(key);
+    html.window.localStorage.remove(key);
+    html.window.sessionStorage.remove(key);
   }
 
   @override
   Future<String?> readToken(String key) async {
-    final persistentToken = web.window.localStorage.getItem(key);
+    final persistentToken = html.window.localStorage[key];
     if (persistentToken != null && persistentToken.isNotEmpty) {
       return persistentToken;
     }
 
-    final sessionToken = web.window.sessionStorage.getItem(key);
+    final sessionToken = html.window.sessionStorage[key];
     if (sessionToken != null && sessionToken.isNotEmpty) {
-      web.window.localStorage.setItem(key, sessionToken);
-      web.window.sessionStorage.removeItem(key);
+      html.window.localStorage[key] = sessionToken;
+      html.window.sessionStorage.remove(key);
       return sessionToken;
     }
 
@@ -28,9 +28,10 @@ class _PersistentSecureTokenStorage implements SecureTokenStorage {
 
   @override
   Future<void> writeToken(String key, String token) async {
-    web.window.localStorage.setItem(key, token);
-    web.window.sessionStorage.removeItem(key);
+    html.window.localStorage[key] = token;
+    html.window.sessionStorage.remove(key);
   }
 }
 
-SecureTokenStorage createSecureTokenStorage() => _PersistentSecureTokenStorage();
+SecureTokenStorage createSecureTokenStorage() =>
+    _PersistentSecureTokenStorage();

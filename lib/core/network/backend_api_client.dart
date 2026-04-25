@@ -87,6 +87,7 @@ class BackendApiClient {
     Map<String, dynamic>? body,
     Map<String, String>? queryParameters,
     bool authorized = true,
+    bool isRetry = false,
   }) async {
     final settings = await _syncConfigRepository.loadSettings();
     final uri = Uri.parse('${settings.normalizedBaseUrl}$path').replace(
@@ -118,9 +119,17 @@ class BackendApiClient {
         case 'GET':
           response = await _client.get(uri, headers: headers);
         case 'POST':
-          response = await _client.post(uri, headers: headers, body: encodedBody);
+          response = await _client.post(
+            uri,
+            headers: headers,
+            body: encodedBody,
+          );
         case 'PATCH':
-          response = await _client.patch(uri, headers: headers, body: encodedBody);
+          response = await _client.patch(
+            uri,
+            headers: headers,
+            body: encodedBody,
+          );
         case 'DELETE':
           response = await _client.delete(uri, headers: headers);
         default:
@@ -128,7 +137,9 @@ class BackendApiClient {
       }
     } catch (error) {
       print('HTTP ERROR: $error');
-      throw BackendApiException('No se pudo completar la solicitud HTTP: $error');
+      throw BackendApiException(
+        'No se pudo completar la solicitud HTTP: $error',
+      );
     }
 
     print('RESPUESTA: ${response.body}');
@@ -143,6 +154,20 @@ class BackendApiClient {
     }
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
+      if (response.statusCode == 401 && authorized && !isRetry) {
+        final refreshed = await _tryRefreshJwtToken(settings);
+        if (refreshed) {
+          return _request(
+            method,
+            path,
+            body: body,
+            queryParameters: queryParameters,
+            authorized: authorized,
+            isRetry: true,
+          );
+        }
+      }
+
       String message = 'La solicitud fallo con estado ${response.statusCode}.';
       if (decoded is Map<String, dynamic>) {
         final rawMessage = decoded['message'];
@@ -163,5 +188,54 @@ class BackendApiClient {
       return decoded['data'];
     }
     return decoded;
+  }
+
+  Future<bool> _tryRefreshJwtToken(dynamic settings) async {
+    try {
+      final token = settings.jwtToken.toString().trim();
+      if (token.isEmpty) {
+        return false;
+      }
+
+      final refreshUri = Uri.parse(
+        '${settings.normalizedBaseUrl}/auth/refresh',
+      );
+      final response = await _client.post(
+        refreshUri,
+        headers: const {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({'token': token, 'clientType': 'desktop'}),
+      );
+
+      dynamic decoded;
+      if (response.body.trim().isNotEmpty) {
+        try {
+          decoded = jsonDecode(response.body);
+        } catch (_) {
+          decoded = response.body;
+        }
+      }
+
+      final unwrapped =
+          decoded is Map<String, dynamic> && decoded.containsKey('success')
+          ? decoded['data']
+          : decoded;
+
+      if (unwrapped is! Map<String, dynamic>) {
+        return false;
+      }
+
+      final newToken = (unwrapped['accessToken'] ?? '').toString().trim();
+      if (newToken.isEmpty) {
+        return false;
+      }
+
+      await _syncConfigRepository.saveJwtToken(newToken);
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 }

@@ -1,3 +1,6 @@
+import 'dart:math' as math;
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../installments/domain/installment.dart';
@@ -57,35 +60,49 @@ class SaleDetailDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.sizeOf(context);
+    final isWindows =
+        !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
+    final dialogInsetPadding = isWindows
+        ? const EdgeInsets.all(24)
+        : EdgeInsets.symmetric(
+            horizontal: screenSize.width * 0.10,
+            vertical: screenSize.height * 0.10,
+          );
+
+    final maxDialogWidth = isWindows
+        ? math.min(1020, math.max(560, screenSize.width - 48))
+        : screenSize.width * 0.80;
+    final maxDialogHeight = isWindows
+        ? math.min(900, math.max(520, screenSize.height - 48))
+        : screenSize.height * 0.80;
     return Dialog(
-      insetPadding: EdgeInsets.symmetric(
-        horizontal: screenSize.width * 0.10,
-        vertical: screenSize.height * 0.10,
-      ),
+      insetPadding: dialogInsetPadding,
       clipBehavior: Clip.antiAlias,
       backgroundColor: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: ConstrainedBox(
         constraints: BoxConstraints(
-          maxWidth: screenSize.width * 0.80,
-          maxHeight: screenSize.height * 0.80,
+          maxWidth: maxDialogWidth,
+          maxHeight: maxDialogHeight,
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _DialogHeader(detail: detail),
             const Divider(height: 1),
-            Expanded(
-              child: Padding(
+            Flexible(
+              fit: FlexFit.loose,
+              child: SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 14),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     _TopDetailsBand(detail: detail),
                     const SizedBox(height: 12),
                     _SummarySection(detail: detail),
                     const SizedBox(height: 12),
-                    Expanded(child: _InstallmentsSection(detail: detail)),
+                    _InstallmentsSection(detail: detail),
                   ],
                 ),
               ),
@@ -433,52 +450,63 @@ class _InstallmentsSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isWindows =
+        !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
     final emptyMessage = detail.sale.isFinancingActive
         ? 'Esta venta no tiene cuotas generadas.'
         : 'Las cuotas se generarán cuando el inicial quede completado.';
-    final bodyMessage = detail.installments.isEmpty
-        ? emptyMessage
-        : 'Las cuotas están disponibles en pantalla completa.';
+    final hasInstallments = detail.installments.isNotEmpty;
+    final viewportHeight = math.min(
+      420.0,
+      math.max(180.0, MediaQuery.sizeOf(context).height * 0.42),
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const _SectionTitle(title: 'Cuotas'),
         const SizedBox(height: 10),
-        Expanded(
+        SizedBox(
+          height: hasInstallments ? viewportHeight : 120,
           child: Stack(
             children: [
               Positioned.fill(
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFCFDFE),
-                    border: Border.all(color: const Color(0xFFE4EAF2)),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  alignment: Alignment.center,
-                  padding: const EdgeInsets.symmetric(horizontal: 18),
-                  child: Text(
-                    bodyMessage,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: Color(0xFF8893AA),
-                    ),
-                    textAlign: TextAlign.center,
+                child: hasInstallments && isWindows
+                    ? _InstallmentsTableViewport(detail: detail)
+                    : Container(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFCFDFE),
+                          border: Border.all(color: const Color(0xFFE4EAF2)),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        alignment: Alignment.center,
+                        padding: const EdgeInsets.symmetric(horizontal: 18),
+                        child: Text(
+                          hasInstallments
+                              ? 'Las cuotas están disponibles en pantalla completa.'
+                              : emptyMessage,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            color: Color(0xFF8893AA),
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+              ),
+              if (hasInstallments)
+                Positioned(
+                  right: 16,
+                  bottom: 16,
+                  child: FloatingActionButton.extended(
+                    heroTag: 'sale-installments-fullscreen',
+                    onPressed: () =>
+                        openInstallmentsFullscreen(context, detail),
+                    backgroundColor: const Color(0xFF1F4B99),
+                    foregroundColor: Colors.white,
+                    icon: const Icon(Icons.open_in_full, size: 18),
+                    label: const Text('Cuotas'),
                   ),
                 ),
-              ),
-              Positioned(
-                right: 16,
-                bottom: 16,
-                child: FloatingActionButton.extended(
-                  heroTag: 'sale-installments-fullscreen',
-                  onPressed: () => openInstallmentsFullscreen(context, detail),
-                  backgroundColor: const Color(0xFF1F4B99),
-                  foregroundColor: Colors.white,
-                  icon: const Icon(Icons.open_in_full, size: 18),
-                  label: const Text('Cuotas'),
-                ),
-              ),
             ],
           ),
         ),

@@ -119,8 +119,8 @@ class AuthService {
        _httpClient = httpClient ?? HttpClient(),
        _apiClient = apiClient ?? BackendApiClient(),
        _sensitiveStorage =
-         sensitiveStorage ??
-         SensitiveStorage(preferencesFactory: preferencesFactory) {
+           sensitiveStorage ??
+           SensitiveStorage(preferencesFactory: preferencesFactory) {
     _usersSyncRepository = UsersSyncRepository(appDatabase: _appDatabase);
     _syncQueueService.registerRepository(_usersSyncRepository);
   }
@@ -153,12 +153,11 @@ class AuthService {
     final remoteStatus = await _fetchRemoteSystemStatus();
     final localRequiresInitialSetup = await requiresInitialSetup();
 
-    // The desktop app must always reopen behind the login screen.
-    // We keep the persisted local session for logout/revocation bookkeeping,
-    // but bootstrap no longer auto-restores it into an authenticated shell.
     UserModel? currentUser;
     if (localRequiresInitialSetup) {
       await clearSession();
+    } else {
+      currentUser = await restoreSession();
     }
 
     return AuthBootstrapResult(
@@ -186,7 +185,10 @@ class AuthService {
           remoteStatus.statusAvailable &&
           remoteStatus.initialized) {
         try {
-          final remoteUser = await loginOnline(email: email, password: password);
+          final remoteUser = await loginOnline(
+            email: email,
+            password: password,
+          );
           final syncTriggered = await _runFullSyncIfPossible();
           return AuthSignInResult(
             user: remoteUser,
@@ -198,10 +200,7 @@ class AuthService {
         }
       }
 
-      return AuthSignInResult(
-        user: localUser,
-        mode: AuthSignInMode.offline,
-      );
+      return AuthSignInResult(user: localUser, mode: AuthSignInMode.offline);
     } on AuthException {
       if (remoteStatus.isReachable &&
           remoteStatus.statusAvailable &&
@@ -325,23 +324,19 @@ class AuthService {
     final db = await _appDatabase.database;
     final now = DateTime.now().toIso8601String();
     await db.transaction((txn) async {
-      await txn.update(
-        DatabaseSchema.usersTable,
-        {
-          'nombre': normalizedName,
-          'sync_id': _resolveUserSyncId(1),
-          'email': normalizedEmail,
-          'password_hash': PasswordHasher.hashPassword(normalizedPassword),
-          'password_reset_required': 0,
-          'password_updated_at': now,
-          'rol': UserRole.admin.storageValue,
-          'activo': 1,
-          'deleted_at': null,
-          'sync_status': DatabaseSchema.syncStatusPending,
-          'fecha_actualizacion': now,
-        },
-        where: 'id = 1',
-      );
+      await txn.update(DatabaseSchema.usersTable, {
+        'nombre': normalizedName,
+        'sync_id': _resolveUserSyncId(1),
+        'email': normalizedEmail,
+        'password_hash': PasswordHasher.hashPassword(normalizedPassword),
+        'password_reset_required': 0,
+        'password_updated_at': now,
+        'rol': UserRole.admin.storageValue,
+        'activo': 1,
+        'deleted_at': null,
+        'sync_status': DatabaseSchema.syncStatusPending,
+        'fecha_actualizacion': now,
+      }, where: 'id = 1');
       await txn.delete(
         DatabaseSchema.authSessionsTable,
         where: 'usuario_id = ?',
@@ -372,10 +367,7 @@ class AuthService {
       password: normalizedPassword,
     );
     try {
-      await loginOnline(
-        email: normalizedEmail,
-        password: normalizedPassword,
-      );
+      await loginOnline(email: normalizedEmail, password: normalizedPassword);
     } on AuthException {
       // Local-first setup stays usable even if the backend session cannot start.
     } on SocketException {
@@ -924,8 +916,8 @@ class AuthService {
               : (user.passwordResetRequired ? 1 : 0),
           'rol': role.storageValue,
           'activo': active ? 1 : 0,
-            'deleted_at': null,
-            'sync_status': DatabaseSchema.syncStatusPending,
+          'deleted_at': null,
+          'sync_status': DatabaseSchema.syncStatusPending,
           'fecha_actualizacion': now,
           'password_updated_at':
               (newPassword != null && newPassword.trim().isNotEmpty)
@@ -1448,9 +1440,7 @@ class AuthService {
         method: 'POST',
         uri: Uri.parse('${settings.normalizedBaseUrl}/system/setup'),
         payload: {
-          'company': {
-            'name': companyName,
-          },
+          'company': {'name': companyName},
           'admin': {
             'fullName': nombre,
             'email': email,
@@ -1561,9 +1551,9 @@ class AuthService {
         whereArgs: [
           'users',
           (existing == null
-                  ? values['sync_id']
-                  : await _readExistingUserSyncId(txn, userId))
-              ?.toString() ??
+                      ? values['sync_id']
+                      : await _readExistingUserSyncId(txn, userId))
+                  ?.toString() ??
               '',
         ],
       );
@@ -1579,7 +1569,10 @@ class AuthService {
     return (await getUserById(localUserId))!;
   }
 
-  Future<String?> _readExistingUserSyncId(DatabaseExecutor db, int userId) async {
+  Future<String?> _readExistingUserSyncId(
+    DatabaseExecutor db,
+    int userId,
+  ) async {
     final rows = await db.query(
       DatabaseSchema.usersTable,
       columns: ['sync_id'],
@@ -1597,7 +1590,9 @@ class AuthService {
     final response = await _apiClient.get('/users');
     final items = response is List
         ? response
-        : ((response is Map<String, dynamic> ? response['items'] : null) as List?) ?? const [];
+        : ((response is Map<String, dynamic> ? response['items'] : null)
+                  as List?) ??
+              const [];
     return items
         .whereType<Map>()
         .map(
@@ -1616,17 +1611,22 @@ class AuthService {
     required List<PermissionModel> permissions,
     required bool active,
   }) async {
-    final response = await _apiClient.post('/users', body: {
-      'email': email,
-      'username': _buildUsernameFromEmail(email),
-      'fullName': nombre,
-      'password': password,
-      'isActive': active,
-      'roleCode': _roleCodeFor(role, permissions),
-    });
+    final response = await _apiClient.post(
+      '/users',
+      body: {
+        'email': email,
+        'username': _buildUsernameFromEmail(email),
+        'fullName': nombre,
+        'password': password,
+        'isActive': active,
+        'roleCode': _roleCodeFor(role, permissions),
+      },
+    );
     final payload = response is Map<String, dynamic>
         ? response
-        : (response as Map).map((key, value) => MapEntry(key.toString(), value));
+        : (response as Map).map(
+            (key, value) => MapEntry(key.toString(), value),
+          );
     return _mapBackendUser(payload, fallbackPassword: password);
   }
 
@@ -1643,17 +1643,23 @@ class AuthService {
     if (remoteUserId == null || remoteUserId.isEmpty) {
       throw const AuthException('No se pudo identificar el usuario remoto.');
     }
-    final response = await _apiClient.patch('/users/$remoteUserId', body: {
-      'email': email,
-      'username': _buildUsernameFromEmail(email),
-      'fullName': nombre,
-      if (newPassword != null && newPassword.isNotEmpty) 'password': newPassword,
-      'isActive': active,
-      'roleCode': _roleCodeFor(role, permissions),
-    });
+    final response = await _apiClient.patch(
+      '/users/$remoteUserId',
+      body: {
+        'email': email,
+        'username': _buildUsernameFromEmail(email),
+        'fullName': nombre,
+        if (newPassword != null && newPassword.isNotEmpty)
+          'password': newPassword,
+        'isActive': active,
+        'roleCode': _roleCodeFor(role, permissions),
+      },
+    );
     final payload = response is Map<String, dynamic>
         ? response
-        : (response as Map).map((key, value) => MapEntry(key.toString(), value));
+        : (response as Map).map(
+            (key, value) => MapEntry(key.toString(), value),
+          );
     return _mapBackendUser(
       payload,
       fallbackPassword: (newPassword != null && newPassword.isNotEmpty)
@@ -1679,12 +1685,15 @@ class AuthService {
     if (remoteUserId == null || remoteUserId.isEmpty) {
       throw const AuthException('No se pudo identificar el usuario remoto.');
     }
-    final response = await _apiClient.patch('/users/$remoteUserId', body: {
-      'isActive': active,
-    });
+    final response = await _apiClient.patch(
+      '/users/$remoteUserId',
+      body: {'isActive': active},
+    );
     final payload = response is Map<String, dynamic>
         ? response
-        : (response as Map).map((key, value) => MapEntry(key.toString(), value));
+        : (response as Map).map(
+            (key, value) => MapEntry(key.toString(), value),
+          );
     return _mapBackendUser(payload, fallbackPassword: user.passwordHash);
   }
 
@@ -1721,7 +1730,8 @@ class AuthService {
     String? fallbackPassword,
     bool passwordIsPlaintext = true,
   }) {
-    final remoteId = payload['id']?.toString().trim() ??
+    final remoteId =
+        payload['id']?.toString().trim() ??
         payload['sub']?.toString().trim() ??
         payload['remote_auth_id']?.toString().trim() ??
         '';
@@ -1732,15 +1742,23 @@ class AuthService {
     final permissions = role == UserRole.admin
         ? _fullPermissions()
         : _mapRemotePermissions(payload['permissions']);
-    final createdAt = DateTime.tryParse(payload['createdAt']?.toString() ?? '') ?? DateTime.now();
-    final updatedAt = DateTime.tryParse(payload['updatedAt']?.toString() ?? '') ?? createdAt;
+    final createdAt =
+        DateTime.tryParse(payload['createdAt']?.toString() ?? '') ??
+        DateTime.now();
+    final updatedAt =
+        DateTime.tryParse(payload['updatedAt']?.toString() ?? '') ?? createdAt;
     final resolvedPassword = fallbackPassword == null
         ? ''
-        : (passwordIsPlaintext ? PasswordHasher.hashPassword(fallbackPassword) : fallbackPassword);
+        : (passwordIsPlaintext
+              ? PasswordHasher.hashPassword(fallbackPassword)
+              : fallbackPassword);
     return UserModel(
       id: _idRegistry.register('users', remoteId),
       remoteAuthId: remoteId,
-      nombre: payload['fullName']?.toString() ?? payload['username']?.toString() ?? '',
+      nombre:
+          payload['fullName']?.toString() ??
+          payload['username']?.toString() ??
+          '',
       email: payload['email']?.toString() ?? '',
       passwordHash: resolvedPassword,
       passwordResetRequired: false,

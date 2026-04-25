@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   Param,
   Patch,
   Post,
@@ -22,6 +23,7 @@ import { CreatePermissionDto } from '../../application/dto/create-permission.dto
 import { CreateRoleDto } from '../../application/dto/create-role.dto';
 import { CreateUserDto } from '../../application/dto/create-user.dto';
 import { LoginDto } from '../../application/dto/login.dto';
+import { RefreshTokenDto } from '../../application/dto/refresh-token.dto';
 import { UpdateUserDto } from '../../application/dto/update-user.dto';
 
 @Controller('auth')
@@ -33,6 +35,20 @@ export class AuthController {
   @Post('login')
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
+  }
+
+  @Public()
+  @AllowInReadOnly()
+  @Post('refresh')
+  refresh(
+    @Body() dto: RefreshTokenDto,
+    @Headers('authorization') authorization?: string,
+  ) {
+    return this.authService.refreshToken({
+      token: dto.token,
+      clientType: dto.clientType,
+      authorization,
+    });
   }
 
   @Get('me')

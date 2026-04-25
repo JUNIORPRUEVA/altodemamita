@@ -25,14 +25,31 @@ class ApiClient {
 
   final http.Client _client;
   String? _jwtToken;
-  Future<void> Function()? _unauthorizedHandler;
+  Future<bool> Function()? _unauthorizedHandler;
+  Future<void> Function()? _ensureValidTokenHandler;
 
   void setJwtToken(String? token) {
     _jwtToken = token;
   }
 
   void setUnauthorizedHandler(Future<void> Function()? handler) {
+    // Deprecated: kept for backward compatibility.
+    if (handler == null) {
+      _unauthorizedHandler = null;
+      return;
+    }
+    _unauthorizedHandler = () async {
+      await handler();
+      return false;
+    };
+  }
+
+  void setUnauthorizedHandlerV2(Future<bool> Function()? handler) {
     _unauthorizedHandler = handler;
+  }
+
+  void setEnsureValidTokenHandler(Future<void> Function()? handler) {
+    _ensureValidTokenHandler = handler;
   }
 
   Future<dynamic> get(
@@ -97,7 +114,12 @@ class ApiClient {
     Map<String, dynamic>? body,
     Map<String, String>? queryParameters,
     bool authorized = true,
+    bool isRetry = false,
   }) async {
+    if (authorized) {
+      await _ensureValidTokenHandler?.call();
+    }
+
     final cleanedQuery = <String, String>{
       for (final entry in (queryParameters ?? const <String, String>{}).entries)
         if (entry.value.trim().isNotEmpty) entry.key: entry.value,
@@ -170,8 +192,18 @@ class ApiClient {
       return _unwrapEnvelope(decoded);
     }
 
-    if (response.statusCode == 401 && authorized) {
-      await _unauthorizedHandler?.call();
+    if (response.statusCode == 401 && authorized && !isRetry) {
+      final refreshed = await _unauthorizedHandler?.call();
+      if (refreshed == true && _jwtToken?.isNotEmpty == true) {
+        return _request(
+          method,
+          path,
+          body: body,
+          queryParameters: queryParameters,
+          authorized: authorized,
+          isRetry: true,
+        );
+      }
     }
 
     final extractedMessage = _extractMessage(decoded);

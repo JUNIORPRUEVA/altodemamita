@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'dart:convert';
 import 'dart:developer' as developer;
 import 'package:sistema_solares_ui/core/network/api_client.dart';
 import 'package:sistema_solares_ui/core/realtime/realtime_controller.dart';
@@ -68,10 +69,13 @@ class AuthController extends ChangeNotifier {
        _realtimeController = realtimeController,
        _systemConfigController = systemConfigController,
        _tokenStorage = tokenStorage ?? SecureTokenStorage() {
-    _apiClient.setUnauthorizedHandler(_handleUnauthorized);
+    _apiClient.setUnauthorizedHandlerV2(_handleUnauthorized);
+    _apiClient.setEnsureValidTokenHandler(_ensureValidToken);
   }
 
   static const _jwtStorageKey = 'panel.jwt';
+  static const _userStorageKey = 'panel.user.basic';
+  static const Duration _refreshThreshold = Duration(hours: 6);
 
   final ApiClient _apiClient;
   final RealtimeController _realtimeController;
@@ -81,6 +85,7 @@ class AuthController extends ChangeNotifier {
   bool _initialized = false;
   bool _busy = false;
   bool _processingUnauthorized = false;
+  bool _refreshingToken = false;
   String? _jwtToken;
   AuthUser? _user;
   String? _errorMessage;
@@ -123,13 +128,19 @@ class AuthController extends ChangeNotifier {
 
       _jwtToken = storedToken;
       _apiClient.setJwtToken(storedToken);
+
+      await _ensureValidToken();
       await _systemConfigController.refresh();
       final profile = await _apiClient.get('/auth/me');
       _user = AuthUser.fromMap(profile as Map<String, dynamic>);
       if (_user!.type != 'panel') {
         throw ApiException('El token no corresponde a un cliente panel.');
       }
-      await _realtimeController.connect(storedToken);
+      await _storeUserBasic(_user!);
+      final currentToken = _jwtToken;
+      if (currentToken != null && currentToken.isNotEmpty) {
+        await _realtimeController.connect(currentToken);
+      }
       developer.log(
         'Existing session restored for ${_user?.username ?? _user?.email ?? 'unknown-user'}.',
         name: 'SistemaSolares.Auth',
@@ -183,6 +194,7 @@ class AuthController extends ChangeNotifier {
       _apiClient.setJwtToken(token);
 
       await _tokenStorage.writeToken(_jwtStorageKey, token);
+      await _storeUserBasic(_user!);
       await _systemConfigController.refresh();
       await _realtimeController.connect(token);
       developer.log(
@@ -209,6 +221,7 @@ class AuthController extends ChangeNotifier {
     _apiClient.setJwtToken(null);
     _realtimeController.disconnect();
     await _tokenStorage.clearToken(_jwtStorageKey);
+    await _tokenStorage.clearToken(_userStorageKey);
     if (notify) {
       notifyListeners();
     }
@@ -218,20 +231,145 @@ class AuthController extends ChangeNotifier {
     return _user?.permissions.contains(code) ?? false;
   }
 
-  Future<void> _handleUnauthorized() async {
-    if (_processingUnauthorized) {
+  Future<void> _storeUserBasic(AuthUser user) async {
+    final role = user.panelRole == PanelRole.admin ? 'admin' : 'viewer';
+    final payload = jsonEncode({
+      'id': user.id,
+      'email': user.email,
+      'role': role,
+    });
+    await _tokenStorage.writeToken(_userStorageKey, payload);
+  }
+
+  Map<String, dynamic>? _decodeJwtPayload(String token) {
+    final parts = token.split('.');
+    if (parts.length != 3) {
+      return null;
+    }
+    try {
+      final normalized = base64Url.normalize(parts[1]);
+      final bytes = base64Url.decode(normalized);
+      final jsonText = utf8.decode(bytes);
+      final decoded = jsonDecode(jsonText);
+      if (decoded is Map<String, dynamic>) {
+        return decoded;
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  bool _isTokenExpiringSoon(String token, Duration threshold) {
+    final payload = _decodeJwtPayload(token);
+    if (payload == null) {
+      return false;
+    }
+    final expRaw = payload['exp'];
+    final expSeconds = expRaw is num ? expRaw.toInt() : int.tryParse('$expRaw');
+    if (expSeconds == null) {
+      return false;
+    }
+    final expiresAt = DateTime.fromMillisecondsSinceEpoch(expSeconds * 1000);
+    return expiresAt.isBefore(DateTime.now().add(threshold));
+  }
+
+  Future<void> _ensureValidToken() async {
+    final token = _jwtToken;
+    if (token == null || token.isEmpty) {
       return;
+    }
+    if (_refreshingToken) {
+      return;
+    }
+    if (!_isTokenExpiringSoon(token, _refreshThreshold)) {
+      return;
+    }
+
+    await _refreshTokenInternal(reason: 'preflight');
+  }
+
+  Future<bool> _handleUnauthorized() async {
+    if (_processingUnauthorized) {
+      return false;
     }
 
     _processingUnauthorized = true;
     try {
       developer.log(
-        'Received 401 from backend. Clearing session and returning to login.',
+        'Received 401 from backend. Attempting token refresh.',
+        name: 'SistemaSolares.Auth',
+      );
+      final refreshed = await _refreshTokenInternal(reason: '401');
+      if (refreshed) {
+        return true;
+      }
+
+      developer.log(
+        'Token refresh failed. Clearing session and returning to login.',
         name: 'SistemaSolares.Auth',
       );
       await signOut();
+      return false;
     } finally {
       _processingUnauthorized = false;
+    }
+  }
+
+  Future<bool> _refreshTokenInternal({required String reason}) async {
+    final currentToken = _jwtToken;
+    if (currentToken == null || currentToken.isEmpty) {
+      return false;
+    }
+    if (_refreshingToken) {
+      return false;
+    }
+
+    _refreshingToken = true;
+    try {
+      final response =
+          await _apiClient.post(
+                '/auth/refresh',
+                authorized: false,
+                body: {'token': currentToken, 'clientType': 'panel'},
+              )
+              as Map<String, dynamic>;
+
+      final newToken = response['accessToken']?.toString() ?? '';
+      final userMap = response['user'] as Map<String, dynamic>? ?? const {};
+      if (newToken.isEmpty) {
+        return false;
+      }
+
+      _jwtToken = newToken;
+      _apiClient.setJwtToken(newToken);
+      await _tokenStorage.writeToken(_jwtStorageKey, newToken);
+
+      final newUser = AuthUser.fromMap(userMap);
+      if (newUser.type == 'panel') {
+        _user = newUser;
+        await _storeUserBasic(newUser);
+      }
+
+      if (_realtimeController.isConnected) {
+        await _realtimeController.connect(newToken);
+      }
+
+      developer.log(
+        'Token refreshed successfully ($reason).',
+        name: 'SistemaSolares.Auth',
+      );
+      return true;
+    } catch (error, stackTrace) {
+      developer.log(
+        'Token refresh failed ($reason).',
+        name: 'SistemaSolares.Auth',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return false;
+    } finally {
+      _refreshingToken = false;
     }
   }
 }
