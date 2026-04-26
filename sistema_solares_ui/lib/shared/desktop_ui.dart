@@ -128,11 +128,13 @@ class DesktopToolbar extends StatelessWidget {
     required this.searchField,
     this.actions = const [],
     this.compactActions = const [],
+    this.expandSearchField = true,
   });
 
   final Widget searchField;
   final List<Widget> actions;
   final List<Widget> compactActions;
+  final bool expandSearchField;
 
   @override
   Widget build(BuildContext context) {
@@ -152,7 +154,10 @@ class DesktopToolbar extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                Expanded(child: searchField),
+                if (expandSearchField)
+                  Expanded(child: searchField)
+                else
+                  Flexible(fit: FlexFit.loose, child: searchField),
                 for (final action in rowActions) ...[
                   const SizedBox(width: 6),
                   action,
@@ -166,7 +171,10 @@ class DesktopToolbar extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           child: Row(
             children: [
-              Expanded(child: searchField),
+              if (expandSearchField)
+                Expanded(child: searchField)
+              else
+                Flexible(fit: FlexFit.loose, child: searchField),
               if (rowActions.isNotEmpty) ...[
                 const SizedBox(width: 12),
                 Wrap(spacing: 6, runSpacing: 6, children: rowActions),

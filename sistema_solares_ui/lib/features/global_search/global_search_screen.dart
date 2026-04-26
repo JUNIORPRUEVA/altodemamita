@@ -111,10 +111,17 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
       showMobileTitle: false,
       toolbar: DesktopFieldToolbar(
         child: DesktopToolbar(
-          searchField: DesktopSearchField(
-            controller: _searchController,
-            hintText: 'Nombre, cedula, telefono, contrato o solar',
-            onSubmitted: (_) => _reload(),
+          expandSearchField: false,
+          searchField: Align(
+            alignment: Alignment.centerLeft,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: DesktopSearchField(
+                controller: _searchController,
+                hintText: 'Nombre, cedula, telefono, contrato o solar',
+                onSubmitted: (_) => _reload(),
+              ),
+            ),
           ),
           actions: [
             OutlinedButton.icon(
@@ -202,17 +209,8 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
                 children: results.map((result) {
                   final client = result.client;
                   final fullName = _fullName(client);
-                  final phone = client['phone']?.toString() ?? 'Sin telefono';
-                  final document =
-                      client['documentId']?.toString() ?? 'Sin cedula';
-                  final email = client['email']?.toString() ?? 'Sin correo';
-                  final subtitle = compact
-                      ? '$document  •  $phone\n${result.sales.length} venta(s)'
-                      : '$document  •  $phone  •  $email';
-                  final totalOutstanding = result.sales.fold<double>(
-                    0,
-                    (sum, sale) => sum + _asNum(sale['outstandingBalance']),
-                  );
+                  final rawPhone = client['phone']?.toString().trim() ?? '';
+                  final phone = rawPhone.isEmpty ? 'Sin telefono' : rawPhone;
                   final clientId = result.clientId;
                   final isExpanded = _expandedClientIds.contains(clientId);
                   final detail = _detailCache[clientId];
@@ -234,7 +232,7 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
                                 vertical: 2,
                               ),
                               child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                                crossAxisAlignment: CrossAxisAlignment.center,
                                 children: [
                                   CircleAvatar(
                                     radius: compact ? 16 : 20,
@@ -263,33 +261,45 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
                                             fontWeight: FontWeight.w800,
                                             fontSize: 14.6,
                                             color: Color(0xFF10263D),
-                                          ),
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          subtitle,
-                                          maxLines: compact ? 2 : 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(
-                                            color: Color(0xFF6E7791),
-                                            height: 1.25,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 8),
-                                        Wrap(
-                                          spacing: 8,
-                                          runSpacing: 8,
-                                          children: [
-                                            DesktopTag(
-                                              label: '${result.sales.length} venta(s)',
-                                              background: const Color(0xFFEAF0F7),
+                                              child: Row(
+                                                children: [
+                                                  Expanded(
+                                                    child: Text(
+                                                      fullName,
+                                                      maxLines: 1,
+                                                      overflow: TextOverflow.ellipsis,
+                                                      style: const TextStyle(
+                                                        fontWeight: FontWeight.w800,
+                                                        fontSize: 14.6,
+                                                        color: Color(0xFF10263D),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 12),
+                                                  Flexible(
+                                                    fit: FlexFit.loose,
+                                                    child: Text(
+                                                      phone,
+                                                      maxLines: 1,
+                                                      overflow: TextOverflow.ellipsis,
+                                                      textAlign: TextAlign.right,
+                                                      style: const TextStyle(
+                                                        fontSize: 13.0,
+                                                        fontWeight: FontWeight.w700,
+                                                        color: Color(0xFF6E7791),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
                                             ),
-                                            DesktopTag(
-                                              label: _matchLabel(result.matchTypes),
-                                              background: const Color(0xFFE7F5EF),
-                                              foreground: const Color(0xFF2F6F5C),
-                                            ),
-                                            DesktopTag(
+                                            const SizedBox(width: 12),
+                                            Column(
+                                              mainAxisSize: MainAxisSize.min,
+                                              crossAxisAlignment: CrossAxisAlignment.end,
+                                              children: [
+                                                Wrap(
+                                                  spacing: 8,
                                               label: _currency.format(totalOutstanding),
                                               background: const Color(0xFFF6EFE3),
                                               foreground: const Color(0xFF8C5A2C),
@@ -302,8 +312,7 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
                                   const SizedBox(width: 8),
                                   Container(
                                     width: 36,
-                                    height: 36,
-                                    decoration: BoxDecoration(
+                                                ),
                                       color: const Color(0xFFF4F7FB),
                                       borderRadius: BorderRadius.circular(12),
                                       border: Border.all(
@@ -401,28 +410,6 @@ class _InlineClientDetail extends StatelessWidget {
             DesktopStackedStat(label: 'Cuotas', value: '${installments.length}'),
             DesktopStackedStat(label: 'Pagos', value: '${payments.length}'),
           ],
-        ),
-        const SizedBox(height: 14),
-        _InlineDestinationLinks(clientId: detail.client['id']?.toString() ?? ''),
-        const SizedBox(height: 16),
-        DesktopPlainSection(
-          title: 'Ventas relacionadas',
-          child: sales.isEmpty
-              ? const DesktopEmptyState(
-                  icon: Icons.point_of_sale_outlined,
-                  title: 'Sin ventas relacionadas',
-                  message:
-                      'El cliente aparece en la nube, pero todavia no tiene ventas registradas.',
-                )
-              : Column(
-                  children: sales.map((sale) {
-                    final product =
-                        _readNested(sale, ['product', 'name']) ?? 'Sin solar';
-                    final seller =
-                        _readNested(sale, ['seller', 'name']) ?? 'Sin vendedor';
-                    final status = sale['status']?.toString() ?? '-';
-                    final installmentsCount =
-                        ((sale['installments'] as List<dynamic>?) ?? const <dynamic>[])
                             .length;
                     final paymentsCount =
                         ((sale['payments'] as List<dynamic>?) ?? const <dynamic>[])
