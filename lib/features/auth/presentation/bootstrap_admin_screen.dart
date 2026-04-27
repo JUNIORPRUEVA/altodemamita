@@ -375,6 +375,37 @@ class _BootstrapAdminScreenState extends State<BootstrapAdminScreen> {
                                         ),
                                       ),
                               ),
+                              const SizedBox(height: 8),
+                              OutlinedButton.icon(
+                                onPressed: auth.isSigningIn
+                                    ? null
+                                    : () => context
+                                        .read<AuthProvider>()
+                                        .retryInitialize(),
+                                icon: const Icon(
+                                  Icons.refresh_rounded,
+                                  size: 18,
+                                ),
+                                label: const Text('Reintentar conexion con la nube'),
+                                style: OutlinedButton.styleFrom(
+                                  minimumSize: const Size.fromHeight(48),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              TextButton(
+                                onPressed: auth.isSigningIn
+                                    ? null
+                                    : () => context
+                                        .read<AuthProvider>()
+                                        .skipSetupToLogin(),
+                                child: const Text(
+                                  'Ya tengo una cuenta \u2014 Iniciar sesion',
+                                  style: TextStyle(fontSize: 13),
+                                ),
+                              ),
                             ],
                           ),
                         ),

@@ -345,10 +345,13 @@ class _AppShellState extends State<AppShell> {
   /// Abre el diálogo para vincular la sesión local con la nube cuando el
   /// usuario creó su cuenta sin conexión y ahora necesita un JWT de sync.
   Future<void> _connectToCloud() async {
+    final currentEmail =
+        context.read<AuthProvider>().currentUser?.email ?? '';
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (_) => _CloudLinkDialog(
+        initialEmail: currentEmail,
         onSuccess: () async {
           if (!mounted) return;
           // Resetear flags de sesión expirada para que futuros vencimientos
@@ -1724,9 +1727,10 @@ class _ShellFooter extends StatelessWidget {
 // cuando el usuario configuró el sistema sin internet y ahora quiere sincronizar.
 // ---------------------------------------------------------------------------
 class _CloudLinkDialog extends StatefulWidget {
-  const _CloudLinkDialog({required this.onSuccess});
+  const _CloudLinkDialog({required this.onSuccess, this.initialEmail = ''});
 
   final Future<void> Function() onSuccess;
+  final String initialEmail;
 
   @override
   State<_CloudLinkDialog> createState() => _CloudLinkDialogState();
@@ -1734,7 +1738,8 @@ class _CloudLinkDialog extends StatefulWidget {
 
 class _CloudLinkDialogState extends State<_CloudLinkDialog> {
   final _formKey = GlobalKey<FormState>();
-  final _emailController = TextEditingController();
+  late final TextEditingController _emailController =
+      TextEditingController(text: widget.initialEmail);
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
   bool _isLoading = false;
@@ -1798,7 +1803,7 @@ class _CloudLinkDialogState extends State<_CloudLinkDialog> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const Text(
-                'Tu cuenta fue creada sin conexión a internet. Ingresa las credenciales del administrador de la nube para activar la sincronización.',
+                'Ingresa tu contraseña para conectar con la nube y activar la sincronización.',
                 style: TextStyle(fontSize: 13, color: Color(0xFF50607A)),
               ),
               const SizedBox(height: 16),
@@ -1806,7 +1811,7 @@ class _CloudLinkDialogState extends State<_CloudLinkDialog> {
                 controller: _emailController,
                 keyboardType: TextInputType.emailAddress,
                 decoration: const InputDecoration(
-                  labelText: 'Correo o usuario de la nube',
+                  labelText: 'Correo o usuario',
                   prefixIcon: Icon(Icons.person_outline_rounded),
                   border: OutlineInputBorder(),
                 ),
@@ -1817,8 +1822,10 @@ class _CloudLinkDialogState extends State<_CloudLinkDialog> {
               TextFormField(
                 controller: _passwordController,
                 obscureText: _obscurePassword,
+                autofocus: true,
                 decoration: InputDecoration(
-                  labelText: 'Contraseña de la nube',
+                  labelText: 'Contraseña',
+                  hintText: 'Ingresa tu contraseña',
                   prefixIcon: const Icon(Icons.lock_outline_rounded),
                   border: const OutlineInputBorder(),
                   suffixIcon: IconButton(

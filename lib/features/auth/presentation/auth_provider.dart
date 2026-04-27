@@ -181,7 +181,16 @@ class AuthProvider extends ChangeNotifier {
       return true;
     } on AuthException catch (error) {
       _currentUser = null;
-      _errorMessage = error.message;
+      // Si la nube ya estaba inicializada, la PC nueva debe ir al login.
+      final msg = error.message.toLowerCase();
+      if (msg.contains('ya fue inicializado') ||
+          msg.contains('ya fue configurado') ||
+          msg.contains('already initialized')) {
+        _requiresInitialSetup = false;
+        _errorMessage = null;
+      } else {
+        _errorMessage = error.message;
+      }
       return false;
     } catch (_) {
       _currentUser = null;
@@ -192,6 +201,17 @@ class AuthProvider extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  /// Descarta la pantalla de setup y va al login.
+  /// Útil cuando la PC es nueva pero la nube ya está inicializada.
+  void skipSetupToLogin() {
+    _requiresInitialSetup = false;
+    _errorMessage = null;
+    notifyListeners();
+  }
+
+  /// Re-ejecuta la inicialización para volver a verificar el backend.
+  Future<void> retryInitialize() => initialize();
 
   Future<bool> recoverAdminAccess({
     required String recoveryCode,
