@@ -303,7 +303,12 @@ class _AppShellState extends State<AppShell> {
     }
     _cloudSessionExpiredHandled = true;
     final authProvider = context.read<AuthProvider>();
-    await _syncManager.stop(reason: reason);
+    // Detener sync indicando claramente que se necesita vincular credenciales.
+    await _syncManager.stop(
+      reason:
+          'Sesion de nube expirada. Inicia sesion en linea nuevamente para '
+          'reactivar la sincronizacion.',
+    );
     if (!mounted) {
       return;
     }
@@ -346,6 +351,10 @@ class _AppShellState extends State<AppShell> {
       builder: (_) => _CloudLinkDialog(
         onSuccess: () async {
           if (!mounted) return;
+          // Resetear flags de sesión expirada para que futuros vencimientos
+          // sean manejados correctamente.
+          _cloudSessionExpiredHandled = false;
+          _syncService.resetCloudSession();
           // Reiniciar el sync manager para que tome el nuevo JWT.
           await _syncManager.stop(reason: null);
           await _syncManager.start();
@@ -355,13 +364,20 @@ class _AppShellState extends State<AppShell> {
   }
 
   /// Retorna true si los errores de sync indican que se necesitan credenciales
-  /// de nube (ningún JWT guardado), para mostrar el botón "Vincular".
+  /// de nube, para mostrar el botón "Vincular".
+  /// Cubre: 401 Unauthorized, sin JWT, sin URL, error de conexión (cuando
+  /// hay JWT guardado inválido que causó el error).
   bool _needsCloudLink(List<String> errors) {
     if (errors.isEmpty) return false;
     final msg = errors.first.toLowerCase();
     return msg.contains('sesion en linea') ||
         msg.contains('sesión en línea') ||
-        msg.contains('reautenticarse');
+        msg.contains('reautenticarse') ||
+        msg.contains('credencial actual') ||
+        msg.contains('error de conexion') ||
+        msg.contains('error de conexión') ||
+        msg.contains('sin jwt') ||
+        msg.contains('unauthorized');
   }
 
   Widget _buildCurrentPage(AppModule module) {

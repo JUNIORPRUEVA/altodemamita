@@ -55,6 +55,12 @@ class SyncService {
   bool get isSyncing => _isSyncing;
   SyncReport? get lastReport => _lastReport;
 
+  /// Reinicia el estado de sesión de nube para que un nuevo JWT pueda
+  /// activar la sincronización. Llamar después de vincular exitosamente.
+  void resetCloudSession() {
+    _cloudSessionInvalidated = false;
+  }
+
   Future<SyncRuntimeState> get runtimeState async {
     return _configRepository.loadRuntimeState(
       isSyncing: _isSyncing,
