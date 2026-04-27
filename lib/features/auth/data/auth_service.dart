@@ -248,7 +248,21 @@ class AuthService {
             syncTriggered: syncTriggered,
           );
         } catch (_) {
-          // Local access stays available even if the backend credential refresh fails.
+          // Las credenciales locales no coinciden con las de la nube.
+          // Si existe un JWT válido guardado (de otro admin o sesión previa),
+          // mantener el modo online para que la sync continúe funcionando.
+          if (await _isStoredJwtStillValid()) {
+            debugPrint(
+              '[SignIn] Cloud login falló pero JWT guardado es válido. '
+              'Manteniendo modo online.',
+            );
+            final syncTriggered = await _runFullSyncIfPossible();
+            return AuthSignInResult(
+              user: localUser,
+              mode: AuthSignInMode.online,
+              syncTriggered: syncTriggered,
+            );
+          }
         }
       }
 
@@ -307,6 +321,35 @@ class AuthService {
     await _syncConfigRepository.saveJwtToken(accessToken);
     debugPrint('[LoginOnline] JWT guardado. Usuario: ${user.email}, rol: ${user.role.storageValue}');
     return user;
+  }
+
+  /// Autentica SOLO con la nube para obtener un JWT de sincronización,
+  /// sin cambiar la sesión local activa. Útil cuando el usuario local no
+  /// tiene credenciales en la nube (PC nueva configurada sin internet).
+  Future<void> connectToCloudForSync({
+    required String email,
+    required String password,
+  }) async {
+    await loginOnline(email: email, password: password);
+    debugPrint('[ConnectCloud] JWT de sincronización actualizado exitosamente.');
+  }
+
+  /// Retorna true si el JWT guardado en el repositorio de sync sigue
+  /// siendo válido contra el backend (sin cambiar nada).
+  Future<bool> _isStoredJwtStillValid() async {
+    final settings = await _syncConfigRepository.loadSettings();
+    final jwt = settings.jwtToken.trim();
+    if (jwt.isEmpty) return false;
+    try {
+      await _sendJsonRequest(
+        method: 'GET',
+        uri: Uri.parse('${settings.normalizedBaseUrl}/auth/me'),
+        headers: {'Authorization': 'Bearer $jwt'},
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<UserModel> loginOffline({

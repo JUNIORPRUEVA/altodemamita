@@ -227,6 +227,32 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  /// Obtiene un JWT de sync desde la nube SIN cambiar la sesión local activa.
+  /// Útil cuando el usuario local no tiene credenciales en la nube
+  /// (configuración inicial realizada sin conexión a internet).
+  /// Retorna null en caso de éxito o un mensaje de error.
+  Future<String?> connectToCloud({
+    required String email,
+    required String password,
+  }) async {
+    try {
+      await _authService.connectToCloudForSync(
+        email: email,
+        password: password,
+      );
+      _isOnline = true;
+      _isCloudSessionExpired = false;
+      _backendStatus = BackendConnectionStatus.connected;
+      _backendStatusMessage = null;
+      notifyListeners();
+      return null;
+    } on AuthException catch (error) {
+      return error.message;
+    } catch (_) {
+      return 'No se pudo conectar con la nube. Verifica las credenciales.';
+    }
+  }
+
   Future<AdminRecoveryCredentials?> revealAdminCredentials({
     required String recoveryCode,
   }) async {

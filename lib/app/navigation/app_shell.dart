@@ -337,6 +337,33 @@ class _AppShellState extends State<AppShell> {
     ).showSnackBar(SnackBar(content: Text(report.summary)));
   }
 
+  /// Abre el diálogo para vincular la sesión local con la nube cuando el
+  /// usuario creó su cuenta sin conexión y ahora necesita un JWT de sync.
+  Future<void> _connectToCloud() async {
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _CloudLinkDialog(
+        onSuccess: () async {
+          if (!mounted) return;
+          // Reiniciar el sync manager para que tome el nuevo JWT.
+          await _syncManager.stop(reason: null);
+          await _syncManager.start();
+        },
+      ),
+    );
+  }
+
+  /// Retorna true si los errores de sync indican que se necesitan credenciales
+  /// de nube (ningún JWT guardado), para mostrar el botón "Vincular".
+  bool _needsCloudLink(List<String> errors) {
+    if (errors.isEmpty) return false;
+    final msg = errors.first.toLowerCase();
+    return msg.contains('sesion en linea') ||
+        msg.contains('sesión en línea') ||
+        msg.contains('reautenticarse');
+  }
+
   Widget _buildCurrentPage(AppModule module) {
     switch (module) {
       case AppModule.dashboard:
@@ -546,6 +573,10 @@ class _AppShellState extends State<AppShell> {
                                   ? () async {}
                                   : _runSync,
                               onOpenProfile: _openProfile,
+                              onConnectToCloud:
+                                  _needsCloudLink(syncState.currentErrors)
+                                  ? _connectToCloud
+                                  : null,
                             ),
                             Expanded(child: currentPage),
                             _ShellFooter(companyName: _companyDisplayName),
@@ -575,6 +606,7 @@ class _ShellHeader extends StatelessWidget {
     required this.unresolvedConflictCount,
     required this.onTriggerSync,
     required this.onOpenProfile,
+    this.onConnectToCloud,
   });
 
   final AppModule selectedModule;
@@ -586,6 +618,7 @@ class _ShellHeader extends StatelessWidget {
   final int unresolvedConflictCount;
   final Future<void> Function() onTriggerSync;
   final Future<void> Function() onOpenProfile;
+  final Future<void> Function()? onConnectToCloud;
 
   @override
   Widget build(BuildContext context) {
@@ -672,7 +705,8 @@ class _ShellHeader extends StatelessWidget {
             const SizedBox(height: 10),
             _SyncAlertBanner(
               message: currentErrors.first,
-              onRetry: isSyncing ? null : onTriggerSync,
+              onRetry: onConnectToCloud != null ? null : (isSyncing ? null : onTriggerSync),
+              onConnectToCloud: onConnectToCloud,
             ),
           ] else if (unresolvedConflictCount > 0) ...[
             const SizedBox(height: 10),
@@ -760,10 +794,15 @@ class _SyncStatusBadge extends StatelessWidget {
 }
 
 class _SyncAlertBanner extends StatelessWidget {
-  const _SyncAlertBanner({required this.message, this.onRetry});
+  const _SyncAlertBanner({
+    required this.message,
+    this.onRetry,
+    this.onConnectToCloud,
+  });
 
   final String message;
   final Future<void> Function()? onRetry;
+  final Future<void> Function()? onConnectToCloud;
 
   @override
   Widget build(BuildContext context) {
@@ -797,7 +836,24 @@ class _SyncAlertBanner extends StatelessWidget {
               ),
             ),
           ),
-          if (canRetry) ...[
+          if (onConnectToCloud != null) ...[
+            const SizedBox(width: 10),
+            TextButton(
+              onPressed: () => unawaited(onConnectToCloud!()),
+              style: TextButton.styleFrom(
+                foregroundColor: const Color(0xFF6E4300),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
+                textStyle: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              child: const Text('Vincular'),
+            ),
+          ] else if (canRetry) ...[
             const SizedBox(width: 10),
             TextButton(
               onPressed: () => unawaited(onRetry!()),
@@ -1643,6 +1699,170 @@ class _ShellFooter extends StatelessWidget {
         ),
         textAlign: TextAlign.right,
       ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Diálogo para vincular la sesión local con la nube (obtener JWT de sync)
+// cuando el usuario configuró el sistema sin internet y ahora quiere sincronizar.
+// ---------------------------------------------------------------------------
+class _CloudLinkDialog extends StatefulWidget {
+  const _CloudLinkDialog({required this.onSuccess});
+
+  final Future<void> Function() onSuccess;
+
+  @override
+  State<_CloudLinkDialog> createState() => _CloudLinkDialogState();
+}
+
+class _CloudLinkDialogState extends State<_CloudLinkDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  bool _obscurePassword = true;
+  bool _isLoading = false;
+  String? _errorMessage;
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    final auth = context.read<AuthProvider>();
+    final error = await auth.connectToCloud(
+      email: _emailController.text.trim(),
+      password: _passwordController.text.trim(),
+    );
+
+    if (!mounted) return;
+
+    if (error != null) {
+      setState(() {
+        _isLoading = false;
+        _errorMessage = error;
+      });
+      return;
+    }
+
+    setState(() => _isLoading = false);
+    Navigator.of(context).pop();
+    await widget.onSuccess();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: const Row(
+        children: [
+          Icon(Icons.cloud_sync_rounded, color: Color(0xFF0D2844), size: 22),
+          SizedBox(width: 10),
+          Text(
+            'Vincular con la nube',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
+      content: SizedBox(
+        width: 360,
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'Tu cuenta fue creada sin conexión a internet. Ingresa las credenciales del administrador de la nube para activar la sincronización.',
+                style: TextStyle(fontSize: 13, color: Color(0xFF50607A)),
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _emailController,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(
+                  labelText: 'Correo o usuario de la nube',
+                  prefixIcon: Icon(Icons.person_outline_rounded),
+                  border: OutlineInputBorder(),
+                ),
+                validator: (v) =>
+                    (v == null || v.trim().isEmpty) ? 'Requerido' : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _passwordController,
+                obscureText: _obscurePassword,
+                decoration: InputDecoration(
+                  labelText: 'Contraseña de la nube',
+                  prefixIcon: const Icon(Icons.lock_outline_rounded),
+                  border: const OutlineInputBorder(),
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _obscurePassword
+                          ? Icons.visibility_off_outlined
+                          : Icons.visibility_outlined,
+                    ),
+                    onPressed: () =>
+                        setState(() => _obscurePassword = !_obscurePassword),
+                  ),
+                ),
+                validator: (v) =>
+                    (v == null || v.isEmpty) ? 'Requerido' : null,
+              ),
+              if (_errorMessage != null) ...[
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF0F0),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFE57373)),
+                  ),
+                  child: Text(
+                    _errorMessage!,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFFB71C1C),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _isLoading ? null : () => Navigator.of(context).pop(),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton.icon(
+          onPressed: _isLoading ? null : _submit,
+          icon: _isLoading
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : const Icon(Icons.link_rounded, size: 18),
+          label: const Text('Vincular'),
+        ),
+      ],
     );
   }
 }
