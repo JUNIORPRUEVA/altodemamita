@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:bcrypt/bcrypt.dart';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -150,7 +151,13 @@ class AuthService {
   bool get _useBackendMode => identical(_appDatabase, AppDatabase.instance);
 
   Future<AuthBootstrapResult> bootstrap() async {
+    debugPrint('[Bootstrap] Iniciando arranque de la app...');
     final remoteStatus = await _fetchRemoteSystemStatus();
+    debugPrint(
+      '[Bootstrap] Backend: alcanzable=${remoteStatus.isReachable}, '
+      'inicializado=${remoteStatus.initialized}',
+    );
+
     final localRequiresInitialSetup = await requiresInitialSetup();
 
     // Si la nube ya está inicializada, una PC nueva debe ir a login,
@@ -164,9 +171,39 @@ class AuthService {
 
     UserModel? currentUser;
     if (effectiveRequiresInitialSetup) {
+      debugPrint('[Bootstrap] Instalacion nueva detectada. Limpiando sesion...');
       await clearSession();
     } else {
+      // Paso 1: intentar restaurar sesion local (token SQLite).
+      debugPrint('[Bootstrap] Intentando restaurar sesion local...');
       currentUser = await restoreSession();
+
+      if (currentUser != null) {
+        debugPrint(
+          '[Bootstrap] Sesion local restaurada para ${currentUser.email}.',
+        );
+      } else {
+        // Paso 2: no hay sesion local — intentar JWT guardado contra /auth/me.
+        debugPrint(
+          '[Bootstrap] Sin sesion local. Intentando validar JWT con backend...',
+        );
+        if (remoteStatus.isReachable && remoteStatus.initialized) {
+          currentUser = await _restoreSessionFromJwt();
+          if (currentUser != null) {
+            debugPrint(
+              '[Bootstrap] Sesion restaurada via JWT para ${currentUser.email}.',
+            );
+          } else {
+            debugPrint(
+              '[Bootstrap] JWT invalido o inexistente. Se requiere login.',
+            );
+          }
+        } else {
+          debugPrint(
+            '[Bootstrap] Backend no disponible. Se requiere login.',
+          );
+        }
+      }
     }
 
     return AuthBootstrapResult(
@@ -186,9 +223,15 @@ class AuthService {
     required String email,
     required String password,
   }) async {
+    debugPrint('[SignIn] Intento de login para $email...');
     final remoteStatus = await _fetchRemoteSystemStatus();
+    debugPrint(
+      '[SignIn] Backend: alcanzable=${remoteStatus.isReachable}, '
+      'inicializado=${remoteStatus.initialized}',
+    );
     try {
       final localUser = await signIn(email: email, password: password);
+      debugPrint('[SignIn] Autenticacion local exitosa para $email.');
 
       if (remoteStatus.isReachable &&
           remoteStatus.statusAvailable &&
@@ -211,6 +254,7 @@ class AuthService {
 
       return AuthSignInResult(user: localUser, mode: AuthSignInMode.offline);
     } on AuthException {
+      debugPrint('[SignIn] No hay usuario local. Intentando login online...');
       if (remoteStatus.isReachable &&
           remoteStatus.statusAvailable &&
           remoteStatus.initialized) {
@@ -230,6 +274,7 @@ class AuthService {
     required String email,
     required String password,
   }) async {
+    debugPrint('[LoginOnline] Autenticando con backend para $email...');
     final settings = await _syncConfigRepository.loadSettings();
 
     final normalizedIdentifier = email.trim();
@@ -260,6 +305,7 @@ class AuthService {
       normalizedPassword,
     );
     await _syncConfigRepository.saveJwtToken(accessToken);
+    debugPrint('[LoginOnline] JWT guardado. Usuario: ${user.email}, rol: ${user.role.storageValue}');
     return user;
   }
 
@@ -1310,6 +1356,131 @@ class AuthService {
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // JWT-based session restore
+  // ---------------------------------------------------------------------------
+
+  /// Validates the stored JWT against [/auth/me] and, if successful, refreshes
+  /// the local user cache and creates a new local session — without requiring
+  /// the plaintext password.  Returns [null] when the token is absent, expired,
+  /// or the user has no prior cached record on this device.
+  Future<UserModel?> _restoreSessionFromJwt() async {
+    final settings = await _syncConfigRepository.loadSettings();
+    final jwt = settings.jwtToken.trim();
+    if (jwt.isEmpty) {
+      debugPrint('[JWT] No hay token almacenado.');
+      return null;
+    }
+
+    debugPrint('[JWT] Token encontrado. Validando con /auth/me...');
+    try {
+      final payload = await _sendJsonRequest(
+        method: 'GET',
+        uri: Uri.parse('${settings.normalizedBaseUrl}/auth/me'),
+        headers: {'Authorization': 'Bearer $jwt'},
+      );
+      debugPrint('[JWT] /auth/me exitoso para ${payload["email"]}.');
+      return await _refreshLocalUserFromJwtPayload(payload);
+    } on AuthException catch (e) {
+      debugPrint('[JWT] Token invalido (${e.message}). Eliminando JWT guardado.');
+      await _syncConfigRepository.clearJwtToken();
+      return null;
+    } catch (e) {
+      debugPrint('[JWT] Error al validar token: $e');
+      return null;
+    }
+  }
+
+  /// Refreshes or creates the local user from a [/auth/me] payload, without
+  /// touching the stored password hash.  Returns [null] when no prior local user
+  /// record can be found for this device (first-ever login is still required).
+  Future<UserModel?> _refreshLocalUserFromJwtPayload(
+    Map<String, dynamic> payload,
+  ) async {
+    final remoteAuthId = payload['sub']?.toString().trim();
+    final email = payload['email']?.toString().trim().toLowerCase() ?? '';
+    if (remoteAuthId == null || remoteAuthId.isEmpty || email.isEmpty) {
+      debugPrint('[JWT] Payload de /auth/me incompleto.');
+      return null;
+    }
+
+    final db = await _appDatabase.database;
+    final role = _mapRemoteRole(payload['roles']);
+    final permissions = role == UserRole.admin
+        ? _fullPermissions()
+        : _mapRemotePermissions(payload['permissions']);
+    final fullName = payload['fullName']?.toString().trim();
+    final username = payload['username']?.toString().trim();
+    final now = DateTime.now();
+
+    final localUserId = await db.transaction<int?>((txn) async {
+      final byRemoteId = await txn.query(
+        DatabaseSchema.usersTable,
+        columns: ['id', 'fecha_creacion'],
+        where: 'remote_auth_id = ?',
+        whereArgs: [remoteAuthId],
+        limit: 1,
+      );
+      final byEmail = byRemoteId.isEmpty
+          ? await txn.query(
+              DatabaseSchema.usersTable,
+              columns: ['id', 'fecha_creacion'],
+              where: 'LOWER(email) = ?',
+              whereArgs: [email],
+              limit: 1,
+            )
+          : const <Map<String, Object?>>[];
+
+      final existing = byRemoteId.isNotEmpty
+          ? byRemoteId.first
+          : (byEmail.isNotEmpty ? byEmail.first : null);
+
+      if (existing == null) {
+        // Usuario nunca ha iniciado sesión en esta PC — login manual requerido.
+        debugPrint(
+          '[JWT] Usuario $email no encontrado localmente. '
+          'Se requiere login manual.',
+        );
+        return null;
+      }
+
+      final userId = existing['id'] as int;
+      await txn.update(
+        DatabaseSchema.usersTable,
+        {
+          'remote_auth_id': remoteAuthId,
+          'nombre':
+              (fullName?.isNotEmpty == true ? fullName : username) ?? email,
+          'email': email,
+          'password_reset_required': 0,
+          'rol': role.storageValue,
+          'activo': payload['isActive'] == false ? 0 : 1,
+          'auth_source': AuthSource.cloud.storageValue,
+          'last_online_login_at': now.toIso8601String(),
+          'sync_status': DatabaseSchema.syncStatusSynced,
+          'fecha_actualizacion': now.toIso8601String(),
+        },
+        where: 'id = ?',
+        whereArgs: [userId],
+      );
+      await _replacePermissions(txn, userId, permissions);
+
+      // Crear nueva sesion local ligada a este usuario.
+      await txn.delete(
+        DatabaseSchema.authSessionsTable,
+        where: 'usuario_id = ?',
+        whereArgs: [userId],
+      );
+      await _persistSession(txn, userId);
+      return userId;
+    });
+
+    if (localUserId == null) return null;
+    return getUserById(localUserId);
+  }
+
+  // ---------------------------------------------------------------------------
+
   Future<_RemoteSystemStatus> _fetchRemoteSystemStatus() async {
     try {
       final settings = await _syncConfigRepository.loadSettings();
@@ -1389,10 +1560,16 @@ class AuthService {
     required String method,
     required Uri uri,
     Map<String, Object?>? payload,
+    Map<String, String>? headers,
   }) async {
     final request = await _openRequest(method, uri);
     request.headers.contentType = ContentType.json;
     request.headers.set(HttpHeaders.acceptHeader, ContentType.json.mimeType);
+    if (headers != null) {
+      for (final entry in headers.entries) {
+        request.headers.set(entry.key, entry.value);
+      }
+    }
     if (payload != null) {
       request.write(jsonEncode(payload));
     }
