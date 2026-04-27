@@ -900,6 +900,7 @@ class _Sidebar extends StatelessWidget {
                           ),
                         ),
                       ],
+                      _SidebarLogoutTile(compact: compact),
                       const SizedBox(height: 8),
                       const _SidebarFooterNote(),
                     ],
@@ -995,6 +996,87 @@ class _NavTile extends StatelessWidget {
                   ),
                 ),
               ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SidebarLogoutTile extends StatelessWidget {
+  const _SidebarLogoutTile({required this.compact});
+
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final drawerMode = MediaQuery.sizeOf(context).width < 760;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: () async {
+          await context.read<AuthController>().signOut();
+          if (!context.mounted) {
+            return;
+          }
+          if (drawerMode && Navigator.of(context).canPop()) {
+            Navigator.of(context).pop();
+          }
+          context.go('/login');
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: EdgeInsets.symmetric(
+            horizontal: drawerMode ? 13 : 10,
+            vertical: drawerMode ? 11 : 10,
+          ),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.025),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: drawerMode ? 44 : 36,
+                height: drawerMode ? 44 : 36,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.05),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  Icons.logout_rounded,
+                  color: Colors.white,
+                  size: drawerMode ? 24 : 20,
+                ),
+              ),
+              SizedBox(width: drawerMode ? 12 : 10),
+              Expanded(
+                child: Text(
+                  'Cerrar sesion',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: drawerMode ? 15 : 13.5,
+                  ),
+                ),
+              ),
+              if (!compact)
+                AnimatedOpacity(
+                  opacity: 0.24,
+                  duration: const Duration(milliseconds: 180),
+                  child: Container(
+                    width: 7,
+                    height: 7,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF8FCFFF),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
             ],
           ),
         ),

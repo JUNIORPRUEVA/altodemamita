@@ -113,7 +113,7 @@ Name: "desktopicon"; Description: "Crear icono en el escritorio"; GroupDescripti
 ; Copia el bundle completo de Flutter Windows preservando su estructura.
 ; No se debe distribuir solo el .exe: la app requiere DLLs, data\app.so,
 ; data\icudtl.dat y todos los assets generados bajo data\flutter_assets.
-Source: "{#MyAppSourceDir}\*"; DestDir: "{app}"; Excludes: "*.pdb,*.ilk,*.exp,*.lib"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#MyAppSourceDir}\*"; DestDir: "{app}"; Excludes: "*.pdb,*.ilk,*.exp,*.lib,*.bak.*"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; Runtime nativo requerido por Flutter Desktop y plugins nativos.
 Source: "redist\VC_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
