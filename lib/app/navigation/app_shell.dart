@@ -107,6 +107,7 @@ class _AppShellState extends State<AppShell> {
       _paymentsSyncRepository,
     ],
     syncQueueService: _syncQueueService,
+    onCloudSessionExpired: _handleCloudSessionExpired,
   );
   late final RealtimeSyncService _realtimeSyncService = RealtimeSyncService(
     syncService: _syncService,
@@ -126,18 +127,21 @@ class _AppShellState extends State<AppShell> {
   bool _isAdministrationMenuExpanded = false;
   int? _selectedInstallmentsSaleId;
   int? _selectedPaymentsSaleId;
+  bool _cloudSessionExpiredHandled = false;
 
   @override
   void initState() {
     super.initState();
     _restoreNavigationPreferences();
     _loadCompanyDisplayName();
+    _syncQueueService.setCloudSessionExpiredHandler(_handleCloudSessionExpired);
     _syncManager.addListener(_handleSyncManagerChanged);
     unawaited(_syncManager.start());
   }
 
   @override
   void dispose() {
+    _syncQueueService.setCloudSessionExpiredHandler(null);
     _syncManager.removeListener(_handleSyncManagerChanged);
     _syncManager.dispose();
     _syncConflictService.dispose();
@@ -288,7 +292,22 @@ class _AppShellState extends State<AppShell> {
   }
 
   Future<void> _signOut() async {
-    await context.read<AuthProvider>().signOut();
+    final authProvider = context.read<AuthProvider>();
+    await _syncManager.stop(reason: 'Sesion cerrada.');
+    await authProvider.signOut();
+  }
+
+  Future<void> _handleCloudSessionExpired(String reason) async {
+    if (_cloudSessionExpiredHandled) {
+      return;
+    }
+    _cloudSessionExpiredHandled = true;
+    final authProvider = context.read<AuthProvider>();
+    await _syncManager.stop(reason: reason);
+    if (!mounted) {
+      return;
+    }
+    await authProvider.signOut();
   }
 
   Future<void> _runSync({bool showFeedback = true}) async {

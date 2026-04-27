@@ -22,11 +22,13 @@ class SyncService {
   SyncService({
     required List<SyncRepository> repositories,
     Future<void> Function(SyncReport report)? onSyncFinished,
+    Future<void> Function(String reason)? onCloudSessionExpired,
     SyncConfigRepository? configRepository,
     SyncApiClient? apiClient,
     SyncQueueService? syncQueueService,
   }) : _repositories = repositories,
        _onSyncFinished = onSyncFinished,
+       _onCloudSessionExpired = onCloudSessionExpired,
        _configRepository = configRepository ?? SyncConfigRepository(),
        _apiClient = apiClient ?? SyncApiClient(),
        _syncQueueService = syncQueueService ?? SyncQueueService.instance {
@@ -39,6 +41,7 @@ class SyncService {
   final List<SyncRepository> _repositories;
   final Map<String, SyncRepository> _repositoriesByScope = {};
   final Future<void> Function(SyncReport report)? _onSyncFinished;
+  final Future<void> Function(String reason)? _onCloudSessionExpired;
   final SyncConfigRepository _configRepository;
   final SyncApiClient _apiClient;
   final SyncQueueService _syncQueueService;
@@ -46,6 +49,7 @@ class SyncService {
   final SyncLogger _syncLogger = SyncLogger.instance;
   List<String> _lastScopeWarnings = const [];
   bool _isSyncing = false;
+  bool _cloudSessionInvalidated = false;
   SyncReport? _lastReport;
 
   bool get isSyncing => _isSyncing;
@@ -167,6 +171,9 @@ class SyncService {
     } on HttpException catch (error) {
       _lastScopeWarnings = const [];
       if (_isUnauthorizedSyncError(error)) {
+        await _invalidateCloudSession(
+          'La sesion de nube vencio o fue rechazada por el backend.',
+        );
         final report = SyncReport(
           startedAt: startedAt,
           finishedAt: DateTime.now(),
@@ -381,6 +388,15 @@ class SyncService {
     final settings = await _configRepository.loadSettings();
     final targetScopes = scopes.toSet();
     _lastScopeWarnings = const [];
+    if (!settings.isConfigured) {
+      await _syncLogger.log(
+        action: 'download-blocked',
+        entity: targetScopes.join(','),
+        result: 'pending',
+        error: _buildMissingConfigurationMessage(settings),
+      );
+      return 0;
+    }
     if (targetScopes.isEmpty) {
       return 0;
     }
@@ -425,10 +441,20 @@ class SyncService {
       }
     }
 
-    final response = await _apiClient.downloadChanges(
-      settings: settings,
-      updatedSince: earliestCursor,
-    );
+    late final SyncDownloadResponse response;
+    try {
+      response = await _apiClient.downloadChanges(
+        settings: settings,
+        updatedSince: earliestCursor,
+      );
+    } on HttpException catch (error) {
+      if (_isUnauthorizedSyncError(error)) {
+        await _invalidateCloudSession(
+          'La sesion de nube vencio o fue rechazada por el backend.',
+        );
+      }
+      rethrow;
+    }
 
     var downloadedRecords = 0;
     final scopeWarnings = <String>[];
@@ -538,6 +564,28 @@ class SyncService {
   }
 
   void dispose() {}
+
+  Future<void> _invalidateCloudSession(String reason) async {
+    if (_cloudSessionInvalidated) {
+      return;
+    }
+    _cloudSessionInvalidated = true;
+    await _configRepository.clearJwtToken();
+    await _configRepository.saveLastRun(
+      errorMessage: reason,
+      status: SyncRuntimeStatus.pending,
+    );
+    await _syncLogger.log(
+      action: 'cloud-session-expired',
+      entity: 'auth',
+      result: 'pending',
+      error: reason,
+    );
+    final notify = _onCloudSessionExpired;
+    if (notify != null) {
+      await notify(reason);
+    }
+  }
 
   bool _isUnauthorizedSyncError(HttpException error) {
     final message = error.message.toLowerCase();

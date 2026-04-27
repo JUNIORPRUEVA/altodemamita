@@ -85,6 +85,34 @@ class SyncManager extends ChangeNotifier {
     }
   }
 
+  Future<void> stop({String? reason}) async {
+    _started = false;
+    _manualSyncInProgress = false;
+    await _queueSubscription?.cancel();
+    await _realtimeSubscription?.cancel();
+    await _dataChangedSubscription?.cancel();
+    await _conflictSubscription?.cancel();
+    _queueSubscription = null;
+    _realtimeSubscription = null;
+    _dataChangedSubscription = null;
+    _conflictSubscription = null;
+    await _syncQueueService.stop();
+    await _realtimeSyncService.stop(reason: reason);
+    final normalizedReason = reason?.trim();
+    _setState(
+      _state.copyWith(
+        connectionStatus: SyncConnectionStatus.disconnected,
+        isSyncing: false,
+        currentErrors: normalizedReason == null || normalizedReason.isEmpty
+            ? const <String>[]
+            : <String>[normalizedReason],
+        lastSyncIssues: normalizedReason == null || normalizedReason.isEmpty
+            ? const <String>[]
+            : <String>[normalizedReason],
+      ),
+    );
+  }
+
   Future<SyncReport> syncNow({bool showAsBusy = true}) async {
     _manualSyncInProgress = showAsBusy;
     _setState(

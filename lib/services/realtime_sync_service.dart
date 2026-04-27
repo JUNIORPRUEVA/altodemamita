@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:developer' as developer;
 
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
@@ -40,28 +41,13 @@ class RealtimeSyncService {
 
   Future<void> start() async {
     if (manualCloudSyncOnly) {
-      _disposeSocket();
-      _stopPolling();
-      _emitState(
-        RealtimeSyncState(
-          connectionStatus: SyncConnectionStatus.disconnected,
-          dataVersion: _state.dataVersion,
-          lastDataChangedAt: _state.lastDataChangedAt,
-        ),
-      );
+      await stop();
       return;
     }
 
     final settings = await _configRepository.loadSettings();
     if (!settings.isConfigured) {
-      _stopPolling();
-      _emitState(
-        RealtimeSyncState(
-          connectionStatus: SyncConnectionStatus.disconnected,
-          dataVersion: _state.dataVersion,
-          lastDataChangedAt: _state.lastDataChangedAt,
-        ),
-      );
+      await stop();
       return;
     }
 
@@ -206,6 +192,27 @@ class RealtimeSyncService {
     });
 
     _socket = socket;
+  }
+
+  Future<void> stop({String? reason}) async {
+    _stopPolling();
+    _disposeSocket();
+    _emitState(
+      RealtimeSyncState(
+        connectionStatus: SyncConnectionStatus.disconnected,
+        lastError: reason,
+        dataVersion: _state.dataVersion,
+        lastDataChangedAt: _state.lastDataChangedAt,
+      ),
+    );
+    if (reason != null && reason.trim().isNotEmpty) {
+      await _syncLogger.log(
+        action: 'realtime-stop',
+        entity: 'sync',
+        result: 'pending',
+        error: reason,
+      );
+    }
   }
 
   String _resolveRealtimeBaseUrl(String normalizedBaseUrl) {
@@ -615,12 +622,13 @@ class RealtimeSyncService {
   }
 
   void _logEventDiagnostics(String prefix, _DeduplicationContext context) {
-    print(
+    developer.log(
       '$prefix: messageId=${context.messageId ?? '-'} '
       'remoteJid=${context.remoteJid ?? '-'} '
       'timestamp=${context.timestamp ?? '-'} '
       'pushName=${context.pushName ?? '-'} '
       'texto=${context.text ?? '-'}',
+      name: 'SistemaSolares.RealtimeSync',
     );
   }
 

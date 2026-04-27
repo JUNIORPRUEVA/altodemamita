@@ -28,8 +28,7 @@ class AuthProvider extends ChangeNotifier {
   bool _requiresInitialSetup = false;
   bool _isOnline = false;
   bool _isCloudInitialized = true;
-  BackendConnectionStatus _backendStatus =
-      BackendConnectionStatus.unreachable;
+  BackendConnectionStatus _backendStatus = BackendConnectionStatus.unreachable;
   String? _backendStatusMessage;
   UserModel? _currentUser;
   String? _errorMessage;

@@ -80,6 +80,7 @@ class SyncQueueService {
   final StreamController<SyncQueueState> _stateController =
       StreamController<SyncQueueState>.broadcast();
   final Set<String> _conflictRecoveryDownloadedScopes = {};
+  Future<void> Function(String reason)? _onCloudSessionExpired;
 
   static const List<String> _syncOrder = [
     'clients',
@@ -123,6 +124,12 @@ class SyncQueueService {
     _repositoriesByScope[repository.scope] = repository;
   }
 
+  void setCloudSessionExpiredHandler(
+    Future<void> Function(String reason)? handler,
+  ) {
+    _onCloudSessionExpired = handler;
+  }
+
   Future<void> start() async {
     if (manualCloudSyncOnly) {
       _retryTimer?.cancel();
@@ -150,6 +157,15 @@ class SyncQueueService {
     unawaited(requeueUnresolvedConflicts());
 
     unawaited(processQueue());
+  }
+
+  Future<void> stop() async {
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    await _connectivitySubscription?.cancel();
+    _connectivitySubscription = null;
+    _isProcessing = false;
+    await _refreshState(clearLastError: true);
   }
 
   Future<int> requeueUnresolvedConflicts({Iterable<String>? scopes}) async {
@@ -673,6 +689,12 @@ class SyncQueueService {
           );
           unavailableScopes.add(scope);
         } on HttpException catch (error) {
+          if (_isUnauthorizedHttpError(error)) {
+            await _handleCloudSessionExpired(
+              'La sesion de nube vencio o fue rechazada por el backend.',
+            );
+            return processedCount;
+          }
           await _syncLogger.log(
             action: 'upload',
             entity: scope,
@@ -1072,6 +1094,32 @@ class SyncQueueService {
       }
       rethrow;
     }
+  }
+
+  Future<void> _handleCloudSessionExpired(String reason) async {
+    await _configRepository.clearJwtToken();
+    await _configRepository.saveLastRun(
+      errorMessage: reason,
+      status: SyncRuntimeStatus.pending,
+    );
+    await _syncLogger.log(
+      action: 'cloud-session-expired',
+      entity: 'auth',
+      result: 'pending',
+      error: reason,
+    );
+    await _refreshState(lastError: reason);
+    final notify = _onCloudSessionExpired;
+    if (notify != null) {
+      await notify(reason);
+    } else {
+      await stop();
+    }
+  }
+
+  bool _isUnauthorizedHttpError(HttpException error) {
+    final message = error.message.toLowerCase();
+    return message.contains('401') || message.contains('unauthorized');
   }
 
   bool _isDatabaseClosedError(DatabaseException error) {
