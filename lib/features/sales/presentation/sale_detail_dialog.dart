@@ -457,6 +457,7 @@ class _InstallmentsSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final saleId = detail.sale.id;
     final emptyMessage = detail.sale.isFinancingActive
         ? 'Esta venta no tiene cuotas generadas.'
         : 'Las cuotas se generarán cuando el inicial quede completado.';
@@ -480,10 +481,12 @@ class _InstallmentsSection extends StatelessWidget {
           if (hasInstallments) const SizedBox(height: 10),
           _CompactFloatingActionButton.extended(
             heroTag: 'sale-payments-fullscreen',
-            onPressed: () => openPaymentsFullscreen(
-              context,
-              saleId: detail.sale.id,
-            ),
+            onPressed: saleId == null
+                ? null
+                : () => openPaymentsFullscreen(
+                      context,
+                      saleId: saleId!,
+                    ),
             icon: Icons.payments_outlined,
             label: 'Ver pagos',
           ),
