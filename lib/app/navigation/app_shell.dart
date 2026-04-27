@@ -307,7 +307,10 @@ class _AppShellState extends State<AppShell> {
     if (!mounted) {
       return;
     }
-    await authProvider.signOut();
+    // Marcar la sesión de nube como expirada SIN cerrar la sesión local.
+    // El usuario permanece autenticado localmente; solo la sync está bloqueada.
+    // El sync status badge ya muestra el error de conexión al usuario.
+    authProvider.markCloudSessionExpired();
   }
 
   Future<void> _runSync({bool showFeedback = true}) async {

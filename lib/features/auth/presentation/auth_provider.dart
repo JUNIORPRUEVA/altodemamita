@@ -28,6 +28,7 @@ class AuthProvider extends ChangeNotifier {
   bool _requiresInitialSetup = false;
   bool _isOnline = false;
   bool _isCloudInitialized = true;
+  bool _isCloudSessionExpired = false;
   BackendConnectionStatus _backendStatus = BackendConnectionStatus.unreachable;
   String? _backendStatusMessage;
   UserModel? _currentUser;
@@ -39,6 +40,9 @@ class AuthProvider extends ChangeNotifier {
   bool get requiresInitialSetup => _requiresInitialSetup;
   bool get isOnline => _isOnline;
   bool get isCloudInitialized => _isCloudInitialized;
+  /// Verdadero cuando el JWT venció o fue rechazado por el backend.
+  /// El usuario sigue autenticado localmente; solo la sync en la nube está bloqueada.
+  bool get isCloudSessionExpired => _isCloudSessionExpired;
   BackendConnectionStatus get backendStatus => _backendStatus;
   String? get backendStatusMessage => _backendStatusMessage;
   bool get isAuthenticated => _currentUser != null;
@@ -49,6 +53,16 @@ class AuthProvider extends ChangeNotifier {
   AuthService get authService => _authService;
   String? get lastGeneratedRecoveryCode => _lastGeneratedRecoveryCode;
 
+  /// Marca la sesión en la nube como expirada sin cerrar la sesión local.
+  /// Lllamado cuando el backend responde 401 durante una sincronización.
+  void markCloudSessionExpired() {
+    if (_isCloudSessionExpired) return;
+    _isCloudSessionExpired = true;
+    _isOnline = false;
+    _backendStatus = BackendConnectionStatus.unreachable;
+    notifyListeners();
+  }
+
   Future<void> initialize() async {
     _isInitializing = true;
     notifyListeners();
@@ -58,6 +72,7 @@ class AuthProvider extends ChangeNotifier {
       _requiresInitialSetup = bootstrap.requiresInitialSetup;
       _isOnline = bootstrap.isOnline;
       _isCloudInitialized = bootstrap.isCloudInitialized;
+      _isCloudSessionExpired = false;
       _backendStatus = bootstrap.backendStatus;
       _backendStatusMessage = bootstrap.backendStatusMessage;
       _clearAdminOverrides(notify: false);
@@ -103,6 +118,7 @@ class AuthProvider extends ChangeNotifier {
       _currentUser = result.user;
       _requiresInitialSetup = false;
       _isCloudInitialized = true;
+      _isCloudSessionExpired = false;
       _isOnline = result.mode == AuthSignInMode.online;
       if (_isOnline) {
         _backendStatus = BackendConnectionStatus.connected;
@@ -238,6 +254,7 @@ class AuthProvider extends ChangeNotifier {
     await _authService.signOut();
     _clearAdminOverrides(notify: false);
     _currentUser = null;
+    _isCloudSessionExpired = false;
     _errorMessage = null;
     notifyListeners();
   }
