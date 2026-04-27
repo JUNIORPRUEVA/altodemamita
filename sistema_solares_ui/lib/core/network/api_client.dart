@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -152,24 +153,28 @@ class ApiClient {
     try {
       switch (method) {
         case 'GET':
-          response = await _client.get(uri, headers: headers);
+          response = await _client
+              .get(uri, headers: headers)
+              .timeout(const Duration(seconds: 20));
         case 'POST':
-          response = await _client.post(
-            uri,
-            headers: headers,
-            body: encodedBody,
-          );
+          response = await _client
+              .post(uri, headers: headers, body: encodedBody)
+              .timeout(const Duration(seconds: 20));
         case 'PATCH':
-          response = await _client.patch(
-            uri,
-            headers: headers,
-            body: encodedBody,
-          );
+          response = await _client
+              .patch(uri, headers: headers, body: encodedBody)
+              .timeout(const Duration(seconds: 20));
         case 'DELETE':
-          response = await _client.delete(uri, headers: headers);
+          response = await _client
+              .delete(uri, headers: headers)
+              .timeout(const Duration(seconds: 20));
         default:
           throw ApiException('Metodo HTTP no soportado: $method');
       }
+    } on TimeoutException {
+      throw ApiException(
+        'El servidor no respondio a tiempo. Verifica tu conexion a internet.',
+      );
     } catch (error) {
       _debugTransportError(
         method: method,
