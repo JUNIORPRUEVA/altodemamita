@@ -153,15 +153,24 @@ class AuthService {
     final remoteStatus = await _fetchRemoteSystemStatus();
     final localRequiresInitialSetup = await requiresInitialSetup();
 
+    // Si la nube ya está inicializada, una PC nueva debe ir a login,
+    // no al asistente de configuración inicial.
+    final cloudIsReady =
+        remoteStatus.isReachable &&
+        remoteStatus.statusAvailable &&
+        remoteStatus.initialized;
+    final effectiveRequiresInitialSetup =
+        localRequiresInitialSetup && !cloudIsReady;
+
     UserModel? currentUser;
-    if (localRequiresInitialSetup) {
+    if (effectiveRequiresInitialSetup) {
       await clearSession();
     } else {
       currentUser = await restoreSession();
     }
 
     return AuthBootstrapResult(
-      requiresInitialSetup: localRequiresInitialSetup,
+      requiresInitialSetup: effectiveRequiresInitialSetup,
       isOnline: remoteStatus.isReachable,
       isCloudInitialized:
           remoteStatus.isReachable && remoteStatus.statusAvailable

@@ -122,4 +122,34 @@ void main() {
       expect(result.user.email, 'caja@local.test');
     },
   );
+
+  test(
+    'PC nueva con nube ya inicializada no muestra setup sino login',
+    () async {
+      // Simula: otra PC ya hizo el setup inicial y la nube está inicializada
+      backendState.initialized = true;
+      backendState.adminEmail = 'admin@test.local';
+      backendState.adminPassword = 'AdminSegura123';
+      backendState.adminFullName = 'Admin General';
+
+      // BD local vacía (PC nueva, primer arranque)
+      final bootstrap = await authService.bootstrap();
+
+      // No debe pedir setup — la nube ya está lista
+      expect(bootstrap.requiresInitialSetup, isFalse);
+      expect(bootstrap.isOnline, isTrue);
+      expect(bootstrap.isCloudInitialized, isTrue);
+
+      // Debe poder autenticarse con credenciales de la nube
+      final result = await authService.signInHybrid(
+        email: 'admin@test.local',
+        password: 'AdminSegura123',
+      );
+      expect(result.mode, AuthSignInMode.online);
+      expect(result.user.email, 'admin@test.local');
+
+      // El usuario ahora debe estar en caché local
+      expect(await authService.requiresInitialSetup(), isFalse);
+    },
+  );
 }
