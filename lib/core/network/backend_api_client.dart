@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../../services/sync/sync_config_repository.dart';
+import 'backend_http_client.dart';
 
 class BackendApiException implements Exception {
   const BackendApiException(this.message, {this.statusCode, this.responseBody});
@@ -19,7 +20,7 @@ class BackendApiClient {
   BackendApiClient({
     http.Client? client,
     SyncConfigRepository? syncConfigRepository,
-  }) : _client = client ?? http.Client(),
+  }) : _client = client ?? createBackendPackageHttpClient(),
        _syncConfigRepository = syncConfigRepository ?? SyncConfigRepository();
 
   final http.Client _client;

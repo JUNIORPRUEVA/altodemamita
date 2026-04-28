@@ -3,6 +3,7 @@ import 'dart:developer' as developer;
 import 'dart:io';
 
 import '../../core/config/backend_config.dart';
+import '../../core/network/backend_http_client.dart';
 import '../../core/system/system_config_service.dart';
 import '../../models/sync/sync_conflict_strategy.dart';
 import '../../models/sync/sync_settings.dart';
@@ -106,7 +107,7 @@ class SyncApiClient {
   ];
 
   SyncApiClient({HttpClient? httpClient})
-    : _httpClient = httpClient ?? HttpClient() {
+    : _httpClient = httpClient ?? createBackendHttpClient() {
     _httpClient.connectionTimeout = const Duration(seconds: 10);
     _httpClient.idleTimeout = const Duration(seconds: 15);
   }
@@ -351,7 +352,8 @@ class SyncApiClient {
   ) {
     return {
       for (final scope in _scopes)
-        if ((recordsByScope[scope] ?? const <Map<String, Object?>>[]).isNotEmpty)
+        if ((recordsByScope[scope] ?? const <Map<String, Object?>>[])
+            .isNotEmpty)
           scope: recordsByScope[scope] ?? const <Map<String, Object?>>[],
     };
   }

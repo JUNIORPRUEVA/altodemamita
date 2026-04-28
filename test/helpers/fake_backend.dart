@@ -44,6 +44,7 @@ class FakeBackendHttpClient implements HttpClient {
   final FakeBackendState _state;
   Duration? _connectionTimeout;
   Duration? _idleTimeout;
+  bool Function(X509Certificate, String, int)? _badCertificateCallback;
 
   @override
   Duration? get connectionTimeout => _connectionTimeout;
@@ -56,6 +57,15 @@ class FakeBackendHttpClient implements HttpClient {
 
   @override
   set idleTimeout(Duration value) => _idleTimeout = value;
+
+  @override
+  bool Function(X509Certificate, String, int)? get badCertificateCallback =>
+      _badCertificateCallback;
+
+  @override
+  set badCertificateCallback(
+    bool Function(X509Certificate, String, int)? callback,
+  ) => _badCertificateCallback = callback;
 
   @override
   Future<HttpClientRequest> getUrl(Uri url) async {

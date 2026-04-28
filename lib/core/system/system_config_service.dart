@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import '../network/backend_http_client.dart';
 import '../../services/sync/sync_config_repository.dart';
 
 class ReadOnlyModeException implements Exception {
@@ -29,7 +30,7 @@ class SystemConfigService extends ChangeNotifier {
     SyncConfigRepository? syncConfigRepository,
     HttpClient? httpClient,
   }) : _syncConfigRepository = syncConfigRepository ?? SyncConfigRepository(),
-       _httpClient = httpClient ?? HttpClient() {
+       _httpClient = httpClient ?? createBackendHttpClient() {
     _httpClient.connectionTimeout = const Duration(seconds: 8);
     _httpClient.idleTimeout = const Duration(seconds: 10);
   }
@@ -83,7 +84,9 @@ class SystemConfigService extends ChangeNotifier {
           ? _unwrapEnvelope(decoded)
           : (decoded is Map
                 ? _unwrapEnvelope(
-                    decoded.map((key, value) => MapEntry(key.toString(), value)),
+                    decoded.map(
+                      (key, value) => MapEntry(key.toString(), value),
+                    ),
                   )
                 : const <String, dynamic>{});
 

@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import '../../core/config/backend_config.dart';
 import '../../core/database/app_database.dart';
 import '../../core/database/database_schema.dart';
+import '../../core/network/backend_http_client.dart';
 import '../../core/system/system_config_service.dart';
 import '../../models/sync/sync_conflict_strategy.dart';
 import '../../models/sync/sync_report.dart';
@@ -359,8 +360,10 @@ class SyncService {
 
   Future<String?> _requestJwtRefresh(SyncSettings settings) async {
     final refreshUri = Uri.parse('${settings.normalizedBaseUrl}/auth/refresh');
-    final httpClient = HttpClient();
-    httpClient.connectionTimeout = const Duration(seconds: 8);
+    final httpClient = createBackendHttpClient(
+      connectionTimeout: const Duration(seconds: 8),
+      idleTimeout: const Duration(seconds: 10),
+    );
     try {
       final request = await httpClient.postUrl(refreshUri);
       request.headers.contentType = ContentType.json;

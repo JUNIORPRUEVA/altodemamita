@@ -1,9 +1,9 @@
-
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sistema_solares/core/config/backend_config.dart';
 import 'package:sistema_solares/core/database/app_database.dart';
 import 'package:sistema_solares/features/auth/data/auth_service.dart';
 import 'package:sistema_solares/features/auth/domain/permission_model.dart';
@@ -183,6 +183,43 @@ void main() {
       );
     },
   );
+
+  test('PC nueva usa host legado si el host canonico no responde', () async {
+    configRepository = FakeSyncConfigRepository(
+      settings: SyncSettings(
+        baseUrl: SyncConfigRepository.normalizeBackendBaseUrl(
+          SyncConfigRepository.defaultSyncBaseUrl,
+        ),
+        jwtToken: '',
+        queueRetryInterval: const Duration(seconds: 10),
+        realtimePollingInterval: const Duration(seconds: 5),
+        conflictStrategy: SyncConflictStrategy.manual,
+        deviceId: 'test-device',
+      ),
+    );
+    backendState.unreachableHosts.add(
+      'altodemanita-altodemamita-backend.onqyr1.easypanel.host',
+    );
+    backendState.initialized = true;
+    backendState.adminEmail = 'admin@test.local';
+    backendState.adminPassword = 'AdminSegura123';
+    backendState.adminFullName = 'Admin General';
+    authService = AuthService(
+      appDatabase: appDatabase,
+      syncConfigRepository: configRepository,
+      httpClient: FakeBackendHttpClient(state: backendState),
+    );
+
+    final bootstrap = await authService.bootstrap();
+
+    expect(bootstrap.requiresInitialSetup, isFalse);
+    expect(bootstrap.isOnline, isTrue);
+    expect(bootstrap.isCloudInitialized, isTrue);
+    expect(
+      (await configRepository.loadSettings()).normalizedBaseUrl,
+      SyncConfigRepository.normalizeBackendBaseUrl(LEGACY_BASE_URL),
+    );
+  });
 
   test(
     'login local sin JWT contra nube inicializada no cae silenciosamente a offline',

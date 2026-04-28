@@ -12,6 +12,7 @@ import '../../../core/database/app_database.dart';
 import '../../../core/database/database_schema.dart';
 import '../../../core/network/backend_api_client.dart';
 import '../../../core/network/backend_entity_id_registry.dart';
+import '../../../core/network/backend_http_client.dart';
 import '../../../core/security/password_hasher.dart';
 import '../../../core/security/sensitive_storage.dart';
 import '../../../core/system/system_config_service.dart';
@@ -118,7 +119,7 @@ class AuthService {
   }) : _appDatabase = appDatabase ?? AppDatabase.instance,
        _syncConfigRepository = syncConfigRepository ?? SyncConfigRepository(),
        _syncQueueService = syncQueueService ?? SyncQueueService.instance,
-       _httpClient = httpClient ?? HttpClient(),
+       _httpClient = httpClient ?? createBackendHttpClient(),
        _apiClient = apiClient ?? BackendApiClient(),
        _sensitiveStorage =
            sensitiveStorage ??
@@ -1591,28 +1592,45 @@ class AuthService {
       final canonicalBaseUrl = SyncConfigRepository.normalizeBackendBaseUrl(
         BASE_URL,
       );
-
-      var status = await _probeRemoteSystemStatus(primaryBaseUrl);
-      if (status.isReachable || primaryBaseUrl == canonicalBaseUrl) {
-        return status;
-      }
-
-      // En algunas PCs queda guardada una URL vieja/local en la BD después de
-      // reinstalar. Como este proyecto usa un único backend oficial, si la URL
-      // guardada falla se prueba la URL canónica embebida y se corrige la
-      // configuración local para que el login de PC nueva no quede en modo local.
-      debugPrint(
-        '[Bootstrap] Backend no alcanzable en $primaryBaseUrl. '
-        'Probando URL oficial $canonicalBaseUrl...',
+      final legacyBaseUrl = SyncConfigRepository.normalizeBackendBaseUrl(
+        LEGACY_BASE_URL,
       );
-      status = await _probeRemoteSystemStatus(canonicalBaseUrl);
-      if (status.isReachable) {
-        await _syncConfigRepository.saveBaseUrl(canonicalBaseUrl);
+
+      final candidates = <String>[
+        primaryBaseUrl,
+        canonicalBaseUrl,
+        legacyBaseUrl,
+      ].where((value) => value.trim().isNotEmpty).toSet().toList();
+
+      _RemoteSystemStatus? lastStatus;
+      for (final candidate in candidates) {
+        final status = await _probeRemoteSystemStatus(candidate);
+        if (status.isReachable) {
+          if (candidate != primaryBaseUrl) {
+            await _syncConfigRepository.saveBaseUrl(candidate);
+            debugPrint(
+              '[Bootstrap] Backend alcanzado via fallback. '
+              'URL local corregida de $primaryBaseUrl a $candidate.',
+            );
+          }
+          return status;
+        }
+        lastStatus = status;
+
         debugPrint(
-          '[Bootstrap] URL oficial alcanzable. Configuracion local corregida.',
+          '[Bootstrap] Backend no alcanzable en $candidate. '
+          'Probando siguiente candidato si existe...',
         );
       }
-      return status;
+
+      return lastStatus ??
+          const _RemoteSystemStatus(
+            isReachable: false,
+            initialized: false,
+            statusAvailable: false,
+            connectionStatus: BackendConnectionStatus.unreachable,
+            message: serverConnectionErrorMessage,
+          );
     } on SocketException {
       return const _RemoteSystemStatus(
         isReachable: false,

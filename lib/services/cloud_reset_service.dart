@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../core/config/backend_config.dart';
+import '../core/network/backend_http_client.dart';
 
 class CloudResetException implements Exception {
   const CloudResetException(this.message);
@@ -40,7 +41,7 @@ class CloudResetResult {
 
 class CloudResetService {
   CloudResetService({HttpClient? httpClient})
-    : _httpClient = httpClient ?? HttpClient() {
+    : _httpClient = httpClient ?? createBackendHttpClient() {
     _httpClient.connectionTimeout = const Duration(seconds: 10);
     _httpClient.idleTimeout = const Duration(seconds: 15);
   }
@@ -65,7 +66,9 @@ class CloudResetService {
       throw CloudResetException(_extractErrorMessage(decoded));
     }
 
-    final envelope = decoded is Map<String, dynamic> ? decoded : <String, dynamic>{};
+    final envelope = decoded is Map<String, dynamic>
+        ? decoded
+        : <String, dynamic>{};
     final data = envelope['data'] is Map
         ? (envelope['data'] as Map).map(
             (key, value) => MapEntry(key.toString(), value),
@@ -78,8 +81,7 @@ class CloudResetService {
         : <String, int>{};
 
     return CloudResetResult(
-      message:
-          data['message']?.toString().trim().isNotEmpty == true
+      message: data['message']?.toString().trim().isNotEmpty == true
           ? data['message'].toString().trim()
           : 'Nube reseteada correctamente.',
       deletedCounts: deleted,
