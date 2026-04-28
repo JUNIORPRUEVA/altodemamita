@@ -8,6 +8,8 @@ import 'package:sistema_solares/services/sync/sync_config_repository.dart';
 
 class FakeBackendState {
   bool initialized = false;
+  bool offline = false;
+  bool rejectSyncDownloadUnauthorized = false;
   String companyName = '';
   String adminEmail = '';
   String adminPassword = '';
@@ -26,17 +28,11 @@ class FakeBackendState {
         'record_sync_id': 'installment-1',
         'local_version': 1,
         'server_version': 2,
-        'server_record': {
-          'sync_id': 'installment-1',
-          'version': 2,
-        },
+        'server_record': {'sync_id': 'installment-1', 'version': 2},
       },
     ],
     'records': [
-      {
-        'sync_id': 'installment-1',
-        'version': 2,
-      },
+      {'sync_id': 'installment-1', 'version': 2},
     ],
   };
 }
@@ -108,7 +104,10 @@ class _FakeHttpClientRequest implements HttpClientRequest {
     return const <String, dynamic>{};
   }
 
-  _FakeHttpClientResponse _jsonResponse({required int status, required Object body}) {
+  _FakeHttpClientResponse _jsonResponse({
+    required int status,
+    required Object body,
+  }) {
     return _FakeHttpClientResponse(
       statusCode: status,
       body: jsonEncode(body),
@@ -118,6 +117,10 @@ class _FakeHttpClientRequest implements HttpClientRequest {
 
   @override
   Future<HttpClientResponse> close() async {
+    if (_state.offline) {
+      throw const SocketException('offline');
+    }
+
     final path = _uri.path;
     final payload = _decodeBody();
 
@@ -146,6 +149,16 @@ class _FakeHttpClientRequest implements HttpClientRequest {
     }
 
     if (_method == 'POST' && path.endsWith('/system/setup')) {
+      if (_state.initialized) {
+        return _jsonResponse(
+          status: HttpStatus.badRequest,
+          body: {
+            'success': false,
+            'message': 'El sistema central ya fue inicializado.',
+          },
+        );
+      }
+
       final company = payload['company'] as Map<String, dynamic>? ?? const {};
       final admin = payload['admin'] as Map<String, dynamic>? ?? const {};
       _state.initialized = true;
@@ -161,6 +174,33 @@ class _FakeHttpClientRequest implements HttpClientRequest {
           'data': {
             'initialized': true,
             'company': {'name': _state.companyName},
+          },
+        },
+      );
+    }
+
+    if (_method == 'GET' && path.endsWith('/auth/me')) {
+      final authHeader = _headers.value(HttpHeaders.authorizationHeader) ?? '';
+      final hasValidToken = authHeader.trim() == 'Bearer jwt-test-token';
+      if (!_state.initialized || !hasValidToken) {
+        return _jsonResponse(
+          status: HttpStatus.unauthorized,
+          body: {'success': false, 'message': 'Unauthorized'},
+        );
+      }
+
+      return _jsonResponse(
+        status: HttpStatus.ok,
+        body: {
+          'success': true,
+          'data': {
+            'sub': 'remote-admin-1',
+            'email': _state.adminEmail,
+            'username': 'admin.general',
+            'fullName': _state.adminFullName,
+            'isActive': true,
+            'roles': ['SUPER_ADMIN'],
+            'permissions': ['sync.manage', 'users.write', 'users.read'],
           },
         },
       );
@@ -242,6 +282,13 @@ class _FakeHttpClientRequest implements HttpClientRequest {
     }
 
     if (_method == 'GET' && path.endsWith('/sync/download')) {
+      if (_state.rejectSyncDownloadUnauthorized) {
+        return _jsonResponse(
+          status: HttpStatus.unauthorized,
+          body: {'success': false, 'message': 'Unauthorized'},
+        );
+      }
+
       return _jsonResponse(
         status: HttpStatus.ok,
         body: {
@@ -313,6 +360,7 @@ class _FakeHttpClientResponse extends Stream<List<int>>
 
 class _FakeHttpHeaders implements HttpHeaders {
   ContentType? _contentType;
+  final Map<String, String> _values = <String, String>{};
 
   @override
   ContentType? get contentType => _contentType;
@@ -322,8 +370,11 @@ class _FakeHttpHeaders implements HttpHeaders {
 
   @override
   void set(String name, Object value, {bool preserveHeaderCase = false}) {
-    // No-op for tests.
+    _values[name.toLowerCase()] = value.toString();
   }
+
+  @override
+  String? value(String name) => _values[name.toLowerCase()];
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -342,7 +393,8 @@ class _FakeHttpResponseHeaders implements HttpHeaders {
 }
 
 class FakeSyncConfigRepository extends SyncConfigRepository {
-  FakeSyncConfigRepository({required SyncSettings settings}) : _settings = settings;
+  FakeSyncConfigRepository({required SyncSettings settings})
+    : _settings = settings;
 
   SyncSettings _settings;
   String savedJwtToken = '';
@@ -375,7 +427,7 @@ class FakeSyncConfigRepository extends SyncConfigRepository {
       deviceId: _settings.deviceId,
     );
   }
-  
+
   @override
   Future<void> saveBaseUrl(String baseUrl) async {
     _settings = SyncSettings(
@@ -388,6 +440,7 @@ class FakeSyncConfigRepository extends SyncConfigRepository {
     );
   }
 }
+
 SyncSettings buildFakeSettings() {
   return SyncSettings(
     baseUrl: 'http://127.0.0.1:9999/api',

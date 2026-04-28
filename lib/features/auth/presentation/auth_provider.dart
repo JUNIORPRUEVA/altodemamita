@@ -40,6 +40,7 @@ class AuthProvider extends ChangeNotifier {
   bool get requiresInitialSetup => _requiresInitialSetup;
   bool get isOnline => _isOnline;
   bool get isCloudInitialized => _isCloudInitialized;
+
   /// Verdadero cuando el JWT venció o fue rechazado por el backend.
   /// El usuario sigue autenticado localmente; solo la sync en la nube está bloqueada.
   bool get isCloudSessionExpired => _isCloudSessionExpired;
@@ -256,10 +257,11 @@ class AuthProvider extends ChangeNotifier {
     required String password,
   }) async {
     try {
-      await _authService.connectToCloudForSync(
+      final linkedUser = await _authService.connectToCloudForSync(
         email: email,
         password: password,
       );
+      _currentUser = linkedUser;
       _isOnline = true;
       _isCloudSessionExpired = false;
       _backendStatus = BackendConnectionStatus.connected;

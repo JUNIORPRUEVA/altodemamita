@@ -8,6 +8,7 @@ import 'package:sistema_solares/features/auth/data/auth_service.dart';
 import 'package:sistema_solares/features/auth/domain/permission_model.dart';
 import 'package:sistema_solares/features/auth/domain/user_model.dart';
 import 'package:sistema_solares/models/sync/sync_settings.dart';
+import 'package:sistema_solares/services/sync/sync_service.dart';
 
 import 'helpers/fake_backend.dart';
 
@@ -74,7 +75,7 @@ void main() {
 
       expect(localResult.user.email, 'admin@test.local');
       expect(localResult.mode, AuthSignInMode.online);
-      expect(localResult.syncTriggered, isFalse);
+      expect(localResult.syncTriggered, isTrue);
 
       final offlineUser = await authService.loginOffline(
         email: 'admin@test.local',
@@ -86,40 +87,28 @@ void main() {
   );
 
   test(
-    'permite iniciar sesion offline aunque el backend no este configurado',
+    'backend offline y sin sesion local previa no permite setup falso ni login',
     () async {
-      final seeded = buildFakeSettings();
-      configRepository = FakeSyncConfigRepository(
-        settings: SyncSettings(
-          baseUrl: '',
-          jwtToken: seeded.jwtToken,
-          queueRetryInterval: seeded.queueRetryInterval,
-          realtimePollingInterval: seeded.realtimePollingInterval,
-          conflictStrategy: seeded.conflictStrategy,
-          deviceId: seeded.deviceId,
+      backendState.offline = true;
+
+      final bootstrap = await authService.bootstrap();
+
+      expect(bootstrap.requiresInitialSetup, isFalse);
+      expect(bootstrap.isOnline, isFalse);
+
+      await expectLater(
+        authService.signInHybrid(
+          email: 'admin@test.local',
+          password: 'AdminSegura123',
+        ),
+        throwsA(
+          isA<AuthException>().having(
+            (error) => error.message,
+            'message',
+            contains('No se puede iniciar sin conexion en una PC nueva'),
+          ),
         ),
       );
-      authService = AuthService(
-        appDatabase: appDatabase,
-        syncConfigRepository: configRepository,
-        httpClient: FakeBackendHttpClient(state: backendState),
-      );
-
-      await authService.createUser(
-        nombre: 'Operador Caja',
-        email: 'caja@local.test',
-        password: 'CajaSegura123',
-        role: UserRole.user,
-        permissions: const <PermissionModel>[],
-      );
-
-      final result = await authService.signInHybrid(
-        email: 'caja@local.test',
-        password: 'CajaSegura123',
-      );
-
-      expect(result.mode, AuthSignInMode.offline);
-      expect(result.user.email, 'caja@local.test');
     },
   );
 
@@ -147,9 +136,77 @@ void main() {
       );
       expect(result.mode, AuthSignInMode.online);
       expect(result.user.email, 'admin@test.local');
+      expect(configRepository.savedJwtToken, 'jwt-test-token');
 
       // El usuario ahora debe estar en caché local
       expect(await authService.requiresInitialSetup(), isFalse);
+    },
+  );
+
+  test(
+    'login local sin JWT contra nube inicializada no cae silenciosamente a offline',
+    () async {
+      backendState.initialized = true;
+      backendState.adminEmail = 'admin@test.local';
+      backendState.adminPassword = 'PasswordNube123';
+      backendState.adminFullName = 'Admin Nube';
+
+      await authService.createUser(
+        nombre: 'Admin Local',
+        email: 'admin@test.local',
+        password: 'PasswordLocal123',
+        role: UserRole.admin,
+        permissions: const <PermissionModel>[],
+      );
+
+      await expectLater(
+        authService.signInHybrid(
+          email: 'admin@test.local',
+          password: 'PasswordLocal123',
+        ),
+        throwsA(
+          isA<AuthException>().having(
+            (error) => error.message,
+            'message',
+            contains('No se pudo iniciar sesion en la nube'),
+          ),
+        ),
+      );
+      expect(configRepository.savedJwtToken, isEmpty);
+    },
+  );
+
+  test(
+    'vincular nube guarda JWT y enlaza usuario local con remoteAuthId',
+    () async {
+      backendState.initialized = true;
+      backendState.adminEmail = 'admin@test.local';
+      backendState.adminPassword = 'PasswordNube123';
+      backendState.adminFullName = 'Admin Nube';
+
+      await authService.createUser(
+        nombre: 'Admin Local',
+        email: 'admin@test.local',
+        password: 'PasswordLocal123',
+        role: UserRole.admin,
+        permissions: const <PermissionModel>[],
+      );
+
+      final linked = await authService.connectToCloudForSync(
+        email: 'admin@test.local',
+        password: 'PasswordNube123',
+      );
+
+      expect(configRepository.savedJwtToken, 'jwt-test-token');
+      expect(linked.email, 'admin@test.local');
+      expect(linked.remoteAuthId, 'remote-admin-1');
+      expect(linked.authSource, AuthSource.cloud);
+
+      final syncService = SyncService(
+        repositories: const [],
+        configRepository: configRepository,
+      );
+      expect(await syncService.startupBlockReason(), isNull);
     },
   );
 }

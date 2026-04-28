@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import '../../core/config/backend_config.dart';
 import '../../core/database/app_database.dart';
 import '../../core/database/database_schema.dart';
@@ -18,6 +20,8 @@ import 'sync_queue_service.dart';
 
 class SyncService {
   static const bool _downloadFromCloudEnabled = true;
+  static const String cloudLoginRequiredMessage =
+      'Debe iniciar sesión en la nube para sincronizar.';
 
   SyncService({
     required List<SyncRepository> repositories,
@@ -54,6 +58,14 @@ class SyncService {
 
   bool get isSyncing => _isSyncing;
   SyncReport? get lastReport => _lastReport;
+
+  Future<String?> startupBlockReason() async {
+    final settings = await _configRepository.loadSettings();
+    if (!settings.isConfigured) {
+      return _buildMissingConfigurationMessage(settings);
+    }
+    return null;
+  }
 
   /// Reinicia el estado de sesión de nube para que un nuevo JWT pueda
   /// activar la sincronización. Llamar después de vincular exitosamente.
@@ -94,6 +106,11 @@ class SyncService {
     try {
       final settings = await _configRepository.loadSettings();
       if (!settings.isConfigured) {
+        debugPrint(
+          '[Sync] sync blocked because no jwt/config. '
+          'hasBaseUrl=${settings.baseUrl.trim().isNotEmpty}, '
+          'hasJwt=${settings.jwtToken.trim().isNotEmpty}',
+        );
         final skipped = SyncReport(
           startedAt: startedAt,
           finishedAt: DateTime.now(),
@@ -113,6 +130,27 @@ class SyncService {
       }
 
       await _refreshJwtTokenIfNeeded(settings);
+      final refreshedSettings = await _configRepository.loadSettings();
+      if (refreshedSettings.jwtToken.trim().isEmpty) {
+        debugPrint('[Sync] sync blocked because no jwt after refresh check.');
+        final skipped = SyncReport(
+          startedAt: startedAt,
+          finishedAt: DateTime.now(),
+          wasSkipped: true,
+          errorMessage: cloudLoginRequiredMessage,
+        );
+        await _configRepository.saveLastRun(
+          errorMessage: skipped.errorMessage,
+          status: SyncRuntimeStatus.pending,
+        );
+        _lastReport = skipped;
+        final notify = _onSyncFinished;
+        if (notify != null) {
+          unawaited(notify(skipped));
+        }
+        return skipped;
+      }
+      debugPrint('[Sync] sync started with valid jwt.');
 
       final uploadedCount = await uploadPendingData();
       final downloadedCount = _downloadFromCloudEnabled
@@ -395,6 +433,11 @@ class SyncService {
     final targetScopes = scopes.toSet();
     _lastScopeWarnings = const [];
     if (!settings.isConfigured) {
+      debugPrint(
+        '[Sync] download blocked because no jwt/config. '
+        'hasBaseUrl=${settings.baseUrl.trim().isNotEmpty}, '
+        'hasJwt=${settings.jwtToken.trim().isNotEmpty}',
+      );
       await _syncLogger.log(
         action: 'download-blocked',
         entity: targetScopes.join(','),
@@ -609,7 +652,7 @@ class SyncService {
       return serverConnectionErrorMessage;
     }
     if (!hasJwtToken) {
-      return 'La app local necesita reautenticarse con la nube. Inicia sesion en linea nuevamente para reunificar la sincronizacion.';
+      return cloudLoginRequiredMessage;
     }
     return 'La sincronizacion no esta configurada correctamente.';
   }

@@ -45,6 +45,19 @@ class SyncManager extends ChangeNotifier {
       return;
     }
 
+    final startupBlockReason = await _syncService.startupBlockReason();
+    if (startupBlockReason != null && startupBlockReason.trim().isNotEmpty) {
+      _setState(
+        _state.copyWith(
+          connectionStatus: SyncConnectionStatus.disconnected,
+          isSyncing: false,
+          currentErrors: <String>[startupBlockReason],
+          lastSyncIssues: <String>[startupBlockReason],
+        ),
+      );
+      return;
+    }
+
     _started = true;
     _queueSubscription = _syncQueueService.stateStream.listen(
       _handleQueueState,

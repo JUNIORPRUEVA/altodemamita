@@ -28,6 +28,7 @@ import '../../../repositories/sales_sync_repository.dart';
 import '../../../repositories/users_sync_repository.dart';
 import '../../../services/sync/sync_config_repository.dart';
 import '../../../services/sync/sync_queue_service.dart';
+import '../../../services/sync/sync_api_client.dart';
 import '../../../services/sync/sync_service.dart';
 import '../domain/permission_model.dart';
 import '../domain/user_model.dart';
@@ -166,12 +167,24 @@ class AuthService {
         remoteStatus.isReachable &&
         remoteStatus.statusAvailable &&
         remoteStatus.initialized;
+    // En este proyecto la nube es la fuente de verdad. Si el backend no
+    // responde en una PC nueva, no se crea un admin local falso: se muestra
+    // login con error claro y se reintenta cuando haya conexión.
     final effectiveRequiresInitialSetup =
-        localRequiresInitialSetup && !cloudIsReady;
+        localRequiresInitialSetup &&
+        remoteStatus.statusAvailable &&
+        !remoteStatus.initialized;
+    debugPrint(
+      '[Bootstrap] cloudIsReady=$cloudIsReady, '
+      'localRequiresInitialSetup=$localRequiresInitialSetup, '
+      'effectiveRequiresInitialSetup=$effectiveRequiresInitialSetup',
+    );
 
     UserModel? currentUser;
     if (effectiveRequiresInitialSetup) {
-      debugPrint('[Bootstrap] Instalacion nueva detectada. Limpiando sesion...');
+      debugPrint(
+        '[Bootstrap] Instalacion nueva detectada. Limpiando sesion...',
+      );
       await clearSession();
     } else {
       // Paso 1: intentar restaurar sesion local (token SQLite).
@@ -199,9 +212,7 @@ class AuthService {
             );
           }
         } else {
-          debugPrint(
-            '[Bootstrap] Backend no disponible. Se requiere login.',
-          );
+          debugPrint('[Bootstrap] Backend no disponible. Se requiere login.');
         }
       }
     }
@@ -229,59 +240,84 @@ class AuthService {
       '[SignIn] Backend: alcanzable=${remoteStatus.isReachable}, '
       'inicializado=${remoteStatus.initialized}',
     );
-    try {
-      final localUser = await signIn(email: email, password: password);
-      debugPrint('[SignIn] Autenticacion local exitosa para $email.');
+    final cloudIsReady =
+        remoteStatus.isReachable &&
+        remoteStatus.statusAvailable &&
+        remoteStatus.initialized;
 
-      if (remoteStatus.isReachable &&
-          remoteStatus.statusAvailable &&
-          remoteStatus.initialized) {
-        try {
-          final remoteUser = await loginOnline(
-            email: email,
-            password: password,
-          );
-          final syncTriggered = await _runFullSyncIfPossible();
-          return AuthSignInResult(
-            user: remoteUser,
-            mode: AuthSignInMode.online,
-            syncTriggered: syncTriggered,
-          );
-        } catch (_) {
-          // Las credenciales locales no coinciden con las de la nube.
-          // Si existe un JWT válido guardado (de otro admin o sesión previa),
-          // mantener el modo online para que la sync continúe funcionando.
-          if (await _isStoredJwtStillValid()) {
-            debugPrint(
-              '[SignIn] Cloud login falló pero JWT guardado es válido. '
-              'Manteniendo modo online.',
-            );
-            final syncTriggered = await _runFullSyncIfPossible();
-            return AuthSignInResult(
-              user: localUser,
-              mode: AuthSignInMode.online,
-              syncTriggered: syncTriggered,
-            );
-          }
-        }
-      }
-
-      return AuthSignInResult(user: localUser, mode: AuthSignInMode.offline);
-    } on AuthException {
-      debugPrint('[SignIn] No hay usuario local. Intentando login online...');
-      if (remoteStatus.isReachable &&
-          remoteStatus.statusAvailable &&
-          remoteStatus.initialized) {
+    if (cloudIsReady) {
+      debugPrint('[SignIn] login online attempt para $email.');
+      try {
         final user = await loginOnline(email: email, password: password);
+        debugPrint('[SignIn] login online success para ${user.email}.');
         final syncTriggered = await _runFullSyncIfPossible();
         return AuthSignInResult(
           user: user,
           mode: AuthSignInMode.online,
           syncTriggered: syncTriggered,
         );
+      } on AuthException catch (error) {
+        debugPrint(
+          '[SignIn] login online failure para $email: ${error.message}',
+        );
+        UserModel? localUser;
+        try {
+          localUser = await signIn(email: email, password: password);
+        } on AuthException {
+          localUser = null;
+        }
+
+        if (localUser != null &&
+            localUser.authSource == AuthSource.cloud &&
+            (localUser.remoteAuthId?.trim().isNotEmpty ?? false) &&
+            await _isStoredJwtStillValid()) {
+          debugPrint(
+            '[SignIn] login online fallo, pero usuario local esta vinculado '
+            'y JWT guardado sigue valido. Manteniendo modo online.',
+          );
+          final syncTriggered = await _runFullSyncIfPossible();
+          return AuthSignInResult(
+            user: localUser,
+            mode: AuthSignInMode.online,
+            syncTriggered: syncTriggered,
+          );
+        }
+
+        throw AuthException(
+          'No se pudo iniciar sesion en la nube. Verifica el usuario y la '
+          'contrasena. Si este usuario fue creado solo en esta PC, debe '
+          'vincularse con una cuenta existente de la nube.',
+        );
       }
-      rethrow;
     }
+
+    debugPrint('[SignIn] Backend no disponible para login online.');
+    final restoredUser = await restoreSession();
+    final normalizedEmail = email.trim().toLowerCase();
+    final hasMatchingLocalSession =
+        restoredUser != null &&
+        (restoredUser.email.trim().toLowerCase() == normalizedEmail ||
+            restoredUser.nombre.trim().toLowerCase() == normalizedEmail);
+    if (!hasMatchingLocalSession) {
+      final localRequiresInitialSetup = await requiresInitialSetup();
+      if (localRequiresInitialSetup) {
+        throw const AuthException(
+          'No se puede iniciar sin conexion en una PC nueva. Conecta la PC a '
+          'internet para validar la nube.',
+        );
+      }
+      throw const AuthException(
+        'No se puede iniciar sin conexion sin una sesion local previa. '
+        'Conecta la PC a internet e intenta nuevamente.',
+      );
+    }
+
+    final localUser = await signIn(email: email, password: password);
+    debugPrint(
+      '[SignIn] Autenticacion local permitida por sesion previa. '
+      'Sync bloqueado hasta recuperar JWT de nube.',
+    );
+    return AuthSignInResult(user: localUser, mode: AuthSignInMode.offline);
   }
 
   Future<UserModel> loginOnline({
@@ -319,19 +355,41 @@ class AuthService {
       normalizedPassword,
     );
     await _syncConfigRepository.saveJwtToken(accessToken);
-    debugPrint('[LoginOnline] JWT guardado. Usuario: ${user.email}, rol: ${user.role.storageValue}');
+    final savedSettings = await _syncConfigRepository.loadSettings();
+    if (savedSettings.jwtToken.trim().isEmpty) {
+      debugPrint('[LoginOnline] jwt missing despues de saveJwtToken.');
+      throw const AuthException(
+        'No se pudo guardar la sesion de nube para sincronizar.',
+      );
+    }
+    debugPrint(
+      '[LoginOnline] jwt saved. Usuario: ${user.email}, '
+      'rol: ${user.role.storageValue}',
+    );
     return user;
   }
 
   /// Autentica SOLO con la nube para obtener un JWT de sincronización,
   /// sin cambiar la sesión local activa. Útil cuando el usuario local no
   /// tiene credenciales en la nube (PC nueva configurada sin internet).
-  Future<void> connectToCloudForSync({
+  Future<UserModel> connectToCloudForSync({
     required String email,
     required String password,
   }) async {
-    await loginOnline(email: email, password: password);
-    debugPrint('[ConnectCloud] JWT de sincronización actualizado exitosamente.');
+    debugPrint('[ConnectCloud] cloud link attempt para $email.');
+    try {
+      final user = await loginOnline(email: email, password: password);
+      debugPrint('[ConnectCloud] cloud link success para ${user.email}.');
+      return user;
+    } on AuthException catch (error) {
+      debugPrint(
+        '[ConnectCloud] cloud link failure para $email: ${error.message}',
+      );
+      rethrow;
+    } catch (error) {
+      debugPrint('[ConnectCloud] cloud link failure para $email: $error');
+      rethrow;
+    }
   }
 
   /// Retorna true si el JWT guardado en el repositorio de sync sigue
@@ -1425,7 +1483,9 @@ class AuthService {
       debugPrint('[JWT] /auth/me exitoso para ${payload["email"]}.');
       return await _refreshLocalUserFromJwtPayload(payload);
     } on AuthException catch (e) {
-      debugPrint('[JWT] Token invalido (${e.message}). Eliminando JWT guardado.');
+      debugPrint(
+        '[JWT] Token invalido (${e.message}). Eliminando JWT guardado.',
+      );
       await _syncConfigRepository.clearJwtToken();
       return null;
     } catch (e) {
@@ -1529,17 +1589,6 @@ class AuthService {
       final settings = await _syncConfigRepository.loadSettings();
       final uri = Uri.parse('${settings.normalizedBaseUrl}/system/status');
       if (uri.host.trim().isEmpty) {
-        return const _RemoteSystemStatus(
-          isReachable: false,
-          initialized: false,
-          statusAvailable: false,
-          connectionStatus: BackendConnectionStatus.unreachable,
-          message: serverConnectionErrorMessage,
-        );
-      }
-
-      final lookup = await InternetAddress.lookup(uri.host);
-      if (lookup.isEmpty) {
         return const _RemoteSystemStatus(
           isReachable: false,
           initialized: false,
@@ -2217,6 +2266,8 @@ class AuthService {
         InstallmentsSyncRepository(appDatabase: _appDatabase),
         PaymentsSyncRepository(appDatabase: _appDatabase),
       ],
+      configRepository: _syncConfigRepository,
+      apiClient: SyncApiClient(httpClient: _httpClient),
       syncQueueService: _syncQueueService,
     );
     final report = await syncService.syncNow(forceFullDownload: true);

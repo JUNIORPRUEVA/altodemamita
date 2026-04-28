@@ -345,8 +345,7 @@ class _AppShellState extends State<AppShell> {
   /// Abre el diálogo para vincular la sesión local con la nube cuando el
   /// usuario creó su cuenta sin conexión y ahora necesita un JWT de sync.
   Future<void> _connectToCloud() async {
-    final currentEmail =
-        context.read<AuthProvider>().currentUser?.email ?? '';
+    final currentEmail = context.read<AuthProvider>().currentUser?.email ?? '';
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -375,6 +374,9 @@ class _AppShellState extends State<AppShell> {
     final msg = errors.first.toLowerCase();
     return msg.contains('sesion en linea') ||
         msg.contains('sesión en línea') ||
+        msg.contains('sesion en la nube') ||
+        msg.contains('sesión en la nube') ||
+        msg.contains('nube para sincronizar') ||
         msg.contains('reautenticarse') ||
         msg.contains('credencial actual') ||
         msg.contains('error de conexion') ||
@@ -724,7 +726,9 @@ class _ShellHeader extends StatelessWidget {
             const SizedBox(height: 10),
             _SyncAlertBanner(
               message: currentErrors.first,
-              onRetry: onConnectToCloud != null ? null : (isSyncing ? null : onTriggerSync),
+              onRetry: onConnectToCloud != null
+                  ? null
+                  : (isSyncing ? null : onTriggerSync),
               onConnectToCloud: onConnectToCloud,
             ),
           ] else if (unresolvedConflictCount > 0) ...[
@@ -1738,8 +1742,9 @@ class _CloudLinkDialog extends StatefulWidget {
 
 class _CloudLinkDialogState extends State<_CloudLinkDialog> {
   final _formKey = GlobalKey<FormState>();
-  late final TextEditingController _emailController =
-      TextEditingController(text: widget.initialEmail);
+  late final TextEditingController _emailController = TextEditingController(
+    text: widget.initialEmail,
+  );
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
   bool _isLoading = false;
@@ -1838,8 +1843,7 @@ class _CloudLinkDialogState extends State<_CloudLinkDialog> {
                         setState(() => _obscurePassword = !_obscurePassword),
                   ),
                 ),
-                validator: (v) =>
-                    (v == null || v.isEmpty) ? 'Requerido' : null,
+                validator: (v) => (v == null || v.isEmpty) ? 'Requerido' : null,
               ),
               if (_errorMessage != null) ...[
                 const SizedBox(height: 10),
