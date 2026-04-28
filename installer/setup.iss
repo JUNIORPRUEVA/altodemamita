@@ -13,6 +13,10 @@
 
 #define MyAppVersionFile StringChange(MyAppVersion, "+", "_")
 
+#ifndef InstallPerUser
+  #define InstallPerUser 0
+#endif
+
 #ifndef MyAppPublisher
   #define MyAppPublisher "Sistema Solares"
 #endif
@@ -73,10 +77,18 @@ AppPublisherURL={#MyAppPublisherURL}
 #if MyAppSupportURL != ""
 AppSupportURL={#MyAppSupportURL}
 #endif
+#if InstallPerUser
+DefaultDirName={localappdata}\Programs\{#MyAppName}
+#else
 DefaultDirName={autopf64}\{#MyAppName}
+#endif
 DefaultGroupName={#MyAppName}
 OutputDir=output
+#if InstallPerUser
+OutputBaseFilename={#MyAppSlug}_Setup_{#MyAppVersionFile}_User
+#else
 OutputBaseFilename={#MyAppSlug}_Setup_{#MyAppVersionFile}
+#endif
 SetupIconFile={#BrandSetupIcon}
 #if BrandWizardImage != ""
 WizardImageFile={#BrandWizardImage}
@@ -89,7 +101,11 @@ SolidCompression=yes
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 DisableProgramGroupPage=yes
+#if InstallPerUser
+PrivilegesRequired=lowest
+#else
 PrivilegesRequired=admin
+#endif
 CloseApplications=yes
 RestartApplications=no
 UninstallDisplayIcon={app}\{#MyAppExeName}
@@ -115,8 +131,11 @@ Name: "desktopicon"; Description: "Crear icono en el escritorio"; GroupDescripti
 ; data\icudtl.dat y todos los assets generados bajo data\flutter_assets.
 Source: "{#MyAppSourceDir}\*"; DestDir: "{app}"; Excludes: "*.pdb,*.ilk,*.exp,*.lib,*.bak.*"; Flags: ignoreversion recursesubdirs createallsubdirs
 
+#if InstallPerUser
+#else
 ; Runtime nativo requerido por Flutter Desktop y plugins nativos.
 Source: "redist\VC_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+#endif
 #if IncludeWebView2Runtime
 ; WebView2 es opcional y solo debe incluirse si el build realmente usa un
 ; plugin de Windows que lo necesite.
@@ -130,11 +149,18 @@ Name: "{group}\Abrir carpeta de instalacion"; Filename: "{app}"; WorkingDir: "{a
 #if MyAppSupportURL != ""
 Name: "{group}\Soporte"; Filename: "{#MyAppSupportURL}"
 #endif
+#if InstallPerUser
+Name: "{userdesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
+#else
 Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
+#endif
 
 [Run]
+#if InstallPerUser
+#else
 ; Instala el runtime de Visual C++ solo cuando no esta presente.
 Filename: "{tmp}\VC_redist.x64.exe"; Parameters: "/install /quiet /norestart"; StatusMsg: "Instalando Microsoft Visual C++ Runtime..."; Flags: waituntilterminated; Check: NeedsVCRedist
+#endif
 
 #if IncludeWebView2Runtime
 ; Instala WebView2 solo si el build fue compilado con esa dependencia.

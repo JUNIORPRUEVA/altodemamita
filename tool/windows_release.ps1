@@ -1,6 +1,7 @@
 param(
   [switch]$Build,
   [switch]$CompileInstaller,
+  [switch]$PerUserInstaller,
   [switch]$SkipSetup,
   [string]$Version
 )
@@ -97,6 +98,9 @@ Write-Host "[release] Build number: $($versionParts.BuildNumber)"
 Write-Host "[release] VersionInfo: $versionInfo"
 Write-Host "[release] Script Inno Setup: $setupScript"
 Write-Host "[release] Salida instalador: $outputDir"
+if ($PerUserInstaller) {
+  Write-Host '[release] Modo instalador: por usuario, sin permisos de administrador'
+}
 
 if (-not $SkipSetup) {
   if (-not (Test-Path $setupHelper)) {
@@ -144,6 +148,10 @@ if ($CompileInstaller) {
     "/DMyAppVersionInfo=$versionInfo",
     "/DMyAppSourceDir=$releaseDir"
   )
+
+  if ($PerUserInstaller) {
+    $isccArgs += '/DInstallPerUser=1'
+  }
 
   & $isccPath @isccArgs
 }
