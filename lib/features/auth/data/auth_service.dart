@@ -1587,7 +1587,54 @@ class AuthService {
   Future<_RemoteSystemStatus> _fetchRemoteSystemStatus() async {
     try {
       final settings = await _syncConfigRepository.loadSettings();
-      final uri = Uri.parse('${settings.normalizedBaseUrl}/system/status');
+      final primaryBaseUrl = settings.normalizedBaseUrl;
+      final canonicalBaseUrl = SyncConfigRepository.normalizeBackendBaseUrl(
+        BASE_URL,
+      );
+
+      var status = await _probeRemoteSystemStatus(primaryBaseUrl);
+      if (status.isReachable || primaryBaseUrl == canonicalBaseUrl) {
+        return status;
+      }
+
+      // En algunas PCs queda guardada una URL vieja/local en la BD después de
+      // reinstalar. Como este proyecto usa un único backend oficial, si la URL
+      // guardada falla se prueba la URL canónica embebida y se corrige la
+      // configuración local para que el login de PC nueva no quede en modo local.
+      debugPrint(
+        '[Bootstrap] Backend no alcanzable en $primaryBaseUrl. '
+        'Probando URL oficial $canonicalBaseUrl...',
+      );
+      status = await _probeRemoteSystemStatus(canonicalBaseUrl);
+      if (status.isReachable) {
+        await _syncConfigRepository.saveBaseUrl(canonicalBaseUrl);
+        debugPrint(
+          '[Bootstrap] URL oficial alcanzable. Configuracion local corregida.',
+        );
+      }
+      return status;
+    } on SocketException {
+      return const _RemoteSystemStatus(
+        isReachable: false,
+        initialized: false,
+        statusAvailable: false,
+        connectionStatus: BackendConnectionStatus.unreachable,
+        message: serverConnectionErrorMessage,
+      );
+    } catch (_) {
+      return const _RemoteSystemStatus(
+        isReachable: false,
+        initialized: false,
+        statusAvailable: false,
+        connectionStatus: BackendConnectionStatus.unreachable,
+        message: serverConnectionErrorMessage,
+      );
+    }
+  }
+
+  Future<_RemoteSystemStatus> _probeRemoteSystemStatus(String baseUrl) async {
+    try {
+      final uri = Uri.parse('$baseUrl/system/status');
       if (uri.host.trim().isEmpty) {
         return const _RemoteSystemStatus(
           isReachable: false,
@@ -1607,9 +1654,7 @@ class AuthService {
           connectionStatus: BackendConnectionStatus.connected,
         );
       } on AuthException catch (error) {
-        final healthUri = Uri.parse(
-          '${settings.normalizedBaseUrl}/system/config',
-        );
+        final healthUri = Uri.parse('$baseUrl/system/config');
         try {
           await _sendJsonRequest(method: 'GET', uri: healthUri);
           return _RemoteSystemStatus(

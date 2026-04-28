@@ -1,3 +1,4 @@
+
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -7,7 +8,9 @@ import 'package:sistema_solares/core/database/app_database.dart';
 import 'package:sistema_solares/features/auth/data/auth_service.dart';
 import 'package:sistema_solares/features/auth/domain/permission_model.dart';
 import 'package:sistema_solares/features/auth/domain/user_model.dart';
+import 'package:sistema_solares/models/sync/sync_conflict_strategy.dart';
 import 'package:sistema_solares/models/sync/sync_settings.dart';
+import 'package:sistema_solares/services/sync/sync_config_repository.dart';
 import 'package:sistema_solares/services/sync/sync_service.dart';
 
 import 'helpers/fake_backend.dart';
@@ -140,6 +143,44 @@ void main() {
 
       // El usuario ahora debe estar en caché local
       expect(await authService.requiresInitialSetup(), isFalse);
+    },
+  );
+
+  test(
+    'PC nueva corrige una URL local vieja y usa el backend oficial',
+    () async {
+      configRepository = FakeSyncConfigRepository(
+        settings: SyncSettings(
+          baseUrl: 'http://127.0.0.1:3000/api',
+          jwtToken: '',
+          queueRetryInterval: const Duration(seconds: 10),
+          realtimePollingInterval: const Duration(seconds: 5),
+          conflictStrategy: SyncConflictStrategy.manual,
+          deviceId: 'test-device',
+        ),
+      );
+      backendState.unreachableHosts.add('127.0.0.1');
+      backendState.initialized = true;
+      backendState.adminEmail = 'admin@test.local';
+      backendState.adminPassword = 'AdminSegura123';
+      backendState.adminFullName = 'Admin General';
+      authService = AuthService(
+        appDatabase: appDatabase,
+        syncConfigRepository: configRepository,
+        httpClient: FakeBackendHttpClient(state: backendState),
+      );
+
+      final bootstrap = await authService.bootstrap();
+
+      expect(bootstrap.requiresInitialSetup, isFalse);
+      expect(bootstrap.isOnline, isTrue);
+      expect(bootstrap.isCloudInitialized, isTrue);
+      expect(
+        (await configRepository.loadSettings()).normalizedBaseUrl,
+        SyncConfigRepository.normalizeBackendBaseUrl(
+          SyncConfigRepository.defaultSyncBaseUrl,
+        ),
+      );
     },
   );
 

@@ -9,6 +9,7 @@ import 'package:sistema_solares/services/sync/sync_config_repository.dart';
 class FakeBackendState {
   bool initialized = false;
   bool offline = false;
+  final Set<String> unreachableHosts = <String>{};
   bool rejectSyncDownloadUnauthorized = false;
   String companyName = '';
   String adminEmail = '';
@@ -117,7 +118,7 @@ class _FakeHttpClientRequest implements HttpClientRequest {
 
   @override
   Future<HttpClientResponse> close() async {
-    if (_state.offline) {
+    if (_state.offline || _state.unreachableHosts.contains(_uri.host)) {
       throw const SocketException('offline');
     }
 
