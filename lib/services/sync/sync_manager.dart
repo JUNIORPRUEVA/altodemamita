@@ -11,6 +11,26 @@ import 'sync_conflict_service.dart';
 import 'sync_queue_service.dart';
 import 'sync_service.dart';
 
+@visibleForTesting
+SyncConnectionStatus resolveEffectiveSyncConnectionStatus({
+  required RealtimeSyncState realtimeState,
+  required SyncQueueState queueState,
+}) {
+  if (realtimeState.connectionStatus == SyncConnectionStatus.disconnected) {
+    final queueError = queueState.lastError?.trim();
+    final isQueueHealthy =
+        !queueState.isProcessing &&
+        queueState.pendingCount == 0 &&
+        (queueError == null || queueError.isEmpty);
+
+    if (isQueueHealthy) {
+      return SyncConnectionStatus.connected;
+    }
+  }
+
+  return realtimeState.connectionStatus;
+}
+
 class SyncManager extends ChangeNotifier {
   SyncManager({
     required SyncService syncService,
@@ -209,7 +229,10 @@ class SyncManager extends ChangeNotifier {
 
     _setState(
       _state.copyWith(
-        connectionStatus: realtimeState.connectionStatus,
+        connectionStatus: resolveEffectiveSyncConnectionStatus(
+          realtimeState: realtimeState,
+          queueState: queueState,
+        ),
         lastSyncIssues: effectiveSyncIssues,
         currentErrors: _combineErrors(
           queueError: queueState.lastError,
