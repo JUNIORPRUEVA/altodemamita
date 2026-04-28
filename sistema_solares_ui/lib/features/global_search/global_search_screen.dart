@@ -21,7 +21,8 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
   int _lastTick = -1;
   String _lastSubmittedQuery = '';
   final Set<String> _expandedClientIds = <String>{};
-  final Map<String, GlobalSearchDetail> _detailCache = <String, GlobalSearchDetail>{};
+  final Map<String, GlobalSearchDetail> _detailCache =
+      <String, GlobalSearchDetail>{};
   final Set<String> _detailLoadingClientIds = <String>{};
   final Map<String, String> _detailErrors = <String, String>{};
 
@@ -29,6 +30,18 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _clear() {
+    _searchController.clear();
+    setState(() {
+      _future = null;
+      _lastSubmittedQuery = '';
+      _expandedClientIds.clear();
+      _detailCache.clear();
+      _detailLoadingClientIds.clear();
+      _detailErrors.clear();
+    });
   }
 
   void _reload() {
@@ -46,9 +59,7 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
   }
 
   Future<void> _toggleExpandedClient(String clientId) async {
-    if (clientId.trim().isEmpty) {
-      return;
-    }
+    if (clientId.trim().isEmpty) return;
 
     final shouldExpand = !_expandedClientIds.contains(clientId);
     setState(() {
@@ -59,7 +70,9 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
       }
     });
 
-    if (!shouldExpand || _detailCache.containsKey(clientId) || _detailLoadingClientIds.contains(clientId)) {
+    if (!shouldExpand ||
+        _detailCache.containsKey(clientId) ||
+        _detailLoadingClientIds.contains(clientId)) {
       return;
     }
 
@@ -72,16 +85,12 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
       final detail = await GlobalSearchService(
         context.read<ApiClient>(),
       ).fetchDetail(clientId);
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
       setState(() {
         _detailCache[clientId] = detail;
       });
     } catch (error) {
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
       setState(() {
         _detailErrors[clientId] = error.toString();
       });
@@ -92,6 +101,15 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
         });
       }
     }
+  }
+
+  Future<void> _retryDetail(String clientId) async {
+    setState(() {
+      _detailCache.remove(clientId);
+      _detailErrors.remove(clientId);
+      _expandedClientIds.remove(clientId);
+    });
+    await _toggleExpandedClient(clientId);
   }
 
   @override
@@ -125,13 +143,7 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
           ),
           actions: [
             OutlinedButton.icon(
-              onPressed: () {
-                _searchController.clear();
-                setState(() {
-                  _future = null;
-                  _lastSubmittedQuery = '';
-                });
-              },
+              onPressed: _clear,
               icon: const Icon(Icons.cleaning_services_outlined),
               label: const Text('Limpiar'),
             ),
@@ -145,13 +157,7 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
             DesktopToolbarIconAction(
               icon: Icons.cleaning_services_outlined,
               tooltip: 'Limpiar',
-              onPressed: () {
-                _searchController.clear();
-                setState(() {
-                  _future = null;
-                  _lastSubmittedQuery = '';
-                });
-              },
+              onPressed: _clear,
             ),
             DesktopToolbarIconAction(
               icon: Icons.search_rounded,
@@ -206,160 +212,139 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
             const SizedBox(height: 4),
             Expanded(
               child: DesktopModuleList(
-                children: results.map((result) {
-                  final client = result.client;
-                  final fullName = _fullName(client);
-                  final rawPhone = client['phone']?.toString().trim() ?? '';
-                  final phone = rawPhone.isEmpty ? 'Sin telefono' : rawPhone;
-                  final clientId = result.clientId;
-                  final isExpanded = _expandedClientIds.contains(clientId);
-                  final detail = _detailCache[clientId];
-                  final isDetailLoading = _detailLoadingClientIds.contains(clientId);
-                  final detailError = _detailErrors[clientId];
-
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: DesktopCompactSurface(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          InkWell(
-                            borderRadius: BorderRadius.circular(18),
-                            onTap: () => _toggleExpandedClient(clientId),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 2,
-                                vertical: 2,
-                              ),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.center,
-                                children: [
-                                  CircleAvatar(
-                                    radius: compact ? 16 : 20,
-                                    backgroundColor: const Color(0xFFEFF3FB),
-                                    child: Text(
-                                      fullName.isEmpty
-                                          ? 'C'
-                                          : fullName[0].toUpperCase(),
-                                      style: const TextStyle(
-                                        color: Color(0xFF223048),
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          fullName,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.w800,
-                                            fontSize: 14.6,
-                                            color: Color(0xFF10263D),
-                                              child: Row(
-                                                children: [
-                                                  Expanded(
-                                                    child: Text(
-                                                      fullName,
-                                                      maxLines: 1,
-                                                      overflow: TextOverflow.ellipsis,
-                                                      style: const TextStyle(
-                                                        fontWeight: FontWeight.w800,
-                                                        fontSize: 14.6,
-                                                        color: Color(0xFF10263D),
-                                                      ),
-                                                    ),
-                                                  ),
-                                                  const SizedBox(width: 12),
-                                                  Flexible(
-                                                    fit: FlexFit.loose,
-                                                    child: Text(
-                                                      phone,
-                                                      maxLines: 1,
-                                                      overflow: TextOverflow.ellipsis,
-                                                      textAlign: TextAlign.right,
-                                                      style: const TextStyle(
-                                                        fontSize: 13.0,
-                                                        fontWeight: FontWeight.w700,
-                                                        color: Color(0xFF6E7791),
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                            const SizedBox(width: 12),
-                                            Column(
-                                              mainAxisSize: MainAxisSize.min,
-                                              crossAxisAlignment: CrossAxisAlignment.end,
-                                              children: [
-                                                Wrap(
-                                                  spacing: 8,
-                                              label: _currency.format(totalOutstanding),
-                                              background: const Color(0xFFF6EFE3),
-                                              foreground: const Color(0xFF8C5A2C),
-                                            ),
-                                          ],
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Container(
-                                    width: 36,
-                                                ),
-                                      color: const Color(0xFFF4F7FB),
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(
-                                        color: const Color(0xFFE2E8F1),
-                                      ),
-                                    ),
-                                    child: Icon(
-                                      isExpanded
-                                          ? Icons.keyboard_arrow_up_rounded
-                                          : Icons.keyboard_arrow_down_rounded,
-                                      color: const Color(0xFF173450),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          if (isExpanded) ...[
-                            const SizedBox(height: 14),
-                            if (isDetailLoading)
-                              const Padding(
-                                padding: EdgeInsets.symmetric(vertical: 24),
-                                child: Center(
-                                  child: CircularProgressIndicator(),
-                                ),
-                              )
-                            else if (detailError != null)
-                              DesktopPageError(
-                                message: detailError,
-                                onRetry: () => _toggleExpandedClient(clientId),
-                              )
-                            else if (detail != null)
-                              _InlineClientDetail(
-                                detail: detail,
-                                compact: compact,
-                              ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  );
-                }).toList(),
+                children: results
+                    .map((result) => _buildResultCard(result, compact))
+                    .toList(),
               ),
             ),
           ],
         );
       },
+    );
+  }
+
+  Widget _buildResultCard(GlobalSearchSummary result, bool compact) {
+    final client = result.client;
+    final fullName = _fullName(client);
+    final rawPhone = client['phone']?.toString().trim() ?? '';
+    final phone = rawPhone.isEmpty ? 'Sin telefono' : rawPhone;
+    final clientId = result.clientId;
+    final isExpanded = _expandedClientIds.contains(clientId);
+    final detail = _detailCache[clientId];
+    final isDetailLoading = _detailLoadingClientIds.contains(clientId);
+    final detailError = _detailErrors[clientId];
+    final totalOutstanding = result.sales.fold<double>(
+      0,
+      (total, sale) => total + _asNum(sale['outstandingBalance']),
+    );
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: DesktopCompactSurface(
+        child: Padding(
+          padding: EdgeInsets.all(compact ? 12 : 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: () => _toggleExpandedClient(clientId),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    CircleAvatar(
+                      radius: compact ? 16 : 20,
+                      backgroundColor: const Color(0xFFEFF3FB),
+                      child: Text(
+                        fullName.isEmpty ? 'C' : fullName[0].toUpperCase(),
+                        style: const TextStyle(
+                          color: Color(0xFF223048),
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            fullName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 14.6,
+                              color: Color(0xFF10263D),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              DesktopTag(
+                                label: _matchLabel(result.matchTypes),
+                                background: const Color(0xFFEAF0F7),
+                              ),
+                              DesktopTag(
+                                label: phone,
+                                background: const Color(0xFFEAF4ED),
+                                foreground: const Color(0xFF2F6F5C),
+                              ),
+                              DesktopTag(
+                                label: '${result.sales.length} venta(s)',
+                                background: const Color(0xFFF5EEF8),
+                                foreground: const Color(0xFF7A4A97),
+                              ),
+                              DesktopTag(
+                                label: _currency.format(totalOutstanding),
+                                background: const Color(0xFFF6EFE3),
+                                foreground: const Color(0xFF8C5A2C),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF4F7FB),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFE2E8F1)),
+                      ),
+                      child: Icon(
+                        isExpanded
+                            ? Icons.keyboard_arrow_up_rounded
+                            : Icons.keyboard_arrow_down_rounded,
+                        color: const Color(0xFF173450),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (isExpanded) ...[
+                const SizedBox(height: 14),
+                if (isDetailLoading)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 24),
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                else if (detailError != null)
+                  DesktopPageError(
+                    message: detailError,
+                    onRetry: () => _retryDetail(clientId),
+                  )
+                else if (detail != null)
+                  _InlineClientDetail(detail: detail, compact: compact),
+              ],
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -387,6 +372,7 @@ class _InlineClientDetail extends StatelessWidget {
               .map(_asMap),
         )
         .toList();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -407,75 +393,26 @@ class _InlineClientDetail extends StatelessWidget {
               value: detail.client['email']?.toString() ?? '-',
             ),
             DesktopStackedStat(label: 'Ventas', value: '${sales.length}'),
-            DesktopStackedStat(label: 'Cuotas', value: '${installments.length}'),
+            DesktopStackedStat(
+              label: 'Cuotas',
+              value: '${installments.length}',
+            ),
             DesktopStackedStat(label: 'Pagos', value: '${payments.length}'),
           ],
-                            .length;
-                    final paymentsCount =
-                        ((sale['payments'] as List<dynamic>?) ?? const <dynamic>[])
-                            .length;
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: DesktopCompactSurface(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: [
-                                DesktopTag(
-                                  label: sale['contractNumber']?.toString() ?? 'Sin contrato',
-                                  background: const Color(0xFFEAF0F7),
-                                ),
-                                DesktopTag(
-                                  label: status,
-                                  background: const Color(0xFFE7F5EF),
-                                  foreground: const Color(0xFF2F6F5C),
-                                ),
-                                DesktopTag(
-                                  label: _currency.format(_asNum(sale['totalAmount'])),
-                                  background: const Color(0xFFF6EFE3),
-                                  foreground: const Color(0xFF8C5A2C),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 10),
-                            Text(
-                              '$product  •  $seller',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFF223048),
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              'Fecha ${_formatDate(sale['saleDate'])}  •  Saldo ${_currency.format(_asNum(sale['outstandingBalance']))}',
-                              style: const TextStyle(color: Color(0xFF6E7791)),
-                            ),
-                            const SizedBox(height: 10),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: [
-                                DesktopTag(
-                                  label: '$installmentsCount cuota(s)',
-                                  background: const Color(0xFFF5EEF8),
-                                  foreground: const Color(0xFF7A4A97),
-                                ),
-                                DesktopTag(
-                                  label: '$paymentsCount pago(s)',
-                                  background: const Color(0xFFEAF4ED),
-                                  foreground: const Color(0xFF2F6F5C),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ),
+        ),
+        const SizedBox(height: 16),
+        _InlineDestinationLinks(
+          clientId: detail.client['id']?.toString() ?? '',
+        ),
+        const SizedBox(height: 16),
+        DesktopPlainSection(
+          title: 'Ventas relacionadas',
+          child: sales.isEmpty
+              ? const Text(
+                  'No hay ventas registradas para este cliente.',
+                  style: TextStyle(color: Color(0xFF6E7791)),
+                )
+              : Column(children: sales.map(_SaleSummaryCard.new).toList()),
         ),
         const SizedBox(height: 16),
         DesktopPlainSection(
@@ -491,7 +428,10 @@ class _InlineClientDetail extends StatelessWidget {
                       padding: const EdgeInsets.only(bottom: 10),
                       child: DesktopCompactSurface(
                         child: ListTile(
-                          contentPadding: EdgeInsets.zero,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
                           title: Text(
                             _currency.format(_asNum(payment['amount'])),
                             style: const TextStyle(fontWeight: FontWeight.w800),
@@ -510,6 +450,94 @@ class _InlineClientDetail extends StatelessWidget {
                 ),
         ),
       ],
+    );
+  }
+}
+
+class _SaleSummaryCard extends StatelessWidget {
+  const _SaleSummaryCard(this.sale);
+
+  final Map<String, dynamic> sale;
+
+  @override
+  Widget build(BuildContext context) {
+    final product =
+        _readNested(sale['product'], ['name']) ??
+        sale['productName']?.toString() ??
+        'Solar no indicado';
+    final seller =
+        _readNested(sale['seller'], ['fullName']) ??
+        _readNested(sale['seller'], ['name']) ??
+        sale['sellerName']?.toString() ??
+        'Vendedor no indicado';
+    final status = sale['status']?.toString() ?? 'Sin estado';
+    final installmentsCount =
+        ((sale['installments'] as List<dynamic>?) ?? const <dynamic>[]).length;
+    final paymentsCount =
+        ((sale['payments'] as List<dynamic>?) ?? const <dynamic>[]).length;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: DesktopCompactSurface(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  DesktopTag(
+                    label: sale['contractNumber']?.toString() ?? 'Sin contrato',
+                    background: const Color(0xFFEAF0F7),
+                  ),
+                  DesktopTag(
+                    label: status,
+                    background: const Color(0xFFE7F5EF),
+                    foreground: const Color(0xFF2F6F5C),
+                  ),
+                  DesktopTag(
+                    label: _currency.format(_asNum(sale['totalAmount'])),
+                    background: const Color(0xFFF6EFE3),
+                    foreground: const Color(0xFF8C5A2C),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Text(
+                '$product  •  $seller',
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF223048),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Fecha ${_formatDate(sale['saleDate'])}  •  Saldo ${_currency.format(_asNum(sale['outstandingBalance']))}',
+                style: const TextStyle(color: Color(0xFF6E7791)),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  DesktopTag(
+                    label: '$installmentsCount cuota(s)',
+                    background: const Color(0xFFF5EEF8),
+                    foreground: const Color(0xFF7A4A97),
+                  ),
+                  DesktopTag(
+                    label: '$paymentsCount pago(s)',
+                    background: const Color(0xFFEAF4ED),
+                    foreground: const Color(0xFF2F6F5C),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -565,9 +593,7 @@ class _ArrowRouteButton extends StatelessWidget {
 final NumberFormat _currency = AppNumberFormats.currency;
 
 Map<String, dynamic> _asMap(Object? value) {
-  if (value is Map<String, dynamic>) {
-    return value;
-  }
+  if (value is Map<String, dynamic>) return value;
   if (value is Map) {
     return value.map((key, val) => MapEntry(key.toString(), val));
   }
@@ -585,37 +611,27 @@ String _matchLabel(Set<String> matchTypes) {
   if (matchTypes.contains('client') && matchTypes.contains('sale')) {
     return 'Cliente y venta';
   }
-  if (matchTypes.contains('sale')) {
-    return 'Venta o solar';
-  }
+  if (matchTypes.contains('sale')) return 'Venta o solar';
   return 'Cliente';
 }
 
 double _asNum(Object? value) {
-  if (value is num) {
-    return value.toDouble();
-  }
+  if (value is num) return value.toDouble();
   return double.tryParse(value?.toString() ?? '') ?? 0;
 }
 
 String _formatDate(Object? value) {
   final raw = value?.toString();
-  if (raw == null || raw.trim().isEmpty) {
-    return 'Sin fecha';
-  }
+  if (raw == null || raw.trim().isEmpty) return 'Sin fecha';
   final parsed = DateTime.tryParse(raw);
-  if (parsed == null) {
-    return raw;
-  }
+  if (parsed == null) return raw;
   return DateFormat('dd/MM/yyyy').format(parsed.toLocal());
 }
 
 String? _readNested(Object? value, List<String> keys) {
   Object? current = value;
   for (final key in keys) {
-    if (current is! Map) {
-      return null;
-    }
+    if (current is! Map) return null;
     current = current[key];
   }
   return current?.toString();
