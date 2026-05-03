@@ -123,10 +123,15 @@ class UsersSyncRepository implements SyncRepository {
         }
 
         final existingRow = existingRows.isEmpty ? null : existingRows.first;
-        final incomingPasswordHash =
-          (record['password_hash'] as String? ?? '').trim();
+        final hasIncomingPasswordHash = record.containsKey('password_hash');
+        final incomingPasswordHash = hasIncomingPasswordHash
+            ? (record['password_hash']?.toString() ?? '').trim()
+            : '';
         final existingPasswordHash =
           (existingRow?['password_hash'] as String? ?? '').trim();
+        final resolvedPasswordHash = incomingPasswordHash.isNotEmpty
+            ? incomingPasswordHash
+            : existingPasswordHash;
         final incomingEmail =
           record['email']?.toString().trim().toLowerCase() ?? '';
         final existingEmail =
@@ -158,9 +163,7 @@ class UsersSyncRepository implements SyncRepository {
           'version': _readVersion(record),
             'nombre': incomingNombre.isNotEmpty ? incomingNombre : existingNombre,
           'email': incomingEmail.isNotEmpty ? incomingEmail : existingEmail,
-          'password_hash': incomingPasswordHash.isNotEmpty
-            ? incomingPasswordHash
-            : existingPasswordHash,
+          'password_hash': resolvedPasswordHash,
           'password_reset_required':
               _readBool(record['password_reset_required']) ? 1 : 0,
           'rol': incomingRole.isNotEmpty

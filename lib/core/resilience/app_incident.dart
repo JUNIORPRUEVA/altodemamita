@@ -22,6 +22,7 @@ class AppIncident {
     this.module,
     this.action,
     this.technicalDetails,
+    this.technicalStackTrace,
     this.canRetry = true,
     this.canGoBack = true,
     this.canContinue = true,
@@ -47,6 +48,7 @@ class AppIncident {
   final String? module;
   final String? action;
   final String? technicalDetails;
+  final String? technicalStackTrace;
   final bool canRetry;
   final bool canGoBack;
   final bool canContinue;

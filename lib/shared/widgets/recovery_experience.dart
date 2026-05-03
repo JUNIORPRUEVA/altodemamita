@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/resilience/app_incident.dart';
 import '../../core/resilience/global_error_controller.dart';
@@ -244,33 +245,23 @@ class GlobalErrorOverlay extends StatelessWidget {
             if (incident != null)
               Positioned.fill(
                 child: ColoredBox(
-                  color: Colors.black.withValues(alpha: 0.38),
+                  color: Colors.black.withValues(alpha: 0.07),
                   child: Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 720),
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Material(
-                          color: Colors.transparent,
-                          child: _IncidentPanel(
-                            incident: incident,
-                            onRetry: incident.canRetry
-                                ? controller.retry
-                                : null,
-                            onRepair: incident.allowRepair
-                                ? controller.repair
-                                : null,
-                            onContinue: incident.canContinue
-                                ? controller.continueWorking
-                                : null,
-                            onBack: incident.canGoBack
-                                ? controller.goBack
-                                : null,
-                            onHome: incident.canGoHome
-                              ? controller.goHome
-                              : null,
-                          ),
-                        ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: CompactGlobalErrorDialog(
+                        userMessage: _buildCompactMessage(incident),
+                        technicalDetails: incident.technicalDetails,
+                        technicalStackTrace: incident.technicalStackTrace,
+                        moduleName: incident.module,
+                        incidentCode: incident.code,
+                        occurredAt: incident.occurredAt,
+                        onRetry: incident.canRetry ? controller.retry : null,
+                        onClose: controller.clear,
+                        onGoBack: incident.canGoBack ? controller.goBack : null,
+                        onGoHome: incident.canGoHome ? controller.goHome : null,
+                        canReport: false,
+                        onReport: null,
                       ),
                     ),
                   ),
@@ -449,179 +440,261 @@ class InlineModuleRecoveryCard extends StatelessWidget {
   }
 }
 
-class _IncidentPanel extends StatelessWidget {
-  const _IncidentPanel({
-    required this.incident,
+class CompactGlobalErrorDialog extends StatelessWidget {
+  const CompactGlobalErrorDialog({
+    super.key,
+    required this.userMessage,
+    required this.onClose,
+    this.technicalDetails,
+    this.technicalStackTrace,
     this.onRetry,
-    this.onRepair,
-    this.onContinue,
-    this.onBack,
-    this.onHome,
+    this.canReport = false,
+    this.onReport,
+    this.moduleName,
+    this.screenName,
+    this.connectionStatus,
+    this.syncStatus,
+    this.currentUser,
+    this.onGoHome,
+    this.onGoBack,
+    this.incidentCode,
+    this.occurredAt,
   });
 
-  final AppIncident incident;
+  final String userMessage;
+  final String? technicalDetails;
+  final String? technicalStackTrace;
   final Future<void> Function()? onRetry;
-  final Future<void> Function()? onRepair;
-  final VoidCallback? onContinue;
-  final VoidCallback? onBack;
-  final VoidCallback? onHome;
+  final VoidCallback onClose;
+  final bool canReport;
+  final Future<void> Function()? onReport;
+  final String? moduleName;
+  final String? screenName;
+  final String? connectionStatus;
+  final String? syncStatus;
+  final String? currentUser;
+  final VoidCallback? onGoHome;
+  final VoidCallback? onGoBack;
+  final String? incidentCode;
+  final DateTime? occurredAt;
 
   @override
   Widget build(BuildContext context) {
-    final accent = _accentForIncident(incident);
-    final badgeLabel = _badgeLabel(incident);
-    final icon = _iconForIncident(incident);
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final isMobile = screenWidth < 700;
+    final dialogWidth = isMobile
+        ? screenWidth * 0.85
+        : screenWidth.clamp(360.0, 420.0);
 
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFFF6F2E8), Color(0xFFFFFFFF)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(28),
-        boxShadow: const [
-          BoxShadow(
-            blurRadius: 36,
-            offset: Offset(0, 24),
-            color: Color(0x28000000),
-          ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: accent.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Text(
-                badgeLabel,
-                style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  color: accent,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              width: 56,
-              height: 56,
-              decoration: BoxDecoration(
-                color: accent.withValues(alpha: 0.14),
-                borderRadius: BorderRadius.circular(18),
-              ),
-              child: Icon(icon, color: accent),
-            ),
-            const SizedBox(height: 18),
-            Text(
-              incident.title,
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
-            const SizedBox(height: 10),
-            Text(
-              incident.message,
-              style: Theme.of(context).textTheme.bodyLarge,
-            ),
-            const SizedBox(height: 10),
-            Text(
-              incident.details,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: const Color(0xFF5E5A52),
-              ),
-            ),
-            if (incident.suggestions.isNotEmpty) ...[
-              const SizedBox(height: 18),
-              ...incident.suggestions.map(
-                (item) => Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: _BulletLine(text: item),
-                ),
+    return Align(
+      alignment: Alignment.center,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: dialogWidth.toDouble()),
+        child: DecoratedBox(
+          key: const Key('compact_error_card'),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: const [
+              BoxShadow(
+                blurRadius: 18,
+                offset: Offset(0, 8),
+                color: Color(0x1A000000),
               ),
             ],
-            const SizedBox(height: 18),
-            Text(
-              'Incidente ${incident.code}',
-              style: Theme.of(context).textTheme.labelLarge,
-            ),
-            const SizedBox(height: 22),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (onRetry != null)
-                  FilledButton.icon(
-                    onPressed: onRetry,
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('Reintentar'),
-                  ),
-                if (onBack != null)
-                  OutlinedButton.icon(
-                    onPressed: onBack,
-                    icon: const Icon(Icons.arrow_back_outlined),
-                    label: const Text('Volver atras'),
-                  ),
-                if (onHome != null)
-                  OutlinedButton.icon(
-                    onPressed: onHome,
-                    icon: const Icon(Icons.home_outlined),
-                    label: const Text('Ir al inicio'),
-                  ),
-                if (onRepair != null)
-                  FilledButton.tonalIcon(
-                    onPressed: onRepair,
-                    icon: const Icon(Icons.build_outlined),
-                    label: const Text('Reparar'),
-                  ),
-                if (onContinue != null)
-                  OutlinedButton.icon(
-                    onPressed: onContinue,
-                    icon: const Icon(Icons.play_arrow_outlined),
-                    label: Text(
-                      incident.type == AppIncidentType.recoverable
-                          ? 'Seguir trabajando'
-                          : 'Continuar',
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'No pudimos completar esta accion',
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     ),
-                  ),
+                    IconButton(
+                      key: const Key('compact_error_close_icon'),
+                      visualDensity: VisualDensity.compact,
+                      onPressed: onClose,
+                      icon: const Icon(Icons.close, size: 18),
+                      tooltip: 'Cerrar',
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  userMessage,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    FilledButton.tonal(
+                      key: const Key('compact_error_copy_button'),
+                      onPressed: () => _copyReport(context),
+                      child: const Text('Copiar error'),
+                    ),
+                    if (onRetry != null)
+                      FilledButton.tonal(
+                        key: const Key('compact_error_retry_button'),
+                        onPressed: onRetry,
+                        child: const Text('Reintentar'),
+                      ),
+                    if (onGoBack != null)
+                      OutlinedButton(
+                        key: const Key('compact_error_back_button'),
+                        onPressed: onGoBack,
+                        child: const Text('Volver'),
+                      ),
+                    if (onGoHome != null)
+                      OutlinedButton(
+                        key: const Key('compact_error_home_button'),
+                        onPressed: onGoHome,
+                        child: const Text('Ir al inicio'),
+                      ),
+                    if (canReport && onReport != null)
+                      OutlinedButton(
+                        key: const Key('compact_error_report_button'),
+                        onPressed: onReport,
+                        child: const Text('Reportar'),
+                      ),
+                    OutlinedButton(
+                      key: const Key('compact_error_close_button'),
+                      onPressed: onClose,
+                      child: const Text('Cerrar'),
+                    ),
+                  ],
+                ),
               ],
             ),
-          ],
+          ),
         ),
       ),
     );
   }
+
+  Future<void> _copyReport(BuildContext context) async {
+    final buffer = StringBuffer()
+      ..writeln('APP ERROR REPORT')
+      ..writeln('Fecha: ${_safeValue(_formatDate(occurredAt))}')
+      ..writeln('Modulo: ${_safeValue(moduleName)}')
+      ..writeln('Usuario: ${_safeValue(currentUser)}')
+      ..writeln('Pantalla: ${_safeValue(screenName)}')
+      ..writeln('Conexion: ${_safeValue(connectionStatus)}')
+      ..writeln('Sync status: ${_safeValue(syncStatus)}')
+      ..writeln('Incidente: ${_safeValue(incidentCode)}')
+      ..writeln('Mensaje usuario: ${_safeValue(userMessage)}')
+      ..writeln('Mensaje tecnico: ${_sanitizeTechnical(technicalDetails)}')
+      ..writeln('Stacktrace: ${_sanitizeTechnical(technicalStackTrace)}');
+
+    await Clipboard.setData(ClipboardData(text: buffer.toString()));
+    if (!context.mounted) {
+      return;
+    }
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      const SnackBar(content: Text('Detalle copiado.')),
+    );
+  }
+
+  String _sanitizeTechnical(String? value) {
+    final text = (value ?? '').trim();
+    if (text.isEmpty) {
+      return 'No disponible';
+    }
+
+    return text
+        .replaceAll(
+          RegExp(
+            r'authorization\s*:\s*bearer\s+[^\s,;]+',
+            caseSensitive: false,
+          ),
+          'Authorization: Bearer [REDACTED]',
+        )
+        .replaceAll(
+          RegExp(r'authorization\s*:\s*[^\s,;]+', caseSensitive: false),
+          'Authorization: [REDACTED]',
+        )
+        .replaceAll(
+          RegExp(r'bearer\s+[a-z0-9\-._~+/]+=*', caseSensitive: false),
+          'Bearer [REDACTED]',
+        )
+        .replaceAll(
+          RegExp(r'jwt\s*[:=]\s*[^\s,;]+', caseSensitive: false),
+          'jwt=[REDACTED]',
+        )
+        .replaceAll(
+          RegExp(
+            r'(token|password|contrasena)\s*[:=]\s*[^\s,;]+',
+            caseSensitive: false,
+          ),
+          'credential=[REDACTED]',
+        );
+  }
+
+  String _safeValue(String? value) {
+    final normalized = value?.trim();
+    if (normalized == null || normalized.isEmpty) {
+      return 'No disponible';
+    }
+    return normalized;
+  }
+
+  String _formatDate(DateTime? value) {
+    if (value == null) {
+      return '';
+    }
+    return value.toIso8601String();
+  }
 }
 
-Color _accentForIncident(AppIncident incident) {
-  return switch (incident.type) {
-    AppIncidentType.recoverable => const Color(0xFFCF8B17),
-    AppIncidentType.operationFailed => const Color(0xFFB3261E),
-    AppIncidentType.criticalRecovery => const Color(0xFF8E1B13),
-    AppIncidentType.startup => const Color(0xFF1E5DB0),
-  };
+String _buildCompactMessage(AppIncident incident) {
+  final combined =
+      '${incident.message} ${incident.details} ${incident.technicalDetails ?? ''}'
+          .toLowerCase();
+  if (_looksOfflineOrServerIssue(combined)) {
+    return 'No hay conexion en este momento. Puedes seguir trabajando y la app sincronizara luego.';
+  }
+
+  if (combined.contains('permiso') ||
+      combined.contains('forbidden') ||
+      combined.contains('unauthorized')) {
+    return 'No tienes permiso para realizar esta accion.';
+  }
+
+  if (combined.contains('invalid') ||
+      combined.contains('validation') ||
+      combined.contains('campo')) {
+    return 'Revisa los datos ingresados e intentalo nuevamente.';
+  }
+
+  if (combined.contains('database') || combined.contains('sqlite')) {
+    return 'Hubo un problema guardando la informacion local. Cierra y abre la app si continua.';
+  }
+
+  return 'La app sigue funcionando. Puedes intentarlo otra vez.';
 }
 
-String _badgeLabel(AppIncident incident) {
-  return switch (incident.type) {
-    AppIncidentType.recoverable => 'Error recuperable',
-    AppIncidentType.operationFailed => 'Operacion no completada',
-    AppIncidentType.criticalRecovery => 'Recuperacion guiada',
-    AppIncidentType.startup => 'Inicio del sistema',
-  };
-}
-
-IconData _iconForIncident(AppIncident incident) {
-  return switch (incident.type) {
-    AppIncidentType.recoverable => Icons.warning_amber_rounded,
-    AppIncidentType.operationFailed => Icons.report_problem_outlined,
-    AppIncidentType.criticalRecovery => Icons.health_and_safety_outlined,
-    AppIncidentType.startup => Icons.rocket_launch_outlined,
-  };
+bool _looksOfflineOrServerIssue(String value) {
+  return value.contains('socket') ||
+      value.contains('offline') ||
+      value.contains('sin conexion') ||
+      value.contains('failed host lookup') ||
+      value.contains('backend') ||
+      value.contains('servidor') ||
+      value.contains('server') ||
+      value.contains('statuscode') ||
+      value.contains('status code');
 }
 
 class _RecoveryScaffold extends StatelessWidget {

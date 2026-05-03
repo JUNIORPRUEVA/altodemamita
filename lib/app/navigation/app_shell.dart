@@ -1,11 +1,12 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/database/app_database.dart';
-import '../../core/system/system_config_service.dart';
 import '../../features/auth/domain/user_model.dart';
 import '../../features/auth/presentation/auth_provider.dart';
 import '../../features/auth/presentation/profile_screen.dart';
@@ -26,7 +27,6 @@ import '../../features/sales/presentation/sellers_page.dart';
 import '../../features/settings/data/company_repository.dart';
 import '../../features/settings/data/settings_repository.dart';
 import '../../features/settings/presentation/settings_page.dart';
-import '../../models/sync/sync_connection_status.dart';
 import '../../repositories/installments_sync_repository.dart';
 import '../../repositories/payments_sync_repository.dart';
 import '../../repositories/permissions_sync_repository.dart';
@@ -43,6 +43,7 @@ import '../../services/sync/sync_queue_service.dart';
 import '../../services/sync/sync_service.dart';
 import '../../shared/widgets/base_layout.dart';
 import 'app_module.dart';
+import 'sync_visual_state.dart';
 
 const List<AppModule> _primarySidebarModules = [
   AppModule.dashboard,
@@ -143,12 +144,19 @@ class _AppShellState extends State<AppShell> {
   int? _selectedInstallmentsSaleId;
   int? _selectedPaymentsSaleId;
   bool _cloudSessionExpiredHandled = false;
+  bool _hasInternet = true;
+  int _internetProbeFailures = 0;
+  StreamSubscription<List<ConnectivityResult>>? _internetSubscription;
 
   @override
   void initState() {
     super.initState();
     _restoreNavigationPreferences();
     _loadCompanyDisplayName();
+    _internetSubscription = Connectivity().onConnectivityChanged.listen((_) {
+      unawaited(_refreshInternetStatus());
+    });
+    unawaited(_refreshInternetStatus());
     _syncQueueService.setCloudSessionExpiredHandler(_handleCloudSessionExpired);
     _syncManager.addListener(_handleSyncManagerChanged);
     unawaited(_syncManager.start());
@@ -156,6 +164,8 @@ class _AppShellState extends State<AppShell> {
 
   @override
   void dispose() {
+    unawaited(_internetSubscription?.cancel());
+    _internetSubscription = null;
     _syncQueueService.setCloudSessionExpiredHandler(null);
     _syncManager.removeListener(_handleSyncManagerChanged);
     _syncManager.dispose();
@@ -171,6 +181,51 @@ class _AppShellState extends State<AppShell> {
       return;
     }
     setState(() {});
+  }
+
+  Future<void> _refreshInternetStatus() async {
+    try {
+      final connectivityResults = await Connectivity().checkConnectivity();
+      final hasNetworkInterface = connectivityResults.any(
+        (result) => result != ConnectivityResult.none,
+      );
+      if (!hasNetworkInterface) {
+        _internetProbeFailures = 0;
+        _setInternetStatus(false);
+        return;
+      }
+
+      final lookup = await InternetAddress.lookup(
+        'one.one.one.one',
+      ).timeout(const Duration(seconds: 2));
+      _internetProbeFailures = 0;
+      _setInternetStatus(
+        lookup.isNotEmpty && lookup.first.rawAddress.isNotEmpty,
+      );
+    } on TimeoutException {
+      _internetProbeFailures += 1;
+      if (_internetProbeFailures >= 2) {
+        _setInternetStatus(false);
+      }
+    } on SocketException {
+      _internetProbeFailures += 1;
+      if (_internetProbeFailures >= 2) {
+        _setInternetStatus(false);
+      }
+    } catch (_) {
+      // If lookup is blocked by network policy, keep UI non-alarmist.
+      _internetProbeFailures = 0;
+      _setInternetStatus(true);
+    }
+  }
+
+  void _setInternetStatus(bool value) {
+    if (!mounted || _hasInternet == value) {
+      return;
+    }
+    setState(() {
+      _hasInternet = value;
+    });
   }
 
   Future<void> _restoreNavigationPreferences() async {
@@ -328,76 +383,8 @@ class _AppShellState extends State<AppShell> {
       return;
     }
     // Marcar la sesión de nube como expirada SIN cerrar la sesión local.
-    // El usuario permanece autenticado localmente; solo la sync está bloqueada.
-    // El sync status badge ya muestra el error de conexión al usuario.
+    // El usuario permanece autenticado localmente; solo la sync queda pendiente.
     authProvider.markCloudSessionExpired();
-  }
-
-  Future<void> _runSync({bool showFeedback = true}) async {
-    if (context.read<SystemConfigService>().isReadOnly) {
-      return;
-    }
-
-    if (_syncManager.state.isSyncing) {
-      return;
-    }
-
-    final report = await _syncManager.syncNow();
-
-    if (!mounted) {
-      return;
-    }
-
-    if (!showFeedback) {
-      return;
-    }
-
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(report.summary)));
-  }
-
-  /// Abre el diálogo para vincular la sesión local con la nube cuando el
-  /// usuario creó su cuenta sin conexión y ahora necesita un JWT de sync.
-  Future<void> _connectToCloud() async {
-    final currentEmail = context.read<AuthProvider>().currentUser?.email ?? '';
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => _CloudLinkDialog(
-        initialEmail: currentEmail,
-        onSuccess: () async {
-          if (!mounted) return;
-          // Resetear flags de sesión expirada para que futuros vencimientos
-          // sean manejados correctamente.
-          _cloudSessionExpiredHandled = false;
-          _syncService.resetCloudSession();
-          // Reiniciar el sync manager para que tome el nuevo JWT.
-          await _syncManager.stop(reason: null);
-          await _syncManager.start();
-        },
-      ),
-    );
-  }
-
-  /// Retorna true si los errores de sync indican que se necesitan credenciales
-  /// de nube, para mostrar el botón "Vincular".
-  /// Cubre: 401 Unauthorized, sin JWT, sin URL, error de conexión (cuando
-  /// hay JWT guardado inválido que causó el error).
-  bool _needsCloudLink(List<String> errors) {
-    if (errors.isEmpty) return false;
-    final msg = errors.first.toLowerCase();
-    return msg.contains('sesion en linea') ||
-        msg.contains('sesión en línea') ||
-        msg.contains('sesion en la nube') ||
-        msg.contains('sesión en la nube') ||
-        msg.contains('nube para sincronizar') ||
-        msg.contains('reautenticarse') ||
-        msg.contains('credencial actual') ||
-        msg.contains('error de conexion') ||
-        msg.contains('error de conexión') ||
-        msg.contains('sin jwt') ||
-        msg.contains('unauthorized');
   }
 
   Widget _buildCurrentPage(AppModule module) {
@@ -453,8 +440,6 @@ class _AppShellState extends State<AppShell> {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
-    final isReadOnly = context.watch<SystemConfigService>().isReadOnly;
-    final syncState = _syncManager.state;
     final accessibleModules = _accessibleModules(auth);
     final resolvedModule = _resolveSelectedModule(accessibleModules);
     final primaryModules = _primarySidebarModules
@@ -486,20 +471,13 @@ class _AppShellState extends State<AppShell> {
               centerTitle: true,
               toolbarHeight: 46,
               actions: [
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: Center(
-                    child: _SyncStatusBadge(
-                      isSyncing: syncState.isSyncing,
-                      connectionStatus: syncState.connectionStatus,
-                      hasErrors: syncState.currentErrors.isNotEmpty,
-                      pendingCount: syncState.pendingCount,
-                      unresolvedConflictCount:
-                          syncState.unresolvedConflictCount,
-                      compact: true,
+                if (shouldShowOfflineChip(hasInternet: _hasInternet))
+                  const Padding(
+                    padding: EdgeInsets.only(right: 8),
+                    child: Center(
+                      child: _SyncStatusBadge(compact: true),
                     ),
                   ),
-                ),
                 if (user != null)
                   Padding(
                     padding: const EdgeInsets.only(right: 6),
@@ -599,20 +577,8 @@ class _AppShellState extends State<AppShell> {
                             _ShellHeader(
                               selectedModule: resolvedModule,
                               currentUser: user,
-                              isSyncing: syncState.isSyncing,
-                              connectionStatus: syncState.connectionStatus,
-                              currentErrors: syncState.currentErrors,
-                              pendingCount: syncState.pendingCount,
-                              unresolvedConflictCount:
-                                  syncState.unresolvedConflictCount,
-                              onTriggerSync: isReadOnly
-                                  ? () async {}
-                                  : _runSync,
+                              hasInternet: _hasInternet,
                               onOpenProfile: _openProfile,
-                              onConnectToCloud:
-                                  _needsCloudLink(syncState.currentErrors)
-                                  ? _connectToCloud
-                                  : null,
                             ),
                             Expanded(child: currentPage),
                             _ShellFooter(companyName: _companyDisplayName),
@@ -635,26 +601,14 @@ class _ShellHeader extends StatelessWidget {
   const _ShellHeader({
     required this.selectedModule,
     required this.currentUser,
-    required this.isSyncing,
-    required this.connectionStatus,
-    required this.currentErrors,
-    required this.pendingCount,
-    required this.unresolvedConflictCount,
-    required this.onTriggerSync,
+    required this.hasInternet,
     required this.onOpenProfile,
-    this.onConnectToCloud,
   });
 
   final AppModule selectedModule;
   final UserModel? currentUser;
-  final bool isSyncing;
-  final SyncConnectionStatus connectionStatus;
-  final List<String> currentErrors;
-  final int pendingCount;
-  final int unresolvedConflictCount;
-  final Future<void> Function() onTriggerSync;
+  final bool hasInternet;
   final Future<void> Function() onOpenProfile;
-  final Future<void> Function()? onConnectToCloud;
 
   @override
   Widget build(BuildContext context) {
@@ -699,16 +653,11 @@ class _ShellHeader extends StatelessWidget {
                   ],
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.only(right: 10),
-                child: _SyncStatusBadge(
-                  isSyncing: isSyncing,
-                  connectionStatus: connectionStatus,
-                  hasErrors: currentErrors.isNotEmpty,
-                  pendingCount: pendingCount,
-                  unresolvedConflictCount: unresolvedConflictCount,
+              if (shouldShowOfflineChip(hasInternet: hasInternet))
+                const Padding(
+                  padding: EdgeInsets.only(right: 10),
+                  child: _SyncStatusBadge(),
                 ),
-              ),
               if (user != null) ...[
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
@@ -737,22 +686,6 @@ class _ShellHeader extends StatelessWidget {
               ],
             ],
           ),
-          if (currentErrors.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            _SyncAlertBanner(
-              message: currentErrors.first,
-              onRetry: onConnectToCloud != null
-                  ? null
-                  : (isSyncing ? null : onTriggerSync),
-              onConnectToCloud: onConnectToCloud,
-            ),
-          ] else if (unresolvedConflictCount > 0) ...[
-            const SizedBox(height: 10),
-            _SyncAlertBanner(
-              message:
-                  'Hay $unresolvedConflictCount conflicto(s) de sincronización por resolver.',
-            ),
-          ],
         ],
       ),
     );
@@ -761,154 +694,47 @@ class _ShellHeader extends StatelessWidget {
 
 class _SyncStatusBadge extends StatelessWidget {
   const _SyncStatusBadge({
-    required this.isSyncing,
-    required this.connectionStatus,
-    required this.hasErrors,
-    required this.pendingCount,
-    required this.unresolvedConflictCount,
     this.compact = false,
   });
 
-  final bool isSyncing;
-  final SyncConnectionStatus connectionStatus;
-  final bool hasErrors;
-  final int pendingCount;
-  final int unresolvedConflictCount;
   final bool compact;
 
   @override
   Widget build(BuildContext context) {
-    late final Color color;
-    late final String label;
-    late final IconData icon;
-
-    if (hasErrors) {
-      color = const Color(0xFFD9534F);
-      label = 'Error';
-      icon = Icons.error_rounded;
-    } else if (unresolvedConflictCount > 0) {
-      color = const Color(0xFFE2A400);
-      label = 'Conflictos';
-      icon = Icons.warning_amber_rounded;
-    } else if (isSyncing ||
-        pendingCount > 0 ||
-        connectionStatus != SyncConnectionStatus.connected) {
-      color = const Color(0xFFE2A400);
-      label = 'Pendiente';
-      icon = Icons.schedule_rounded;
-    } else {
-      color = const Color(0xFF2BB673);
-      label = 'Sincronizado';
-      icon = Icons.check_circle_rounded;
-    }
+    const dotColor = Color(0xFF9A7676);
+    const borderColor = Color(0xFFE7DCDD);
+    const textColor = Color(0xFF6A5555);
 
     return Container(
       padding: EdgeInsets.symmetric(
         horizontal: compact ? 8 : 10,
-        vertical: compact ? 5 : 6,
+        vertical: compact ? 4 : 5,
       ),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
+        color: const Color(0xFFF9F5F5),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.24)),
+        border: Border.all(color: borderColor),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: compact ? 14 : 15, color: color),
+          Container(
+            width: 7,
+            height: 7,
+            decoration: const BoxDecoration(
+              color: dotColor,
+              shape: BoxShape.circle,
+            ),
+          ),
           SizedBox(width: compact ? 5 : 7),
-          Text(
-            label,
+          const Text(
+            'Sin internet',
             style: TextStyle(
-              fontSize: compact ? 10.5 : 11.5,
-              fontWeight: FontWeight.w700,
-              color: const Color(0xFF0D2640),
+              fontSize: 10.5,
+              fontWeight: FontWeight.w600,
+              color: textColor,
             ),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SyncAlertBanner extends StatelessWidget {
-  const _SyncAlertBanner({
-    required this.message,
-    this.onRetry,
-    this.onConnectToCloud,
-  });
-
-  final String message;
-  final Future<void> Function()? onRetry;
-  final Future<void> Function()? onConnectToCloud;
-
-  @override
-  Widget build(BuildContext context) {
-    final canRetry = onRetry != null;
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFFF4E5),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFF0C36D)),
-      ),
-      child: Row(
-        children: [
-          const Icon(
-            Icons.warning_amber_rounded,
-            color: Color(0xFF9A5B00),
-            size: 18,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              message,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF6E4300),
-              ),
-            ),
-          ),
-          if (onConnectToCloud != null) ...[
-            const SizedBox(width: 10),
-            TextButton(
-              onPressed: () => unawaited(onConnectToCloud!()),
-              style: TextButton.styleFrom(
-                foregroundColor: const Color(0xFF6E4300),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 8,
-                ),
-                textStyle: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              child: const Text('Vincular'),
-            ),
-          ] else if (canRetry) ...[
-            const SizedBox(width: 10),
-            TextButton(
-              onPressed: () => unawaited(onRetry!()),
-              style: TextButton.styleFrom(
-                foregroundColor: const Color(0xFF6E4300),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 8,
-                ),
-                textStyle: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              child: const Text('Reintentar'),
-            ),
-          ],
         ],
       ),
     );
@@ -1737,174 +1563,6 @@ class _ShellFooter extends StatelessWidget {
         ),
         textAlign: TextAlign.right,
       ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Diálogo para vincular la sesión local con la nube (obtener JWT de sync)
-// cuando el usuario configuró el sistema sin internet y ahora quiere sincronizar.
-// ---------------------------------------------------------------------------
-class _CloudLinkDialog extends StatefulWidget {
-  const _CloudLinkDialog({required this.onSuccess, this.initialEmail = ''});
-
-  final Future<void> Function() onSuccess;
-  final String initialEmail;
-
-  @override
-  State<_CloudLinkDialog> createState() => _CloudLinkDialogState();
-}
-
-class _CloudLinkDialogState extends State<_CloudLinkDialog> {
-  final _formKey = GlobalKey<FormState>();
-  late final TextEditingController _emailController = TextEditingController(
-    text: widget.initialEmail,
-  );
-  final _passwordController = TextEditingController();
-  bool _obscurePassword = true;
-  bool _isLoading = false;
-  String? _errorMessage;
-
-  @override
-  void dispose() {
-    _emailController.dispose();
-    _passwordController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-
-    final auth = context.read<AuthProvider>();
-    final error = await auth.connectToCloud(
-      email: _emailController.text.trim(),
-      password: _passwordController.text.trim(),
-    );
-
-    if (!mounted) return;
-
-    if (error != null) {
-      setState(() {
-        _isLoading = false;
-        _errorMessage = error;
-      });
-      return;
-    }
-
-    setState(() => _isLoading = false);
-    Navigator.of(context).pop();
-    await widget.onSuccess();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      title: const Row(
-        children: [
-          Icon(Icons.cloud_sync_rounded, color: Color(0xFF0D2844), size: 22),
-          SizedBox(width: 10),
-          Text(
-            'Vincular con la nube',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-          ),
-        ],
-      ),
-      content: SizedBox(
-        width: 360,
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text(
-                'Ingresa tu contraseña para conectar con la nube y activar la sincronización.',
-                style: TextStyle(fontSize: 13, color: Color(0xFF50607A)),
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _emailController,
-                keyboardType: TextInputType.emailAddress,
-                decoration: const InputDecoration(
-                  labelText: 'Correo o usuario',
-                  prefixIcon: Icon(Icons.person_outline_rounded),
-                  border: OutlineInputBorder(),
-                ),
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Requerido' : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _passwordController,
-                obscureText: _obscurePassword,
-                autofocus: true,
-                decoration: InputDecoration(
-                  labelText: 'Contraseña',
-                  hintText: 'Ingresa tu contraseña',
-                  prefixIcon: const Icon(Icons.lock_outline_rounded),
-                  border: const OutlineInputBorder(),
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                      _obscurePassword
-                          ? Icons.visibility_off_outlined
-                          : Icons.visibility_outlined,
-                    ),
-                    onPressed: () =>
-                        setState(() => _obscurePassword = !_obscurePassword),
-                  ),
-                ),
-                validator: (v) => (v == null || v.isEmpty) ? 'Requerido' : null,
-              ),
-              if (_errorMessage != null) ...[
-                const SizedBox(height: 10),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFFF0F0),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: const Color(0xFFE57373)),
-                  ),
-                  child: Text(
-                    _errorMessage!,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: Color(0xFFB71C1C),
-                    ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: _isLoading ? null : () => Navigator.of(context).pop(),
-          child: const Text('Cancelar'),
-        ),
-        FilledButton.icon(
-          onPressed: _isLoading ? null : _submit,
-          icon: _isLoading
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
-                )
-              : const Icon(Icons.link_rounded, size: 18),
-          label: const Text('Vincular'),
-        ),
-      ],
     );
   }
 }

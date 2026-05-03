@@ -88,6 +88,16 @@ class _RemoteSystemStatus {
   final String? message;
 }
 
+class _LocalUserLookupResult {
+  const _LocalUserLookupResult({
+    required this.row,
+    required this.foundBy,
+  });
+
+  final Map<String, Object?> row;
+  final String foundBy;
+}
+
 class AuthException implements Exception {
   const AuthException(this.message);
 
@@ -144,8 +154,8 @@ class AuthService {
       'Los datos visibles del administrador aun no estan disponibles en esta instalacion.';
   static const String firstConnectionRequiredMessage =
       'Este equipo necesita conexion la primera vez para descargar el usuario.';
-  static const String noLocalUserCachedMessage =
-      'No existe un usuario local cacheado para iniciar sesion sin conexion.';
+    static const String localCredentialsMissingMessage =
+      'Este usuario no tiene credenciales locales guardadas. Inicie sesion con internet una vez.';
   static const String localUserInactiveMessage =
       'Tu cuenta esta inactiva. Contacta al administrador.';
   static const String invalidLocalCredentialsMessage =
@@ -168,6 +178,7 @@ class AuthService {
 
   Future<AuthBootstrapResult> bootstrap() async {
     debugPrint('[Bootstrap] Iniciando arranque de la app...');
+    await debugDumpLocalUsersSafe(context: 'bootstrap');
     final remoteStatus = await _fetchRemoteSystemStatus();
     debugPrint(
       '[Bootstrap] Backend: alcanzable=${remoteStatus.isReachable}, '
@@ -275,6 +286,13 @@ class AuthService {
         debugPrint(
           '[SignIn] login online failure para $email: ${error.message}',
         );
+        if (_looksLikeInactiveFailure(error.message)) {
+          await _markLocalUserInactiveByIdentifier(email);
+          throw const AuthException(localUserInactiveMessage);
+        }
+        if (_looksLikeCredentialFailure(error.message)) {
+          throw const AuthException(invalidLocalCredentialsMessage);
+        }
         try {
           final localUser = await _signInLocalValidated(
             identifier: email,
@@ -286,15 +304,18 @@ class AuthService {
           );
         } on AuthException catch (localError) {
           if (_looksLikeCredentialFailure(error.message) &&
-              localError.message == noLocalUserCachedMessage) {
-            throw const AuthException(noLocalUserCachedMessage);
-          }
-          if (_looksLikeCredentialFailure(error.message) &&
               localError.message == invalidLocalCredentialsMessage) {
             throw const AuthException(invalidLocalCredentialsMessage);
           }
           throw AuthException(localError.message);
         }
+      } on TimeoutException catch (error) {
+        debugPrint('[SignIn] timeout durante login online: $error');
+        final localUser = await _signInLocalValidated(
+          identifier: email,
+          password: password,
+        );
+        return AuthSignInResult(user: localUser, mode: AuthSignInMode.offline);
       } on SocketException catch (error) {
         debugPrint('[SignIn] error de red durante login online: $error');
         final localUser = await _signInLocalValidated(
@@ -316,11 +337,57 @@ class AuthService {
         'Sync bloqueado hasta recuperar JWT de nube.',
       );
       return AuthSignInResult(user: localUser, mode: AuthSignInMode.offline);
-    } on AuthException catch (error) {
-      if (error.message == noLocalUserCachedMessage) {
-        throw const AuthException(firstConnectionRequiredMessage);
-      }
+    } on AuthException {
       rethrow;
+    }
+  }
+
+  Future<void> debugDumpLocalUsersSafe({String context = 'manual'}) async {
+    try {
+      final dbPath = await _appDatabase.databasePath;
+      final db = await _appDatabase.database;
+      final users = await db.query(
+        DatabaseSchema.usersTable,
+        columns: [
+          'id',
+          'email',
+          'id_remote',
+          'remote_auth_id',
+          'activo',
+          'deleted_at',
+          'password_hash',
+          'sync_status',
+          'auth_source',
+          'last_online_login_at',
+        ],
+        orderBy: 'id ASC',
+      );
+
+      _debugAuth('[AuthDebug][$context] db_path=$dbPath');
+      _debugAuth('[AuthDebug][$context] local_users_count=${users.length}');
+
+      for (final row in users) {
+        final email = (row['email'] as String? ?? '').trim();
+        final username = _normalizedUsernameFromEmail(email);
+        final passwordHash = (row['password_hash'] as String? ?? '').trim();
+        final safe = {
+          'id': row['id'],
+          'email': email,
+          'username': username,
+          'id_remote': (row['id_remote'] as String?)?.trim(),
+          'remote_auth_id': (row['remote_auth_id'] as String?)?.trim(),
+          'active': (row['activo'] as int? ?? 0) == 1,
+          'deleted_at': row['deleted_at'],
+          'password_hash_empty': passwordHash.isEmpty,
+          'password_hash_length': passwordHash.length,
+          'sync_status': row['sync_status'],
+          'auth_source': row['auth_source'],
+          'last_online_login_at': row['last_online_login_at'],
+        };
+        _debugAuth('[AuthDebug][$context] user=$safe');
+      }
+    } catch (error) {
+      _debugAuth('[AuthDebug][$context] dump_error=$error');
     }
   }
 
@@ -1673,8 +1740,14 @@ class AuthService {
                   decoded.map((key, value) => MapEntry(key.toString(), value)),
                 )
               : const <String, dynamic>{});
+    final backendMessage = responsePayload['message']?.toString() ?? '';
+    if ((response.statusCode == HttpStatus.unauthorized ||
+            response.statusCode == HttpStatus.forbidden) &&
+        _looksLikeInactiveFailure(backendMessage)) {
+      throw const AuthException(localUserInactiveMessage);
+    }
     if (response.statusCode == HttpStatus.unauthorized) {
-      throw const AuthException('Credenciales invalidas.');
+      throw const AuthException(invalidLocalCredentialsMessage);
     }
     if (response.statusCode == HttpStatus.forbidden &&
         responsePayload['message']?.toString() == 'READ_ONLY_MODE') {
@@ -1749,8 +1822,11 @@ class AuthService {
     final email = payload['email']?.toString().trim().toLowerCase() ?? '';
     final fullName = payload['fullName']?.toString().trim();
     final username = payload['username']?.toString().trim();
+    final normalizedUsername = _normalizeIdentifier(
+      (username ?? '').isNotEmpty ? username! : _normalizedUsernameFromEmail(email),
+    );
     _debugAuth(
-      '[CacheUser] email_normalizado=$email username_normalizado=${(username ?? '').toLowerCase()}',
+      '[CacheUser] email_normalizado=$email username_normalizado=$normalizedUsername',
     );
     if (remoteAuthId == null || remoteAuthId.isEmpty || email.isEmpty) {
       throw const AuthException(
@@ -2223,53 +2299,98 @@ class AuthService {
         .toList(growable: false);
   }
 
-  Future<UserModel?> _findUserByIdentifier(
+  Future<_LocalUserLookupResult?> _findLocalUserForLogin(
     Database db,
-    String identifier,
+    String normalizedIdentifier,
   ) async {
-    final normalizedIdentifier = identifier.trim().toLowerCase();
     if (normalizedIdentifier.isEmpty) {
       return null;
     }
 
-    final rows = await db.query(
+    final byEmail = await db.query(
+      DatabaseSchema.usersTable,
+      where: "deleted_at IS NULL AND LOWER(TRIM(COALESCE(email, ''))) = ?",
+      whereArgs: [normalizedIdentifier],
+      limit: 1,
+    );
+    if (byEmail.isNotEmpty) {
+      return _LocalUserLookupResult(row: byEmail.first, foundBy: 'email');
+    }
+
+    final byUsername = await db.query(
+      DatabaseSchema.usersTable,
+      where:
+          'deleted_at IS NULL AND '
+          'LOWER(TRIM(CASE '
+          "WHEN INSTR(COALESCE(email, ''), '@') > 0 THEN SUBSTR(COALESCE(email, ''), 1, INSTR(COALESCE(email, ''), '@') - 1) "
+          "ELSE '' END)) = ?",
+      whereArgs: [normalizedIdentifier],
+      limit: 1,
+    );
+    if (byUsername.isNotEmpty) {
+      return _LocalUserLookupResult(
+        row: byUsername.first,
+        foundBy: 'username',
+      );
+    }
+
+    final byRemote = await db.query(
       DatabaseSchema.usersTable,
       where:
           'deleted_at IS NULL AND ('
-          'LOWER(email) = ? OR '
-          'LOWER(nombre) = ? OR '
-          "LOWER(COALESCE(remote_auth_id, '')) = ? OR "
-          "LOWER(COALESCE(id_remote, '')) = ?"
+          "LOWER(TRIM(COALESCE(remote_auth_id, ''))) = ? OR "
+          "LOWER(TRIM(COALESCE(id_remote, ''))) = ?"
           ')',
-      whereArgs: [
-        normalizedIdentifier,
-        normalizedIdentifier,
-        normalizedIdentifier,
-        normalizedIdentifier,
-      ],
+      whereArgs: [normalizedIdentifier, normalizedIdentifier],
       limit: 1,
     );
-
-    if (rows.isEmpty && !normalizedIdentifier.contains('@')) {
-      final byUsernameCandidates = await db.query(
-        DatabaseSchema.usersTable,
-        where: 'deleted_at IS NULL',
-      );
-      for (final row in byUsernameCandidates) {
-        final email = (row['email'] as String? ?? '').trim().toLowerCase();
-        final usernameFromEmail = email.contains('@')
-            ? email.split('@').first.trim().toLowerCase()
-            : '';
-        if (usernameFromEmail == normalizedIdentifier) {
-          return _mapUser(db, row);
-        }
-      }
+    if (byRemote.isNotEmpty) {
+      return _LocalUserLookupResult(row: byRemote.first, foundBy: 'remote_auth_id');
     }
 
-    if (rows.isEmpty) {
-      return null;
+    return null;
+  }
+
+  String _normalizeIdentifier(String value) => value.trim().toLowerCase();
+
+  String _normalizedUsernameFromEmail(String email) {
+    final normalizedEmail = _normalizeIdentifier(email);
+    if (!normalizedEmail.contains('@')) {
+      return normalizedEmail;
     }
-    return _mapUser(db, rows.first);
+    return normalizedEmail.split('@').first.trim();
+  }
+
+  Future<void> _markLocalUserInactiveByIdentifier(String identifier) async {
+    final normalizedIdentifier = _normalizeIdentifier(identifier);
+    if (normalizedIdentifier.isEmpty) {
+      return;
+    }
+
+    final db = await _appDatabase.database;
+    final lookup = await _findLocalUserForLogin(db, normalizedIdentifier);
+    final row = lookup?.row;
+    if (row == null) {
+      return;
+    }
+
+    final userId = row['id'] as int?;
+    if (userId == null) {
+      return;
+    }
+
+    final now = DateTime.now().toIso8601String();
+    await db.update(
+      DatabaseSchema.usersTable,
+      {
+        'activo': 0,
+        'fecha_actualizacion': now,
+        'last_modified_remote': now,
+        'sync_status': DatabaseSchema.syncStatusSynced,
+      },
+      where: 'id = ?',
+      whereArgs: [userId],
+    );
   }
 
   bool _verifyStoredPassword(String password, String storedHash) {
@@ -2290,7 +2411,7 @@ class AuthService {
     required String identifier,
     required String password,
   }) async {
-    final normalizedIdentifier = identifier.trim().toLowerCase();
+    final normalizedIdentifier = _normalizeIdentifier(identifier);
     final normalizedPassword = password.trim();
     if (normalizedIdentifier.isEmpty || normalizedPassword.isEmpty) {
       throw const AuthException('Ingresa tu correo o usuario y la contrasena.');
@@ -2301,42 +2422,62 @@ class AuthService {
       _debugAuth('[SignInLocal] db_path=$dbPath');
 
       final db = await _appDatabase.database;
-      _debugAuth('[SignInLocal] buscando identifier=$normalizedIdentifier');
-      final user = await _findUserByIdentifier(db, normalizedIdentifier);
-      _debugAuth('[SignInLocal] usuario_encontrado=${user != null}');
+      final lookup = await _findLocalUserForLogin(db, normalizedIdentifier);
+      final foundBy = lookup?.foundBy ?? 'none';
+      final foundRow = lookup?.row;
+      final foundUser = foundRow == null ? null : await _mapUser(db, foundRow);
+      _debugAuth(
+        '[SignInLocal] identifier_original=$identifier identifier_normalized=$normalizedIdentifier encontro_usuario=${foundUser != null} encontrado_por=$foundBy',
+      );
 
-      if (user == null) {
-        throw const AuthException(noLocalUserCachedMessage);
+      if (foundUser == null) {
+        _debugAuth(
+          '[SignInLocal] usuario_activo=false password_hash_empty=true password_valid=false motivo=falta_usuario_local',
+        );
+        throw const AuthException(firstConnectionRequiredMessage);
       }
 
-      if (!user.activo) {
+      if (!foundUser.activo) {
+        _debugAuth(
+          '[SignInLocal] usuario_activo=false password_hash_empty=true password_valid=false motivo=usuario_inactivo',
+        );
         throw const AuthException(localUserInactiveMessage);
       }
 
-      if (user.passwordResetRequired) {
+      if (foundUser.passwordResetRequired) {
+        _debugAuth(
+          '[SignInLocal] usuario_activo=true password_hash_empty=true password_valid=false motivo=password_reset_required',
+        );
         throw AuthException(
-          user.id == 1
+          foundUser.id == 1
               ? 'Debes completar la configuracion inicial del administrador.'
               : 'Tu cuenta requiere restablecer la contrasena con un administrador.',
         );
       }
 
-      final hasPasswordVerifier = user.passwordHash.trim().isNotEmpty;
-      _debugAuth('[SignInLocal] tiene_password_hash=$hasPasswordVerifier');
+      final hasPasswordVerifier = foundUser.passwordHash.trim().isNotEmpty;
       if (!hasPasswordVerifier) {
-        throw const AuthException(noLocalUserCachedMessage);
+        _debugAuth(
+          '[SignInLocal] usuario_activo=true password_hash_empty=true password_valid=false motivo=password_hash_vacio',
+        );
+        throw const AuthException(localCredentialsMissingMessage);
       }
 
       final passwordValid = _verifyStoredPassword(
         normalizedPassword,
-        user.passwordHash,
+        foundUser.passwordHash,
       );
-      _debugAuth('[SignInLocal] password_valida=$passwordValid');
       if (!passwordValid) {
+        _debugAuth(
+          '[SignInLocal] usuario_activo=true password_hash_empty=false password_valid=false motivo=password_invalida',
+        );
         throw const AuthException(invalidLocalCredentialsMessage);
       }
+      _debugAuth(
+        '[SignInLocal] usuario_activo=true password_hash_empty=false password_valid=true motivo=ok',
+      );
 
-      if (_shouldRefreshLocalPasswordHash(user.passwordHash)) {
+      if (_shouldRefreshLocalPasswordHash(foundUser.passwordHash)) {
         final now = DateTime.now().toIso8601String();
         await db.update(
           DatabaseSchema.usersTable,
@@ -2346,24 +2487,26 @@ class AuthService {
             'fecha_actualizacion': now,
           },
           where: 'id = ?',
-          whereArgs: [user.id],
+          whereArgs: [foundUser.id],
         );
       }
 
       final recoveryCode = await _getSettingValue(db, _adminRecoveryCodeKey);
-      if (user.id == 1 && recoveryCode != null && recoveryCode.isNotEmpty) {
+      if (foundUser.id == 1 &&
+          recoveryCode != null &&
+          recoveryCode.isNotEmpty) {
         await _storeAdminRecoverySnapshot(
           db,
           recoveryCode: recoveryCode,
-          nombre: user.nombre,
-          email: user.email,
+          nombre: foundUser.nombre,
+          email: foundUser.email,
           password: normalizedPassword,
           updatedAt: DateTime.now().toIso8601String(),
         );
       }
 
-      await _persistSession(db, user.id!);
-      return (await getUserById(user.id!))!;
+      await _persistSession(db, foundUser.id!);
+      return (await getUserById(foundUser.id!))!;
     } on AuthException {
       rethrow;
     } catch (error) {
@@ -2385,6 +2528,15 @@ class AuthService {
         normalized.contains('correo') ||
         normalized.contains('contrasena') ||
         normalized.contains('invalid');
+  }
+
+  bool _looksLikeInactiveFailure(String message) {
+    final normalized = message.trim().toLowerCase();
+    return normalized.contains('inactiv') ||
+        normalized.contains('desactiv') ||
+        normalized.contains('disabled') ||
+        normalized.contains('blocked') ||
+        normalized.contains('suspend');
   }
 
   Future<bool> _runFullSyncIfPossible() async {

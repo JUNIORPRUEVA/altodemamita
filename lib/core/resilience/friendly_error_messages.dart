@@ -36,6 +36,8 @@ class FriendlyErrorMessage {
 
 class FriendlyErrorMessages {
   static FriendlyErrorMessage unexpected([Object? error]) {
+    final raw = (error?.toString() ?? '').trim().toLowerCase();
+
     if (isReadOnlyModeError(error)) {
       return const FriendlyErrorMessage(
         title: 'Sistema en modo solo lectura',
@@ -49,16 +51,68 @@ class FriendlyErrorMessages {
       );
     }
 
+    if (error is SocketException || _looksLikeInternetIssue(raw)) {
+      return const FriendlyErrorMessage(
+        title: 'Sin conexion en este momento',
+        message:
+            'No hay conexion en este momento. Puedes seguir trabajando y la app sincronizara luego.',
+        details:
+            'La app sigue funcionando con datos locales mientras vuelve la conexion.',
+        suggestions: [
+          'Continua trabajando con normalidad.',
+          'Intenta sincronizar nuevamente cuando regrese internet.',
+        ],
+      );
+    }
+
+    if (_looksLikeServerIssue(raw)) {
+      return const FriendlyErrorMessage(
+        title: 'Conexion al servidor no disponible',
+        message:
+            'No pudimos conectar con el servidor. La app seguira usando los datos locales.',
+        details:
+            'Este problema suele ser temporal y no impide continuar en modo local.',
+        suggestions: [
+          'Reintenta en unos minutos.',
+          'Continua en modo local mientras se restablece la conexion.',
+        ],
+      );
+    }
+
+    if (_looksLikePermissionIssue(raw)) {
+      return const FriendlyErrorMessage(
+        title: 'Accion no permitida',
+        message: 'No tienes permiso para realizar esta accion.',
+        details:
+            'La accion fue detenida para mantener la seguridad de tu cuenta.',
+        suggestions: [
+          'Contacta a un administrador si necesitas acceso.',
+        ],
+      );
+    }
+
+    if (_looksLikeValidationIssue(raw)) {
+      return const FriendlyErrorMessage(
+        title: 'Revisa los datos ingresados',
+        message: 'Revisa los datos ingresados e intentalo nuevamente.',
+        details:
+            'Algunos campos no cumplen el formato esperado y no se pudo completar la accion.',
+        suggestions: [
+          'Corrige los campos marcados e intenta otra vez.',
+        ],
+      );
+    }
+
     if (error is DatabaseException) {
       return const FriendlyErrorMessage(
-        title: 'Se interrumpio una operacion',
+        title: 'No pudimos guardar la informacion local',
         message:
-            'La informacion local no respondio como se esperaba y detuvimos la accion para proteger sus datos.',
+            'Hubo un problema guardando la informacion local. Cierra y abre la app si continua.',
         details:
-            'No se aplicaron cambios incompletos. Puede reintentar con seguridad o usar una opcion de recuperacion guiada.',
+            'La app detuvo la accion para proteger los datos y evitar cambios incompletos.',
         suggestions: [
           'Intente nuevamente.',
-          'Si el problema continua, use la reparacion del sistema.',
+          'Si el problema continua, reinicia la app.',
         ],
       );
     }
@@ -92,16 +146,53 @@ class FriendlyErrorMessages {
     }
 
     return const FriendlyErrorMessage(
-      title: 'Ocurrio un inconveniente inesperado',
-      message:
-          'La pantalla actual encontro un problema y el sistema ya la detuvo para evitar cambios inseguros.',
+      title: 'No pudimos completar esta accion',
+      message: 'Parece que hubo un problema temporal.',
       details:
-          'Su informacion sigue protegida. Puede reintentar la accion o volver a una pantalla segura.',
+          'La app sigue funcionando. Puedes intentarlo otra vez.',
       suggestions: [
-        'Use Reintentar para volver a cargar.',
-        'Si sigue ocurriendo, regrese e intente de nuevo.',
+        'Si vuelve a pasar, copia el detalle y envialo a soporte.',
       ],
     );
+  }
+
+  static bool _looksLikeInternetIssue(String raw) {
+    return raw.contains('socket') ||
+        raw.contains('network is unreachable') ||
+        raw.contains('failed host lookup') ||
+        raw.contains('no internet') ||
+        raw.contains('sin conexion') ||
+        raw.contains('offline');
+  }
+
+  static bool _looksLikeServerIssue(String raw) {
+    return raw.contains('backend') ||
+        raw.contains('server') ||
+        raw.contains('servidor') ||
+        raw.contains('statuscode') ||
+        raw.contains('status code') ||
+        raw.contains('http ') ||
+        raw.contains('gateway') ||
+        raw.contains('503') ||
+        raw.contains('502') ||
+        raw.contains('500');
+  }
+
+  static bool _looksLikePermissionIssue(String raw) {
+    return raw.contains('forbidden') ||
+        raw.contains('unauthorized') ||
+        raw.contains('permission') ||
+        raw.contains('permiso') ||
+        raw.contains('access denied');
+  }
+
+  static bool _looksLikeValidationIssue(String raw) {
+    return raw.contains('validation') ||
+        raw.contains('invalid') ||
+        raw.contains('invalido') ||
+        raw.contains('required') ||
+        raw.contains('campo') ||
+        raw.contains('formato');
   }
 
   static FriendlyErrorMessage operation({

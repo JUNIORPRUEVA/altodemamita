@@ -88,6 +88,7 @@ class AppIncidentReporter {
         suggestions: suggestions,
       ),
       error: error,
+      stackTrace: stackTrace,
       module: module,
       action: action,
       onRetry: onRetry,
