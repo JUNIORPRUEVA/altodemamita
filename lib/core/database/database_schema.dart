@@ -7,7 +7,7 @@ import '../security/password_hasher.dart';
 
 class DatabaseSchema {
   static const String databaseName = 'sistema_solares.db';
-  static const int databaseVersion = 18;
+  static const int databaseVersion = 20;
   static const String defaultSyncBaseUrl = BASE_URL;
 
   static const String clientsTable = 'clientes';
@@ -27,12 +27,33 @@ class DatabaseSchema {
   static const String backupInfoTable = 'informacion_backups';
   static const String backupPreferencesTable = 'preferencias_backup';
   static const String authSessionsTable = 'sesiones_auth';
+  static const String rolesTable = 'roles';
+  static const String userRolesTable = 'user_roles';
+  static const String rolePermissionsTable = 'role_permissions';
+  static const String companyProfilesTable = 'company_profiles';
   static const String syncQueueTable = 'sync_queue';
   static const String conflictLogsTable = 'conflict_logs';
+  static const String uploadStatusPending = 'pending_upload';
+  static const String uploadStatusUploading = 'uploading';
+  static const String uploadStatusSynced = 'uploaded';
+  static const String uploadStatusFailed = 'failed';
   static const String syncStatusPending = 'pending';
   static const String syncStatusPendingSync = 'pending_sync';
+  static const String syncStatusPendingCreate = 'pending_create';
+  static const String syncStatusPendingUpdate = 'pending_update';
+  static const String syncStatusPendingDelete = 'pending_delete';
   static const String syncStatusSynced = 'synced';
   static const String syncStatusConflict = 'conflict';
+  static const String syncStatusFailed = 'failed';
+  static const List<String> writableSyncStatuses = [
+    syncStatusPending,
+    syncStatusPendingSync,
+    syncStatusPendingCreate,
+    syncStatusPendingUpdate,
+    syncStatusPendingDelete,
+    syncStatusConflict,
+    syncStatusFailed,
+  ];
   static const Set<String> criticalTables = {
     clientsTable,
     usersTable,
@@ -57,8 +78,17 @@ class DatabaseSchema {
     backupInfoTable,
     backupPreferencesTable,
     authSessionsTable,
+    rolesTable,
+    userRolesTable,
+    rolePermissionsTable,
+    companyProfilesTable,
   ];
   static const List<String> syncEnabledTables = [
+    usersTable,
+    rolesTable,
+    userRolesTable,
+    rolePermissionsTable,
+    permissionsTable,
     clientsTable,
     sellersTable,
     lotsTable,
@@ -92,6 +122,8 @@ class DatabaseSchema {
     await _migrateToVersion16(db);
     await _migrateToVersion17(db);
     await _migrateToVersion18(db);
+    await _migrateToVersion19(db);
+    await _migrateToVersion20(db);
   }
 
   static Future<void> ensureCoreStructures(DatabaseExecutor db) async {
@@ -110,6 +142,9 @@ class DatabaseSchema {
     await _migrateToVersion15(db);
     await _migrateToVersion16(db);
     await _migrateToVersion17(db);
+    await _migrateToVersion18(db);
+    await _migrateToVersion19(db);
+    await _migrateToVersion20(db);
     await seedDefaults(db);
   }
 
@@ -322,7 +357,330 @@ class DatabaseSchema {
       await _migrateToVersion18(db);
     }
 
+    if (oldVersion < 19 && newVersion >= 19) {
+      await _migrateToVersion19(db);
+    }
+
+    if (oldVersion < 20 && newVersion >= 20) {
+      await _migrateToVersion20(db);
+    }
+
     await seedDefaults(db);
+  }
+
+  static Future<void> _migrateToVersion19(DatabaseExecutor db) async {
+    for (final tableName in syncMetadataTables) {
+      if (!await _tableExists(db, tableName)) {
+        continue;
+      }
+
+      final hasFechaActualizacion = await _columnExists(
+        db,
+        tableName,
+        'fecha_actualizacion',
+      );
+      final hasFechaCreacion = await _columnExists(
+        db,
+        tableName,
+        'fecha_creacion',
+      );
+      final hasCreatedAt = await _columnExists(db, tableName, 'created_at');
+      final hasSyncStatus = await _columnExists(db, tableName, 'sync_status');
+      final updatedColumn = hasFechaActualizacion
+          ? 'fecha_actualizacion'
+          : (hasCreatedAt ? 'created_at' : null);
+      final createdColumn = hasFechaCreacion
+          ? 'fecha_creacion'
+          : (hasCreatedAt ? 'created_at' : null);
+
+      if (!await _columnExists(db, tableName, 'id_local')) {
+        await db.execute('ALTER TABLE $tableName ADD COLUMN id_local INTEGER');
+      }
+      if (!await _columnExists(db, tableName, 'id_remote')) {
+        await db.execute('ALTER TABLE $tableName ADD COLUMN id_remote TEXT');
+      }
+      if (!await _columnExists(db, tableName, 'last_modified_local')) {
+        await db.execute(
+          'ALTER TABLE $tableName ADD COLUMN last_modified_local TEXT',
+        );
+      }
+      if (!await _columnExists(db, tableName, 'last_modified_remote')) {
+        await db.execute(
+          'ALTER TABLE $tableName ADD COLUMN last_modified_remote TEXT',
+        );
+      }
+
+      await db.execute(
+        'UPDATE $tableName SET id_local = id WHERE id_local IS NULL',
+      );
+      final localTimestampParts = [
+        "NULLIF(TRIM(last_modified_local), '')",
+        if (updatedColumn != null) "NULLIF(TRIM($updatedColumn), '')",
+        if (createdColumn != null && createdColumn != updatedColumn)
+          "NULLIF(TRIM($createdColumn), '')",
+      ];
+      final localSql = localTimestampParts.length == 1
+          ? localTimestampParts.first
+          : 'COALESCE(${localTimestampParts.join(', ')})';
+      await db.execute('''
+        UPDATE $tableName
+        SET last_modified_local = $localSql
+      ''');
+
+      final remoteTimestampParts = [
+        if (updatedColumn != null) "NULLIF(TRIM($updatedColumn), '')",
+        if (createdColumn != null && createdColumn != updatedColumn)
+          "NULLIF(TRIM($createdColumn), '')",
+      ];
+      if (remoteTimestampParts.isNotEmpty && hasSyncStatus) {
+        final remoteFallbackSql = remoteTimestampParts.length == 1
+            ? remoteTimestampParts.first
+            : 'COALESCE(${remoteTimestampParts.join(', ')})';
+        await db.execute('''
+          UPDATE $tableName
+          SET last_modified_remote = COALESCE(
+            NULLIF(TRIM(last_modified_remote), ''),
+            CASE
+              WHEN sync_status = '$syncStatusSynced' THEN $remoteFallbackSql
+              ELSE last_modified_remote
+            END
+          )
+        ''');
+      }
+
+      if (tableName == usersTable &&
+          await _columnExists(db, tableName, 'remote_auth_id')) {
+        await db.execute('''
+          UPDATE $tableName
+          SET id_remote = COALESCE(NULLIF(TRIM(id_remote), ''), NULLIF(TRIM(remote_auth_id), ''))
+        ''');
+      }
+
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_${tableName}_id_local ON $tableName(id_local)',
+      );
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_${tableName}_id_remote ON $tableName(id_remote)',
+      );
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_${tableName}_last_modified_local ON $tableName(last_modified_local)',
+      );
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_${tableName}_last_modified_remote ON $tableName(last_modified_remote)',
+      );
+    }
+
+    for (final statusTable in syncEnabledTables) {
+      if (!await _tableExists(db, statusTable)) {
+        continue;
+      }
+      final hasSyncStatus = await _columnExists(db, statusTable, 'sync_status');
+      final hasIdRemote = await _columnExists(db, statusTable, 'id_remote');
+      final hasDeletedAt = await _columnExists(db, statusTable, 'deleted_at');
+      if (!hasSyncStatus || !hasIdRemote || !hasDeletedAt) {
+        continue;
+      }
+
+      await db.execute('''
+        UPDATE $statusTable
+        SET sync_status = '$syncStatusPendingCreate'
+        WHERE sync_status = '$syncStatusPending'
+          AND id_remote IS NULL
+          AND deleted_at IS NULL
+      ''');
+      await db.execute('''
+        UPDATE $statusTable
+        SET sync_status = '$syncStatusPendingUpdate'
+        WHERE sync_status IN ('$syncStatusPending', '$syncStatusPendingSync')
+          AND id_remote IS NOT NULL
+          AND deleted_at IS NULL
+      ''');
+      await db.execute('''
+        UPDATE $statusTable
+        SET sync_status = '$syncStatusPendingDelete'
+        WHERE deleted_at IS NOT NULL
+          AND sync_status IN (
+            '$syncStatusPending',
+            '$syncStatusPendingSync',
+            '$syncStatusConflict',
+            '$syncStatusFailed'
+          )
+      ''');
+    }
+  }
+
+  static Future<void> _migrateToVersion20(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $rolesTable (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        code TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        id_local INTEGER,
+        id_remote TEXT,
+        sync_status TEXT NOT NULL DEFAULT '$syncStatusSynced',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_modified_local TEXT,
+        last_modified_remote TEXT,
+        deleted_at TEXT,
+        UNIQUE(code)
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $userRolesTable (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        role_id INTEGER NOT NULL,
+        id_local INTEGER,
+        id_remote TEXT,
+        sync_status TEXT NOT NULL DEFAULT '$syncStatusSynced',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_modified_local TEXT,
+        last_modified_remote TEXT,
+        deleted_at TEXT,
+        UNIQUE(user_id, role_id),
+        FOREIGN KEY(user_id) REFERENCES $usersTable(id)
+          ON UPDATE CASCADE
+          ON DELETE CASCADE,
+        FOREIGN KEY(role_id) REFERENCES $rolesTable(id)
+          ON UPDATE CASCADE
+          ON DELETE CASCADE
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $rolePermissionsTable (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        role_id INTEGER NOT NULL,
+        permission_id INTEGER,
+        id_local INTEGER,
+        id_remote TEXT,
+        sync_status TEXT NOT NULL DEFAULT '$syncStatusSynced',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_modified_local TEXT,
+        last_modified_remote TEXT,
+        deleted_at TEXT,
+        UNIQUE(role_id, permission_id),
+        FOREIGN KEY(role_id) REFERENCES $rolesTable(id)
+          ON UPDATE CASCADE
+          ON DELETE CASCADE,
+        FOREIGN KEY(permission_id) REFERENCES $permissionsTable(id)
+          ON UPDATE CASCADE
+          ON DELETE CASCADE
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $companyProfilesTable (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        phone TEXT,
+        address TEXT,
+        logo_base64 TEXT,
+        local_path TEXT,
+        remote_url TEXT,
+        upload_status TEXT NOT NULL DEFAULT '$uploadStatusSynced',
+        id_local INTEGER,
+        id_remote TEXT,
+        sync_status TEXT NOT NULL DEFAULT '$syncStatusSynced',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_modified_local TEXT,
+        last_modified_remote TEXT,
+        deleted_at TEXT
+      )
+    ''');
+
+    for (final columnName in ['local_path', 'remote_url', 'upload_status']) {
+      if (!await _columnExists(db, companyInfoTable, columnName)) {
+        if (columnName == 'upload_status') {
+          await db.execute(
+            "ALTER TABLE $companyInfoTable ADD COLUMN upload_status TEXT NOT NULL DEFAULT '$uploadStatusSynced'",
+          );
+        } else {
+          await db.execute(
+            'ALTER TABLE $companyInfoTable ADD COLUMN $columnName TEXT',
+          );
+        }
+      }
+    }
+
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_roles_id_remote ON $rolesTable(id_remote)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_roles_sync_status ON $rolesTable(sync_status)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_user_roles_id_remote ON $userRolesTable(id_remote)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_user_roles_sync_status ON $userRolesTable(sync_status)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_role_permissions_id_remote ON $rolePermissionsTable(id_remote)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_role_permissions_sync_status ON $rolePermissionsTable(sync_status)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_company_profiles_id_remote ON $companyProfilesTable(id_remote)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_company_profiles_upload_status ON $companyProfilesTable(upload_status)',
+    );
+
+    if (await _tableExists(db, companyInfoTable)) {
+      final now = DateTime.now().toIso8601String();
+      await db.execute('''
+        INSERT INTO $companyProfilesTable (
+          name,
+          phone,
+          address,
+          logo_base64,
+          local_path,
+          remote_url,
+          upload_status,
+          id_local,
+          id_remote,
+          sync_status,
+          created_at,
+          updated_at,
+          last_modified_local,
+          last_modified_remote,
+          deleted_at
+        )
+        SELECT
+          COALESCE(NULLIF(TRIM(nombre), ''), 'Empresa'),
+          telefono,
+          direccion,
+          logo_base64,
+          local_path,
+          remote_url,
+          COALESCE(NULLIF(TRIM(upload_status), ''), '$uploadStatusSynced'),
+          id,
+          id_remote,
+          COALESCE(NULLIF(TRIM(sync_status), ''), '$syncStatusSynced'),
+          COALESCE(NULLIF(TRIM(fecha_creacion), ''), '$now'),
+          COALESCE(NULLIF(TRIM(fecha_actualizacion), ''), '$now'),
+          COALESCE(
+            NULLIF(TRIM(last_modified_local), ''),
+            NULLIF(TRIM(fecha_actualizacion), ''),
+            '$now'
+          ),
+          COALESCE(
+            NULLIF(TRIM(last_modified_remote), ''),
+            NULLIF(TRIM(fecha_actualizacion), '')
+          ),
+          deleted_at
+        FROM $companyInfoTable
+        WHERE NOT EXISTS (SELECT 1 FROM $companyProfilesTable)
+      ''');
+    }
   }
 
   static Future<void> _migrateToVersion18(DatabaseExecutor db) async {

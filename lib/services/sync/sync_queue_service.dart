@@ -83,6 +83,11 @@ class SyncQueueService {
   Future<void> Function(String reason)? _onCloudSessionExpired;
 
   static const List<String> _syncOrder = [
+    'users',
+    'roles',
+    'user_roles',
+    'role_permissions',
+    'permissions',
     'clients',
     'products',
     'sellers',
@@ -91,6 +96,11 @@ class SyncQueueService {
     'payments',
   ];
   static const Map<String, List<String>> _scopeDependencies = {
+    'users': [],
+    'roles': [],
+    'user_roles': ['users', 'roles'],
+    'role_permissions': ['roles', 'permissions'],
+    'permissions': ['users'],
     'clients': [],
     'products': ['clients'],
     'sellers': [],
@@ -100,6 +110,11 @@ class SyncQueueService {
   };
 
   static const Map<String, String> _scopeTableMap = {
+    'users': DatabaseSchema.usersTable,
+    'roles': DatabaseSchema.rolesTable,
+    'user_roles': DatabaseSchema.userRolesTable,
+    'role_permissions': DatabaseSchema.rolePermissionsTable,
+    'permissions': DatabaseSchema.permissionsTable,
     'clients': DatabaseSchema.clientsTable,
     'products': DatabaseSchema.lotsTable,
     'sellers': DatabaseSchema.sellersTable,
@@ -107,6 +122,7 @@ class SyncQueueService {
     'installments': DatabaseSchema.installmentsTable,
     'payments': DatabaseSchema.paymentsTable,
   };
+  static const int _maxRetryAttempts = 12;
 
   Timer? _retryTimer;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
@@ -809,6 +825,14 @@ class SyncQueueService {
       );
     }
 
+    await _markSourceRowsAsQueued(
+      scope: scope,
+      recordSyncIds: [recordSyncId],
+      payload: payload,
+      queuedAt: now,
+      operation: operation,
+    );
+
     await _refreshState();
     unawaited(processQueue());
   }
@@ -1007,6 +1031,33 @@ class SyncQueueService {
     final currentAttempts = currentAttemptsValue is num
         ? currentAttemptsValue.toInt()
         : int.tryParse(currentAttemptsValue?.toString() ?? '') ?? 0;
+    if (currentAttempts >= _maxRetryAttempts) {
+      final terminalError =
+          '$errorMessage | Maximos reintentos alcanzados ($_maxRetryAttempts).';
+      final terminalAttemptAt = now
+          .add(const Duration(hours: 24))
+          .toIso8601String();
+      await db.rawUpdate(
+        'UPDATE ${DatabaseSchema.syncQueueTable} '
+        'SET updated_at = ?, '
+        'next_attempt_at = ?, '
+        'last_error = ? '
+        'WHERE scope = ? AND record_sync_id IN ($placeholders)',
+        [now.toIso8601String(), terminalAttemptAt, terminalError, scope, ...ids],
+      );
+      await _markSourceRowsAsFailed(
+        scope: scope,
+        recordSyncIds: ids,
+        failedAt: now.toIso8601String(),
+      );
+      await _configRepository.saveLastRun(
+        errorMessage: terminalError,
+        status: SyncRuntimeStatus.error,
+      );
+      await _refreshState(lastError: terminalError);
+      return;
+    }
+
     final retryNumber = currentAttempts + 1;
     final retryDelay = retryNumber <= 3
         ? Duration(seconds: settings.queueRetryInterval.inSeconds * retryNumber)
@@ -1021,11 +1072,102 @@ class SyncQueueService {
       'WHERE scope = ? AND record_sync_id IN ($placeholders)',
       [now.toIso8601String(), nextAttemptAt, errorMessage, scope, ...ids],
     );
+    await _markSourceRowsAsFailed(
+      scope: scope,
+      recordSyncIds: ids,
+      failedAt: now.toIso8601String(),
+    );
     await _configRepository.saveLastRun(
       errorMessage: errorMessage,
       status: SyncRuntimeStatus.pending,
     );
     await _refreshState(lastError: errorMessage);
+  }
+
+  Future<void> _markSourceRowsAsQueued({
+    required String scope,
+    required Iterable<String> recordSyncIds,
+    required Map<String, Object?> payload,
+    required String queuedAt,
+    required String operation,
+  }) async {
+    final tableName = _scopeTableMap[scope];
+    if (tableName == null) {
+      return;
+    }
+
+    final ids = recordSyncIds
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toList(growable: false);
+    if (ids.isEmpty) {
+      return;
+    }
+
+    final db = await _appDatabase.database;
+    final placeholders = List.filled(ids.length, '?').join(', ');
+    final nextStatus = _resolveQueuedSyncStatus(payload, operation: operation);
+    await db.rawUpdate(
+      'UPDATE $tableName '
+      'SET sync_status = ?, last_modified_local = COALESCE(last_modified_local, ?), id_local = COALESCE(id_local, id) '
+      'WHERE sync_id IN ($placeholders)',
+      [nextStatus, queuedAt, ...ids],
+    );
+  }
+
+  Future<void> _markSourceRowsAsFailed({
+    required String scope,
+    required Iterable<String> recordSyncIds,
+    required String failedAt,
+  }) async {
+    final tableName = _scopeTableMap[scope];
+    if (tableName == null) {
+      return;
+    }
+
+    final ids = recordSyncIds
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toList(growable: false);
+    if (ids.isEmpty) {
+      return;
+    }
+
+    final db = await _appDatabase.database;
+    final placeholders = List.filled(ids.length, '?').join(', ');
+    await db.rawUpdate(
+      'UPDATE $tableName '
+      'SET sync_status = ?, last_modified_local = COALESCE(last_modified_local, ?), id_local = COALESCE(id_local, id) '
+      'WHERE sync_id IN ($placeholders)',
+      [DatabaseSchema.syncStatusFailed, failedAt, ...ids],
+    );
+  }
+
+  String _resolveQueuedSyncStatus(
+    Map<String, Object?> payload, {
+    required String operation,
+  }) {
+    if (operation == 'delete' ||
+        (payload['deleted_at']?.toString().trim().isNotEmpty ?? false)) {
+      return DatabaseSchema.syncStatusPendingDelete;
+    }
+
+    final currentStatus = payload['sync_status']
+        ?.toString()
+        .trim()
+        .toLowerCase();
+    if (currentStatus == DatabaseSchema.syncStatusPendingCreate ||
+        currentStatus == DatabaseSchema.syncStatusPendingUpdate) {
+      return currentStatus!;
+    }
+
+    final hasRemoteIdentity =
+        (payload['id_remote']?.toString().trim().isNotEmpty ?? false) ||
+        (payload['last_modified_remote']?.toString().trim().isNotEmpty ??
+            false);
+    return hasRemoteIdentity
+        ? DatabaseSchema.syncStatusPendingUpdate
+        : DatabaseSchema.syncStatusPendingCreate;
   }
 
   Future<void> _refreshState({

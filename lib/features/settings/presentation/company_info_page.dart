@@ -4,10 +4,12 @@ import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as path;
 import 'package:provider/provider.dart';
 
 import '../../../core/database/app_database.dart';
 import '../../../core/resilience/friendly_error_messages.dart';
+import '../../../core/resilience/app_paths.dart';
 import '../../../core/system/system_config_service.dart';
 import '../../../core/utils/dominican_formatters.dart';
 import '../../../features/auth/domain/admin_override_scope.dart';
@@ -34,7 +36,10 @@ class _CompanyInfoPageState extends State<CompanyInfoPage> {
 
   CompanyInfo? _company;
   String? _logoBase64;
+  String? _logoLocalPath;
+  String? _logoRemoteUrl;
   Uint8List? _logoBytes;
+  bool _logoDirty = false;
   bool _isLoading = true;
   bool _isSaving = false;
   FriendlyErrorMessage? _loadError;
@@ -189,6 +194,8 @@ class _CompanyInfoPageState extends State<CompanyInfoPage> {
                                 ),
                             ],
                           ),
+                          const SizedBox(height: 8),
+                          _buildUploadStatusChip(),
                         ],
                       ),
                     ),
@@ -298,9 +305,27 @@ class _CompanyInfoPageState extends State<CompanyInfoPage> {
         _telefonoController.text = company?.telefono ?? '';
         _direccionController.text = company?.direccion ?? '';
         _logoBase64 = company?.logoBytesBase64;
-        _logoBytes = _logoBase64 == null || _logoBase64!.isEmpty
-            ? null
-            : base64Decode(_logoBase64!);
+        _logoLocalPath = company?.logoLocalPath;
+        _logoRemoteUrl = company?.logoRemoteUrl;
+        _logoBytes = null;
+        if (_logoLocalPath != null && _logoLocalPath!.trim().isNotEmpty) {
+          final file = File(_logoLocalPath!.trim());
+          if (file.existsSync()) {
+            try {
+              _logoBytes = file.readAsBytesSync();
+            } catch (_) {
+              _logoBytes = null;
+            }
+          }
+        }
+        if (_logoBytes == null && _logoBase64 != null && _logoBase64!.isNotEmpty) {
+          try {
+            _logoBytes = base64Decode(_logoBase64!);
+          } catch (_) {
+            _logoBytes = null;
+          }
+        }
+        _logoDirty = false;
         _loadError = null;
         _isLoading = false;
       });
@@ -349,6 +374,7 @@ class _CompanyInfoPageState extends State<CompanyInfoPage> {
       setState(() {
         _logoBytes = bytes;
         _logoBase64 = base64Encode(bytes!);
+        _logoDirty = true;
       });
     } catch (error) {
       if (!mounted) {
@@ -370,7 +396,24 @@ class _CompanyInfoPageState extends State<CompanyInfoPage> {
     setState(() {
       _logoBytes = null;
       _logoBase64 = null;
+      _logoLocalPath = null;
+      _logoRemoteUrl = null;
+      _logoDirty = true;
     });
+  }
+
+  Future<String?> _persistLogoLocally(Uint8List? bytes) async {
+    if (bytes == null || bytes.isEmpty) {
+      return null;
+    }
+
+    final appPaths = AppPaths();
+    await Directory(appPaths.mediaDirectory).create(recursive: true);
+    final filename = 'company_logo_${DateTime.now().millisecondsSinceEpoch}.png';
+    final filePath = path.join(appPaths.mediaDirectory, filename);
+    final file = File(filePath);
+    await file.writeAsBytes(bytes, flush: true);
+    return filePath;
   }
 
   Future<void> _save() async {
@@ -389,12 +432,25 @@ class _CompanyInfoPageState extends State<CompanyInfoPage> {
       final repository = CompanyRepository(db);
       final now = DateTime.now();
       final existing = _company;
+      final persistedLocalPath = _logoDirty
+          ? await _persistLogoLocally(_logoBytes)
+          : (existing?.logoLocalPath ?? _logoLocalPath);
+      final nextRemoteUrl = _logoDirty
+          ? (_logoBytes == null ? null : null)
+          : (existing?.logoRemoteUrl ?? _logoRemoteUrl);
+      final nextUploadStatus = _logoDirty
+          ? (_logoBytes == null ? 'uploaded' : 'pending_upload')
+          : (existing?.logoUploadStatus ??
+                (_logoBytes == null ? 'uploaded' : 'pending_upload'));
       final companyToSave = CompanyInfo(
         id: existing?.id,
         nombre: _nombreController.text.trim(),
         telefono: _telefonoController.text.trim(),
         direccion: _direccionController.text.trim(),
         logoBytesBase64: _logoBase64,
+        logoLocalPath: persistedLocalPath,
+        logoRemoteUrl: nextRemoteUrl,
+        logoUploadStatus: nextUploadStatus,
         fechaCreacion: existing?.fechaCreacion ?? now,
         fechaActualizacion: now,
       );
@@ -403,6 +459,10 @@ class _CompanyInfoPageState extends State<CompanyInfoPage> {
       if (!mounted) {
         return;
       }
+
+      setState(() {
+        _logoDirty = false;
+      });
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Información guardada correctamente')),
@@ -422,6 +482,30 @@ class _CompanyInfoPageState extends State<CompanyInfoPage> {
       if (mounted) {
         setState(() => _isSaving = false);
       }
+    }
+  }
+
+  Widget _buildUploadStatusChip() {
+    final effectiveStatus = _logoDirty
+        ? (_logoBytes == null ? 'uploaded' : 'pending_upload')
+        : (_company?.logoUploadStatus ?? 'uploaded');
+
+    switch (effectiveStatus) {
+      case 'pending_upload':
+        return const Chip(
+          avatar: Icon(Icons.cloud_upload_outlined, size: 18),
+          label: Text('Logo pendiente de subir'),
+        );
+      case 'failed':
+        return const Chip(
+          avatar: Icon(Icons.error_outline, size: 18),
+          label: Text('Error de subida, se reintentará'),
+        );
+      default:
+        return const Chip(
+          avatar: Icon(Icons.cloud_done_outlined, size: 18),
+          label: Text('Logo sincronizado'),
+        );
     }
   }
 }

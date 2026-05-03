@@ -22,8 +22,14 @@ class ProductsSyncRepository implements SyncRepository {
     final db = await _appDatabase.database;
     final rows = await db.query(
       DatabaseSchema.lotsTable,
-      where: 'sync_status = ?',
-      whereArgs: [DatabaseSchema.syncStatusPending],
+      where: 'sync_status IN (?, ?, ?, ?, ?)',
+      whereArgs: [
+        DatabaseSchema.syncStatusPending,
+        DatabaseSchema.syncStatusPendingCreate,
+        DatabaseSchema.syncStatusPendingUpdate,
+        DatabaseSchema.syncStatusPendingDelete,
+        DatabaseSchema.syncStatusFailed,
+      ],
       orderBy: 'fecha_actualizacion ASC',
     );
     return rows.map(_toPayload).toList(growable: false);
@@ -78,10 +84,12 @@ class ProductsSyncRepository implements SyncRepository {
         if (_isDeleted(record['deleted_at'])) {
           if (existingRows.isNotEmpty) {
             await txn.update(
-            DatabaseSchema.lotsTable,
+              DatabaseSchema.lotsTable,
               {
                 'version': _readVersion(record),
+                'id_remote': record['id']?.toString().trim(),
                 'fecha_actualizacion': _readDate(record['updated_at']),
+                'last_modified_remote': _readDate(record['updated_at']),
                 'deleted_at': _readNullableDate(record['deleted_at']),
                 'sync_status': DatabaseSchema.syncStatusSynced,
               },
@@ -94,6 +102,8 @@ class ProductsSyncRepository implements SyncRepository {
 
         final values = {
           'sync_id': syncId,
+          'id_remote': record['id']?.toString().trim(),
+          'id_local': existingRows.isEmpty ? null : existingRows.first['id'],
           'version': _readVersion(record),
           'manzana_numero': record['block_number'] ?? '',
           'solar_numero': record['lot_number'] ?? '',
@@ -102,6 +112,7 @@ class ProductsSyncRepository implements SyncRepository {
           'estado': record['status'] ?? 'disponible',
           'fecha_creacion': _readDate(record['created_at']),
           'fecha_actualizacion': _readDate(record['updated_at']),
+          'last_modified_remote': _readDate(record['updated_at']),
           'deleted_at': _readNullableDate(record['deleted_at']),
           'sync_status': DatabaseSchema.syncStatusSynced,
         };
@@ -191,25 +202,42 @@ bool _shouldKeepLocal(
     return false;
   }
   final local = existingRows.first;
-  final localPending =
-      (local['sync_status'] as String? ?? '') ==
-          DatabaseSchema.syncStatusPending ||
-      (local['sync_status'] as String? ?? '') ==
-          DatabaseSchema.syncStatusConflict;
+  final localSyncStatus =
+      (local['sync_status'] as String? ?? '').trim().toLowerCase();
+  final localPending = DatabaseSchema.writableSyncStatuses.contains(
+    localSyncStatus,
+  );
+  if (!localPending) {
+    return false;
+  }
+
   final localVersion = _readVersion(local);
   final remoteVersion = _readVersion(remoteRecord);
-  final localUpdated = DateTime.tryParse(
-    local[updatedAtField] as String? ?? '',
+  if (localVersion > remoteVersion) {
+    return true;
+  }
+  if (localVersion < remoteVersion) {
+    return false;
+  }
+
+  final localUpdated = _parseDate(
+    local['last_modified_local']?.toString() ?? local[updatedAtField]?.toString(),
   );
-  final remoteUpdated = DateTime.tryParse(
-    remoteRecord['updated_at']?.toString() ?? '',
+  final remoteUpdated = _parseDate(
+    remoteRecord['last_modified_remote']?.toString() ??
+        remoteRecord['updated_at']?.toString(),
   );
-  return localPending &&
-      ((localVersion > remoteVersion) ||
-          (localVersion >= remoteVersion &&
-              localUpdated != null &&
-              remoteUpdated != null &&
-              localUpdated.isAfter(remoteUpdated)));
+  return localUpdated != null &&
+      remoteUpdated != null &&
+      localUpdated.isAfter(remoteUpdated);
+}
+
+DateTime? _parseDate(String? value) {
+  final normalized = value?.trim();
+  if (normalized == null || normalized.isEmpty) {
+    return null;
+  }
+  return DateTime.tryParse(normalized);
 }
 
 int _readVersion(Map<Object?, Object?> map) {

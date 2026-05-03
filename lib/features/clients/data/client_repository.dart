@@ -39,8 +39,9 @@ class ClientRepository implements SyncRepository {
 
   bool get _enforceProductionGuards =>
       isProductionMode && identical(_appDatabase, AppDatabase.instance);
-  bool get _shouldRunBackgroundSync => identical(_appDatabase, AppDatabase.instance);
-  bool get _useBackendMode => identical(_appDatabase, AppDatabase.instance);
+  bool get _shouldRunBackgroundSync =>
+      identical(_appDatabase, AppDatabase.instance);
+  bool get _useBackendMode => false;
 
   @override
   String get scope => 'clients';
@@ -164,7 +165,11 @@ class ClientRepository implements SyncRepository {
       if (normalizedClient.id == null) {
         final insertedId = await db.insert(
           DatabaseSchema.clientsTable,
-          normalizedClient.toMap()..remove('id'),
+          normalizedClient.toMap()
+            ..['id_local'] = null
+            ..['id_remote'] = null
+            ..['last_modified_local'] = now.toIso8601String()
+            ..remove('id'),
         );
         _log(
           'CLIENT LOCAL CREATED -> id=$insertedId documentId=${normalizedClient.documentId}',
@@ -178,7 +183,10 @@ class ClientRepository implements SyncRepository {
 
       await db.update(
         DatabaseSchema.clientsTable,
-        normalizedClient.toMap()..remove('id'),
+        normalizedClient.toMap()
+          ..['sync_status'] = DatabaseSchema.syncStatusPendingUpdate
+          ..['last_modified_local'] = now.toIso8601String()
+          ..remove('id'),
         where: 'id = ?',
         whereArgs: [normalizedClient.id],
       );
@@ -224,7 +232,10 @@ class ClientRepository implements SyncRepository {
       );
       await db.update(
         DatabaseSchema.clientsTable,
-        deletedClient.toMap()..remove('id'),
+        deletedClient.toMap()
+          ..['sync_status'] = DatabaseSchema.syncStatusPendingDelete
+          ..['last_modified_local'] = now.toIso8601String()
+          ..remove('id'),
         where: 'id = ?',
         whereArgs: [id],
       );
@@ -272,8 +283,14 @@ class ClientRepository implements SyncRepository {
     final db = await _appDatabase.database;
     final rows = await db.query(
       DatabaseSchema.clientsTable,
-      where: 'sync_status = ?',
-      whereArgs: [SyncStatus.pending.storageValue],
+      where: 'sync_status IN (?, ?, ?, ?, ?)',
+      whereArgs: [
+        SyncStatus.pending.storageValue,
+        DatabaseSchema.syncStatusPendingCreate,
+        DatabaseSchema.syncStatusPendingUpdate,
+        DatabaseSchema.syncStatusPendingDelete,
+        DatabaseSchema.syncStatusFailed,
+      ],
       orderBy: 'fecha_actualizacion ASC',
     );
 
@@ -366,8 +383,10 @@ class ClientRepository implements SyncRepository {
             await txn.update(
               DatabaseSchema.clientsTable,
               {
+                'id_remote': record['id']?.toString().trim(),
                 'deleted_at': now.toIso8601String(),
                 'fecha_actualizacion': now.toIso8601String(),
+                'last_modified_remote': now.toIso8601String(),
                 'sync_status': SyncStatus.synced.storageValue,
               },
               where: localId != null ? 'id = ?' : 'sync_id = ?',
@@ -414,16 +433,40 @@ class ClientRepository implements SyncRepository {
         }
 
         if (existingRows.isEmpty) {
-          await txn.insert(DatabaseSchema.clientsTable, remoteClient.toMap());
+          await txn.insert(DatabaseSchema.clientsTable, {
+            ...remoteClient.toMap(),
+            'id_remote': record['id']?.toString().trim(),
+            'last_modified_remote': remoteClient.updatedAt.toIso8601String(),
+          });
           continue;
         }
 
-        final localClient = Client.fromMap(existingRows.first);
+        final localRow = existingRows.first;
+        final localClient = Client.fromMap(localRow);
+        final localStatus =
+            (localRow['sync_status']?.toString() ?? '').trim().toLowerCase();
+        final localPending = DatabaseSchema.writableSyncStatuses.contains(
+          localStatus,
+        );
+        final localVersion = localClient.version;
+        final remoteVersion = remoteClient.version;
+        final localModified = DateTime.tryParse(
+          localRow['last_modified_local']?.toString() ??
+              localRow['fecha_actualizacion']?.toString() ??
+              '',
+        );
+        final remoteModified = DateTime.tryParse(
+          record['last_modified_remote']?.toString() ??
+              record['updated_at']?.toString() ??
+              '',
+        );
         final localHasPendingChanges =
-            (localClient.syncStatus.isPending ||
-                localClient.syncStatus.isConflict) &&
-            localClient.version >= remoteClient.version &&
-            localClient.updatedAt.isAfter(remoteClient.updatedAt);
+            localPending &&
+            ((localVersion > remoteVersion) ||
+                (localVersion == remoteVersion &&
+                    localModified != null &&
+                    remoteModified != null &&
+                    localModified.isAfter(remoteModified)));
         if (localHasPendingChanges) {
           continue;
         }
@@ -431,7 +474,11 @@ class ClientRepository implements SyncRepository {
         final localId = existingRows.first['id'] as int?;
         await txn.update(
           DatabaseSchema.clientsTable,
-          remoteClient.toMap()..remove('id'),
+          remoteClient.toMap()
+            ..['id_remote'] = record['id']?.toString().trim()
+            ..['last_modified_remote'] = remoteClient.updatedAt
+                .toIso8601String()
+            ..remove('id'),
           where: localId != null ? 'id = ?' : 'sync_id = ?',
           whereArgs: localId != null ? [localId] : [remoteSyncId],
         );
@@ -479,11 +526,17 @@ class ClientRepository implements SyncRepository {
     );
     final payload = response is Map<String, dynamic>
         ? response
-        : (response as Map).map((key, value) => MapEntry(key.toString(), value));
+        : (response as Map).map(
+            (key, value) => MapEntry(key.toString(), value),
+          );
     final items = (payload['items'] as List?) ?? const [];
     return items
         .whereType<Map>()
-        .map((item) => _clientFromBackend(item.map((key, value) => MapEntry(key.toString(), value))))
+        .map(
+          (item) => _clientFromBackend(
+            item.map((key, value) => MapEntry(key.toString(), value)),
+          ),
+        )
         .toList(growable: false);
   }
 
@@ -513,10 +566,10 @@ class ClientRepository implements SyncRepository {
     final localId = _idRegistry.register('clients', remoteId);
     final firstName = item['firstName']?.toString().trim() ?? '';
     final lastName = item['lastName']?.toString().trim() ?? '';
-    final fullName = [firstName, lastName]
-        .where((value) => value.isNotEmpty)
-        .join(' ')
-        .trim();
+    final fullName = [
+      firstName,
+      lastName,
+    ].where((value) => value.isNotEmpty).join(' ').trim();
     return Client(
       id: localId,
       syncId: remoteId,
@@ -525,8 +578,12 @@ class ClientRepository implements SyncRepository {
       documentId: item['documentId']?.toString().trim() ?? '',
       phone: _nullIfBlank(item['phone']?.toString()),
       address: _nullIfBlank(item['address']?.toString()),
-      createdAt: DateTime.tryParse(item['createdAt']?.toString() ?? '') ?? DateTime.now(),
-      updatedAt: DateTime.tryParse(item['updatedAt']?.toString() ?? '') ?? DateTime.now(),
+      createdAt:
+          DateTime.tryParse(item['createdAt']?.toString() ?? '') ??
+          DateTime.now(),
+      updatedAt:
+          DateTime.tryParse(item['updatedAt']?.toString() ?? '') ??
+          DateTime.now(),
       deletedAt: null,
       syncStatus: SyncStatus.synced,
     );

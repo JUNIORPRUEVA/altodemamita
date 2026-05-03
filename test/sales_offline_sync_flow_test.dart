@@ -51,9 +51,7 @@ void main() {
       connectivityProbe: (_) async => online,
       connectivityChanges: connectivityController.stream,
     );
-    syncQueueService.registerRepository(
-      _ProductsDbSyncRepository(appDatabase),
-    );
+    syncQueueService.registerRepository(_ProductsDbSyncRepository(appDatabase));
     syncQueueService.registerRepository(_SalesDbSyncRepository(appDatabase));
     syncQueueService.registerRepository(
       _InstallmentsDbSyncRepository(appDatabase),
@@ -131,15 +129,12 @@ void main() {
       )).single;
       final saleSyncId = saleRow['sync_id'] as String;
 
-      expect(
-        saleRow['sync_status'],
-        DatabaseSchema.syncStatusPendingSync,
-      );
+      expect(saleRow['sync_status'], DatabaseSchema.syncStatusPendingCreate);
       expect(
         await _countByStatus(
           db,
           DatabaseSchema.installmentsTable,
-          DatabaseSchema.syncStatusPending,
+          DatabaseSchema.syncStatusPendingCreate,
         ),
         12,
       );
@@ -147,7 +142,7 @@ void main() {
         await _countByStatus(
           db,
           DatabaseSchema.paymentsTable,
-          DatabaseSchema.syncStatusPending,
+          DatabaseSchema.syncStatusPendingCreate,
         ),
         1,
       );
@@ -161,9 +156,7 @@ void main() {
       online = true;
       connectivityController.add(const [ConnectivityResult.wifi]);
 
-      await _waitUntil(
-        () async => await syncQueueService.pendingCount() == 0,
-      );
+      await _waitUntil(() async => await syncQueueService.pendingCount() == 0);
 
       final saleRowAfter = (await db.query(
         DatabaseSchema.salesTable,
@@ -200,26 +193,14 @@ void main() {
         1,
       );
 
-      expect(
-        apiClient.countServerRecords('sales', saleSyncId),
-        1,
-      );
-      expect(
-        apiClient.countUploads('sales', saleSyncId),
-        1,
-      );
+      expect(apiClient.countServerRecords('sales', saleSyncId), 1);
+      expect(apiClient.countUploads('sales', saleSyncId), 1);
 
       connectivityController.add(const [ConnectivityResult.wifi]);
       await Future<void>.delayed(const Duration(milliseconds: 30));
 
-      expect(
-        apiClient.countServerRecords('sales', saleSyncId),
-        1,
-      );
-      expect(
-        apiClient.countUploads('sales', saleSyncId),
-        1,
-      );
+      expect(apiClient.countServerRecords('sales', saleSyncId), 1);
+      expect(apiClient.countUploads('sales', saleSyncId), 1);
     },
   );
 }
@@ -300,9 +281,7 @@ class _MemorySyncApiClient extends SyncApiClient {
     recordsByScope.forEach((scope, records) {
       for (final record in records) {
         uploadedScopes.add(scope);
-        final normalized = record.map(
-          (key, value) => MapEntry(key, value),
-        );
+        final normalized = record.map((key, value) => MapEntry(key, value));
         uploadedRecordsByScope.putIfAbsent(scope, () => []).add(normalized);
 
         final syncId = normalized['sync_id']?.toString().trim() ?? '';
@@ -322,11 +301,7 @@ class _MemorySyncApiClient extends SyncApiClient {
       }
 
       returned[scope] = records
-          .map(
-            (record) => record.map(
-              (key, value) => MapEntry(key, value),
-            ),
-          )
+          .map((record) => record.map((key, value) => MapEntry(key, value)))
           .toList(growable: false);
     });
 
@@ -353,8 +328,14 @@ class _ProductsDbSyncRepository implements SyncRepository {
     final db = await _appDatabase.database;
     final rows = await db.query(
       DatabaseSchema.lotsTable,
-      where: 'sync_status = ?',
-      whereArgs: [DatabaseSchema.syncStatusPending],
+      where: 'sync_status IN (?, ?, ?, ?, ?)',
+      whereArgs: [
+        DatabaseSchema.syncStatusPending,
+        DatabaseSchema.syncStatusPendingSync,
+        DatabaseSchema.syncStatusPendingCreate,
+        DatabaseSchema.syncStatusPendingUpdate,
+        DatabaseSchema.syncStatusPendingDelete,
+      ],
       orderBy: 'fecha_actualizacion ASC',
     );
     return rows
@@ -428,12 +409,16 @@ class _SalesDbSyncRepository implements SyncRepository {
       INNER JOIN ${DatabaseSchema.clientsTable} c ON c.id = v.cliente_id
       INNER JOIN ${DatabaseSchema.lotsTable} s ON s.id = v.solar_id
       LEFT JOIN vendedores vd ON vd.id = v.vendedor_id
-      WHERE v.sync_status IN (?, ?)
+      WHERE v.sync_status IN (?, ?, ?, ?, ?, ?)
       ORDER BY v.fecha_actualizacion ASC
       ''',
       [
         DatabaseSchema.syncStatusPending,
         DatabaseSchema.syncStatusPendingSync,
+        DatabaseSchema.syncStatusPendingCreate,
+        DatabaseSchema.syncStatusPendingUpdate,
+        DatabaseSchema.syncStatusPendingDelete,
+        DatabaseSchema.syncStatusFailed,
       ],
     );
     return rows
@@ -516,10 +501,16 @@ class _InstallmentsDbSyncRepository implements SyncRepository {
         v.sync_id AS sale_sync_id
       FROM ${DatabaseSchema.installmentsTable} q
       INNER JOIN ${DatabaseSchema.salesTable} v ON v.id = q.venta_id
-      WHERE q.sync_status = ?
+      WHERE q.sync_status IN (?, ?, ?, ?, ?)
       ORDER BY q.fecha_actualizacion ASC
       ''',
-      [DatabaseSchema.syncStatusPending],
+      [
+        DatabaseSchema.syncStatusPending,
+        DatabaseSchema.syncStatusPendingCreate,
+        DatabaseSchema.syncStatusPendingUpdate,
+        DatabaseSchema.syncStatusPendingDelete,
+        DatabaseSchema.syncStatusFailed,
+      ],
     );
     return rows
         .map(
@@ -599,10 +590,16 @@ class _PaymentsDbSyncRepository implements SyncRepository {
       INNER JOIN ${DatabaseSchema.salesTable} v ON v.id = p.venta_id
       INNER JOIN ${DatabaseSchema.clientsTable} c ON c.id = p.cliente_id
       LEFT JOIN ${DatabaseSchema.installmentsTable} q ON q.id = p.cuota_id
-      WHERE p.sync_status = ?
+      WHERE p.sync_status IN (?, ?, ?, ?, ?)
       ORDER BY COALESCE(p.fecha_actualizacion, p.fecha_creacion) ASC
       ''',
-      [DatabaseSchema.syncStatusPending],
+      [
+        DatabaseSchema.syncStatusPending,
+        DatabaseSchema.syncStatusPendingCreate,
+        DatabaseSchema.syncStatusPendingUpdate,
+        DatabaseSchema.syncStatusPendingDelete,
+        DatabaseSchema.syncStatusFailed,
+      ],
     );
     return rows
         .map(

@@ -32,18 +32,18 @@ class LotRepository {
     AppDatabase? appDatabase,
     SyncQueueService? syncQueueService,
     BackendApiClient? apiClient,
-  })
-    : _appDatabase = appDatabase ?? AppDatabase.instance,
-      _syncQueueService = syncQueueService ?? SyncQueueService.instance,
-      _apiClient = apiClient ?? BackendApiClient();
+  }) : _appDatabase = appDatabase ?? AppDatabase.instance,
+       _syncQueueService = syncQueueService ?? SyncQueueService.instance,
+       _apiClient = apiClient ?? BackendApiClient();
 
   final AppDatabase _appDatabase;
   final SyncQueueService _syncQueueService;
   final BackendApiClient _apiClient;
   final BackendEntityIdRegistry _idRegistry = BackendEntityIdRegistry.instance;
 
-  bool get _shouldRunBackgroundSync => identical(_appDatabase, AppDatabase.instance);
-  bool get _useBackendMode => identical(_appDatabase, AppDatabase.instance);
+  bool get _shouldRunBackgroundSync =>
+      identical(_appDatabase, AppDatabase.instance);
+  bool get _useBackendMode => false;
 
   void _log(String message, {Object? error, StackTrace? stackTrace}) {
     developer.log(
@@ -131,10 +131,13 @@ class LotRepository {
             'No se pudo identificar el solar remoto para actualizarlo.',
           );
         }
-        await _apiClient.patch('/products/$remoteId', body: {
-          'stock': status == 'disponible' ? 1 : 0,
-          'isActive': status != 'vendido',
-        });
+        await _apiClient.patch(
+          '/products/$remoteId',
+          body: {
+            'stock': status == 'disponible' ? 1 : 0,
+            'isActive': status != 'vendido',
+          },
+        );
         return;
       }
 
@@ -144,7 +147,8 @@ class LotRepository {
         {
           'estado': status,
           'fecha_actualizacion': DateTime.now().toIso8601String(),
-          'sync_status': DatabaseSchema.syncStatusPending,
+          'sync_status': DatabaseSchema.syncStatusPendingUpdate,
+          'last_modified_local': DateTime.now().toIso8601String(),
         },
         where: 'id = ?',
         whereArgs: [id],
@@ -237,8 +241,11 @@ class LotRepository {
           DatabaseSchema.lotsTable,
           normalizedLot.copyWith(createdAt: now, updatedAt: now).toMap()
             ..['sync_id'] = _newSyncId()
+            ..['id_local'] = null
+            ..['id_remote'] = null
+            ..['last_modified_local'] = now.toIso8601String()
             ..['deleted_at'] = null
-            ..['sync_status'] = DatabaseSchema.syncStatusPending
+            ..['sync_status'] = DatabaseSchema.syncStatusPendingCreate
             ..remove('id'),
         );
         _log(
@@ -251,7 +258,8 @@ class LotRepository {
       await db.update(
         DatabaseSchema.lotsTable,
         normalizedLot.copyWith(updatedAt: now).toMap()
-          ..['sync_status'] = DatabaseSchema.syncStatusPending
+          ..['sync_status'] = DatabaseSchema.syncStatusPendingUpdate
+          ..['last_modified_local'] = now.toIso8601String()
           ..remove('id'),
         where: 'id = ?',
         whereArgs: [normalizedLot.id],
@@ -305,7 +313,7 @@ class LotRepository {
         'created_at': row['fecha_creacion'],
         'updated_at': DateTime.now().toIso8601String(),
         'deleted_at': DateTime.now().toIso8601String(),
-        'sync_status': DatabaseSchema.syncStatusPending,
+        'sync_status': DatabaseSchema.syncStatusPendingDelete,
       };
       final syncId = (row['sync_id'] as String?)?.trim();
 
@@ -314,7 +322,8 @@ class LotRepository {
         {
           'deleted_at': payload['deleted_at'],
           'fecha_actualizacion': payload['updated_at'],
-          'sync_status': DatabaseSchema.syncStatusPending,
+          'sync_status': DatabaseSchema.syncStatusPendingDelete,
+          'last_modified_local': payload['updated_at'],
         },
         where: 'id = ?',
         whereArgs: [id],
@@ -393,16 +402,24 @@ class LotRepository {
     );
     final payload = response is Map<String, dynamic>
         ? response
-        : (response as Map).map((key, value) => MapEntry(key.toString(), value));
+        : (response as Map).map(
+            (key, value) => MapEntry(key.toString(), value),
+          );
     final items = (payload['items'] as List?) ?? const [];
     final lots = items
         .whereType<Map>()
-        .map((item) => _lotFromBackend(item.map((key, value) => MapEntry(key.toString(), value))))
+        .map(
+          (item) => _lotFromBackend(
+            item.map((key, value) => MapEntry(key.toString(), value)),
+          ),
+        )
         .toList(growable: false);
     if (!onlyAvailable) {
       return lots;
     }
-    return lots.where((lot) => lot.status == 'disponible').toList(growable: false);
+    return lots
+        .where((lot) => lot.status == 'disponible')
+        .toList(growable: false);
   }
 
   Future<void> _saveToBackend(Lot lot) async {
@@ -434,15 +451,21 @@ class LotRepository {
         ? syncPayload.map((key, value) => MapEntry(key.toString(), value))
         : const <String, dynamic>{};
     final code = item['code']?.toString() ?? item['name']?.toString() ?? '';
-    final blockNumber = payload['block_number']?.toString() ?? _extractBlockNumber(code);
-    final lotNumber = payload['lot_number']?.toString() ?? _extractLotNumber(code);
-    final area = _toDouble(payload['area']) > 0 ? _toDouble(payload['area']) : 1.0;
+    final blockNumber =
+        payload['block_number']?.toString() ?? _extractBlockNumber(code);
+    final lotNumber =
+        payload['lot_number']?.toString() ?? _extractLotNumber(code);
+    final area = _toDouble(payload['area']) > 0
+        ? _toDouble(payload['area'])
+        : 1.0;
     final unitPrice = _toDouble(payload['price_per_square_meter']) > 0
         ? _toDouble(payload['price_per_square_meter'])
-      : (area > 0 ? _toDouble(item['price']) / area : 0.0);
+        : (area > 0 ? _toDouble(item['price']) / area : 0.0);
     final rawStatus = payload['status']?.toString().trim().toLowerCase();
     final status = rawStatus == null || rawStatus.isEmpty
-        ? ((_toInt(item['stock']) > 0 && item['isActive'] == true) ? 'disponible' : 'vendido')
+        ? ((_toInt(item['stock']) > 0 && item['isActive'] == true)
+              ? 'disponible'
+              : 'vendido')
         : rawStatus;
 
     return Lot(
@@ -452,8 +475,12 @@ class LotRepository {
       area: area,
       pricePerSquareMeter: unitPrice,
       status: status,
-      createdAt: DateTime.tryParse(item['createdAt']?.toString() ?? '') ?? DateTime.now(),
-      updatedAt: DateTime.tryParse(item['updatedAt']?.toString() ?? '') ?? DateTime.now(),
+      createdAt:
+          DateTime.tryParse(item['createdAt']?.toString() ?? '') ??
+          DateTime.now(),
+      updatedAt:
+          DateTime.tryParse(item['updatedAt']?.toString() ?? '') ??
+          DateTime.now(),
     );
   }
 

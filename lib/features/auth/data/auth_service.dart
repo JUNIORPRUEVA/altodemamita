@@ -24,9 +24,13 @@ import '../../../features/settings/domain/company_info.dart';
 import '../../../features/sales/data/seller_repository.dart';
 import '../../../repositories/installments_sync_repository.dart';
 import '../../../repositories/payments_sync_repository.dart';
+import '../../../repositories/permissions_sync_repository.dart';
 import '../../../repositories/products_sync_repository.dart';
+import '../../../repositories/role_permissions_sync_repository.dart';
+import '../../../repositories/roles_sync_repository.dart';
 import '../../../repositories/sales_sync_repository.dart';
 import '../../../repositories/users_sync_repository.dart';
+import '../../../repositories/user_roles_sync_repository.dart';
 import '../../../services/sync/sync_config_repository.dart';
 import '../../../services/sync/sync_queue_service.dart';
 import '../../../services/sync/sync_api_client.dart';
@@ -138,6 +142,16 @@ class AuthService {
       'admin_recovery_credentials_snapshot';
   static const String adminRecoverySnapshotUnavailableMessage =
       'Los datos visibles del administrador aun no estan disponibles en esta instalacion.';
+  static const String firstConnectionRequiredMessage =
+      'Este equipo necesita conexion la primera vez para descargar el usuario.';
+  static const String noLocalUserCachedMessage =
+      'No existe un usuario local cacheado para iniciar sesion sin conexion.';
+  static const String localUserInactiveMessage =
+      'Tu cuenta esta inactiva. Contacta al administrador.';
+  static const String invalidLocalCredentialsMessage =
+      'Correo, usuario o contrasena incorrectos.';
+  static const String localDatabaseErrorMessage =
+      'Ocurrio un error al validar el usuario local. Intenta de nuevo.';
 
   final AppDatabase _appDatabase;
   final SyncConfigRepository _syncConfigRepository;
@@ -150,7 +164,7 @@ class AuthService {
 
   bool get _shouldRunBackgroundSync =>
       identical(_appDatabase, AppDatabase.instance);
-  bool get _useBackendMode => identical(_appDatabase, AppDatabase.instance);
+  bool get _useBackendMode => false;
 
   Future<AuthBootstrapResult> bootstrap() async {
     debugPrint('[Bootstrap] Iniciando arranque de la app...');
@@ -261,64 +275,53 @@ class AuthService {
         debugPrint(
           '[SignIn] login online failure para $email: ${error.message}',
         );
-        UserModel? localUser;
         try {
-          localUser = await signIn(email: email, password: password);
-        } on AuthException {
-          localUser = null;
-        }
-
-        if (localUser != null &&
-            localUser.authSource == AuthSource.cloud &&
-            (localUser.remoteAuthId?.trim().isNotEmpty ?? false) &&
-            await _isStoredJwtStillValid()) {
-          debugPrint(
-            '[SignIn] login online fallo, pero usuario local esta vinculado '
-            'y JWT guardado sigue valido. Manteniendo modo online.',
+          final localUser = await _signInLocalValidated(
+            identifier: email,
+            password: password,
           );
-          final syncTriggered = await _runFullSyncIfPossible();
           return AuthSignInResult(
             user: localUser,
-            mode: AuthSignInMode.online,
-            syncTriggered: syncTriggered,
+            mode: AuthSignInMode.offline,
           );
+        } on AuthException catch (localError) {
+          if (_looksLikeCredentialFailure(error.message) &&
+              localError.message == noLocalUserCachedMessage) {
+            throw const AuthException(noLocalUserCachedMessage);
+          }
+          if (_looksLikeCredentialFailure(error.message) &&
+              localError.message == invalidLocalCredentialsMessage) {
+            throw const AuthException(invalidLocalCredentialsMessage);
+          }
+          throw AuthException(localError.message);
         }
-
-        throw AuthException(
-          'No se pudo iniciar sesion en la nube. Verifica el usuario y la '
-          'contrasena. Si este usuario fue creado solo en esta PC, debe '
-          'vincularse con una cuenta existente de la nube.',
+      } on SocketException catch (error) {
+        debugPrint('[SignIn] error de red durante login online: $error');
+        final localUser = await _signInLocalValidated(
+          identifier: email,
+          password: password,
         );
+        return AuthSignInResult(user: localUser, mode: AuthSignInMode.offline);
       }
     }
 
     debugPrint('[SignIn] Backend no disponible para login online.');
-    final restoredUser = await restoreSession();
-    final normalizedEmail = email.trim().toLowerCase();
-    final hasMatchingLocalSession =
-        restoredUser != null &&
-        (restoredUser.email.trim().toLowerCase() == normalizedEmail ||
-            restoredUser.nombre.trim().toLowerCase() == normalizedEmail);
-    if (!hasMatchingLocalSession) {
-      final localRequiresInitialSetup = await requiresInitialSetup();
-      if (localRequiresInitialSetup) {
-        throw const AuthException(
-          'No se puede iniciar sin conexion en una PC nueva. Conecta la PC a '
-          'internet para validar la nube.',
-        );
-      }
-      throw const AuthException(
-        'No se puede iniciar sin conexion sin una sesion local previa. '
-        'Conecta la PC a internet e intenta nuevamente.',
+    try {
+      final localUser = await _signInLocalValidated(
+        identifier: email,
+        password: password,
       );
+      debugPrint(
+        '[SignIn] Autenticacion local permitida en modo offline. '
+        'Sync bloqueado hasta recuperar JWT de nube.',
+      );
+      return AuthSignInResult(user: localUser, mode: AuthSignInMode.offline);
+    } on AuthException catch (error) {
+      if (error.message == noLocalUserCachedMessage) {
+        throw const AuthException(firstConnectionRequiredMessage);
+      }
+      rethrow;
     }
-
-    final localUser = await signIn(email: email, password: password);
-    debugPrint(
-      '[SignIn] Autenticacion local permitida por sesion previa. '
-      'Sync bloqueado hasta recuperar JWT de nube.',
-    );
-    return AuthSignInResult(user: localUser, mode: AuthSignInMode.offline);
   }
 
   Future<UserModel> loginOnline({
@@ -328,7 +331,7 @@ class AuthService {
     debugPrint('[LoginOnline] Autenticando con backend para $email...');
     final settings = await _syncConfigRepository.loadSettings();
 
-    final normalizedIdentifier = email.trim();
+    final normalizedIdentifier = email.trim().toLowerCase();
     final normalizedPassword = password.trim();
     if (normalizedIdentifier.isEmpty || normalizedPassword.isEmpty) {
       throw const AuthException('Ingresa tu correo o usuario y la contrasena.');
@@ -415,23 +418,7 @@ class AuthService {
     required String email,
     required String password,
   }) async {
-    final normalizedIdentifier = email.trim().toLowerCase();
-    final db = await _appDatabase.database;
-    final user = await _findUserByIdentifier(db, normalizedIdentifier);
-
-    if (user == null) {
-      throw const AuthException(
-        'No existe un usuario local para iniciar sesion sin conexion.',
-      );
-    }
-
-    if (user.authSource == AuthSource.cloud && user.lastOnlineLoginAt == null) {
-      throw const AuthException(
-        'Este usuario todavia no tiene un login online previo para habilitar el modo offline.',
-      );
-    }
-
-    return signIn(email: email, password: password);
+    return _signInLocalValidated(identifier: email, password: password);
   }
 
   Future<bool> requiresInitialSetup() async {
@@ -765,74 +752,7 @@ class AuthService {
     required String email,
     required String password,
   }) async {
-    final normalizedIdentifier = email.trim().toLowerCase();
-    final normalizedPassword = password.trim();
-    final db = await _appDatabase.database;
-    var rows = await db.query(
-      DatabaseSchema.usersTable,
-      where: 'LOWER(email) = ?',
-      whereArgs: [normalizedIdentifier],
-      limit: 1,
-    );
-
-    if (rows.isEmpty) {
-      rows = await db.query(
-        DatabaseSchema.usersTable,
-        where: 'LOWER(nombre) = ?',
-        whereArgs: [normalizedIdentifier],
-        limit: 1,
-      );
-    }
-
-    if (rows.isEmpty) {
-      throw const AuthException('Correo, usuario o contrasena incorrectos.');
-    }
-
-    final user = await _mapUser(db, rows.first);
-    if (!user.activo) {
-      throw const AuthException(
-        'Tu cuenta esta inactiva. Contacta al administrador.',
-      );
-    }
-    if (user.passwordResetRequired) {
-      throw AuthException(
-        user.id == 1
-            ? 'Debes completar la configuracion inicial del administrador.'
-            : 'Tu cuenta requiere restablecer la contrasena con un administrador.',
-      );
-    }
-    if (!_verifyStoredPassword(normalizedPassword, user.passwordHash)) {
-      throw const AuthException('Correo, usuario o contrasena incorrectos.');
-    }
-
-    if (_shouldRefreshLocalPasswordHash(user.passwordHash)) {
-      final now = DateTime.now().toIso8601String();
-      await db.update(
-        DatabaseSchema.usersTable,
-        {
-          'password_hash': PasswordHasher.hashPassword(normalizedPassword),
-          'password_updated_at': now,
-          'fecha_actualizacion': now,
-        },
-        where: 'id = ?',
-        whereArgs: [user.id],
-      );
-    }
-
-    final recoveryCode = await _getSettingValue(db, _adminRecoveryCodeKey);
-    if (user.id == 1 && recoveryCode != null && recoveryCode.isNotEmpty) {
-      await _storeAdminRecoverySnapshot(
-        db,
-        recoveryCode: recoveryCode,
-        nombre: user.nombre,
-        email: user.email,
-        password: normalizedPassword,
-        updatedAt: DateTime.now().toIso8601String(),
-      );
-    }
-
-    await _persistSession(db, user.id!);
-    return (await getUserById(user.id!))!;
+    return _signInLocalValidated(identifier: email, password: password);
   }
 
   Future<void> signOut() async {
@@ -977,6 +897,8 @@ class AuthService {
     final userId = await db.transaction((txn) async {
       final id = await txn.insert(DatabaseSchema.usersTable, {
         'sync_id': _nextUserSyncId(),
+        'id_local': null,
+        'id_remote': null,
         'nombre': normalizedName,
         'email': normalizedEmail,
         'password_hash': PasswordHasher.hashPassword(password.trim()),
@@ -986,9 +908,10 @@ class AuthService {
         'telefono': null,
         'fecha_creacion': now.toIso8601String(),
         'fecha_actualizacion': now.toIso8601String(),
+        'last_modified_local': now.toIso8601String(),
         'password_updated_at': now.toIso8601String(),
         'deleted_at': null,
-        'sync_status': DatabaseSchema.syncStatusPending,
+        'sync_status': DatabaseSchema.syncStatusPendingCreate,
       });
       await _replacePermissions(
         txn,
@@ -1074,8 +997,9 @@ class AuthService {
           'rol': role.storageValue,
           'activo': active ? 1 : 0,
           'deleted_at': null,
-          'sync_status': DatabaseSchema.syncStatusPending,
+            'sync_status': DatabaseSchema.syncStatusPendingUpdate,
           'fecha_actualizacion': now,
+            'last_modified_local': now,
           'password_updated_at':
               (newPassword != null && newPassword.trim().isNotEmpty)
               ? now
@@ -1126,8 +1050,9 @@ class AuthService {
         {
           'activo': 0,
           'deleted_at': now,
-          'sync_status': DatabaseSchema.syncStatusPending,
+          'sync_status': DatabaseSchema.syncStatusPendingDelete,
           'fecha_actualizacion': now,
+          'last_modified_local': now,
         },
         where: 'id = ? AND deleted_at IS NULL',
         whereArgs: [userId],
@@ -1159,8 +1084,9 @@ class AuthService {
         DatabaseSchema.usersTable,
         {
           'activo': active ? 1 : 0,
-          'sync_status': DatabaseSchema.syncStatusPending,
+          'sync_status': DatabaseSchema.syncStatusPendingUpdate,
           'fecha_actualizacion': DateTime.now().toIso8601String(),
+          'last_modified_local': DateTime.now().toIso8601String(),
         },
         where: 'id = ?',
         whereArgs: [userId],
@@ -1207,9 +1133,10 @@ class AuthService {
       {
         'password_hash': PasswordHasher.hashPassword(normalizedNewPassword),
         'password_reset_required': 0,
-        'sync_status': DatabaseSchema.syncStatusPending,
+        'sync_status': DatabaseSchema.syncStatusPendingUpdate,
         'password_updated_at': now,
         'fecha_actualizacion': now,
+        'last_modified_local': now,
       },
       where: 'id = ?',
       whereArgs: [userId],
@@ -1552,6 +1479,8 @@ class AuthService {
       await txn.update(
         DatabaseSchema.usersTable,
         {
+          'id_remote': remoteAuthId,
+          'id_local': userId,
           'remote_auth_id': remoteAuthId,
           'nombre':
               (fullName?.isNotEmpty == true ? fullName : username) ?? email,
@@ -1563,6 +1492,9 @@ class AuthService {
           'last_online_login_at': now.toIso8601String(),
           'sync_status': DatabaseSchema.syncStatusSynced,
           'fecha_actualizacion': now.toIso8601String(),
+          'last_modified_local': now.toIso8601String(),
+          'last_modified_remote': now.toIso8601String(),
+          'deleted_at': null,
         },
         where: 'id = ?',
         whereArgs: [userId],
@@ -1817,6 +1749,9 @@ class AuthService {
     final email = payload['email']?.toString().trim().toLowerCase() ?? '';
     final fullName = payload['fullName']?.toString().trim();
     final username = payload['username']?.toString().trim();
+    _debugAuth(
+      '[CacheUser] email_normalizado=$email username_normalizado=${(username ?? '').toLowerCase()}',
+    );
     if (remoteAuthId == null || remoteAuthId.isEmpty || email.isEmpty) {
       throw const AuthException(
         'El usuario remoto no incluye los datos minimos requeridos.',
@@ -1831,14 +1766,24 @@ class AuthService {
     final passwordHash = BCrypt.hashpw(plaintextPassword, BCrypt.gensalt());
 
     final localUserId = await db.transaction((txn) async {
-      final existingByRemoteId = await txn.query(
+      final existingByIdRemote = await txn.query(
+        DatabaseSchema.usersTable,
+        columns: ['id', 'fecha_creacion'],
+        where: 'id_remote = ?',
+        whereArgs: [remoteAuthId],
+        limit: 1,
+      );
+      final existingByRemoteId = existingByIdRemote.isEmpty
+          ? await txn.query(
         DatabaseSchema.usersTable,
         columns: ['id', 'fecha_creacion'],
         where: 'remote_auth_id = ?',
         whereArgs: [remoteAuthId],
         limit: 1,
-      );
+      )
+          : const <Map<String, Object?>>[];
       final existingByEmail = existingByRemoteId.isEmpty
+          ? (existingByIdRemote.isEmpty
           ? await txn.query(
               DatabaseSchema.usersTable,
               columns: ['id', 'fecha_creacion'],
@@ -1846,15 +1791,20 @@ class AuthService {
               whereArgs: [email],
               limit: 1,
             )
+          : const <Map<String, Object?>>[])
           : const <Map<String, Object?>>[];
-      final existing = existingByRemoteId.isNotEmpty
+      final existing = existingByIdRemote.isNotEmpty
+          ? existingByIdRemote.first
+          : (existingByRemoteId.isNotEmpty
           ? existingByRemoteId.first
-          : (existingByEmail.isNotEmpty ? existingByEmail.first : null);
+          : (existingByEmail.isNotEmpty ? existingByEmail.first : null));
       final createdAt = existing == null
           ? now.toIso8601String()
           : (existing['fecha_creacion'] as String? ?? now.toIso8601String());
 
       final values = {
+        'id_remote': remoteAuthId,
+        'id_local': existing == null ? null : existing['id'],
         'remote_auth_id': remoteAuthId,
         'sync_id': existing == null ? _nextUserSyncId() : null,
         'nombre': (fullName?.isNotEmpty == true ? fullName : username) ?? email,
@@ -1869,7 +1819,10 @@ class AuthService {
         'telefono': null,
         'fecha_creacion': createdAt,
         'fecha_actualizacion': now.toIso8601String(),
+        'last_modified_local': now.toIso8601String(),
+        'last_modified_remote': now.toIso8601String(),
         'password_updated_at': now.toIso8601String(),
+        'deleted_at': null,
       };
 
       late final int userId;
@@ -1904,6 +1857,9 @@ class AuthService {
         whereArgs: [userId],
       );
       await _persistSession(txn, userId);
+      _debugAuth(
+        '[CacheUser] cache_ok id_local=$userId id_remote=$remoteAuthId has_password_hash=${passwordHash.trim().isNotEmpty}',
+      );
       return userId;
     });
 
@@ -2271,20 +2227,43 @@ class AuthService {
     Database db,
     String identifier,
   ) async {
-    var rows = await db.query(
+    final normalizedIdentifier = identifier.trim().toLowerCase();
+    if (normalizedIdentifier.isEmpty) {
+      return null;
+    }
+
+    final rows = await db.query(
       DatabaseSchema.usersTable,
-      where: 'LOWER(email) = ? AND deleted_at IS NULL',
-      whereArgs: [identifier],
+      where:
+          'deleted_at IS NULL AND ('
+          'LOWER(email) = ? OR '
+          'LOWER(nombre) = ? OR '
+          "LOWER(COALESCE(remote_auth_id, '')) = ? OR "
+          "LOWER(COALESCE(id_remote, '')) = ?"
+          ')',
+      whereArgs: [
+        normalizedIdentifier,
+        normalizedIdentifier,
+        normalizedIdentifier,
+        normalizedIdentifier,
+      ],
       limit: 1,
     );
 
-    if (rows.isEmpty) {
-      rows = await db.query(
+    if (rows.isEmpty && !normalizedIdentifier.contains('@')) {
+      final byUsernameCandidates = await db.query(
         DatabaseSchema.usersTable,
-        where: 'LOWER(nombre) = ? AND deleted_at IS NULL',
-        whereArgs: [identifier],
-        limit: 1,
+        where: 'deleted_at IS NULL',
       );
+      for (final row in byUsernameCandidates) {
+        final email = (row['email'] as String? ?? '').trim().toLowerCase();
+        final usernameFromEmail = email.contains('@')
+            ? email.split('@').first.trim().toLowerCase()
+            : '';
+        if (usernameFromEmail == normalizedIdentifier) {
+          return _mapUser(db, row);
+        }
+      }
     }
 
     if (rows.isEmpty) {
@@ -2307,6 +2286,107 @@ class AuthService {
     return PasswordHasher.needsRehash(storedHash);
   }
 
+  Future<UserModel> _signInLocalValidated({
+    required String identifier,
+    required String password,
+  }) async {
+    final normalizedIdentifier = identifier.trim().toLowerCase();
+    final normalizedPassword = password.trim();
+    if (normalizedIdentifier.isEmpty || normalizedPassword.isEmpty) {
+      throw const AuthException('Ingresa tu correo o usuario y la contrasena.');
+    }
+
+    try {
+      final dbPath = await _appDatabase.databasePath;
+      _debugAuth('[SignInLocal] db_path=$dbPath');
+
+      final db = await _appDatabase.database;
+      _debugAuth('[SignInLocal] buscando identifier=$normalizedIdentifier');
+      final user = await _findUserByIdentifier(db, normalizedIdentifier);
+      _debugAuth('[SignInLocal] usuario_encontrado=${user != null}');
+
+      if (user == null) {
+        throw const AuthException(noLocalUserCachedMessage);
+      }
+
+      if (!user.activo) {
+        throw const AuthException(localUserInactiveMessage);
+      }
+
+      if (user.passwordResetRequired) {
+        throw AuthException(
+          user.id == 1
+              ? 'Debes completar la configuracion inicial del administrador.'
+              : 'Tu cuenta requiere restablecer la contrasena con un administrador.',
+        );
+      }
+
+      final hasPasswordVerifier = user.passwordHash.trim().isNotEmpty;
+      _debugAuth('[SignInLocal] tiene_password_hash=$hasPasswordVerifier');
+      if (!hasPasswordVerifier) {
+        throw const AuthException(noLocalUserCachedMessage);
+      }
+
+      final passwordValid = _verifyStoredPassword(
+        normalizedPassword,
+        user.passwordHash,
+      );
+      _debugAuth('[SignInLocal] password_valida=$passwordValid');
+      if (!passwordValid) {
+        throw const AuthException(invalidLocalCredentialsMessage);
+      }
+
+      if (_shouldRefreshLocalPasswordHash(user.passwordHash)) {
+        final now = DateTime.now().toIso8601String();
+        await db.update(
+          DatabaseSchema.usersTable,
+          {
+            'password_hash': PasswordHasher.hashPassword(normalizedPassword),
+            'password_updated_at': now,
+            'fecha_actualizacion': now,
+          },
+          where: 'id = ?',
+          whereArgs: [user.id],
+        );
+      }
+
+      final recoveryCode = await _getSettingValue(db, _adminRecoveryCodeKey);
+      if (user.id == 1 && recoveryCode != null && recoveryCode.isNotEmpty) {
+        await _storeAdminRecoverySnapshot(
+          db,
+          recoveryCode: recoveryCode,
+          nombre: user.nombre,
+          email: user.email,
+          password: normalizedPassword,
+          updatedAt: DateTime.now().toIso8601String(),
+        );
+      }
+
+      await _persistSession(db, user.id!);
+      return (await getUserById(user.id!))!;
+    } on AuthException {
+      rethrow;
+    } catch (error) {
+      _debugAuth('[SignInLocal] error_bd=$error');
+      throw const AuthException(localDatabaseErrorMessage);
+    }
+  }
+
+  void _debugAuth(String message) {
+    if (!kDebugMode) {
+      return;
+    }
+    debugPrint(message);
+  }
+
+  bool _looksLikeCredentialFailure(String message) {
+    final normalized = message.trim().toLowerCase();
+    return normalized.contains('credenciales') ||
+        normalized.contains('correo') ||
+        normalized.contains('contrasena') ||
+        normalized.contains('invalid');
+  }
+
   Future<bool> _runFullSyncIfPossible() async {
     final settings = await _syncConfigRepository.loadSettings();
     if (!settings.isConfigured) {
@@ -2316,6 +2396,10 @@ class AuthService {
     final syncService = SyncService(
       repositories: [
         UsersSyncRepository(appDatabase: _appDatabase),
+        RolesSyncRepository(appDatabase: _appDatabase),
+        UserRolesSyncRepository(appDatabase: _appDatabase),
+        RolePermissionsSyncRepository(appDatabase: _appDatabase),
+        PermissionsSyncRepository(appDatabase: _appDatabase),
         ClientRepository(
           appDatabase: _appDatabase,
           syncQueueService: _syncQueueService,

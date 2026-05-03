@@ -82,6 +82,10 @@ void main() {
         DatabaseSchema.installmentsTable,
         DatabaseSchema.paymentsTable,
         DatabaseSchema.settingsTable,
+        DatabaseSchema.rolesTable,
+        DatabaseSchema.userRolesTable,
+        DatabaseSchema.rolePermissionsTable,
+        DatabaseSchema.companyProfilesTable,
       }),
     );
 
@@ -174,7 +178,7 @@ void main() {
   });
 
   test(
-    'crea ventas offline-first en local con pending_sync y uuid propio',
+    'crea ventas offline-first en local con pending_create y uuid propio',
     () async {
       final now = DateTime(2026, 4, 24, 10, 30);
       final db = await appDatabase.database;
@@ -228,7 +232,7 @@ void main() {
       expect(saleRows, hasLength(1));
       expect(
         saleRows.single['sync_status'],
-        DatabaseSchema.syncStatusPendingSync,
+        DatabaseSchema.syncStatusPendingCreate,
       );
       expect(
         saleRows.single['sync_id'],
@@ -243,7 +247,10 @@ void main() {
       expect(localSales, hasLength(1));
       expect(localSales.single.id, saleId);
       expect(localSales.single.clientName, 'Cliente Offline');
-      expect(localSales.single.syncStatus, DatabaseSchema.syncStatusPendingSync);
+      expect(
+        localSales.single.syncStatus,
+        DatabaseSchema.syncStatusPendingCreate,
+      );
       expect(localSales.single.isPendingSync, isTrue);
     },
   );
@@ -282,7 +289,9 @@ void main() {
         'sync_id': 'stale-installment-1',
         'venta_id': 1,
         'numero_cuota': 1,
-        'fecha_vencimiento': now.add(const Duration(days: 30)).toIso8601String(),
+        'fecha_vencimiento': now
+            .add(const Duration(days: 30))
+            .toIso8601String(),
         'saldo_inicial': 99999,
         'capital_cuota': 5000,
         'interes_cuota': 500,

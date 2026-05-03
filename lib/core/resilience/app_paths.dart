@@ -50,6 +50,7 @@ class AppPaths {
   String get syncLogPath => path.join(logsDirectory, 'sync.log');
   String get incidentsDirectory => path.join(logsDirectory, 'incidents');
   String get generatedDirectory => path.join(supportDirectory, 'generated');
+  String get mediaDirectory => path.join(supportDirectory, 'media');
   String get tempDirectory => path.join(supportDirectory, 'temp');
   String get cacheDirectory => path.join(supportDirectory, 'cache');
   String get recoveryDirectory => path.join(supportDirectory, 'recovery');
@@ -87,6 +88,7 @@ class AppPaths {
       logsDirectory,
       incidentsDirectory,
       generatedDirectory,
+      mediaDirectory,
       tempDirectory,
       cacheDirectory,
       recoveryDirectory,

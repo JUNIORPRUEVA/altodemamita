@@ -21,18 +21,19 @@ class SalesRepository {
   SalesRepository({
     AppDatabase? appDatabase,
     SyncQueueService? syncQueueService,
-      BackendApiClient? apiClient,
+    BackendApiClient? apiClient,
   }) : _appDatabase = appDatabase ?? AppDatabase.instance,
-      _syncQueueService = syncQueueService ?? SyncQueueService.instance,
-      _apiClient = apiClient ?? BackendApiClient();
+       _syncQueueService = syncQueueService ?? SyncQueueService.instance,
+       _apiClient = apiClient ?? BackendApiClient();
 
   final AppDatabase _appDatabase;
   final SyncQueueService _syncQueueService;
-    final BackendApiClient _apiClient;
-    final BackendEntityIdRegistry _idRegistry = BackendEntityIdRegistry.instance;
+  final BackendApiClient _apiClient;
+  final BackendEntityIdRegistry _idRegistry = BackendEntityIdRegistry.instance;
 
-  bool get _shouldRunBackgroundSync => identical(_appDatabase, AppDatabase.instance);
-    bool get _useBackendMode => identical(_appDatabase, AppDatabase.instance);
+  bool get _shouldRunBackgroundSync =>
+      identical(_appDatabase, AppDatabase.instance);
+  bool get _useBackendMode => false;
 
   void _log(String message) {
     developer.log(message, name: 'SistemaSolares.SalesSync');
@@ -375,6 +376,8 @@ class SalesRepository {
 
         final saleId = await txn.insert(DatabaseSchema.salesTable, {
           'sync_id': saleSyncId,
+          'id_local': null,
+          'id_remote': null,
           'cliente_id': draft.clientId,
           'solar_id': draft.lotId,
           'usuario_id': draft.userId,
@@ -399,8 +402,9 @@ class SalesRepository {
           'estado': saleStatus,
           'fecha_creacion': createdAt.toIso8601String(),
           'fecha_actualizacion': createdAt.toIso8601String(),
+          'last_modified_local': createdAt.toIso8601String(),
           'deleted_at': null,
-          'sync_status': DatabaseSchema.syncStatusPendingSync,
+          'sync_status': DatabaseSchema.syncStatusPendingCreate,
         });
         print('[SALES][DB] Venta creada -> saleId=$saleId syncId=$saleSyncId');
 
@@ -430,8 +434,11 @@ class SalesRepository {
               DatabaseSchema.installmentsTable,
               installment.toMap()
                 ..['sync_id'] = _newSyncId('installment')
+                ..['id_local'] = null
+                ..['id_remote'] = null
+                ..['last_modified_local'] = createdAt.toIso8601String()
                 ..['deleted_at'] = null
-                ..['sync_status'] = DatabaseSchema.syncStatusPending
+                ..['sync_status'] = DatabaseSchema.syncStatusPendingCreate
                 ..remove('id'),
             );
           }
@@ -460,8 +467,9 @@ class SalesRepository {
             'ano_a_pagar': null,
             'fecha_creacion': createdAt.toIso8601String(),
             'fecha_actualizacion': createdAt.toIso8601String(),
+            'last_modified_local': createdAt.toIso8601String(),
             'deleted_at': null,
-            'sync_status': DatabaseSchema.syncStatusPending,
+            'sync_status': DatabaseSchema.syncStatusPendingCreate,
           });
         }
 
@@ -472,7 +480,8 @@ class SalesRepository {
                 ? 'vendido'
                 : 'reservado',
             'fecha_actualizacion': createdAt.toIso8601String(),
-            'sync_status': DatabaseSchema.syncStatusPending,
+            'last_modified_local': createdAt.toIso8601String(),
+            'sync_status': DatabaseSchema.syncStatusPendingUpdate,
           },
           where: 'id = ?',
           whereArgs: [draft.lotId],
@@ -483,10 +492,10 @@ class SalesRepository {
       });
 
       _log(
-        'SALE LOCAL CREATED -> saleId=$saleId syncId=$saleSyncId status=${DatabaseSchema.syncStatusPendingSync} clientId=${draft.clientId} lotId=${draft.lotId} amount=${draft.salePrice}',
+        'SALE LOCAL CREATED -> saleId=$saleId syncId=$saleSyncId status=${DatabaseSchema.syncStatusPendingCreate} clientId=${draft.clientId} lotId=${draft.lotId} amount=${draft.salePrice}',
       );
       _log(
-        'Guardado en local -> scope=sales operation=create saleId=$saleId sync_status=${DatabaseSchema.syncStatusPendingSync}',
+        'Guardado en local -> scope=sales operation=create saleId=$saleId sync_status=${DatabaseSchema.syncStatusPendingCreate}',
       );
       print(
         '[SALES][DB] createSale success -> saleId=$saleId syncId=$saleSyncId',
@@ -684,7 +693,8 @@ class SalesRepository {
             'cantidad_cuotas': draft.installmentCount,
             'estado': saleStatus,
             'fecha_actualizacion': updatedAt.toIso8601String(),
-            'sync_status': DatabaseSchema.syncStatusPending,
+            'last_modified_local': updatedAt.toIso8601String(),
+            'sync_status': DatabaseSchema.syncStatusPendingUpdate,
           },
           where: 'id = ?',
           whereArgs: [saleId],
@@ -701,7 +711,8 @@ class SalesRepository {
               'usuario_id': draft.userId,
               'metodo_pago': normalizedInitialPaymentMethod,
               'fecha_actualizacion': updatedAt.toIso8601String(),
-              'sync_status': DatabaseSchema.syncStatusPending,
+              'last_modified_local': updatedAt.toIso8601String(),
+              'sync_status': DatabaseSchema.syncStatusPendingUpdate,
             },
             where: 'venta_id = ? AND cuota_id IS NULL AND tipo_pago IN (?, ?)',
             whereArgs: [saleId, 'apartado', 'abono_inicial'],
@@ -750,8 +761,11 @@ class SalesRepository {
               DatabaseSchema.installmentsTable,
               installment.toMap()
                 ..['sync_id'] = _newSyncId('installment')
+                ..['id_local'] = null
+                ..['id_remote'] = null
+                ..['last_modified_local'] = updatedAt.toIso8601String()
                 ..['deleted_at'] = null
-                ..['sync_status'] = DatabaseSchema.syncStatusPending
+                ..['sync_status'] = DatabaseSchema.syncStatusPendingCreate
                 ..remove('id'),
             );
           }
@@ -775,8 +789,9 @@ class SalesRepository {
             'ano_a_pagar': null,
             'fecha_creacion': updatedAt.toIso8601String(),
             'fecha_actualizacion': updatedAt.toIso8601String(),
+            'last_modified_local': updatedAt.toIso8601String(),
             'deleted_at': null,
-            'sync_status': DatabaseSchema.syncStatusPending,
+            'sync_status': DatabaseSchema.syncStatusPendingCreate,
           });
         }
 
@@ -786,7 +801,8 @@ class SalesRepository {
             {
               'estado': 'disponible',
               'fecha_actualizacion': updatedAt.toIso8601String(),
-              'sync_status': DatabaseSchema.syncStatusPending,
+              'last_modified_local': updatedAt.toIso8601String(),
+              'sync_status': DatabaseSchema.syncStatusPendingUpdate,
             },
             where: 'id = ?',
             whereArgs: [previousLotId],
@@ -800,7 +816,8 @@ class SalesRepository {
                 ? 'vendido'
                 : 'reservado',
             'fecha_actualizacion': updatedAt.toIso8601String(),
-            'sync_status': DatabaseSchema.syncStatusPending,
+            'last_modified_local': updatedAt.toIso8601String(),
+            'sync_status': DatabaseSchema.syncStatusPendingUpdate,
           },
           where: 'id = ?',
           whereArgs: [draft.lotId],
@@ -926,7 +943,8 @@ class SalesRepository {
         {
           'deleted_at': deletedAt,
           'fecha_actualizacion': deletedAt,
-          'sync_status': DatabaseSchema.syncStatusPending,
+          'last_modified_local': deletedAt,
+          'sync_status': DatabaseSchema.syncStatusPendingDelete,
         },
         where: 'venta_id = ? AND deleted_at IS NULL',
         whereArgs: [saleId],
@@ -937,7 +955,8 @@ class SalesRepository {
         {
           'deleted_at': deletedAt,
           'fecha_actualizacion': deletedAt,
-          'sync_status': DatabaseSchema.syncStatusPending,
+          'last_modified_local': deletedAt,
+          'sync_status': DatabaseSchema.syncStatusPendingDelete,
         },
         where: 'venta_id = ? AND deleted_at IS NULL',
         whereArgs: [saleId],
@@ -948,7 +967,8 @@ class SalesRepository {
         {
           'deleted_at': deletedAt,
           'fecha_actualizacion': deletedAt,
-          'sync_status': DatabaseSchema.syncStatusPending,
+          'last_modified_local': deletedAt,
+          'sync_status': DatabaseSchema.syncStatusPendingDelete,
         },
         where: 'id = ?',
         whereArgs: [saleId],
@@ -960,7 +980,8 @@ class SalesRepository {
           {
             'estado': 'disponible',
             'fecha_actualizacion': deletedAt,
-            'sync_status': DatabaseSchema.syncStatusPending,
+            'last_modified_local': deletedAt,
+            'sync_status': DatabaseSchema.syncStatusPendingUpdate,
           },
           where: 'id = ?',
           whereArgs: [lotId],
@@ -977,7 +998,7 @@ class SalesRepository {
     }
     _log('DELETE SALE -> local saleId=$saleId queued for backend deletion');
     _log(
-      'Guardado en local -> scope=sales operation=delete saleId=$saleId sync_status=${DatabaseSchema.syncStatusPending}',
+      'Guardado en local -> scope=sales operation=delete saleId=$saleId sync_status=${DatabaseSchema.syncStatusPendingDelete}',
     );
     _scheduleSaleMutationSync('delete-sale:$saleId', const [
       'products',
@@ -1200,16 +1221,23 @@ class SalesRepository {
         'page': '1',
         'limit': '100',
         if (query.trim().isNotEmpty) 'search': query.trim(),
-        if (sellerRemoteId != null && sellerRemoteId.isNotEmpty) 'sellerId': sellerRemoteId,
+        if (sellerRemoteId != null && sellerRemoteId.isNotEmpty)
+          'sellerId': sellerRemoteId,
       },
     );
     final payload = response is Map<String, dynamic>
         ? response
-        : (response as Map).map((key, value) => MapEntry(key.toString(), value));
+        : (response as Map).map(
+            (key, value) => MapEntry(key.toString(), value),
+          );
     final items = (payload['items'] as List?) ?? const [];
     return items
         .whereType<Map>()
-        .map((item) => _saleSummaryFromBackend(item.map((key, value) => MapEntry(key.toString(), value))))
+        .map(
+          (item) => _saleSummaryFromBackend(
+            item.map((key, value) => MapEntry(key.toString(), value)),
+          ),
+        )
         .toList(growable: false);
   }
 
@@ -1221,66 +1249,98 @@ class SalesRepository {
     final response = await _apiClient.get('/sales/$remoteId');
     final payload = response is Map<String, dynamic>
         ? response
-        : (response as Map).map((key, value) => MapEntry(key.toString(), value));
+        : (response as Map).map(
+            (key, value) => MapEntry(key.toString(), value),
+          );
     return _saleDetailFromBackend(payload);
   }
 
   Future<int> _createSaleInBackend(SaleDraft draft) async {
-    final clientRemoteId = _idRegistry.resolveRemoteId('clients', draft.clientId);
-    final productRemoteId = _idRegistry.resolveRemoteId('products', draft.lotId);
-    final sellerRemoteId = _idRegistry.resolveRemoteId('sellers', draft.sellerId);
+    final clientRemoteId = _idRegistry.resolveRemoteId(
+      'clients',
+      draft.clientId,
+    );
+    final productRemoteId = _idRegistry.resolveRemoteId(
+      'products',
+      draft.lotId,
+    );
+    final sellerRemoteId = _idRegistry.resolveRemoteId(
+      'sellers',
+      draft.sellerId,
+    );
     if (clientRemoteId == null || productRemoteId == null) {
       throw const BackendApiException(
         'No se pudieron resolver las referencias remotas de cliente y solar.',
       );
     }
 
-    final response = await _apiClient.post('/sales', body: {
-      'clientId': clientRemoteId,
-      'productId': productRemoteId,
-      if (sellerRemoteId != null && sellerRemoteId.isNotEmpty)
-        'sellerId': sellerRemoteId,
-      'contractNumber': null,
-      'saleDate': draft.saleDate.toIso8601String(),
-      'principalAmount': draft.salePrice,
-      'downPayment': draft.requiredInitialPayment,
-      'interestRate': draft.monthlyInterest,
-      'termMonths': draft.installmentCount,
-      'status': _mapSaleStatusToBackend(draft.status),
-    });
+    final response = await _apiClient.post(
+      '/sales',
+      body: {
+        'clientId': clientRemoteId,
+        'productId': productRemoteId,
+        if (sellerRemoteId != null && sellerRemoteId.isNotEmpty)
+          'sellerId': sellerRemoteId,
+        'contractNumber': null,
+        'saleDate': draft.saleDate.toIso8601String(),
+        'principalAmount': draft.salePrice,
+        'downPayment': draft.requiredInitialPayment,
+        'interestRate': draft.monthlyInterest,
+        'termMonths': draft.installmentCount,
+        'status': _mapSaleStatusToBackend(draft.status),
+      },
+    );
     final payload = response is Map<String, dynamic>
         ? response
-        : (response as Map).map((key, value) => MapEntry(key.toString(), value));
+        : (response as Map).map(
+            (key, value) => MapEntry(key.toString(), value),
+          );
     final remoteSaleId = payload['id']?.toString().trim() ?? '';
     if (remoteSaleId.isEmpty) {
-      throw const BackendApiException('La API no devolvió el id de la venta creada.');
+      throw const BackendApiException(
+        'La API no devolvió el id de la venta creada.',
+      );
     }
     return _idRegistry.register('sales', remoteSaleId);
   }
 
   Future<void> _updateSaleInBackend(int saleId, SaleDraft draft) async {
     final remoteSaleId = _idRegistry.resolveRemoteId('sales', saleId);
-    final clientRemoteId = _idRegistry.resolveRemoteId('clients', draft.clientId);
-    final productRemoteId = _idRegistry.resolveRemoteId('products', draft.lotId);
-    final sellerRemoteId = _idRegistry.resolveRemoteId('sellers', draft.sellerId);
-    if (remoteSaleId == null || clientRemoteId == null || productRemoteId == null) {
+    final clientRemoteId = _idRegistry.resolveRemoteId(
+      'clients',
+      draft.clientId,
+    );
+    final productRemoteId = _idRegistry.resolveRemoteId(
+      'products',
+      draft.lotId,
+    );
+    final sellerRemoteId = _idRegistry.resolveRemoteId(
+      'sellers',
+      draft.sellerId,
+    );
+    if (remoteSaleId == null ||
+        clientRemoteId == null ||
+        productRemoteId == null) {
       throw const BackendApiException(
         'No se pudieron resolver las referencias remotas de la venta.',
       );
     }
 
-    await _apiClient.patch('/sales/$remoteSaleId', body: {
-      'clientId': clientRemoteId,
-      'productId': productRemoteId,
-      if (sellerRemoteId != null && sellerRemoteId.isNotEmpty)
-        'sellerId': sellerRemoteId,
-      'saleDate': draft.saleDate.toIso8601String(),
-      'principalAmount': draft.salePrice,
-      'downPayment': draft.requiredInitialPayment,
-      'interestRate': draft.monthlyInterest,
-      'termMonths': draft.installmentCount,
-      'status': _mapSaleStatusToBackend(draft.status),
-    });
+    await _apiClient.patch(
+      '/sales/$remoteSaleId',
+      body: {
+        'clientId': clientRemoteId,
+        'productId': productRemoteId,
+        if (sellerRemoteId != null && sellerRemoteId.isNotEmpty)
+          'sellerId': sellerRemoteId,
+        'saleDate': draft.saleDate.toIso8601String(),
+        'principalAmount': draft.salePrice,
+        'downPayment': draft.requiredInitialPayment,
+        'interestRate': draft.monthlyInterest,
+        'termMonths': draft.installmentCount,
+        'status': _mapSaleStatusToBackend(draft.status),
+      },
+    );
   }
 
   Future<void> _deleteSaleInBackend(int saleId) async {
@@ -1318,7 +1378,9 @@ class SalesRepository {
       clientName: _clientName(client),
       clientDocumentId: client?['documentId']?.toString() ?? '',
       lotDisplayCode: _lotDisplayCode(product),
-      saleDate: DateTime.tryParse(item['saleDate']?.toString() ?? '') ?? DateTime.now(),
+      saleDate:
+          DateTime.tryParse(item['saleDate']?.toString() ?? '') ??
+          DateTime.now(),
       salePrice: _toDouble(item['principalAmount']),
       downPaymentAmount: downPayment,
       requiredInitialPayment: downPayment,
@@ -1331,7 +1393,8 @@ class SalesRepository {
       monthlyInterest: _toDouble(item['interestRate']),
       installmentCount: _toInt(item['termMonths']),
       status: _mapSaleStatusFromBackend(item['status']?.toString() ?? 'active'),
-      generatedInstallments: (item['installments'] as List?)?.length ?? _toInt(item['termMonths']),
+      generatedInstallments:
+          (item['installments'] as List?)?.length ?? _toInt(item['termMonths']),
     );
   }
 
@@ -1344,10 +1407,12 @@ class SalesRepository {
     final user = _asMap(item['user']);
     final installments = ((item['installments'] as List?) ?? const [])
         .whereType<Map>()
-        .map((installment) => _installmentFromBackend(
-              installment.map((key, value) => MapEntry(key.toString(), value)),
-              saleLocalId: localSaleId,
-            ))
+        .map(
+          (installment) => _installmentFromBackend(
+            installment.map((key, value) => MapEntry(key.toString(), value)),
+            saleLocalId: localSaleId,
+          ),
+        )
         .toList(growable: false);
     final downPayment = _toDouble(item['downPayment']);
     final paidAmount = _toDouble(item['paidAmount']);
@@ -1358,7 +1423,9 @@ class SalesRepository {
         lotId: _registerNestedId('products', product),
         userId: _registerNestedId('users', user),
         sellerId: _registerNestedId('sellers', seller),
-        saleDate: DateTime.tryParse(item['saleDate']?.toString() ?? '') ?? DateTime.now(),
+        saleDate:
+            DateTime.tryParse(item['saleDate']?.toString() ?? '') ??
+            DateTime.now(),
         salePrice: _toDouble(item['principalAmount']),
         downPaymentPercentage: 0,
         downPaymentAmount: downPayment,
@@ -1372,16 +1439,23 @@ class SalesRepository {
         pendingBalance: _toDouble(item['outstandingBalance']),
         monthlyInterest: _toDouble(item['interestRate']),
         installmentCount: _toInt(item['termMonths']),
-        status: _mapSaleStatusFromBackend(item['status']?.toString() ?? 'active'),
-        createdAt: DateTime.tryParse(item['createdAt']?.toString() ?? '') ?? DateTime.now(),
-        updatedAt: DateTime.tryParse(item['updatedAt']?.toString() ?? '') ?? DateTime.now(),
+        status: _mapSaleStatusFromBackend(
+          item['status']?.toString() ?? 'active',
+        ),
+        createdAt:
+            DateTime.tryParse(item['createdAt']?.toString() ?? '') ??
+            DateTime.now(),
+        updatedAt:
+            DateTime.tryParse(item['updatedAt']?.toString() ?? '') ??
+            DateTime.now(),
       ),
       clientName: _clientName(client),
       clientDocumentId: client?['documentId']?.toString() ?? '',
       lotDisplayCode: _lotDisplayCode(product),
       lotArea: _lotArea(product),
       lotPricePerSquareMeter: _lotUnitPrice(product),
-      userName: user?['fullName']?.toString() ?? user?['username']?.toString() ?? '',
+      userName:
+          user?['fullName']?.toString() ?? user?['username']?.toString() ?? '',
       initialPaymentMethod: _mapPaymentMethod(
         ((item['payments'] as List?) ?? const []).isEmpty
             ? null
@@ -1399,13 +1473,18 @@ class SalesRepository {
     required int saleLocalId,
   }) {
     final remoteInstallmentId = item['id']?.toString().trim() ?? '';
-    final localInstallmentId = _idRegistry.register('installments', remoteInstallmentId);
+    final localInstallmentId = _idRegistry.register(
+      'installments',
+      remoteInstallmentId,
+    );
     final paidAmount = _toDouble(item['paidAmount']);
     return Installment(
       id: localInstallmentId,
       saleId: saleLocalId,
       installmentNumber: _toInt(item['installmentNumber']),
-      dueDate: DateTime.tryParse(item['dueDate']?.toString() ?? '') ?? DateTime.now(),
+      dueDate:
+          DateTime.tryParse(item['dueDate']?.toString() ?? '') ??
+          DateTime.now(),
       openingBalance: 0,
       principalAmount: _toDouble(item['principalAmount']),
       interestAmount: _toDouble(item['interestAmount']),
@@ -1415,8 +1494,12 @@ class SalesRepository {
       paidInterestAmount: 0,
       endingBalance: 0,
       status: item['status']?.toString() ?? 'pending',
-      createdAt: DateTime.tryParse(item['createdAt']?.toString() ?? '') ?? DateTime.now(),
-      updatedAt: DateTime.tryParse(item['updatedAt']?.toString() ?? '') ?? DateTime.now(),
+      createdAt:
+          DateTime.tryParse(item['createdAt']?.toString() ?? '') ??
+          DateTime.now(),
+      updatedAt:
+          DateTime.tryParse(item['updatedAt']?.toString() ?? '') ??
+          DateTime.now(),
     );
   }
 
@@ -1444,10 +1527,10 @@ class SalesRepository {
     }
     final firstName = client['firstName']?.toString().trim() ?? '';
     final lastName = client['lastName']?.toString().trim() ?? '';
-    return [firstName, lastName]
-        .where((value) => value.isNotEmpty)
-        .join(' ')
-        .trim();
+    return [
+      firstName,
+      lastName,
+    ].where((value) => value.isNotEmpty).join(' ').trim();
   }
 
   String _lotDisplayCode(Map<String, dynamic>? product) {

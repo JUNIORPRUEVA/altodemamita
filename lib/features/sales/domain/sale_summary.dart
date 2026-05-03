@@ -81,7 +81,13 @@ class SaleSummary {
   bool get isFinancingActive => status == 'activa' || status == 'pagada';
 
   bool get isPendingSync =>
-      syncStatus == 'pending' || syncStatus == 'pending_sync';
+      syncStatus == 'pending' ||
+      syncStatus == 'pending_sync' ||
+      syncStatus == 'pending_create' ||
+      syncStatus == 'pending_update' ||
+      syncStatus == 'pending_delete' ||
+      syncStatus == 'failed' ||
+      syncStatus == 'conflict';
 
   bool get isSynced => syncStatus == 'synced';
 }

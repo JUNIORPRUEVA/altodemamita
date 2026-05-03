@@ -23,8 +23,14 @@ class UsersSyncRepository implements SyncRepository {
     final db = await _appDatabase.database;
     final rows = await db.query(
       DatabaseSchema.usersTable,
-      where: 'sync_status = ?',
-      whereArgs: [DatabaseSchema.syncStatusPending],
+      where: 'sync_status IN (?, ?, ?, ?, ?)',
+      whereArgs: [
+        DatabaseSchema.syncStatusPending,
+        DatabaseSchema.syncStatusPendingCreate,
+        DatabaseSchema.syncStatusPendingUpdate,
+        DatabaseSchema.syncStatusPendingDelete,
+        DatabaseSchema.syncStatusFailed,
+      ],
       orderBy: 'fecha_actualizacion ASC',
     );
     return rows.map(_toPayload).toList(growable: false);
@@ -62,6 +68,7 @@ class UsersSyncRepository implements SyncRepository {
           continue;
         }
 
+        final remoteId = _readRequiredString(record['id']);
         final normalizedEmail =
             record['email']?.toString().trim().toLowerCase() ?? '';
 
@@ -71,6 +78,14 @@ class UsersSyncRepository implements SyncRepository {
           whereArgs: [syncId],
           limit: 1,
         );
+        if (existingRows.isEmpty && remoteId != null) {
+          existingRows = await txn.query(
+            DatabaseSchema.usersTable,
+            where: 'id_remote = ? OR remote_auth_id = ?',
+            whereArgs: [remoteId, remoteId],
+            limit: 1,
+          );
+        }
         if (existingRows.isEmpty && normalizedEmail.isNotEmpty) {
           existingRows = await txn.query(
             DatabaseSchema.usersTable,
@@ -93,7 +108,9 @@ class UsersSyncRepository implements SyncRepository {
               DatabaseSchema.usersTable,
               {
                 'version': _readVersion(record),
+                'id_remote': record['id']?.toString().trim(),
                 'fecha_actualizacion': _readDate(record['updated_at']),
+                'last_modified_remote': _readDate(record['updated_at']),
                 'deleted_at': _readNullableDate(record['deleted_at']),
                 'sync_status': DatabaseSchema.syncStatusSynced,
                 'activo': 0,
@@ -105,24 +122,64 @@ class UsersSyncRepository implements SyncRepository {
           continue;
         }
 
+        final existingRow = existingRows.isEmpty ? null : existingRows.first;
+        final incomingPasswordHash =
+          (record['password_hash'] as String? ?? '').trim();
+        final existingPasswordHash =
+          (existingRow?['password_hash'] as String? ?? '').trim();
+        final incomingEmail =
+          record['email']?.toString().trim().toLowerCase() ?? '';
+        final existingEmail =
+          (existingRow?['email'] as String? ?? '').trim().toLowerCase();
+        final incomingNombre =
+          (record['full_name'] ?? record['fullName'] ?? record['name'])
+            ?.toString()
+            .trim() ??
+          '';
+        final existingNombre = (existingRow?['nombre'] as String? ?? '').trim();
+        final incomingRole = (record['role']?.toString() ?? '').trim();
+        final existingRole = (existingRow?['rol'] as String? ?? '').trim();
+        final hasIsActiveField = record.containsKey('is_active');
+        final hasPasswordUpdatedAt = record.containsKey('password_updated_at');
+        final existingPasswordUpdatedAt =
+          (existingRow?['password_updated_at'] as String?)?.trim();
+        final existingAuthSource =
+          (existingRow?['auth_source'] as String? ?? '').trim();
+        final existingLastOnlineLoginAt =
+          (existingRow?['last_online_login_at'] as String?)?.trim();
+        final resolvedRemoteId =
+          remoteId ?? (existingRow?['id_remote'] as String?)?.trim();
+
         final values = {
           'sync_id': syncId,
+          'id_remote': resolvedRemoteId,
+          'remote_auth_id': resolvedRemoteId,
+          'id_local': existingRows.isEmpty ? null : existingRows.first['id'],
           'version': _readVersion(record),
-          'nombre':
-              record['full_name'] ?? record['fullName'] ?? record['name'] ?? '',
-          'email': record['email']?.toString().trim().toLowerCase() ?? '',
-          'password_hash': record['password_hash'] ?? '',
-          'password_reset_required': _readBool(record['password_reset_required'])
-              ? 1
-              : 0,
-          'rol': _readRole(record['role']),
-          'activo': _readBool(record['is_active']) ? 1 : 0,
+            'nombre': incomingNombre.isNotEmpty ? incomingNombre : existingNombre,
+          'email': incomingEmail.isNotEmpty ? incomingEmail : existingEmail,
+          'password_hash': incomingPasswordHash.isNotEmpty
+            ? incomingPasswordHash
+            : existingPasswordHash,
+          'password_reset_required':
+              _readBool(record['password_reset_required']) ? 1 : 0,
+          'rol': incomingRole.isNotEmpty
+            ? _readRole(record['role'])
+            : existingRole,
+          'activo': hasIsActiveField
+            ? (_readBool(record['is_active']) ? 1 : 0)
+            : ((existingRow?['activo'] as int? ?? 1) == 1 ? 1 : 0),
           'telefono': record['phone']?.toString().trim(),
           'fecha_creacion': _readDate(record['created_at']),
           'fecha_actualizacion': _readDate(record['updated_at']),
-          'password_updated_at': _readNullableDate(
-            record['password_updated_at'],
-          ),
+          'last_modified_remote': _readDate(record['updated_at']),
+          'password_updated_at': hasPasswordUpdatedAt
+            ? _readNullableDate(record['password_updated_at'])
+            : existingPasswordUpdatedAt,
+          'auth_source': existingAuthSource.isNotEmpty
+            ? existingAuthSource
+              : 'local',
+          'last_online_login_at': existingLastOnlineLoginAt,
           'deleted_at': _readNullableDate(record['deleted_at']),
           'sync_status': DatabaseSchema.syncStatusSynced,
         };
@@ -145,6 +202,8 @@ class UsersSyncRepository implements SyncRepository {
   Map<String, Object?> _toPayload(Map<String, Object?> row) {
     return {
       'id': row['id'],
+      'id_remote': row['id_remote'],
+      'remote_auth_id': row['remote_auth_id'],
       'sync_id': row['sync_id'],
       'version': row['version'],
       'full_name': row['nombre'],
@@ -231,25 +290,42 @@ bool _shouldKeepLocal(
     return false;
   }
   final local = existingRows.first;
-  final localPending =
-      (local['sync_status'] as String? ?? '') ==
-          DatabaseSchema.syncStatusPending ||
-      (local['sync_status'] as String? ?? '') ==
-          DatabaseSchema.syncStatusConflict;
+  final localSyncStatus =
+      (local['sync_status'] as String? ?? '').trim().toLowerCase();
+  final localPending = DatabaseSchema.writableSyncStatuses.contains(
+    localSyncStatus,
+  );
+  if (!localPending) {
+    return false;
+  }
+
   final localVersion = _readVersion(local);
   final remoteVersion = _readVersion(remoteRecord);
-  final localUpdated = DateTime.tryParse(
-    local[updatedAtField] as String? ?? '',
+  if (localVersion > remoteVersion) {
+    return true;
+  }
+  if (localVersion < remoteVersion) {
+    return false;
+  }
+
+  final localUpdated = _parseDate(
+    local['last_modified_local']?.toString() ?? local[updatedAtField]?.toString(),
   );
-  final remoteUpdated = DateTime.tryParse(
-    remoteRecord['updated_at']?.toString() ?? '',
+  final remoteUpdated = _parseDate(
+    remoteRecord['last_modified_remote']?.toString() ??
+        remoteRecord['updated_at']?.toString(),
   );
-  return localPending &&
-      ((localVersion > remoteVersion) ||
-          (localVersion >= remoteVersion &&
-              localUpdated != null &&
-              remoteUpdated != null &&
-              localUpdated.isAfter(remoteUpdated)));
+  return localUpdated != null &&
+      remoteUpdated != null &&
+      localUpdated.isAfter(remoteUpdated);
+}
+
+DateTime? _parseDate(String? value) {
+  final normalized = value?.trim();
+  if (normalized == null || normalized.isEmpty) {
+    return null;
+  }
+  return DateTime.tryParse(normalized);
 }
 
 int _readVersion(Map<Object?, Object?> map) {

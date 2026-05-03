@@ -186,11 +186,13 @@ void main() {
     },
   );
 
-  test('migracion v13 transforma precio total legado a precio por metro', () async {
-    final dbPath = path.join(tempDirectory.path, 'migration_v13.db');
-    final db = await databaseFactory.openDatabase(dbPath);
+  test(
+    'migracion v13 transforma precio total legado a precio por metro',
+    () async {
+      final dbPath = path.join(tempDirectory.path, 'migration_v13.db');
+      final db = await databaseFactory.openDatabase(dbPath);
 
-    await db.execute('''
+      await db.execute('''
       CREATE TABLE usuarios (
         id INTEGER PRIMARY KEY,
         nombre TEXT,
@@ -205,7 +207,7 @@ void main() {
         password_updated_at TEXT
       )
     ''');
-    await db.execute('''
+      await db.execute('''
       CREATE TABLE configuracion (
         clave TEXT PRIMARY KEY,
         valor TEXT NOT NULL,
@@ -213,7 +215,7 @@ void main() {
       )
     ''');
 
-    await db.execute('''
+      await db.execute('''
       CREATE TABLE solares (
         id INTEGER PRIMARY KEY,
         manzana_numero TEXT NOT NULL,
@@ -226,33 +228,34 @@ void main() {
       )
     ''');
 
-    final nowIso = DateTime(2026, 3, 31).toIso8601String();
-    await db.insert('solares', {
-      'id': 1,
-      'manzana_numero': 'A',
-      'solar_numero': '10',
-      'metros_cuadrados': 200.0,
-      'precio': 1000000.0,
-      'estado': 'disponible',
-      'fecha_creacion': nowIso,
-      'fecha_actualizacion': nowIso,
-    });
+      final nowIso = DateTime(2026, 3, 31).toIso8601String();
+      await db.insert('solares', {
+        'id': 1,
+        'manzana_numero': 'A',
+        'solar_numero': '10',
+        'metros_cuadrados': 200.0,
+        'precio': 1000000.0,
+        'estado': 'disponible',
+        'fecha_creacion': nowIso,
+        'fecha_actualizacion': nowIso,
+      });
 
-    await DatabaseSchema.migrate(db, 12, 13);
+      await DatabaseSchema.migrate(db, 12, 13);
 
-    final columns = await db.rawQuery('PRAGMA table_info(solares)');
-    final columnNames = columns
-        .map((row) => row['name'])
-        .whereType<String>()
-        .toSet();
-    expect(columnNames, contains('precio_por_metro'));
+      final columns = await db.rawQuery('PRAGMA table_info(solares)');
+      final columnNames = columns
+          .map((row) => row['name'])
+          .whereType<String>()
+          .toSet();
+      expect(columnNames, contains('precio_por_metro'));
 
-    final rows = await db.query('solares', where: 'id = ?', whereArgs: [1]);
-    expect(rows, hasLength(1));
-    expect(rows.single['precio_por_metro'], 5000.0);
+      final rows = await db.query('solares', where: 'id = ?', whereArgs: [1]);
+      expect(rows, hasLength(1));
+      expect(rows.single['precio_por_metro'], 5000.0);
 
-    await db.close();
-  });
+      await db.close();
+    },
+  );
 
   test('migracion v13 no falla cuando ventas referencia solares', () async {
     final dbPath = path.join(tempDirectory.path, 'migration_v13_with_sales.db');
@@ -429,6 +432,216 @@ void main() {
     final salesRows = await db.query('ventas', where: 'id = ?', whereArgs: [1]);
     expect(salesRows, hasLength(1));
     expect(salesRows.single['solar_id'], 1);
+
+    await db.close();
+  });
+
+  test(
+    'migracion v19 agrega metadata offline-first sin perder datos',
+    () async {
+      final dbPath = path.join(tempDirectory.path, 'migration_v19.db');
+      final db = await databaseFactory.openDatabase(dbPath);
+
+      await db.execute('''
+      CREATE TABLE usuarios (
+        id INTEGER PRIMARY KEY,
+        nombre TEXT,
+        email TEXT,
+        password_hash TEXT,
+        password_reset_required INTEGER,
+        rol TEXT,
+        activo INTEGER,
+        telefono TEXT,
+        fecha_creacion TEXT,
+        fecha_actualizacion TEXT,
+        password_updated_at TEXT
+      )
+    ''');
+
+      await db.execute('''
+      CREATE TABLE configuracion (
+        clave TEXT PRIMARY KEY,
+        valor TEXT NOT NULL,
+        fecha_actualizacion TEXT NOT NULL
+      )
+    ''');
+
+      await db.execute('''
+      CREATE TABLE clientes (
+        id INTEGER PRIMARY KEY,
+        sync_id TEXT,
+        version INTEGER DEFAULT 1,
+        nombre TEXT NOT NULL,
+        cedula TEXT NOT NULL,
+        telefono TEXT,
+        direccion TEXT,
+        fecha_creacion TEXT NOT NULL,
+        fecha_actualizacion TEXT NOT NULL,
+        deleted_at TEXT,
+        sync_status TEXT NOT NULL DEFAULT 'pending'
+      )
+    ''');
+
+      final nowIso = DateTime(2026, 5, 3, 12, 0).toIso8601String();
+      await db.insert('clientes', {
+        'id': 7,
+        'sync_id': 'client-v19',
+        'version': 3,
+        'nombre': 'Cliente Metadata',
+        'cedula': '001-0000000-7',
+        'telefono': '8095550007',
+        'direccion': 'Migracion',
+        'fecha_creacion': nowIso,
+        'fecha_actualizacion': nowIso,
+        'deleted_at': null,
+        'sync_status': 'pending',
+      });
+
+      await DatabaseSchema.migrate(db, 18, 19);
+
+      final columns = await db.rawQuery('PRAGMA table_info(clientes)');
+      final columnNames = columns
+          .map((row) => row['name'])
+          .whereType<String>()
+          .toSet();
+      expect(
+        columnNames,
+        containsAll({
+          'id_local',
+          'id_remote',
+          'last_modified_local',
+          'last_modified_remote',
+        }),
+      );
+
+      final rows = await db.query(
+        'clientes',
+        columns: [
+          'id',
+          'id_local',
+          'id_remote',
+          'last_modified_local',
+          'last_modified_remote',
+          'sync_status',
+        ],
+        where: 'id = ?',
+        whereArgs: [7],
+        limit: 1,
+      );
+
+      expect(rows, hasLength(1));
+      expect(rows.single['id_local'], 7);
+      expect(rows.single['id_remote'], isNull);
+      expect(rows.single['last_modified_local'], nowIso);
+      expect(rows.single['last_modified_remote'], isNull);
+      expect(
+        rows.single['sync_status'],
+        DatabaseSchema.syncStatusPendingCreate,
+      );
+
+      await db.close();
+    },
+  );
+
+  test('migracion v20 crea tablas de paridad y columnas de media offline', () async {
+    final dbPath = path.join(tempDirectory.path, 'migration_v20.db');
+    final db = await databaseFactory.openDatabase(dbPath);
+
+    final nowIso = DateTime(2026, 5, 3, 14, 0).toIso8601String();
+    await db.execute('''
+      CREATE TABLE informacion_empresa (
+        id INTEGER PRIMARY KEY,
+        nombre TEXT NOT NULL,
+        telefono TEXT,
+        direccion TEXT,
+        logo_base64 TEXT,
+        fecha_creacion TEXT NOT NULL,
+        fecha_actualizacion TEXT NOT NULL,
+        sync_status TEXT,
+        id_remote TEXT,
+        last_modified_local TEXT,
+        last_modified_remote TEXT,
+        deleted_at TEXT
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE usuarios (
+        id INTEGER PRIMARY KEY,
+        nombre TEXT,
+        email TEXT,
+        password_hash TEXT,
+        password_reset_required INTEGER,
+        rol TEXT,
+        activo INTEGER,
+        telefono TEXT,
+        fecha_creacion TEXT,
+        fecha_actualizacion TEXT,
+        password_updated_at TEXT
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE configuracion (
+        clave TEXT PRIMARY KEY,
+        valor TEXT NOT NULL,
+        fecha_actualizacion TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE permisos (
+        id INTEGER PRIMARY KEY,
+        modulo TEXT,
+        acciones TEXT,
+        fecha_creacion TEXT
+      )
+    ''');
+
+    await db.insert('informacion_empresa', {
+      'id': 1,
+      'nombre': 'Empresa Demo',
+      'telefono': '8095550001',
+      'direccion': 'Zona Norte',
+      'logo_base64': null,
+      'fecha_creacion': nowIso,
+      'fecha_actualizacion': nowIso,
+      'sync_status': 'synced',
+      'id_remote': null,
+      'last_modified_local': nowIso,
+      'last_modified_remote': null,
+      'deleted_at': null,
+    });
+
+    await DatabaseSchema.migrate(db, 19, 20);
+
+    final tables = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type = 'table'",
+    );
+    final names = tables.map((row) => row['name']).whereType<String>().toSet();
+    expect(
+      names,
+      containsAll({
+        DatabaseSchema.rolesTable,
+        DatabaseSchema.userRolesTable,
+        DatabaseSchema.rolePermissionsTable,
+        DatabaseSchema.companyProfilesTable,
+      }),
+    );
+
+    final companyColumns = await db.rawQuery(
+      'PRAGMA table_info(${DatabaseSchema.companyInfoTable})',
+    );
+    final companyColumnNames = companyColumns
+        .map((row) => row['name'])
+        .whereType<String>()
+        .toSet();
+    expect(
+      companyColumnNames,
+      containsAll({'local_path', 'remote_url', 'upload_status'}),
+    );
+
+    final mirrored = await db.query(DatabaseSchema.companyProfilesTable, limit: 1);
+    expect(mirrored, hasLength(1));
+    expect(mirrored.first['name'], 'Empresa Demo');
 
     await db.close();
   });

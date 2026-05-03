@@ -212,7 +212,7 @@ class SaleAmortizationPdfBuilder {
                 ),
                 pw.SizedBox(width: 10),
                 pw.Text(
-                  'TABLA DE AMORTIZACION DE CUOTA FIJA',
+                  'TABLA DE AMORTIZACION',
                   style: pw.TextStyle(
                     fontSize: 11.8,
                     fontWeight: pw.FontWeight.bold,
@@ -222,26 +222,27 @@ class SaleAmortizationPdfBuilder {
               ],
             ),
           ),
-          pw.SizedBox(height: 10),
-          pw.Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _headerTag('Solar', detail.lotDisplayCode),
-              _headerTag(
-                'Plazo activo',
-                '${detail.activeInstallmentCount}/${detail.sale.installmentCount}',
-              ),
-              if (detail.reducedInstallmentCount > 0)
-                _headerTag(
-                  'Reduccion',
-                  '-${detail.reducedInstallmentCount}',
-                ),
-              _headerTag('Cedula', detail.clientDocumentId),
-            ],
-          ),
+          pw.SizedBox(height: 8),
+          _buildHeaderTagsRow(detail),
         ],
       ),
+    );
+  }
+
+  static pw.Widget _buildHeaderTagsRow(SaleDetail detail) {
+    return pw.Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        _headerTag('Solar', detail.lotDisplayCode),
+        _headerTag(
+          'Plazo activo',
+          '${detail.activeInstallmentCount}/${detail.sale.installmentCount}',
+        ),
+        if (detail.reducedInstallmentCount > 0)
+          _headerTag('Reduccion', '-${detail.reducedInstallmentCount}'),
+        _headerTag('Cedula', detail.clientDocumentId),
+      ],
     );
   }
 
@@ -304,11 +305,11 @@ class SaleAmortizationPdfBuilder {
 
   static pw.Widget _headerTag(String label, String value) {
     return pw.Container(
-      width: 165,
-      padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      width: 123,
+      padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: pw.BoxDecoration(
         color: _surfaceTint,
-        borderRadius: pw.BorderRadius.circular(10),
+        borderRadius: pw.BorderRadius.circular(9),
         border: pw.Border.all(color: _borderColor),
       ),
       child: pw.Column(
@@ -317,16 +318,16 @@ class SaleAmortizationPdfBuilder {
           pw.Text(
             label.toUpperCase(),
             style: pw.TextStyle(
-              fontSize: 7.3,
+              fontSize: 7.0,
               fontWeight: pw.FontWeight.bold,
               color: _mutedColor,
             ),
           ),
-          pw.SizedBox(height: 3),
+          pw.SizedBox(height: 2),
           pw.Text(
             value,
             style: pw.TextStyle(
-              fontSize: 8.9,
+              fontSize: 8.3,
               fontWeight: pw.FontWeight.bold,
               color: _inkColor,
             ),
@@ -348,21 +349,42 @@ class SaleAmortizationPdfBuilder {
       child: pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
-          pw.Text(
-            'RESUMEN DE LA VENTA',
-            style: pw.TextStyle(
-              fontSize: 8.2,
-              fontWeight: pw.FontWeight.bold,
-              color: _accentColor,
-            ),
+          pw.Row(
+            children: [
+              pw.Container(
+                width: 5,
+                height: 14,
+                decoration: pw.BoxDecoration(
+                  color: _accentColor,
+                  borderRadius: pw.BorderRadius.circular(4),
+                ),
+              ),
+              pw.SizedBox(width: 6),
+              pw.Text(
+                'RESUMEN DE VENTA',
+                style: pw.TextStyle(
+                  fontSize: 8.4,
+                  fontWeight: pw.FontWeight.bold,
+                  color: _accentColor,
+                ),
+              ),
+            ],
           ),
-          pw.SizedBox(height: 8),
+          pw.SizedBox(height: 7),
           pw.Wrap(
-            spacing: 16,
-            runSpacing: 8,
+            spacing: 8,
+            runSpacing: 6,
             children: [
               _summaryItem('Cedula', detail.clientDocumentId),
               _summaryItem('Vendedor', detail.sellerName ?? '-'),
+              _summaryItem(
+                'Interes mensual',
+                '${detail.sale.monthlyInterest.toStringAsFixed(2)}%',
+              ),
+              _summaryItem(
+                'Cuota fija mensual',
+                _money(_fixedInstallmentAmount(detail)),
+              ),
               _summaryItem(
                 'Saldo financiado',
                 _money(detail.sale.financedBalance),
@@ -372,14 +394,6 @@ class SaleAmortizationPdfBuilder {
                 'Saldo pendiente',
                 _money(detail.sale.pendingBalance),
                 highlight: true,
-              ),
-              _summaryItem(
-                'Interes mensual',
-                '${detail.sale.monthlyInterest.toStringAsFixed(2)}%',
-              ),
-              _summaryItem(
-                'Cuota fija mensual',
-                _money(_fixedInstallmentAmount(detail)),
               ),
             ],
           ),
@@ -394,15 +408,20 @@ class SaleAmortizationPdfBuilder {
     bool highlight = false,
   }) {
     return pw.Container(
-      width: 152,
-      padding: const pw.EdgeInsets.symmetric(vertical: 2),
+      width: 185,
+      padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+      decoration: pw.BoxDecoration(
+        color: _surfaceTint,
+        borderRadius: pw.BorderRadius.circular(9),
+        border: pw.Border.all(color: _borderColor),
+      ),
       child: pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
           pw.Text(
             label.toUpperCase(),
             style: pw.TextStyle(
-              fontSize: 7.2,
+              fontSize: 6.9,
               fontWeight: pw.FontWeight.bold,
               color: _mutedColor,
             ),
@@ -411,8 +430,8 @@ class SaleAmortizationPdfBuilder {
           pw.Text(
             value,
             style: pw.TextStyle(
-              fontSize: highlight ? 10.2 : 9.0,
-              fontWeight: highlight ? pw.FontWeight.bold : pw.FontWeight.normal,
+              fontSize: highlight ? 9.9 : 8.5,
+              fontWeight: pw.FontWeight.bold,
               color: highlight ? _successColor : _inkColor,
             ),
           ),
@@ -422,55 +441,83 @@ class SaleAmortizationPdfBuilder {
   }
 
   static pw.Widget _buildInstallmentsTable(List<List<String>> rows) {
-    return pw.TableHelper.fromTextArray(
-      headers: const [
-        '#',
-        'Vence',
-        'Saldo inicial',
-        'Capital',
-        'Interes',
-        'Cuota',
-        'Pagado',
-        'Pendiente',
-        'Saldo final',
-        'Estado',
-      ],
-      data: rows,
-      headerStyle: pw.TextStyle(
-        fontSize: 7.0,
-        fontWeight: pw.FontWeight.bold,
-        color: _inkColor,
+    return pw.Container(
+      width: double.infinity,
+      padding: const pw.EdgeInsets.all(10),
+      decoration: pw.BoxDecoration(
+        color: PdfColors.white,
+        borderRadius: pw.BorderRadius.circular(12),
+        border: pw.Border.all(color: _borderColor),
       ),
-      cellStyle: pw.TextStyle(fontSize: 6.8, color: _inkColor),
-      cellPadding: const pw.EdgeInsets.symmetric(horizontal: 3, vertical: 3.4),
-      headerDecoration: pw.BoxDecoration(color: PdfColor.fromHex('#EAF0FB')),
-      border: pw.TableBorder.all(color: _borderColor, width: 0.45),
-      columnWidths: const {
-        0: pw.FixedColumnWidth(18),
-        1: pw.FlexColumnWidth(1.10),
-        2: pw.FlexColumnWidth(1.45),
-        3: pw.FlexColumnWidth(1.15),
-        4: pw.FlexColumnWidth(1.08),
-        5: pw.FlexColumnWidth(1.18),
-        6: pw.FlexColumnWidth(1.14),
-        7: pw.FlexColumnWidth(1.18),
-        8: pw.FlexColumnWidth(1.35),
-        9: pw.FlexColumnWidth(0.95),
-      },
-      cellAlignments: const {
-        0: pw.Alignment.center,
-        1: pw.Alignment.center,
-        2: pw.Alignment.centerRight,
-        3: pw.Alignment.centerRight,
-        4: pw.Alignment.centerRight,
-        5: pw.Alignment.centerRight,
-        6: pw.Alignment.centerRight,
-        7: pw.Alignment.centerRight,
-        8: pw.Alignment.centerRight,
-        9: pw.Alignment.center,
-      },
-      rowDecoration: pw.BoxDecoration(color: PdfColor.fromHex('#FAFBFD')),
-      oddRowDecoration: const pw.BoxDecoration(color: PdfColors.white),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Text(
+            'LISTADO DE CUOTAS',
+            style: pw.TextStyle(
+              fontSize: 8.1,
+              fontWeight: pw.FontWeight.bold,
+              color: _accentColor,
+            ),
+          ),
+          pw.SizedBox(height: 6),
+          pw.TableHelper.fromTextArray(
+            headers: const [
+              '#',
+              'Vence',
+              'Saldo inicial',
+              'Capital',
+              'Interes',
+              'Cuota',
+              'Pagado',
+              'Pendiente',
+              'Saldo final',
+              'Estado',
+            ],
+            data: rows,
+            headerStyle: pw.TextStyle(
+              fontSize: 7.1,
+              fontWeight: pw.FontWeight.bold,
+              color: _inkColor,
+            ),
+            cellStyle: pw.TextStyle(fontSize: 6.9, color: _inkColor),
+            cellPadding: const pw.EdgeInsets.symmetric(
+              horizontal: 3,
+              vertical: 3.6,
+            ),
+            headerDecoration: pw.BoxDecoration(
+              color: PdfColor.fromHex('#E6EDF9'),
+            ),
+            border: pw.TableBorder.all(color: _borderColor, width: 0.42),
+            columnWidths: const {
+              0: pw.FixedColumnWidth(18),
+              1: pw.FlexColumnWidth(1.08),
+              2: pw.FlexColumnWidth(1.45),
+              3: pw.FlexColumnWidth(1.14),
+              4: pw.FlexColumnWidth(1.08),
+              5: pw.FlexColumnWidth(1.16),
+              6: pw.FlexColumnWidth(1.13),
+              7: pw.FlexColumnWidth(1.17),
+              8: pw.FlexColumnWidth(1.32),
+              9: pw.FlexColumnWidth(0.92),
+            },
+            cellAlignments: const {
+              0: pw.Alignment.center,
+              1: pw.Alignment.center,
+              2: pw.Alignment.centerRight,
+              3: pw.Alignment.centerRight,
+              4: pw.Alignment.centerRight,
+              5: pw.Alignment.centerRight,
+              6: pw.Alignment.centerRight,
+              7: pw.Alignment.centerRight,
+              8: pw.Alignment.centerRight,
+              9: pw.Alignment.center,
+            },
+            rowDecoration: pw.BoxDecoration(color: PdfColor.fromHex('#F8FAFE')),
+            oddRowDecoration: const pw.BoxDecoration(color: PdfColors.white),
+          ),
+        ],
+      ),
     );
   }
 

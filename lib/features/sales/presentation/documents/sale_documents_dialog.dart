@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -44,16 +45,16 @@ class SaleDocumentsDialog {
             ListTile(
               leading: const Icon(Icons.receipt_long_outlined),
               title: const Text('Recibo'),
-              onTap: () => Navigator.of(dialogContext).pop(
-                SaleDocumentType.initialReceipt,
-              ),
+              onTap: () => Navigator.of(
+                dialogContext,
+              ).pop(SaleDocumentType.initialReceipt),
             ),
             ListTile(
               leading: const Icon(Icons.table_chart_outlined),
               title: const Text('Tabla de amortizacion'),
-              onTap: () => Navigator.of(dialogContext).pop(
-                SaleDocumentType.amortization,
-              ),
+              onTap: () => Navigator.of(
+                dialogContext,
+              ).pop(SaleDocumentType.amortization),
             ),
           ],
         ),
@@ -148,7 +149,8 @@ class _SaleDocumentRuntimeData {
     final company = await CompanyRepository(database).getCompanyInfo();
     final defaultPrinter = await PrinterRepository().getDefaultPrinter();
     return _SaleDocumentRuntimeData(
-      company: company ?? CompanyInfo.empty().copyWith(nombre: 'Sistema de Solares'),
+      company:
+          company ?? CompanyInfo.empty().copyWith(nombre: 'Sistema de Solares'),
       defaultPrinter: defaultPrinter,
     );
   }
@@ -309,7 +311,12 @@ class _SaleDocumentsDialogContentState
     final cacheKey =
         '${_selectedType.name}-${resolvedPageFormat.width}x${resolvedPageFormat.height}';
 
-    return _documentCache.putIfAbsent(cacheKey, () {
+    final cachedFuture = _documentCache[cacheKey];
+    if (cachedFuture != null) {
+      return cachedFuture;
+    }
+
+    final generatedFuture = Future<Uint8List>(() {
       return switch (_selectedType) {
         SaleDocumentType.initialReceipt => SaleInitialReceiptPdfBuilder.build(
           detail: widget.detail,
@@ -323,6 +330,14 @@ class _SaleDocumentsDialogContentState
         ),
       };
     });
+
+    final guardedFuture = generatedFuture.catchError((Object error) {
+      _documentCache.remove(cacheKey);
+      throw error;
+    });
+
+    _documentCache[cacheKey] = guardedFuture;
+    return guardedFuture;
   }
 
   Future<Uint8List> _buildPreviewBytes(PdfPageFormat format) {
@@ -337,7 +352,11 @@ class _SaleDocumentsDialogContentState
     if (_loadingData) {
       return;
     }
-    _buildDocumentBytes(pageFormat: _documentPageFormat);
+    unawaited(
+      _buildDocumentBytes(
+        pageFormat: _documentPageFormat,
+      ).catchError((Object _) => Uint8List(0)),
+    );
   }
 
   void _changeDocumentType(SaleDocumentType type) {

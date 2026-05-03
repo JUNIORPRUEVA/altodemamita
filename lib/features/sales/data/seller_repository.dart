@@ -17,10 +17,9 @@ class SellerRepository implements SyncRepository {
     AppDatabase? database,
     SyncQueueService? syncQueueService,
     BackendApiClient? apiClient,
-  })
-    : _appDatabase = database ?? AppDatabase.instance,
-      _syncQueueService = syncQueueService ?? SyncQueueService.instance,
-      _apiClient = apiClient ?? BackendApiClient() {
+  }) : _appDatabase = database ?? AppDatabase.instance,
+       _syncQueueService = syncQueueService ?? SyncQueueService.instance,
+       _apiClient = apiClient ?? BackendApiClient() {
     _syncQueueService.registerRepository(this);
   }
 
@@ -29,8 +28,9 @@ class SellerRepository implements SyncRepository {
   final BackendApiClient _apiClient;
   final BackendEntityIdRegistry _idRegistry = BackendEntityIdRegistry.instance;
 
-  bool get _shouldRunBackgroundSync => identical(_appDatabase, AppDatabase.instance);
-  bool get _useBackendMode => identical(_appDatabase, AppDatabase.instance);
+  bool get _shouldRunBackgroundSync =>
+      identical(_appDatabase, AppDatabase.instance);
+  bool get _useBackendMode => false;
 
   void _log(String message, {Object? error, StackTrace? stackTrace}) {
     developer.log(
@@ -94,7 +94,10 @@ class SellerRepository implements SyncRepository {
   Future<int> insert(Seller seller) async {
     try {
       if (_useBackendMode) {
-        final created = await _apiClient.post('/sellers', body: _toBackendPayload(seller));
+        final created = await _apiClient.post(
+          '/sellers',
+          body: _toBackendPayload(seller),
+        );
         final mapped = _sellerFromBackend(
           (created as Map).map((key, value) => MapEntry(key.toString(), value)),
         );
@@ -105,8 +108,11 @@ class SellerRepository implements SyncRepository {
       final id = await db.insert(DatabaseSchema.sellersTable, {
         ...seller.toMap(),
         'sync_id': _newSyncId(),
+        'id_local': null,
+        'id_remote': null,
+        'last_modified_local': DateTime.now().toIso8601String(),
         'deleted_at': null,
-        'sync_status': SyncStatus.pending.storageValue,
+        'sync_status': DatabaseSchema.syncStatusPendingCreate,
       }, conflictAlgorithm: ConflictAlgorithm.abort);
       _log('SELLER LOCAL CREATED -> id=$id documentId=${seller.documentId}');
       _scheduleBackgroundSync('create-seller:$id');
@@ -128,7 +134,10 @@ class SellerRepository implements SyncRepository {
             'No se pudo identificar el vendedor remoto para actualizarlo.',
           );
         }
-        await _apiClient.patch('/sellers/$remoteId', body: _toBackendPayload(seller));
+        await _apiClient.patch(
+          '/sellers/$remoteId',
+          body: _toBackendPayload(seller),
+        );
         return;
       }
 
@@ -139,7 +148,11 @@ class SellerRepository implements SyncRepository {
       final db = await _appDatabase.database;
       await db.update(
         DatabaseSchema.sellersTable,
-        {...seller.toMap(), 'sync_status': SyncStatus.pending.storageValue},
+        {
+          ...seller.toMap(),
+          'sync_status': DatabaseSchema.syncStatusPendingUpdate,
+          'last_modified_local': DateTime.now().toIso8601String(),
+        },
         where: 'id = ?',
         whereArgs: [seller.id],
       );
@@ -173,7 +186,8 @@ class SellerRepository implements SyncRepository {
         DatabaseSchema.sellersTable,
         {
           'deleted_at': DateTime.now().toIso8601String(),
-          'sync_status': SyncStatus.pending.storageValue,
+          'sync_status': DatabaseSchema.syncStatusPendingDelete,
+          'last_modified_local': DateTime.now().toIso8601String(),
         },
         where: 'id = ?',
         whereArgs: [id],
@@ -238,8 +252,14 @@ class SellerRepository implements SyncRepository {
     final db = await _appDatabase.database;
     final rows = await db.query(
       DatabaseSchema.sellersTable,
-      where: 'sync_status = ?',
-      whereArgs: [SyncStatus.pending.storageValue],
+      where: 'sync_status IN (?, ?, ?, ?, ?)',
+      whereArgs: [
+        SyncStatus.pending.storageValue,
+        DatabaseSchema.syncStatusPendingCreate,
+        DatabaseSchema.syncStatusPendingUpdate,
+        DatabaseSchema.syncStatusPendingDelete,
+        DatabaseSchema.syncStatusFailed,
+      ],
       orderBy: 'fecha_actualizacion ASC',
     );
 
@@ -299,6 +319,8 @@ class SellerRepository implements SyncRepository {
 
         final values = {
           'sync_id': syncId,
+          'id_remote': record['id']?.toString().trim(),
+          'id_local': existing.isEmpty ? null : existing.first['id'],
           'version': _readVersion(record),
           'nombre':
               record['name']?.toString() ??
@@ -310,6 +332,9 @@ class SellerRepository implements SyncRepository {
               record['created_at']?.toString() ??
               DateTime.now().toIso8601String(),
           'fecha_actualizacion':
+              record['updated_at']?.toString() ??
+              DateTime.now().toIso8601String(),
+          'last_modified_remote':
               record['updated_at']?.toString() ??
               DateTime.now().toIso8601String(),
           'deleted_at': record['deleted_at']?.toString(),
@@ -364,26 +389,44 @@ class SellerRepository implements SyncRepository {
     }
 
     final local = existingRows.first;
-    final localPending =
-        (local['sync_status'] as String? ?? '') ==
-            SyncStatus.pending.storageValue ||
-        (local['sync_status'] as String? ?? '') ==
-            SyncStatus.conflict.storageValue;
+    final localSyncStatus =
+        (local['sync_status'] as String? ?? '').trim().toLowerCase();
+    final localPending = DatabaseSchema.writableSyncStatuses.contains(
+      localSyncStatus,
+    );
+    if (!localPending) {
+      return false;
+    }
+
     final localVersion = _readVersion(local);
     final remoteVersion = _readVersion(remoteRecord);
-    final localUpdated = DateTime.tryParse(
-      local['fecha_actualizacion']?.toString() ?? '',
+    if (localVersion > remoteVersion) {
+      return true;
+    }
+    if (localVersion < remoteVersion) {
+      return false;
+    }
+
+    final localUpdated = _parseDate(
+      local['last_modified_local']?.toString() ??
+          local['fecha_actualizacion']?.toString(),
     );
-    final remoteUpdated = DateTime.tryParse(
-      remoteRecord['updated_at']?.toString() ?? '',
+    final remoteUpdated = _parseDate(
+      remoteRecord['last_modified_remote']?.toString() ??
+          remoteRecord['updated_at']?.toString(),
     );
 
-    return localPending &&
-        ((localVersion > remoteVersion) ||
-            (localVersion >= remoteVersion &&
-                localUpdated != null &&
-                remoteUpdated != null &&
-                localUpdated.isAfter(remoteUpdated)));
+    return localUpdated != null &&
+        remoteUpdated != null &&
+        localUpdated.isAfter(remoteUpdated);
+  }
+
+  DateTime? _parseDate(String? value) {
+    final normalized = value?.trim();
+    if (normalized == null || normalized.isEmpty) {
+      return null;
+    }
+    return DateTime.tryParse(normalized);
   }
 
   int _readVersion(Map<Object?, Object?> map) {
@@ -408,11 +451,17 @@ class SellerRepository implements SyncRepository {
     );
     final payload = response is Map<String, dynamic>
         ? response
-        : (response as Map).map((key, value) => MapEntry(key.toString(), value));
+        : (response as Map).map(
+            (key, value) => MapEntry(key.toString(), value),
+          );
     final items = (payload['items'] as List?) ?? const [];
     return items
         .whereType<Map>()
-        .map((item) => _sellerFromBackend(item.map((key, value) => MapEntry(key.toString(), value))))
+        .map(
+          (item) => _sellerFromBackend(
+            item.map((key, value) => MapEntry(key.toString(), value)),
+          ),
+        )
         .toList(growable: false);
   }
 
@@ -424,15 +473,21 @@ class SellerRepository implements SyncRepository {
       name: item['name']?.toString().trim() ?? '',
       phone: item['phone']?.toString().trim() ?? '',
       documentId: item['documentId']?.toString().trim() ?? '',
-      createdAt: DateTime.tryParse(item['createdAt']?.toString() ?? '') ?? DateTime.now(),
-      updatedAt: DateTime.tryParse(item['updatedAt']?.toString() ?? '') ?? DateTime.now(),
+      createdAt:
+          DateTime.tryParse(item['createdAt']?.toString() ?? '') ??
+          DateTime.now(),
+      updatedAt:
+          DateTime.tryParse(item['updatedAt']?.toString() ?? '') ??
+          DateTime.now(),
     );
   }
 
   Map<String, dynamic> _toBackendPayload(Seller seller) {
     return {
       'name': seller.name.trim(),
-      'documentId': seller.documentId.trim().isEmpty ? null : seller.documentId.trim(),
+      'documentId': seller.documentId.trim().isEmpty
+          ? null
+          : seller.documentId.trim(),
       'phone': seller.phone.trim().isEmpty ? null : seller.phone.trim(),
     };
   }

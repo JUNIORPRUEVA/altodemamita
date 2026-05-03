@@ -29,9 +29,13 @@ import '../../features/settings/presentation/settings_page.dart';
 import '../../models/sync/sync_connection_status.dart';
 import '../../repositories/installments_sync_repository.dart';
 import '../../repositories/payments_sync_repository.dart';
+import '../../repositories/permissions_sync_repository.dart';
 import '../../repositories/products_sync_repository.dart';
+import '../../repositories/role_permissions_sync_repository.dart';
+import '../../repositories/roles_sync_repository.dart';
 import '../../repositories/sales_sync_repository.dart';
 import '../../repositories/users_sync_repository.dart';
+import '../../repositories/user_roles_sync_repository.dart';
 import '../../services/realtime_sync_service.dart';
 import '../../services/sync/sync_conflict_service.dart';
 import '../../services/sync/sync_manager.dart';
@@ -91,6 +95,13 @@ class _AppShellState extends State<AppShell> {
   final ProductsSyncRepository _productsSyncRepository =
       ProductsSyncRepository();
   final UsersSyncRepository _usersSyncRepository = UsersSyncRepository();
+    final RolesSyncRepository _rolesSyncRepository = RolesSyncRepository();
+    final UserRolesSyncRepository _userRolesSyncRepository =
+      UserRolesSyncRepository();
+    final RolePermissionsSyncRepository _rolePermissionsSyncRepository =
+      RolePermissionsSyncRepository();
+    final PermissionsSyncRepository _permissionsSyncRepository =
+      PermissionsSyncRepository();
   final SalesSyncRepository _salesSyncRepository = SalesSyncRepository();
   final InstallmentsSyncRepository _installmentsSyncRepository =
       InstallmentsSyncRepository();
@@ -99,6 +110,10 @@ class _AppShellState extends State<AppShell> {
   late final SyncService _syncService = SyncService(
     repositories: [
       _usersSyncRepository,
+      _rolesSyncRepository,
+      _userRolesSyncRepository,
+      _rolePermissionsSyncRepository,
+      _permissionsSyncRepository,
       _clientRepository,
       _productsSyncRepository,
       _sellerRepository,

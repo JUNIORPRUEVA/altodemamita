@@ -31,10 +31,16 @@ class PaymentsSyncRepository implements SyncRepository {
       INNER JOIN ${DatabaseSchema.salesTable} v ON v.id = p.venta_id
       INNER JOIN ${DatabaseSchema.clientsTable} c ON c.id = p.cliente_id
       LEFT JOIN ${DatabaseSchema.installmentsTable} q ON q.id = p.cuota_id
-      WHERE p.sync_status = ?
+      WHERE p.sync_status IN (?, ?, ?, ?, ?)
       ORDER BY COALESCE(p.fecha_actualizacion, p.fecha_creacion) ASC
     ''',
-      [DatabaseSchema.syncStatusPending],
+      [
+        DatabaseSchema.syncStatusPending,
+        DatabaseSchema.syncStatusPendingCreate,
+        DatabaseSchema.syncStatusPendingUpdate,
+        DatabaseSchema.syncStatusPendingDelete,
+        DatabaseSchema.syncStatusFailed,
+      ],
     );
     return rows
         .map((row) {
@@ -109,10 +115,12 @@ class PaymentsSyncRepository implements SyncRepository {
         if (_isDeleted(record['deleted_at'])) {
           if (existingRows.isNotEmpty) {
             await txn.update(
-            DatabaseSchema.paymentsTable,
+              DatabaseSchema.paymentsTable,
               {
                 'version': _readVersion(record),
+                'id_remote': record['id']?.toString().trim(),
                 'fecha_actualizacion': _readDate(record['updated_at']),
+                'last_modified_remote': _readDate(record['updated_at']),
                 'deleted_at': _readNullableDate(record['deleted_at']),
                 'sync_status': DatabaseSchema.syncStatusSynced,
               },
@@ -149,6 +157,8 @@ class PaymentsSyncRepository implements SyncRepository {
 
         final values = {
           'sync_id': syncId,
+          'id_remote': record['id']?.toString().trim(),
+          'id_local': existingRows.isEmpty ? null : existingRows.first['id'],
           'version': _readVersion(record),
           'venta_id': saleId,
           'cliente_id': clientId,
@@ -162,6 +172,7 @@ class PaymentsSyncRepository implements SyncRepository {
           'ano_a_pagar': record['year_to_pay'],
           'fecha_creacion': _readDate(record['created_at']),
           'fecha_actualizacion': _readDate(record['updated_at']),
+          'last_modified_remote': _readDate(record['updated_at']),
           'deleted_at': _readNullableDate(record['deleted_at']),
           'sync_status': DatabaseSchema.syncStatusSynced,
         };
@@ -263,25 +274,42 @@ bool _shouldKeepLocal(
     return false;
   }
   final local = existingRows.first;
-  final localPending =
-      (local['sync_status'] as String? ?? '') ==
-          DatabaseSchema.syncStatusPending ||
-      (local['sync_status'] as String? ?? '') ==
-          DatabaseSchema.syncStatusConflict;
+  final localSyncStatus =
+      (local['sync_status'] as String? ?? '').trim().toLowerCase();
+  final localPending = DatabaseSchema.writableSyncStatuses.contains(
+    localSyncStatus,
+  );
+  if (!localPending) {
+    return false;
+  }
+
   final localVersion = _readVersion(local);
   final remoteVersion = _readVersion(remoteRecord);
-  final localUpdated = DateTime.tryParse(
-    local[updatedAtField] as String? ?? '',
+  if (localVersion > remoteVersion) {
+    return true;
+  }
+  if (localVersion < remoteVersion) {
+    return false;
+  }
+
+  final localUpdated = _parseDate(
+    local['last_modified_local']?.toString() ?? local[updatedAtField]?.toString(),
   );
-  final remoteUpdated = DateTime.tryParse(
-    remoteRecord['updated_at']?.toString() ?? '',
+  final remoteUpdated = _parseDate(
+    remoteRecord['last_modified_remote']?.toString() ??
+        remoteRecord['updated_at']?.toString(),
   );
-  return localPending &&
-      ((localVersion > remoteVersion) ||
-          (localVersion >= remoteVersion &&
-              localUpdated != null &&
-              remoteUpdated != null &&
-              localUpdated.isAfter(remoteUpdated)));
+  return localUpdated != null &&
+      remoteUpdated != null &&
+      localUpdated.isAfter(remoteUpdated);
+}
+
+DateTime? _parseDate(String? value) {
+  final normalized = value?.trim();
+  if (normalized == null || normalized.isEmpty) {
+    return null;
+  }
+  return DateTime.tryParse(normalized);
 }
 
 int _readVersion(Map<Object?, Object?> map) {

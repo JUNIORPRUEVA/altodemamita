@@ -130,7 +130,11 @@ void main() {
       _FakeSyncRepository('sellers', pendingSyncIds: {'seller-1'}),
     );
 
-    await _insertQueuedRecord(appDatabase, scope: 'sellers', syncId: 'seller-1');
+    await _insertQueuedRecord(
+      appDatabase,
+      scope: 'sellers',
+      syncId: 'seller-1',
+    );
 
     final processed = await service.processQueue();
     final queueRows = await _readQueueRows(appDatabase);
@@ -152,7 +156,11 @@ void main() {
       _FakeSyncRepository('sales', pendingSyncIds: {'sale-no-ack'}),
     );
 
-    await _insertQueuedRecord(appDatabase, scope: 'sales', syncId: 'sale-no-ack');
+    await _insertQueuedRecord(
+      appDatabase,
+      scope: 'sales',
+      syncId: 'sale-no-ack',
+    );
 
     final processed = await service.processQueue();
     final queueRows = await _readQueueRows(appDatabase);
@@ -179,7 +187,11 @@ void main() {
       _FakeSyncRepository('sellers', pendingSyncIds: const {}),
     );
 
-    await _insertQueuedRecord(appDatabase, scope: 'sellers', syncId: 'seller-stale');
+    await _insertQueuedRecord(
+      appDatabase,
+      scope: 'sellers',
+      syncId: 'seller-stale',
+    );
 
     final processed = await service.processQueue();
     final queueRows = await _readQueueRows(appDatabase);
@@ -228,64 +240,68 @@ void main() {
 
     await _insertQueuedRecord(appDatabase, scope: 'sales', syncId: 'sale-1');
 
-    await service.syncScopesNowOrThrow(
-      const ['sales'],
-      operationLabel: 'create-sale:test',
-    );
+    await service.syncScopesNowOrThrow(const [
+      'sales',
+    ], operationLabel: 'create-sale:test');
 
     final queueRows = await _readQueueRows(appDatabase);
     expect(apiClient.uploadedScopes, ['sales']);
     expect(queueRows.containsKey('sales'), isFalse);
   });
 
-  test('start dispara sincronizacion automatica cuando hay conectividad', () async {
-    apiClient = _RecordingSyncApiClient();
-    service = SyncQueueService.test(
-      appDatabase: appDatabase,
-      configRepository: configRepository,
-      apiClient: apiClient,
-      conflictService: SyncConflictService(appDatabase: appDatabase),
-    );
-    service.registerRepository(
-      _FakeSyncRepository('sales', pendingSyncIds: {'sale-1'}),
-    );
+  test(
+    'start dispara sincronizacion automatica cuando hay conectividad',
+    () async {
+      apiClient = _RecordingSyncApiClient();
+      service = SyncQueueService.test(
+        appDatabase: appDatabase,
+        configRepository: configRepository,
+        apiClient: apiClient,
+        conflictService: SyncConflictService(appDatabase: appDatabase),
+      );
+      service.registerRepository(
+        _FakeSyncRepository('sales', pendingSyncIds: {'sale-1'}),
+      );
 
-    await _insertQueuedRecord(appDatabase, scope: 'sales', syncId: 'sale-1');
-    await service.start();
-    await Future<void>.delayed(const Duration(milliseconds: 50));
+      await _insertQueuedRecord(appDatabase, scope: 'sales', syncId: 'sale-1');
+      await service.start();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
 
-    final queueRows = await _readQueueRows(appDatabase);
-    expect(apiClient.uploadedScopes, ['sales']);
-    expect(queueRows.containsKey('sales'), isFalse);
-    expect(await service.pendingCount(), 0);
-  });
+      final queueRows = await _readQueueRows(appDatabase);
+      expect(apiClient.uploadedScopes, ['sales']);
+      expect(queueRows.containsKey('sales'), isFalse);
+      expect(await service.pendingCount(), 0);
+    },
+  );
 
-  test('lanza pending exception cuando backend deja registros pendientes', () async {
-    apiClient = _RecordingSyncApiClient(failingScopes: {'sales'});
-    service = SyncQueueService.test(
-      appDatabase: appDatabase,
-      configRepository: configRepository,
-      apiClient: apiClient,
-      conflictService: SyncConflictService(appDatabase: appDatabase),
-    );
-    service.registerRepository(
-      _FakeSyncRepository('sales', pendingSyncIds: {'sale-1'}),
-    );
+  test(
+    'lanza pending exception cuando backend deja registros pendientes',
+    () async {
+      apiClient = _RecordingSyncApiClient(failingScopes: {'sales'});
+      service = SyncQueueService.test(
+        appDatabase: appDatabase,
+        configRepository: configRepository,
+        apiClient: apiClient,
+        conflictService: SyncConflictService(appDatabase: appDatabase),
+      );
+      service.registerRepository(
+        _FakeSyncRepository('sales', pendingSyncIds: {'sale-1'}),
+      );
 
-    await _insertQueuedRecord(appDatabase, scope: 'sales', syncId: 'sale-1');
+      await _insertQueuedRecord(appDatabase, scope: 'sales', syncId: 'sale-1');
 
-    await expectLater(
-      () => service.syncScopesNowOrThrow(
-        const ['sales'],
-        operationLabel: 'delete-sale:test',
-      ),
-      throwsA(isA<SyncOperationPendingException>()),
-    );
+      await expectLater(
+        () => service.syncScopesNowOrThrow(const [
+          'sales',
+        ], operationLabel: 'delete-sale:test'),
+        throwsA(isA<SyncOperationPendingException>()),
+      );
 
-    final queueRows = await _readQueueRows(appDatabase);
-    expect(queueRows.containsKey('sales'), isTrue);
-    expect(queueRows['sales']?['last_error'], contains('Fallo simulado'));
-  });
+      final queueRows = await _readQueueRows(appDatabase);
+      expect(queueRows.containsKey('sales'), isTrue);
+      expect(queueRows['sales']?['last_error'], contains('Fallo simulado'));
+    },
+  );
 
   test('si esta offline deja la cola pendiente y no intenta enviar', () async {
     apiClient = _RecordingSyncApiClient();
@@ -312,6 +328,54 @@ void main() {
     expect(processed, 0);
     expect(apiClient.uploadedScopes, isEmpty);
     expect(queueRows.containsKey('sales'), isTrue);
+  });
+
+  test('marca la fila local como failed cuando el upload falla', () async {
+    final db = await appDatabase.database;
+    final now = DateTime.now().toIso8601String();
+    await db.insert(DatabaseSchema.clientsTable, {
+      'sync_id': 'client-failed-1',
+      'version': 1,
+      'nombre': 'Cliente Cola Fallida',
+      'cedula': '00113745624',
+      'telefono': '8095557777',
+      'direccion': 'Prueba local',
+      'fecha_creacion': now,
+      'fecha_actualizacion': now,
+      'last_modified_local': now,
+      'sync_status': DatabaseSchema.syncStatusPendingCreate,
+    });
+
+    apiClient = _RecordingSyncApiClient(failingScopes: {'clients'});
+    service = SyncQueueService.test(
+      appDatabase: appDatabase,
+      configRepository: configRepository,
+      apiClient: apiClient,
+      conflictService: SyncConflictService(appDatabase: appDatabase),
+    );
+    service.registerRepository(
+      _FakeSyncRepository('clients', pendingSyncIds: {'client-failed-1'}),
+    );
+
+    await _insertQueuedRecord(
+      appDatabase,
+      scope: 'clients',
+      syncId: 'client-failed-1',
+    );
+
+    final processed = await service.processQueue();
+    final rows = await db.query(
+      DatabaseSchema.clientsTable,
+      columns: ['sync_status', 'last_modified_local'],
+      where: 'sync_id = ?',
+      whereArgs: const ['client-failed-1'],
+      limit: 1,
+    );
+
+    expect(processed, 0);
+    expect(rows, hasLength(1));
+    expect(rows.single['sync_status'], DatabaseSchema.syncStatusFailed);
+    expect(rows.single['last_modified_local'], isNotNull);
   });
 
   test('procesa la cola uno por uno en orden al reconectar', () async {
@@ -344,92 +408,98 @@ void main() {
     expect(queueRows.containsKey('sales'), isFalse);
   });
 
-  test('conserva solo el ultimo estado create-update-delete tras volver internet', () async {
-    apiClient = _RecordingSyncApiClient();
-    var online = false;
-    service = SyncQueueService.test(
-      appDatabase: appDatabase,
-      configRepository: configRepository,
-      apiClient: apiClient,
-      conflictService: SyncConflictService(appDatabase: appDatabase),
-      connectivityProbe: (_) async => online,
-    );
-    service.registerRepository(
-      _FakeSyncRepository('sales', pendingSyncIds: {'sale-final'}),
-    );
+  test(
+    'conserva solo el ultimo estado create-update-delete tras volver internet',
+    () async {
+      apiClient = _RecordingSyncApiClient();
+      var online = false;
+      service = SyncQueueService.test(
+        appDatabase: appDatabase,
+        configRepository: configRepository,
+        apiClient: apiClient,
+        conflictService: SyncConflictService(appDatabase: appDatabase),
+        connectivityProbe: (_) async => online,
+      );
+      service.registerRepository(
+        _FakeSyncRepository('sales', pendingSyncIds: {'sale-final'}),
+      );
 
-    await _insertQueuedRecord(
-      appDatabase,
-      scope: 'sales',
-      syncId: 'sale-final',
-      payloadJson: '{"sync_id":"sale-final","status":"created"}',
-    );
-    await _insertQueuedRecord(
-      appDatabase,
-      scope: 'sales',
-      syncId: 'sale-final',
-      payloadJson: '{"sync_id":"sale-final","status":"updated"}',
-    );
-    await _insertQueuedRecord(
-      appDatabase,
-      scope: 'sales',
-      syncId: 'sale-final',
-      operation: 'delete',
-      payloadJson:
-          '{"sync_id":"sale-final","status":"deleted","deleted_at":"2026-04-23T12:00:00.000Z"}',
-    );
+      await _insertQueuedRecord(
+        appDatabase,
+        scope: 'sales',
+        syncId: 'sale-final',
+        payloadJson: '{"sync_id":"sale-final","status":"created"}',
+      );
+      await _insertQueuedRecord(
+        appDatabase,
+        scope: 'sales',
+        syncId: 'sale-final',
+        payloadJson: '{"sync_id":"sale-final","status":"updated"}',
+      );
+      await _insertQueuedRecord(
+        appDatabase,
+        scope: 'sales',
+        syncId: 'sale-final',
+        operation: 'delete',
+        payloadJson:
+            '{"sync_id":"sale-final","status":"deleted","deleted_at":"2026-04-23T12:00:00.000Z"}',
+      );
 
-    final processedOffline = await service.processQueue();
-    expect(processedOffline, 0);
+      final processedOffline = await service.processQueue();
+      expect(processedOffline, 0);
 
-    online = true;
-    final processedOnline = await service.processQueue();
+      online = true;
+      final processedOnline = await service.processQueue();
 
-    expect(processedOnline, 1);
-    expect(apiClient.uploadedScopes, ['sales']);
-    expect(apiClient.uploadedPayloads, hasLength(1));
-    expect(apiClient.uploadedPayloads.single['status'], 'deleted');
-    expect(apiClient.uploadedPayloads.single['deleted_at'], isNotNull);
-  });
+      expect(processedOnline, 1);
+      expect(apiClient.uploadedScopes, ['sales']);
+      expect(apiClient.uploadedPayloads, hasLength(1));
+      expect(apiClient.uploadedPayloads.single['status'], 'deleted');
+      expect(apiClient.uploadedPayloads.single['deleted_at'], isNotNull);
+    },
+  );
 
-  test('reintenta automaticamente al recibir reconexion de connectivity_plus', () async {
-    apiClient = _RecordingSyncApiClient();
-    var online = false;
-    final connectivityController =
-        StreamController<List<ConnectivityResult>>.broadcast();
-    addTearDown(connectivityController.close);
+  test(
+    'reintenta automaticamente al recibir reconexion de connectivity_plus',
+    () async {
+      apiClient = _RecordingSyncApiClient();
+      var online = false;
+      final connectivityController =
+          StreamController<List<ConnectivityResult>>.broadcast();
+      addTearDown(connectivityController.close);
 
-    service = SyncQueueService.test(
-      appDatabase: appDatabase,
-      configRepository: configRepository,
-      apiClient: apiClient,
-      conflictService: SyncConflictService(appDatabase: appDatabase),
-      connectivityProbe: (_) async => online,
-      connectivityChanges: connectivityController.stream,
-    );
-    service.registerRepository(
-      _FakeSyncRepository('sales', pendingSyncIds: {'sale-reconnect'}),
-    );
+      service = SyncQueueService.test(
+        appDatabase: appDatabase,
+        configRepository: configRepository,
+        apiClient: apiClient,
+        conflictService: SyncConflictService(appDatabase: appDatabase),
+        connectivityProbe: (_) async => online,
+        connectivityChanges: connectivityController.stream,
+      );
+      service.registerRepository(
+        _FakeSyncRepository('sales', pendingSyncIds: {'sale-reconnect'}),
+      );
 
-    await _insertQueuedRecord(
-      appDatabase,
-      scope: 'sales',
-      syncId: 'sale-reconnect',
-    );
+      await _insertQueuedRecord(
+        appDatabase,
+        scope: 'sales',
+        syncId: 'sale-reconnect',
+      );
 
-    final processedOffline = await service.processQueue();
-    expect(processedOffline, 0);
-    expect(apiClient.uploadedScopes, isEmpty);
+      final processedOffline = await service.processQueue();
+      expect(processedOffline, 0);
+      expect(apiClient.uploadedScopes, isEmpty);
 
-    await service.start();
-    online = true;
-    connectivityController.add(const [ConnectivityResult.wifi]);
-    await Future<void>.delayed(const Duration(milliseconds: 50));
+      await service.start();
+      online = true;
+      connectivityController.add(const [ConnectivityResult.wifi]);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
 
-    final queueRows = await _readQueueRows(appDatabase);
-    expect(apiClient.uploadedScopes, contains('sales'));
-    expect(queueRows.containsKey('sales'), isFalse);
-  });
+      final queueRows = await _readQueueRows(appDatabase);
+      expect(apiClient.uploadedScopes, contains('sales'));
+      expect(queueRows.containsKey('sales'), isFalse);
+    },
+  );
 }
 
 SyncSettings _buildSettings({required bool isConfigured}) {
@@ -453,13 +523,15 @@ Future<void> _insertQueuedRecord(
   final db = await appDatabase.database;
   final now = DateTime.now().toIso8601String();
 
-  final resolvedPayloadJson = payloadJson ?? switch (scope) {
-    'clients' =>
-      // Must include required client fields to avoid production guards.
-      // 00113745624 is checksum-valid under DominicanValidators.
-      '{"sync_id":"$syncId","full_name":"Juan Perez","document_id":"00113745624"}',
-    _ => '{"sync_id":"$syncId"}',
-  };
+  final resolvedPayloadJson =
+      payloadJson ??
+      switch (scope) {
+        'clients' =>
+          // Must include required client fields to avoid production guards.
+          // 00113745624 is checksum-valid under DominicanValidators.
+          '{"sync_id":"$syncId","full_name":"Juan Perez","document_id":"00113745624"}',
+        _ => '{"sync_id":"$syncId"}',
+      };
 
   final existing = await db.query(
     DatabaseSchema.syncQueueTable,
@@ -549,11 +621,7 @@ class _RecordingSyncApiClient extends SyncApiClient {
             ? const []
             : recordsByScope.values
                   .expand((items) => items)
-                  .map(
-                    (item) => item.map(
-                      (key, value) => MapEntry(key, value),
-                    ),
-                  )
+                  .map((item) => item.map((key, value) => MapEntry(key, value)))
                   .toList(growable: false),
       },
     );

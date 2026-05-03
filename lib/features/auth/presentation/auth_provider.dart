@@ -107,6 +107,7 @@ class AuthProvider extends ChangeNotifier {
 
     _isSigningIn = true;
     _errorMessage = null;
+    final previousUser = _currentUser;
     notifyListeners();
 
     try {
@@ -130,11 +131,11 @@ class AuthProvider extends ChangeNotifier {
       }
       return true;
     } on AuthException catch (error) {
-      _currentUser = null;
+      _currentUser = previousUser;
       _errorMessage = error.message;
       return false;
     } catch (_) {
-      _currentUser = null;
+      _currentUser = previousUser;
       _errorMessage = 'No se pudo iniciar sesion en este momento.';
       return false;
     } finally {

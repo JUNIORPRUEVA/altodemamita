@@ -1,0 +1,10 @@
+﻿00:00 +0: loading C:/Users/pc/DEV/PROYECTOS/CLIENTES/SISTEMA_SOLARES/test/sync_queue_conflict_autoresolve_test.dart
+00:00 +0: auto-resuelve conflicto cuando el backend devuelve el registro resuelto
+­ƒºá INIT DB...
+­ƒôü DB PATH: C:\Users\pc\AppData\Local\Temp\sync_queue_conflict_autoresolve_test_106664c1\test.db
+­ƒöÑ CREANDO TABLAS...
+Ô£à DB ABIERTA: 1 C:\Users\pc\AppData\Local\Temp\sync_queue_conflict_autoresolve_test_106664c1\test.db
+­ƒôª TABLAS: [{name: clientes}, {name: company_profiles}, {name: configuracion}, {name: configuracion_impresoras}, {name: conflict_logs}, {name: cuotas}, {name: informacion_backups}, {name: informacion_empresa}, {name: pagos}, {name: parametros_financieros}, {name: permisos}, {name: preferencias_backup}, {name: role_permissions}, {name: roles}, {name: sesiones_auth}, {name: solares}, {name: sqlite_sequence}, {name: sync_queue}, {name: user_roles}, {name: usuarios}, {name: vendedores}, {name: ventas}]
+Ô£à INSERT OK
+Base de datos lista en 523 ms.
+00:00 +1: All tests passed!
