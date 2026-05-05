@@ -118,4 +118,64 @@ void main() {
     expect(syncIds, contains('user-update'));
     expect(syncIds, contains('user-delete'));
   });
+
+  test('mergeRemoteRecords refreshes local permissions from backend user payload', () async {
+    final db = await appDatabase.database;
+    final now = DateTime.now().toIso8601String();
+
+    final userId = await db.insert(DatabaseSchema.usersTable, {
+      'sync_id': 'user-sync-1',
+      'id_remote': 'remote-user-1',
+      'remote_auth_id': 'remote-user-1',
+      'nombre': 'Usuario Local',
+      'email': 'user@test.local',
+      'password_hash': 'hash-local',
+      'password_reset_required': 0,
+      'rol': 'vendedor',
+      'activo': 1,
+      'fecha_creacion': now,
+      'fecha_actualizacion': now,
+      'sync_status': DatabaseSchema.syncStatusSynced,
+    });
+
+    await db.insert(DatabaseSchema.permissionsTable, {
+      'usuario_id': userId,
+      'modulo': 'ventas',
+      'acciones': '["ver"]',
+      'fecha_creacion': now,
+    });
+
+    await repository.mergeRemoteRecords([
+      {
+        'id': 'remote-user-1',
+        'sync_id': 'user-sync-1',
+        'version': 2,
+        'full_name': 'Usuario Remoto',
+        'email': 'user@test.local',
+        'password_hash': 'hash-remote',
+        'password_reset_required': false,
+        'role': 'vendedor',
+        'is_active': true,
+        'permissions': ['clients.read', 'sales.write'],
+        'created_at': now,
+        'updated_at': DateTime.now().add(const Duration(minutes: 1)).toIso8601String(),
+        'deleted_at': null,
+      },
+    ]);
+
+    final permissionRows = await db.query(
+      DatabaseSchema.permissionsTable,
+      columns: ['modulo', 'acciones', 'sync_status'],
+      where: 'usuario_id = ?',
+      whereArgs: [userId],
+      orderBy: 'modulo ASC',
+    );
+
+    expect(permissionRows, hasLength(2));
+    expect(permissionRows[0]['modulo'], 'clientes');
+    expect(permissionRows[0]['acciones'], '["ver"]');
+    expect(permissionRows[0]['sync_status'], DatabaseSchema.syncStatusSynced);
+    expect(permissionRows[1]['modulo'], 'ventas');
+    expect(permissionRows[1]['acciones'], '["crear","editar","eliminar"]');
+  });
 }

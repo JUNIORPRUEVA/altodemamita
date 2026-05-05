@@ -1454,7 +1454,16 @@ export class SyncService {
         include: {
           userRoles: {
             where: { deletedAt: null },
-            include: { role: true },
+            include: {
+              role: {
+                include: {
+                  rolePermissions: {
+                    where: { deletedAt: null },
+                    include: { permission: true },
+                  },
+                },
+              },
+            },
           },
         },
       }),
@@ -1681,7 +1690,16 @@ export class SyncService {
             include: {
               userRoles: {
                 where: { deletedAt: null },
-                include: { role: true },
+                include: {
+                  role: {
+                    include: {
+                      rolePermissions: {
+                        where: { deletedAt: null },
+                        include: { permission: true },
+                      },
+                    },
+                  },
+                },
               },
             },
             orderBy: { updatedAt: 'asc' },
@@ -2526,10 +2544,20 @@ export class SyncService {
     userRoles: Array<{
       role: {
         code: RoleCode;
+        rolePermissions?: Array<{ permission: { code: string } }>;
       };
     }>;
   }) {
     const primaryRole = user.userRoles[0]?.role.code;
+    const permissions = primaryRole === RoleCode.SUPER_ADMIN
+      ? Object.values(PERMISSIONS)
+      : Array.from(
+          new Set(
+            user.userRoles.flatMap((item) =>
+              item.role.rolePermissions?.map((permission) => permission.permission.code) ?? [],
+            ),
+          ),
+        ).sort();
     return {
       id: user.id,
       sync_id: user.syncId,
@@ -2541,6 +2569,7 @@ export class SyncService {
       password_reset_required: false,
       role: primaryRole === RoleCode.SUPER_ADMIN ? 'admin' : 'vendedor',
       is_active: user.isActive,
+      permissions,
       created_at: user.createdAt.toISOString(),
       updated_at: user.updatedAt.toISOString(),
       password_updated_at: user.updatedAt.toISOString(),

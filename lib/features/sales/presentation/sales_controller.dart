@@ -168,7 +168,7 @@ class SalesController extends ChangeNotifier {
 
     try {
       await _salesRepository.deleteSale(saleId);
-      await load(query: currentQuery);
+      await _reloadAfterDelete();
       return null;
     } catch (error) {
       return FriendlyErrorMessages.forOperation(
@@ -180,6 +180,16 @@ class SalesController extends ChangeNotifier {
       isSaving = false;
       _notifyIfActive();
     }
+  }
+
+  Future<void> _reloadAfterDelete() async {
+    final results = await Future.wait([
+      _salesRepository.fetchAll(query: currentQuery),
+      _lotRepository.fetchAvailable(),
+    ]);
+
+    sales = results[0] as List<SaleSummary>;
+    availableLots = results[1] as List<Lot>;
   }
 
   Future<SaleDetail?> fetchDetail(int saleId) {

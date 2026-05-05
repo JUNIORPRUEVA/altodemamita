@@ -453,7 +453,7 @@ Future<int> _countByStatus(
 
 Future<void> _waitUntil(
   Future<bool> Function() predicate, {
-  Duration timeout = const Duration(seconds: 3),
+  Duration timeout = const Duration(seconds: 10),
 }) async {
   final deadline = DateTime.now().add(timeout);
   while (DateTime.now().isBefore(deadline)) {

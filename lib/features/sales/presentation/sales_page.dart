@@ -572,7 +572,9 @@ class _SalesPageState extends State<SalesPage> {
     }
   }
 
-  bool _showSavingOverlay() {
+  bool _showSavingOverlay({
+    String message = 'Guardando cambios de la venta...',
+  }) {
     if (_savingOverlayEntry != null) {
       return false;
     }
@@ -607,17 +609,17 @@ class _SalesPageState extends State<SalesPage> {
                       ),
                     ],
                   ),
-                  child: const Row(
+                  child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      SizedBox(
+                      const SizedBox(
                         width: 20,
                         height: 20,
                         child: CircularProgressIndicator(strokeWidth: 2.2),
                       ),
-                      SizedBox(width: 12),
+                      const SizedBox(width: 12),
                       Flexible(
-                        child: Text('Guardando cambios de la venta...'),
+                        child: Text(message),
                       ),
                     ],
                   ),
@@ -665,12 +667,25 @@ class _SalesPageState extends State<SalesPage> {
       return;
     }
 
-    final error = await _controller.deleteSale(summary.id);
-    if (!mounted) {
-      return;
-    }
+    var loadingShown = false;
+    try {
+      if (mounted) {
+        loadingShown = _showSavingOverlay(
+          message: 'Eliminando venta y preparando sincronizacion...',
+        );
+      }
 
-    _showMessage(error ?? 'Venta eliminada correctamente.');
+      final error = await _controller.deleteSale(summary.id);
+      if (!mounted) {
+        return;
+      }
+
+      _showMessage(error ?? 'Venta eliminada correctamente.');
+    } finally {
+      if (mounted && loadingShown) {
+        _hideSavingOverlay();
+      }
+    }
   }
 
   Future<void> _editSeller(SaleSummary summary) async {

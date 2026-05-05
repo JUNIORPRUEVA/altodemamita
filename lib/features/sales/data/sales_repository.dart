@@ -851,6 +851,7 @@ class SalesRepository {
           scope: 'installments',
           recordSyncId: syncId,
           payload: payload,
+          triggerProcessing: false,
         );
       }
       _log(
@@ -911,7 +912,10 @@ class SalesRepository {
         where: 'venta_id = ? AND deleted_at IS NULL',
         whereArgs: [saleId],
       );
-      if (paymentRows.isNotEmpty) {
+      final blockingPaymentRows = paymentRows
+          .where(_shouldBlockSaleDeletion)
+          .toList(growable: false);
+      if (blockingPaymentRows.isNotEmpty) {
         throw StateError(
           'No se puede eliminar una venta que ya tiene pagos registrados.',
         );
@@ -1015,13 +1019,18 @@ class SalesRepository {
       }
     });
 
-    for (final item in deleteQueue) {
-      await _syncQueueService.enqueueDelete(
-        scope: item.scope,
-        recordSyncId: item.syncId,
-        payload: item.payload,
-      );
-    }
+    await _syncQueueService.enqueueDeleteBatch(
+      items: deleteQueue
+          .map(
+            (item) => (
+              scope: item.scope,
+              recordSyncId: item.syncId,
+              payload: item.payload,
+            ),
+          )
+          .toList(growable: false),
+      triggerProcessing: false,
+    );
     _log('DELETE SALE -> local saleId=$saleId queued for backend deletion');
     _log(
       'Guardado en local -> scope=sales operation=delete saleId=$saleId sync_status=${DatabaseSchema.syncStatusPendingDelete}',
@@ -1192,6 +1201,14 @@ class SalesRepository {
 
   String _newSyncId(String scope) {
     return SyncIdGenerator.next(scope);
+  }
+
+  bool _shouldBlockSaleDeletion(Map<String, Object?> paymentRow) {
+    final installmentId = paymentRow['cuota_id'] as int?;
+    final paymentType = paymentRow['tipo_pago']?.toString().trim().toLowerCase();
+    final isEditableInitialPayment = installmentId == null &&
+        (paymentType == 'apartado' || paymentType == 'abono_inicial');
+    return !isEditableInitialPayment;
   }
 
   String _newLocalSaleSyncId() {

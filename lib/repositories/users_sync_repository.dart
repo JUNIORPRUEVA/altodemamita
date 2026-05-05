@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import '../core/database/app_database.dart';
 import '../core/database/database_schema.dart';
+import '../features/auth/domain/permission_model.dart';
 import '../features/auth/domain/user_model.dart';
 import 'sync_repository.dart';
 
@@ -33,7 +36,15 @@ class UsersSyncRepository implements SyncRepository {
       ],
       orderBy: 'fecha_actualizacion ASC',
     );
-    return rows.map(_toPayload).toList(growable: false);
+    final permissionsByUserId = await _loadPermissionCodesByUserId(db, rows);
+    return rows
+        .map(
+          (row) => _toPayload(
+            row,
+            permissionCodes: permissionsByUserId[row['id']] ?? const [],
+          ),
+        )
+        .toList(growable: false);
   }
 
   @override
@@ -104,6 +115,7 @@ class UsersSyncRepository implements SyncRepository {
 
         if (_isDeleted(record['deleted_at'])) {
           if (existingRows.isNotEmpty) {
+            final localId = existingRows.first['id'] as int?;
             await txn.update(
               DatabaseSchema.usersTable,
               {
@@ -118,6 +130,13 @@ class UsersSyncRepository implements SyncRepository {
               where: 'sync_id = ?',
               whereArgs: [syncId],
             );
+            if (localId != null) {
+              await txn.delete(
+                DatabaseSchema.permissionsTable,
+                where: 'usuario_id = ?',
+                whereArgs: [localId],
+              );
+            }
           }
           continue;
         }
@@ -188,7 +207,12 @@ class UsersSyncRepository implements SyncRepository {
         };
 
         if (existingRows.isEmpty) {
-          await txn.insert(DatabaseSchema.usersTable, values);
+          final localId = await txn.insert(DatabaseSchema.usersTable, values);
+          await _replacePermissionsFromRemoteRecord(
+            txn,
+            userId: localId,
+            record: record,
+          );
         } else {
           final localId = existingRows.first['id'] as int?;
           await txn.update(
@@ -197,12 +221,22 @@ class UsersSyncRepository implements SyncRepository {
             where: localId != null ? 'id = ?' : 'sync_id = ?',
             whereArgs: localId != null ? [localId] : [syncId],
           );
+          if (localId != null) {
+            await _replacePermissionsFromRemoteRecord(
+              txn,
+              userId: localId,
+              record: record,
+            );
+          }
         }
       }
     });
   }
 
-  Map<String, Object?> _toPayload(Map<String, Object?> row) {
+  Map<String, Object?> _toPayload(
+    Map<String, Object?> row, {
+    required List<String> permissionCodes,
+  }) {
     return {
       'id': row['id'],
       'id_remote': row['id_remote'],
@@ -223,7 +257,52 @@ class UsersSyncRepository implements SyncRepository {
       'deleted_at': row['deleted_at'],
       'sync_status': row['sync_status'],
       'auth_source': row['auth_source'],
+      'permissions': permissionCodes,
     };
+  }
+
+  Future<Map<Object?, List<String>>> _loadPermissionCodesByUserId(
+    dynamic db,
+    List<Map<String, Object?>> userRows,
+  ) async {
+    final userIds = userRows
+        .map((row) => row['id'])
+        .whereType<int>()
+        .toList(growable: false);
+    if (userIds.isEmpty) {
+      return const {};
+    }
+
+    final placeholders = List.filled(userIds.length, '?').join(', ');
+    final permissionRows = await db.query(
+      DatabaseSchema.permissionsTable,
+      columns: ['usuario_id', 'modulo', 'acciones'],
+      where: 'usuario_id IN ($placeholders)',
+      whereArgs: userIds,
+      orderBy: 'usuario_id ASC, modulo ASC',
+    );
+
+    final permissionsByUserId = <Object?, List<String>>{};
+    for (final row in permissionRows) {
+      final userId = row['usuario_id'];
+      final module = row['modulo']?.toString().trim() ?? '';
+      if (module.isEmpty || userId == null) {
+        continue;
+      }
+      final actions = _readLegacyActions(row['acciones']);
+      final permission = PermissionModel.fromLegacy(
+        module: module,
+        actions: actions,
+      );
+      permissionsByUserId.putIfAbsent(userId, () => <String>[]).addAll(
+        _permissionCodesFromLocal(permission),
+      );
+    }
+
+    for (final entry in permissionsByUserId.entries) {
+      entry.value.sort();
+    }
+    return permissionsByUserId;
   }
 
   String _usernameFromRow(Map<String, Object?> row) {
@@ -237,6 +316,43 @@ class UsersSyncRepository implements SyncRepository {
         .replaceAll(RegExp(r'\.{2,}'), '.')
         .replaceAll(RegExp(r'^\.|\.$'), '');
     return normalized.isEmpty ? 'usuario' : normalized;
+  }
+}
+
+Future<void> _replacePermissionsFromRemoteRecord(
+  dynamic txn, {
+  required int userId,
+  required Map<String, dynamic> record,
+}) async {
+  final permissionCodes = _readRemotePermissionCodes(record['permissions']);
+  if (permissionCodes == null) {
+    return;
+  }
+
+  final now = DateTime.now().toIso8601String();
+  final updatedAt = _readNullableDate(record['updated_at']) ?? now;
+  final permissions = _permissionModelsFromCodes(permissionCodes);
+
+  await txn.delete(
+    DatabaseSchema.permissionsTable,
+    where: 'usuario_id = ?',
+    whereArgs: [userId],
+  );
+
+  for (final permission in permissions) {
+    await txn.insert(DatabaseSchema.permissionsTable, {
+      'sync_id': 'user-permission-$userId-${permission.module}',
+      'id_remote': null,
+      'id_local': null,
+      'version': 1,
+      'usuario_id': userId,
+      'modulo': permission.module,
+      'acciones': jsonEncode(permission.toLegacyActions()),
+      'fecha_creacion': updatedAt,
+      'last_modified_remote': updatedAt,
+      'deleted_at': null,
+      'sync_status': DatabaseSchema.syncStatusSynced,
+    });
   }
 }
 
@@ -382,4 +498,213 @@ bool _readBool(Object? value) {
 String _readRole(Object? value) {
   final normalized = value?.toString().trim().toLowerCase() ?? '';
   return normalized == UserRole.admin.storageValue ? 'admin' : 'vendedor';
+}
+
+List<String> _readLegacyActions(Object? value) {
+  if (value is List) {
+    return value.map((item) => item.toString()).toList(growable: false);
+  }
+  final raw = value?.toString().trim() ?? '';
+  if (raw.isEmpty) {
+    return const [];
+  }
+  try {
+    final decoded = jsonDecode(raw);
+    if (decoded is List) {
+      return decoded.map((item) => item.toString()).toList(growable: false);
+    }
+  } catch (_) {
+    return const [];
+  }
+  return const [];
+}
+
+List<String>? _readRemotePermissionCodes(Object? value) {
+  if (value is! List) {
+    return null;
+  }
+  final codes = value
+      .map((item) => item.toString().trim())
+      .where((item) => item.isNotEmpty)
+      .toSet()
+      .toList(growable: false);
+  codes.sort();
+  return codes;
+}
+
+List<PermissionModel> _permissionModelsFromCodes(List<String> permissionCodes) {
+  final buckets = <String, Set<PermissionAction>>{};
+
+  void grant(String module, Iterable<PermissionAction> actions) {
+    buckets.putIfAbsent(module, () => <PermissionAction>{}).addAll(actions);
+  }
+
+  for (final rawCode in permissionCodes) {
+    switch (rawCode.trim().toLowerCase()) {
+      case 'clients.read':
+        grant(PermissionCatalog.clients, [PermissionAction.read]);
+        break;
+      case 'clients.write':
+        grant(PermissionCatalog.clients, const [
+          PermissionAction.create,
+          PermissionAction.update,
+          PermissionAction.delete,
+        ]);
+        break;
+      case 'products.read':
+        grant(PermissionCatalog.lots, [PermissionAction.read]);
+        break;
+      case 'products.write':
+        grant(PermissionCatalog.lots, const [
+          PermissionAction.create,
+          PermissionAction.update,
+          PermissionAction.delete,
+        ]);
+        break;
+      case 'sellers.read':
+        grant(PermissionCatalog.sellers, [PermissionAction.read]);
+        break;
+      case 'sellers.write':
+        grant(PermissionCatalog.sellers, const [
+          PermissionAction.create,
+          PermissionAction.update,
+          PermissionAction.delete,
+        ]);
+        break;
+      case 'sales.read':
+        grant(PermissionCatalog.sales, [PermissionAction.read]);
+        break;
+      case 'sales.write':
+        grant(PermissionCatalog.sales, const [
+          PermissionAction.create,
+          PermissionAction.update,
+          PermissionAction.delete,
+        ]);
+        break;
+      case 'payments.read':
+        grant(PermissionCatalog.payments, [PermissionAction.read]);
+        break;
+      case 'payments.write':
+        grant(PermissionCatalog.payments, const [
+          PermissionAction.create,
+          PermissionAction.update,
+          PermissionAction.delete,
+        ]);
+        break;
+      case 'installments.read':
+        grant(PermissionCatalog.installments, [PermissionAction.read]);
+        break;
+      case 'installments.write':
+        grant(PermissionCatalog.installments, const [
+          PermissionAction.create,
+          PermissionAction.update,
+          PermissionAction.delete,
+        ]);
+        break;
+      case 'users.read':
+      case 'auth.manage':
+        grant(PermissionCatalog.settings, [PermissionAction.read]);
+        break;
+      case 'users.write':
+        grant(PermissionCatalog.settings, const [
+          PermissionAction.create,
+          PermissionAction.update,
+          PermissionAction.delete,
+        ]);
+        break;
+      case 'reports.read':
+        grant(PermissionCatalog.dashboard, [PermissionAction.read]);
+        grant(PermissionCatalog.search, [PermissionAction.read]);
+        break;
+    }
+  }
+
+  return PermissionCatalog.modules
+      .map((module) {
+        final actions = buckets[module.key] ?? const <PermissionAction>{};
+        return PermissionModel(
+          module: module.key,
+          read: actions.contains(PermissionAction.read),
+          create: actions.contains(PermissionAction.create),
+          update: actions.contains(PermissionAction.update),
+          delete: actions.contains(PermissionAction.delete),
+        );
+      })
+      .where(
+        (permission) =>
+            permission.read ||
+            permission.create ||
+            permission.update ||
+            permission.delete,
+      )
+      .toList(growable: false);
+}
+
+List<String> _permissionCodesFromLocal(PermissionModel permission) {
+  final codes = <String>[];
+  switch (permission.module) {
+    case PermissionCatalog.clients:
+      if (permission.read) {
+        codes.add('clients.read');
+      }
+      if (permission.create || permission.update || permission.delete) {
+        codes.add('clients.write');
+      }
+      break;
+    case PermissionCatalog.lots:
+      if (permission.read) {
+        codes.add('products.read');
+      }
+      if (permission.create || permission.update || permission.delete) {
+        codes.add('products.write');
+      }
+      break;
+    case PermissionCatalog.sellers:
+      if (permission.read) {
+        codes.add('sellers.read');
+      }
+      if (permission.create || permission.update || permission.delete) {
+        codes.add('sellers.write');
+      }
+      break;
+    case PermissionCatalog.sales:
+      if (permission.read) {
+        codes.add('sales.read');
+      }
+      if (permission.create || permission.update || permission.delete) {
+        codes.add('sales.write');
+      }
+      break;
+    case PermissionCatalog.payments:
+      if (permission.read) {
+        codes.add('payments.read');
+      }
+      if (permission.create || permission.update || permission.delete) {
+        codes.add('payments.write');
+      }
+      break;
+    case PermissionCatalog.installments:
+      if (permission.read) {
+        codes.add('installments.read');
+      }
+      if (permission.create || permission.update || permission.delete) {
+        codes.add('installments.write');
+      }
+      break;
+    case PermissionCatalog.settings:
+      if (permission.read) {
+        codes.add('users.read');
+      }
+      if (permission.create || permission.update || permission.delete) {
+        codes.add('users.write');
+      }
+      break;
+    case PermissionCatalog.dashboard:
+    case PermissionCatalog.search:
+      if (permission.read) {
+        codes.add('reports.read');
+      }
+      break;
+  }
+  return codes;
 }

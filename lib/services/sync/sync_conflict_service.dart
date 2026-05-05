@@ -50,6 +50,7 @@ class SyncConflictService {
     required Iterable<SyncQueueItem> queuedItems,
     required SyncConflictException exception,
   }) async {
+    try {
     final db = await _appDatabase.database;
     final detectedAt = DateTime.now().toIso8601String();
     final queuedBySyncId = {
@@ -131,6 +132,12 @@ class SyncConflictService {
       }
     });
     await unresolvedConflictCount();
+    } catch (error) {
+      if (_isDatabaseClosedError(error)) {
+        return;
+      }
+      rethrow;
+    }
   }
 
   Future<void> resolveConflicts({
@@ -138,6 +145,7 @@ class SyncConflictService {
     required Iterable<String> recordSyncIds,
     required String resolution,
   }) async {
+    try {
     final ids = recordSyncIds
         .map((value) => value.trim())
         .where((value) => value.isNotEmpty)
@@ -155,6 +163,12 @@ class SyncConflictService {
       [resolution, DateTime.now().toIso8601String(), scope, ...ids],
     );
     await unresolvedConflictCount();
+    } catch (error) {
+      if (_isDatabaseClosedError(error)) {
+        return;
+      }
+      rethrow;
+    }
   }
 
   void dispose() {
