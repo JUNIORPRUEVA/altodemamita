@@ -534,7 +534,7 @@ class SalesRepository {
 
         final existingRows = await txn.query(
           DatabaseSchema.salesTable,
-          columns: ['id', 'solar_id', 'estado'],
+          columns: ['id', 'solar_id', 'estado', 'version'],
           where: 'id = ?',
           whereArgs: [saleId],
           limit: 1,
@@ -570,6 +570,7 @@ class SalesRepository {
 
         final existingSale = existingRows.first;
         final previousLotId = existingSale['solar_id'] as int? ?? 0;
+        final nextSaleVersion = ((existingSale['version'] as int?) ?? 1) + 1;
 
         final selectedLot = await txn.query(
           DatabaseSchema.lotsTable,
@@ -684,6 +685,7 @@ class SalesRepository {
         await txn.update(
           DatabaseSchema.salesTable,
           {
+            'version': nextSaleVersion,
             'cliente_id': draft.clientId,
             'solar_id': draft.lotId,
             'usuario_id': draft.userId,
@@ -1219,7 +1221,7 @@ class SalesRepository {
       'sync_id': row['sync_id'],
       'version': ((row['version'] as int?) ?? 1) + 1,
       'created_at': row['fecha_creacion'],
-      'updated_at': row[updatedAtField] ?? row['fecha_creacion'] ?? now,
+      'updated_at': now,
       'deleted_at': now,
       'sync_status': DatabaseSchema.syncStatusPending,
     };

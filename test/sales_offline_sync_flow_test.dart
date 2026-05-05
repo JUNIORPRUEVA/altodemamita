@@ -203,6 +203,130 @@ void main() {
       expect(apiClient.countUploads('sales', saleSyncId), 1);
     },
   );
+
+  test(
+    'edita venta offline y sube version nueva con deletes de cuotas usando timestamp actual',
+    () async {
+      final db = await appDatabase.database;
+      final now = DateTime(2026, 4, 25, 9, 0);
+
+      final clientId = await db.insert(DatabaseSchema.clientsTable, {
+        'sync_id': 'client-offline-edit-1',
+        'version': 1,
+        'nombre': 'Cliente Edit Sync',
+        'cedula': '001-0000202-8',
+        'telefono': '8095550202',
+        'direccion': 'Calle Proyecto 2',
+        'fecha_creacion': now.toIso8601String(),
+        'fecha_actualizacion': now.toIso8601String(),
+        'deleted_at': null,
+        'sync_status': DatabaseSchema.syncStatusSynced,
+      });
+      final lotId = await db.insert(DatabaseSchema.lotsTable, {
+        'sync_id': 'product-offline-edit-1',
+        'version': 1,
+        'manzana_numero': 'B',
+        'solar_numero': '03',
+        'metros_cuadrados': 200.0,
+        'precio_por_metro': 2500.0,
+        'estado': 'disponible',
+        'fecha_creacion': now.toIso8601String(),
+        'fecha_actualizacion': now.toIso8601String(),
+        'deleted_at': null,
+        'sync_status': DatabaseSchema.syncStatusSynced,
+      });
+
+      final saleId = await salesRepository.createSale(
+        SaleDraft(
+          clientId: clientId,
+          lotId: lotId,
+          userId: 1,
+          saleDate: now,
+          salePrice: 500000,
+          downPaymentPercentage: 10,
+          requiredInitialPayment: 50000,
+          initialPaymentPaid: 50000,
+          monthlyInterest: 1,
+          installmentCount: 120,
+        ),
+      );
+
+      await syncQueueService.start();
+      online = true;
+      connectivityController.add(const [ConnectivityResult.wifi]);
+      await _waitUntil(() async => await syncQueueService.pendingCount() == 0);
+
+      final initialInstallmentRows = await db.query(
+        DatabaseSchema.installmentsTable,
+        columns: ['sync_id'],
+        where: 'venta_id = ?',
+        whereArgs: [saleId],
+      );
+      final deletedSyncIds = initialInstallmentRows
+          .map((row) => row['sync_id'] as String)
+          .toSet();
+
+      online = false;
+      await salesRepository.updateSale(
+        saleId,
+        SaleDraft(
+          clientId: clientId,
+          lotId: lotId,
+          userId: 1,
+          saleDate: now.add(const Duration(days: 1)),
+          salePrice: 500000,
+          downPaymentPercentage: 10,
+          requiredInitialPayment: 50000,
+          initialPaymentPaid: 50000,
+          monthlyInterest: 1,
+          installmentCount: 60,
+        ),
+      );
+
+      final editedSaleRow = (await db.query(
+        DatabaseSchema.salesTable,
+        columns: ['sync_id', 'version', 'sync_status'],
+        where: 'id = ?',
+        whereArgs: [saleId],
+        limit: 1,
+      )).single;
+      final saleSyncId = editedSaleRow['sync_id'] as String;
+      expect(editedSaleRow['version'], 2);
+      expect(
+        editedSaleRow['sync_status'],
+        DatabaseSchema.syncStatusPendingUpdate,
+      );
+
+      online = true;
+      connectivityController.add(const [ConnectivityResult.wifi]);
+      await _waitUntil(() async => await syncQueueService.pendingCount() == 0);
+
+      final saleUploads =
+          apiClient.uploadedRecordsByScope['sales'] ?? const <Map<String, dynamic>>[];
+      final updatedSaleUpload = saleUploads.lastWhere(
+        (record) =>
+            record['sync_id'] == saleSyncId &&
+            record['sync_status'] == DatabaseSchema.syncStatusPendingUpdate,
+      );
+      expect(updatedSaleUpload['version'], 2);
+      expect(updatedSaleUpload['installment_count'], 60);
+
+      final installmentUploads =
+          apiClient.uploadedRecordsByScope['installments'] ??
+          const <Map<String, dynamic>>[];
+      final deletedInstallmentUploads = installmentUploads
+          .where(
+            (record) =>
+                deletedSyncIds.contains(record['sync_id']) &&
+                record['deleted_at'] != null,
+          )
+          .toList(growable: false);
+      expect(deletedInstallmentUploads, hasLength(120));
+      for (final record in deletedInstallmentUploads) {
+        expect(record['updated_at'], record['deleted_at']);
+      }
+    },
+  );
 }
 
 Future<int> _countByStatus(
