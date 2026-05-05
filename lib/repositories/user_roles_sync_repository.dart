@@ -86,15 +86,33 @@ class UserRolesSyncRepository implements SyncRepository {
           );
         }
 
+        final userLocalId = await _resolveLocalId(
+          txn,
+          tableName: DatabaseSchema.usersTable,
+          syncId: record['user_sync_id']?.toString(),
+          remoteId: record['user_id']?.toString(),
+        );
+        final roleLocalId = await _resolveLocalId(
+          txn,
+          tableName: DatabaseSchema.rolesTable,
+          syncId: record['role_sync_id']?.toString(),
+          remoteId: record['role_id']?.toString(),
+        );
+        if (userLocalId == null || roleLocalId == null) {
+          continue;
+        }
+
         final values = {
           'sync_id': syncId,
           'id_remote': remoteId,
           'id_local': existing.isEmpty ? null : existing.first['id'],
-          'user_id': record['user_id'] as Object?,
-          'role_id': record['role_id'] as Object?,
-          'created_at': record['created_at']?.toString() ??
+          'user_id': userLocalId,
+          'role_id': roleLocalId,
+          'created_at':
+              record['created_at']?.toString() ??
               DateTime.now().toIso8601String(),
-          'updated_at': record['updated_at']?.toString() ??
+          'updated_at':
+              record['updated_at']?.toString() ??
               DateTime.now().toIso8601String(),
           'last_modified_remote': record['updated_at']?.toString(),
           'deleted_at': record['deleted_at']?.toString(),
@@ -113,6 +131,41 @@ class UserRolesSyncRepository implements SyncRepository {
         }
       }
     });
+  }
+
+  Future<int?> _resolveLocalId(
+    dynamic txn, {
+    required String tableName,
+    String? syncId,
+    String? remoteId,
+  }) async {
+    final normalizedSyncId = syncId?.trim() ?? '';
+    if (normalizedSyncId.isNotEmpty) {
+      final rows = await txn.query(
+        tableName,
+        columns: ['id'],
+        where: 'sync_id = ?',
+        whereArgs: [normalizedSyncId],
+        limit: 1,
+      );
+      if (rows.isNotEmpty) {
+        return rows.first['id'] as int?;
+      }
+    }
+
+    final normalizedRemoteId = remoteId?.trim() ?? '';
+    if (normalizedRemoteId.isEmpty) {
+      return null;
+    }
+
+    final rows = await txn.query(
+      tableName,
+      columns: ['id'],
+      where: 'id_remote = ?',
+      whereArgs: [normalizedRemoteId],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : rows.first['id'] as int?;
   }
 
   Future<void> _markRows(Iterable<String> syncIds, String status) async {

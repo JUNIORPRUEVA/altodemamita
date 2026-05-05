@@ -150,23 +150,34 @@ void main() {
 
 class _CursorAwareSyncApiClient extends SyncApiClient {
   DateTime? requestedUpdatedSince;
+  Map<String, DateTime?> requestedUpdatedSinceByScope = const {};
   Map<String, List<Map<String, dynamic>>> recordsByScope = {};
 
   @override
   Future<SyncDownloadResponse> downloadChanges({
     required SyncSettings settings,
     DateTime? updatedSince,
+    Map<String, DateTime?>? updatedSinceByScope,
   }) async {
     requestedUpdatedSince = updatedSince;
+    requestedUpdatedSinceByScope = Map<String, DateTime?>.from(
+      updatedSinceByScope ?? const {},
+    );
     final filtered = <String, List<Map<String, dynamic>>>{};
     recordsByScope.forEach((scope, records) {
-      filtered[scope] = records.where((record) {
-        if (updatedSince == null) {
-          return true;
-        }
-        final updatedAt = DateTime.tryParse(record['updated_at']?.toString() ?? '');
-        return updatedAt != null && updatedAt.isAfter(updatedSince);
-      }).map((record) => Map<String, dynamic>.from(record)).toList(growable: false);
+      final scopeCursor = updatedSinceByScope?[scope] ?? updatedSince;
+      filtered[scope] = records
+          .where((record) {
+            if (scopeCursor == null) {
+              return true;
+            }
+            final updatedAt = DateTime.tryParse(
+              record['updated_at']?.toString() ?? '',
+            );
+            return updatedAt != null && updatedAt.isAfter(scopeCursor);
+          })
+          .map((record) => Map<String, dynamic>.from(record))
+          .toList(growable: false);
     });
     return SyncDownloadResponse(recordsByScope: filtered);
   }

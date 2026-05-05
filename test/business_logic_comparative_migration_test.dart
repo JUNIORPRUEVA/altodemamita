@@ -884,6 +884,7 @@ class _MemorySyncApiClient extends SyncApiClient {
   Future<SyncDownloadResponse> downloadChanges({
     required SyncSettings settings,
     DateTime? updatedSince,
+    Map<String, DateTime?>? updatedSinceByScope,
   }) async {
     return SyncDownloadResponse(
       recordsByScope: const {},

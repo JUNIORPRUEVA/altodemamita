@@ -483,23 +483,16 @@ class SyncService {
       }
     }
 
-    DateTime? earliestCursor;
+    final cursorBeforeByScope = <String, DateTime?>{};
     for (final scope in targetScopes) {
-      final cursor = await _configRepository.loadCursor(scope);
-      if (cursor == null) {
-        earliestCursor = null;
-        break;
-      }
-      if (earliestCursor == null || cursor.isBefore(earliestCursor)) {
-        earliestCursor = cursor;
-      }
+      cursorBeforeByScope[scope] = await _configRepository.loadCursor(scope);
     }
 
     late final SyncDownloadResponse response;
     try {
       response = await _apiClient.downloadChanges(
         settings: settings,
-        updatedSince: earliestCursor,
+        updatedSinceByScope: cursorBeforeByScope,
       );
     } on HttpException catch (error) {
       if (_isUnauthorizedSyncError(error)) {
@@ -519,6 +512,23 @@ class SyncService {
       }
 
       try {
+        final cursorBefore = cursorBeforeByScope[repository.scope];
+        await _syncLogger.log(
+          action: 'download-scope-start',
+          entity: repository.scope,
+          result: 'started',
+          extra: {'cursor_before': cursorBefore?.toIso8601String()},
+        );
+
+        if (!response.supportsScope(repository.scope)) {
+          await _syncLogger.log(
+            action: 'download-scope',
+            entity: repository.scope,
+            result: 'unsupported',
+          );
+          continue;
+        }
+
         final scopeRecords = response.recordsForScope(repository.scope);
 
         if (scopeRecords.isNotEmpty) {
@@ -526,17 +536,24 @@ class SyncService {
           downloadedRecords += scopeRecords.length;
         }
 
+        final nextCursor =
+            response.cursorForScope(repository.scope) ??
+            _findLatestTimestamp(scopeRecords) ??
+            response.serverTime;
+        if (nextCursor != null) {
+          await _configRepository.saveCursor(repository.scope, nextCursor);
+        }
+
         await _syncLogger.log(
           action: 'download-scope',
           entity: repository.scope,
           result: scopeRecords.isNotEmpty ? 'ok' : 'idle',
-          extra: {'records': scopeRecords.length},
+          extra: {
+            'records': scopeRecords.length,
+            'cursor_before': cursorBefore?.toIso8601String(),
+            'cursor_after': nextCursor?.toIso8601String(),
+          },
         );
-
-        final nextCursor = _findLatestTimestamp(scopeRecords);
-        if (nextCursor != null) {
-          await _configRepository.saveCursor(repository.scope, nextCursor);
-        }
       } catch (error) {
         await _syncLogger.log(
           action: 'download-scope',
@@ -694,11 +711,10 @@ class SyncService {
     final db = await _appDatabase.database;
     final clientsCount = await _countRows(db, DatabaseSchema.clientsTable);
     final lotsCount = await _countRows(db, DatabaseSchema.lotsTable);
+    final salesCount = await _countRows(db, DatabaseSchema.salesTable);
     if (clientsCount > 0 && lotsCount == 0) {
       return true;
     }
-
-    final salesCount = await _countRows(db, DatabaseSchema.salesTable);
     if (clientsCount > 0 && lotsCount > 0 && salesCount == 0) {
       return _hasAnyBusinessCursor(targetScopes);
     }

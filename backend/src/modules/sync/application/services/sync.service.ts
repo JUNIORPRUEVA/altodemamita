@@ -32,6 +32,19 @@ interface SyncRecordCollections {
   payments: Record<string, unknown>[];
 }
 
+type SyncDownloadScope =
+  | 'users'
+  | 'roles'
+  | 'user_roles'
+  | 'role_permissions'
+  | 'permissions'
+  | 'clients'
+  | 'products'
+  | 'sellers'
+  | 'sales'
+  | 'installments'
+  | 'payments';
+
 @Injectable()
 export class SyncService {
   private readonly jobs = new Map<string, SyncQueuedJob>();
@@ -1496,14 +1509,15 @@ export class SyncService {
   }
 
   async download(query: SyncDownloadDto) {
-    const updatedSince = query.updatedSince ? new Date(query.updatedSince) : undefined;
-    const where = updatedSince
-      ? { updatedAt: { gt: updatedSince } }
-      : {};
+    const requestStartedAt = new Date();
+    const scopeCursorDates = this.parseScopeCursorDates(
+      query.scope_cursors,
+      query.updatedSince,
+    );
 
-    const [users, roles, permissions, clients, products, sellers, sales, installments, payments] = await this.prisma.$transaction([
+    const [users, roles, userRoles, rolePermissions, permissions, clients, products, sellers, sales, installments, payments] = await this.prisma.$transaction([
       this.prisma.user.findMany({
-        where,
+        where: this.buildDownloadWhere(scopeCursorDates.users),
         include: {
           userRoles: {
             where: { deletedAt: null },
@@ -1520,13 +1534,37 @@ export class SyncService {
           },
         },
       }),
-      this.prisma.role.findMany({ where }),
-      this.prisma.permission.findMany({ where }),
-      this.prisma.client.findMany({ where }),
-      this.prisma.product.findMany({ where }),
-      this.prisma.seller.findMany({ where }),
+      this.prisma.role.findMany({
+        where: this.buildDownloadWhere(scopeCursorDates.roles),
+      }),
+      this.prisma.userRole.findMany({
+        where: this.buildDownloadWhere(scopeCursorDates.user_roles),
+        include: {
+          user: { select: { syncId: true } },
+          role: { select: { syncId: true } },
+        },
+      }),
+      this.prisma.rolePermission.findMany({
+        where: this.buildDownloadWhere(scopeCursorDates.role_permissions),
+        include: {
+          role: { select: { syncId: true } },
+          permission: { select: { syncId: true, code: true } },
+        },
+      }),
+      this.prisma.permission.findMany({
+        where: this.buildDownloadWhere(scopeCursorDates.permissions),
+      }),
+      this.prisma.client.findMany({
+        where: this.buildDownloadWhere(scopeCursorDates.clients),
+      }),
+      this.prisma.product.findMany({
+        where: this.buildDownloadWhere(scopeCursorDates.products),
+      }),
+      this.prisma.seller.findMany({
+        where: this.buildDownloadWhere(scopeCursorDates.sellers),
+      }),
       this.prisma.sale.findMany({
-        where,
+        where: this.buildDownloadWhere(scopeCursorDates.sales),
         include: {
           client: { select: { syncId: true } },
           product: { select: { syncId: true } },
@@ -1534,13 +1572,13 @@ export class SyncService {
         },
       }),
       this.prisma.installment.findMany({
-        where,
+        where: this.buildDownloadWhere(scopeCursorDates.installments),
         include: {
           sale: { select: { syncId: true } },
         },
       }),
       this.prisma.payment.findMany({
-        where,
+        where: this.buildDownloadWhere(scopeCursorDates.payments),
         include: {
           sale: {
             select: {
@@ -1553,19 +1591,48 @@ export class SyncService {
       }),
     ]);
 
+    const records = {
+      users: users.map((item) => this.serializeUserRecord(item)),
+      roles: roles.map((item) => this.serializeRoleRecord(item)),
+      user_roles: userRoles.map((item) => this.serializeUserRoleRecord(item)),
+      role_permissions: rolePermissions.map((item) =>
+        this.serializeRolePermissionRecord(item),
+      ),
+      permissions: permissions.map((item) => this.serializePermissionRecord(item)),
+      clients: clients.map((item) => this.serializeClientRecord(item)),
+      products: products.map((item) => this.serializeProductRecord(item)),
+      sellers: sellers.map((item) => this.serializeSellerRecord(item)),
+      sales: sales.map((item) => this.serializeSaleRecord(item)),
+      installments: installments.map((item) =>
+        this.serializeInstallmentRecord(item),
+      ),
+      payments: payments.map((item) => this.serializePaymentRecord(item)),
+    };
+
     return {
       device_id: query.device_id ?? null,
       updatedSince: query.updatedSince ?? null,
-      server_time: new Date().toISOString(),
-      records: {
-        users: users.map((item) => this.serializeUserRecord(item)),
-        clients: clients.map((item) => this.serializeClientRecord(item)),
-        products: products.map((item) => this.serializeProductRecord(item)),
-        sellers: sellers.map((item) => this.serializeSellerRecord(item)),
-        sales: sales.map((item) => this.serializeSaleRecord(item)),
-        installments: installments.map((item) => this.serializeInstallmentRecord(item)),
-        payments: payments.map((item) => this.serializePaymentRecord(item)),
+      server_time: requestStartedAt.toISOString(),
+      scope_cursors: {
+        users: this.resolveDownloadCursor(users, requestStartedAt),
+        roles: this.resolveDownloadCursor(roles, requestStartedAt),
+        user_roles: this.resolveDownloadCursor(userRoles, requestStartedAt),
+        role_permissions: this.resolveDownloadCursor(
+          rolePermissions,
+          requestStartedAt,
+        ),
+        permissions: this.resolveDownloadCursor(permissions, requestStartedAt),
+        clients: this.resolveDownloadCursor(clients, requestStartedAt),
+        products: this.resolveDownloadCursor(products, requestStartedAt),
+        sellers: this.resolveDownloadCursor(sellers, requestStartedAt),
+        sales: this.resolveDownloadCursor(sales, requestStartedAt),
+        installments: this.resolveDownloadCursor(
+          installments,
+          requestStartedAt,
+        ),
+        payments: this.resolveDownloadCursor(payments, requestStartedAt),
       },
+      records,
       metadata: {
         users,
         roles,
@@ -2672,6 +2739,66 @@ export class SyncService {
     return value as Record<string, unknown>;
   }
 
+  private parseScopeCursorDates(
+    rawScopeCursors?: string,
+    fallbackUpdatedSince?: string,
+  ): Partial<Record<SyncDownloadScope, Date>> {
+    const fallback = fallbackUpdatedSince ? new Date(fallbackUpdatedSince) : undefined;
+    const parsed = rawScopeCursors
+      ? this.readJsonRecord(this.safeParseJson(rawScopeCursors))
+      : null;
+    const scopes: SyncDownloadScope[] = [
+      'users',
+      'roles',
+      'user_roles',
+      'role_permissions',
+      'permissions',
+      'clients',
+      'products',
+      'sellers',
+      'sales',
+      'installments',
+      'payments',
+    ];
+
+    return scopes.reduce<Partial<Record<SyncDownloadScope, Date>>>(
+      (acc, scope) => {
+        const value = parsed?.[scope];
+        const parsedDate = typeof value === 'string' ? new Date(value) : fallback;
+        if (parsedDate && !Number.isNaN(parsedDate.getTime())) {
+          acc[scope] = parsedDate;
+        }
+        return acc;
+      },
+      {},
+    );
+  }
+
+  private buildDownloadWhere(updatedSince?: Date) {
+    return updatedSince ? { updatedAt: { gt: updatedSince } } : {};
+  }
+
+  private resolveDownloadCursor<T extends { updatedAt: Date }>(
+    records: T[],
+    requestStartedAt: Date,
+  ): string {
+    let latest = requestStartedAt;
+    for (const record of records) {
+      if (record.updatedAt.getTime() > latest.getTime()) {
+        latest = record.updatedAt;
+      }
+    }
+    return latest.toISOString();
+  }
+
+  private safeParseJson(value: string): unknown {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+
   private serializeUserRecord(user: {
     id: string;
     syncId: string;
@@ -2718,6 +2845,109 @@ export class SyncService {
       password_updated_at: user.updatedAt.toISOString(),
       deleted_at: user.deletedAt?.toISOString(),
       sync_status: user.syncStatus,
+    };
+  }
+
+  private serializeRoleRecord(role: {
+    id: string;
+    syncId: string;
+    code: RoleCode;
+    name: string;
+    description: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+    deletedAt: Date | null;
+    syncStatus: SyncStatus;
+  }) {
+    return {
+      id: role.id,
+      sync_id: role.syncId,
+      version: 1,
+      code: role.code,
+      name: role.name,
+      description: role.description,
+      created_at: role.createdAt.toISOString(),
+      updated_at: role.updatedAt.toISOString(),
+      deleted_at: role.deletedAt?.toISOString(),
+      sync_status: role.syncStatus,
+    };
+  }
+
+  private serializeUserRoleRecord(link: {
+    id: string;
+    userId: string;
+    roleId: string;
+    createdAt: Date;
+    updatedAt: Date;
+    deletedAt: Date | null;
+    syncStatus: SyncStatus;
+    user: { syncId: string };
+    role: { syncId: string };
+  }) {
+    return {
+      id: link.id,
+      sync_id: `${link.user.syncId}:${link.role.syncId}`,
+      version: 1,
+      user_id: link.userId,
+      role_id: link.roleId,
+      user_sync_id: link.user.syncId,
+      role_sync_id: link.role.syncId,
+      created_at: link.createdAt.toISOString(),
+      updated_at: link.updatedAt.toISOString(),
+      deleted_at: link.deletedAt?.toISOString(),
+      sync_status: link.syncStatus,
+    };
+  }
+
+  private serializeRolePermissionRecord(link: {
+    id: string;
+    roleId: string;
+    permissionId: string;
+    createdAt: Date;
+    updatedAt: Date;
+    deletedAt: Date | null;
+    syncStatus: SyncStatus;
+    role: { syncId: string };
+    permission: { syncId: string; code: string };
+  }) {
+    return {
+      id: link.id,
+      sync_id: `${link.role.syncId}:${link.permission.syncId}`,
+      version: 1,
+      role_id: link.roleId,
+      permission_id: link.permissionId,
+      role_sync_id: link.role.syncId,
+      permission_sync_id: link.permission.syncId,
+      permission_code: link.permission.code,
+      created_at: link.createdAt.toISOString(),
+      updated_at: link.updatedAt.toISOString(),
+      deleted_at: link.deletedAt?.toISOString(),
+      sync_status: link.syncStatus,
+    };
+  }
+
+  private serializePermissionRecord(permission: {
+    id: string;
+    syncId: string;
+    code: string;
+    name: string;
+    description: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+    deletedAt: Date | null;
+    syncStatus: SyncStatus;
+  }) {
+    return {
+      id: permission.id,
+      sync_id: permission.syncId,
+      version: 1,
+      code: permission.code,
+      name: permission.name,
+      description: permission.description,
+      created_at: permission.createdAt.toISOString(),
+      updated_at: permission.updatedAt.toISOString(),
+      deleted_at: permission.deletedAt?.toISOString(),
+      sync_status: permission.syncStatus,
     };
   }
 

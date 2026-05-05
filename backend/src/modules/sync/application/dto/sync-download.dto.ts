@@ -8,4 +8,8 @@ export class SyncDownloadDto {
   @IsOptional()
   @IsDateString()
   updatedSince?: string;
+
+  @IsOptional()
+  @IsString()
+  scope_cursors?: string;
 }

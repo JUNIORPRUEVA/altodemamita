@@ -85,25 +85,39 @@ class SyncUploadResponse {
 }
 
 class SyncDownloadResponse {
-  const SyncDownloadResponse({required this.recordsByScope, this.serverTime});
+  const SyncDownloadResponse({
+    required this.recordsByScope,
+    this.serverTime,
+    this.scopeCursors = const <String, DateTime?>{},
+  });
 
   final Map<String, List<Map<String, dynamic>>> recordsByScope;
   final DateTime? serverTime;
+  final Map<String, DateTime?> scopeCursors;
 
   List<Map<String, dynamic>> recordsForScope(String scope) {
     return recordsByScope[scope] ?? const [];
   }
+
+  bool supportsScope(String scope) => recordsByScope.containsKey(scope);
+
+  DateTime? cursorForScope(String scope) => scopeCursors[scope];
 }
 
 class SyncApiClient {
   static const List<String> _scopes = [
     'users',
+    'roles',
+    'user_roles',
+    'role_permissions',
+    'permissions',
     'clients',
     'products',
     'sellers',
     'sales',
     'installments',
     'payments',
+    'company_profiles',
   ];
 
   SyncApiClient({HttpClient? httpClient})
@@ -152,11 +166,18 @@ class SyncApiClient {
   Future<SyncDownloadResponse> downloadChanges({
     required SyncSettings settings,
     DateTime? updatedSince,
+    Map<String, DateTime?>? updatedSinceByScope,
   }) async {
     final queryParameters = <String, String>{
       'device_id': settings.deviceId,
       if (updatedSince != null)
         'updatedSince': updatedSince.toUtc().toIso8601String(),
+      if (updatedSinceByScope != null && updatedSinceByScope.isNotEmpty)
+        'scope_cursors': jsonEncode({
+          for (final entry in updatedSinceByScope.entries)
+            if (entry.value != null)
+              entry.key: entry.value!.toUtc().toIso8601String(),
+        }),
     };
     final uri = Uri.parse(
       '${settings.normalizedBaseUrl}/sync/download',
@@ -170,6 +191,7 @@ class SyncApiClient {
     return SyncDownloadResponse(
       recordsByScope: _readRecordsByScope(body['records']),
       serverTime: _readDate(body['server_time']),
+      scopeCursors: _readScopeCursors(body['scope_cursors']),
     );
   }
 
@@ -334,15 +356,32 @@ class SyncApiClient {
   }
 
   Map<String, List<Map<String, dynamic>>> _readRecordsByScope(Object? value) {
-    final normalized = <String, List<Map<String, dynamic>>>{
-      for (final scope in _scopes) scope: const [],
-    };
     if (value is! Map) {
-      return normalized;
+      return const <String, List<Map<String, dynamic>>>{};
     }
 
+    final normalized = <String, List<Map<String, dynamic>>>{};
+
     for (final scope in _scopes) {
+      if (!value.containsKey(scope)) {
+        continue;
+      }
       normalized[scope] = _readRecordList(value[scope]);
+    }
+    return normalized;
+  }
+
+  Map<String, DateTime?> _readScopeCursors(Object? value) {
+    if (value is! Map) {
+      return const <String, DateTime?>{};
+    }
+
+    final normalized = <String, DateTime?>{};
+    for (final scope in _scopes) {
+      if (!value.containsKey(scope)) {
+        continue;
+      }
+      normalized[scope] = _readDate(value[scope]);
     }
     return normalized;
   }
