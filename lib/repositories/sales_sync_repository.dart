@@ -101,29 +101,64 @@ class SalesSyncRepository implements SyncRepository {
         }
 
         if (_isDeleted(record['deleted_at'])) {
-          final clientId = await _resolveIdBySyncId(
-            txn,
-            DatabaseSchema.clientsTable,
-            _readRequiredString(record['client_sync_id']),
-          );
-          final productId = await _resolveIdBySyncId(
-            txn,
-            DatabaseSchema.lotsTable,
-            _readRequiredString(record['product_sync_id']),
-          );
-          final sellerId = await _resolveIdBySyncId(
-            txn,
-            DatabaseSchema.sellersTable,
-            _readRequiredString(record['seller_sync_id']),
-          );
+          final clientSyncId = _readRequiredString(record['client_sync_id']);
+          final productSyncId = _readRequiredString(record['product_sync_id']);
+          final sellerSyncId = _readRequiredString(record['seller_sync_id']);
+          final resolvedProductId = existingRows.isEmpty
+              ? await _resolveIdBySyncId(
+                  txn,
+                  DatabaseSchema.lotsTable,
+                  productSyncId,
+                )
+              : _readInt(existingRows.first['solar_id']);
+          final uniqueProductRows = existingRows.isEmpty && resolvedProductId != null
+              ? await txn.query(
+                  DatabaseSchema.salesTable,
+                  where: 'solar_id = ?',
+                  whereArgs: [resolvedProductId],
+                  limit: 1,
+                )
+              : const <Map<String, Object?>>[];
+          final matchedRows = existingRows.isNotEmpty ? existingRows : uniqueProductRows;
+          final matchedRow = matchedRows.isEmpty ? null : matchedRows.first;
+          final clientId = matchedRow != null
+              ? _readInt(matchedRow['cliente_id'])
+              : existingRows.isEmpty
+              ? await _resolveIdBySyncId(
+                  txn,
+                  DatabaseSchema.clientsTable,
+                  clientSyncId,
+                )
+              : _readInt(existingRows.first['cliente_id']);
+          final productId = matchedRow != null
+              ? _readInt(matchedRow['solar_id'])
+              : resolvedProductId;
+          final sellerId = matchedRow != null
+              ? _readNullableInt(matchedRow['vendedor_id'])
+              : existingRows.isEmpty
+              ? await _resolveIdBySyncId(
+                  txn,
+                  DatabaseSchema.sellersTable,
+                  sellerSyncId,
+                )
+              : _readNullableInt(existingRows.first['vendedor_id']);
           if (clientId == null || productId == null) {
-            continue;
+            throw RemoteSyncDependencyException(
+              scope: scope,
+              recordSyncId: syncId,
+              missingScopes: {
+                if (clientId == null && clientSyncId != null) 'clients',
+                if (productId == null && productSyncId != null) 'products',
+              },
+              message:
+                  'No se pudo aplicar tombstone remoto de sales $syncId porque faltan referencias locales requeridas.',
+            );
           }
 
           final tombstoneValues = {
             'sync_id': syncId,
             'id_remote': record['id']?.toString().trim(),
-            'id_local': existingRows.isEmpty ? null : existingRows.first['id'],
+            'id_local': matchedRow?['id'],
             'version': _readVersion(record),
             'cliente_id': clientId,
             'solar_id': productId,
@@ -158,14 +193,14 @@ class SalesSyncRepository implements SyncRepository {
             'deleted_at': _readNullableDate(record['deleted_at']),
             'sync_status': DatabaseSchema.syncStatusSynced,
           };
-          if (existingRows.isEmpty) {
+          if (matchedRows.isEmpty) {
             await txn.insert(DatabaseSchema.salesTable, tombstoneValues);
           } else {
             await txn.update(
               DatabaseSchema.salesTable,
               tombstoneValues,
-              where: 'sync_id = ?',
-              whereArgs: [syncId],
+              where: 'id = ?',
+              whereArgs: [matchedRow!['id']],
             );
           }
           continue;
@@ -321,6 +356,19 @@ double? _readNullableDouble(Object? value) {
     return value.toDouble();
   }
   return double.tryParse(value.toString());
+}
+
+int? _readNullableInt(Object? value) {
+  if (value == null) {
+    return null;
+  }
+  if (value is int) {
+    return value;
+  }
+  if (value is num) {
+    return value.toInt();
+  }
+  return int.tryParse(value.toString());
 }
 
 Future<void> _markScopeRowsAsSynced({

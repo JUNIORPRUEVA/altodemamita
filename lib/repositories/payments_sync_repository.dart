@@ -121,28 +121,47 @@ class PaymentsSyncRepository implements SyncRepository {
         }
 
         if (_isDeleted(record['deleted_at'])) {
-          final saleId = await _resolveIdBySyncId(
-            txn,
-            DatabaseSchema.salesTable,
-            _readRequiredString(record['sale_sync_id']),
-          );
-          final clientId = await _resolveIdBySyncId(
-            txn,
-            DatabaseSchema.clientsTable,
-            _readRequiredString(record['client_sync_id']),
-          );
+          final saleSyncId = _readRequiredString(record['sale_sync_id']);
+          final clientSyncId = _readRequiredString(record['client_sync_id']);
           final installmentSyncId = _readRequiredString(
             record['installment_sync_id'],
           );
-          final installmentId = installmentSyncId == null
-              ? null
-              : await _resolveIdBySyncId(
+          final saleId = existingRows.isEmpty
+              ? await _resolveIdBySyncId(
                   txn,
-                  DatabaseSchema.installmentsTable,
-                  installmentSyncId,
-                );
+                  DatabaseSchema.salesTable,
+                  saleSyncId,
+                )
+              : _readInt(existingRows.first['venta_id']);
+          final clientId = existingRows.isEmpty
+              ? await _resolveIdBySyncId(
+                  txn,
+                  DatabaseSchema.clientsTable,
+                  clientSyncId,
+                )
+              : _readInt(existingRows.first['cliente_id']);
+          final installmentId = existingRows.isEmpty
+              ? installmentSyncId == null
+                    ? null
+                    : await _resolveIdBySyncId(
+                        txn,
+                        DatabaseSchema.installmentsTable,
+                        installmentSyncId,
+                      )
+              : _readNullableInt(existingRows.first['cuota_id']);
           if (saleId == null || clientId == null) {
-            continue;
+            throw RemoteSyncDependencyException(
+              scope: scope,
+              recordSyncId: syncId,
+              missingScopes: {
+                if (saleId == null && saleSyncId != null) 'sales',
+                if (clientId == null && clientSyncId != null) 'clients',
+                if (installmentSyncId != null && installmentId == null)
+                  'installments',
+              },
+              message:
+                  'No se pudo aplicar tombstone remoto de payments $syncId porque faltan referencias locales requeridas.',
+            );
           }
 
           final tombstoneValues = {
@@ -391,6 +410,29 @@ double _readDouble(Object? value) {
     return value.toDouble();
   }
   return double.tryParse(value?.toString() ?? '') ?? 0;
+}
+
+int _readInt(Object? value) {
+  if (value is int) {
+    return value;
+  }
+  if (value is num) {
+    return value.toInt();
+  }
+  return int.tryParse(value?.toString() ?? '') ?? 0;
+}
+
+int? _readNullableInt(Object? value) {
+  if (value == null) {
+    return null;
+  }
+  if (value is int) {
+    return value;
+  }
+  if (value is num) {
+    return value.toInt();
+  }
+  return int.tryParse(value.toString());
 }
 
 String? _readRequiredString(Object? value) {

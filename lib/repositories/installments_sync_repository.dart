@@ -119,13 +119,24 @@ class InstallmentsSyncRepository implements SyncRepository {
           )) {
             continue;
           }
-          final saleId = await _resolveIdBySyncId(
-            txn,
-            DatabaseSchema.salesTable,
-            _readRequiredString(record['sale_sync_id']),
-          );
+          final saleSyncId = _readRequiredString(record['sale_sync_id']);
+          final saleId = existingRows.isEmpty
+              ? await _resolveIdBySyncId(
+                  txn,
+                  DatabaseSchema.salesTable,
+                  saleSyncId,
+                )
+              : _readInt(existingRows.first['venta_id']);
           if (saleId == null) {
-            continue;
+            throw RemoteSyncDependencyException(
+              scope: scope,
+              recordSyncId: syncId,
+              missingScopes: {
+                if (saleSyncId != null) 'sales',
+              },
+              message:
+                  'No se pudo aplicar tombstone remoto de installments $syncId porque falta la venta local requerida.',
+            );
           }
 
           final tombstoneValues = {

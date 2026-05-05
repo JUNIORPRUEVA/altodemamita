@@ -11,3 +11,20 @@ abstract class SyncRepository {
 
   Future<void> mergeRemoteRecords(List<Map<String, dynamic>> records);
 }
+
+class RemoteSyncDependencyException implements Exception {
+  const RemoteSyncDependencyException({
+    required this.scope,
+    required this.recordSyncId,
+    required this.missingScopes,
+    required this.message,
+  });
+
+  final String scope;
+  final String recordSyncId;
+  final Set<String> missingScopes;
+  final String message;
+
+  @override
+  String toString() => message;
+}

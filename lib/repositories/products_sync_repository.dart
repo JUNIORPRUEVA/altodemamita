@@ -109,13 +109,31 @@ class ProductsSyncRepository implements SyncRepository {
           continue;
         }
 
+        final blockNumber = _readRequiredString(record['block_number']);
+        final lotNumber = _readRequiredString(record['lot_number']);
+
         final existingRows = await txn.query(
           DatabaseSchema.lotsTable,
           where: 'sync_id = ?',
           whereArgs: [syncId],
           limit: 1,
         );
-        final localRow = existingRows.isEmpty ? null : existingRows.first;
+        final matchingSlotRows = existingRows.isEmpty &&
+                blockNumber != null &&
+                lotNumber != null
+            ? await txn.query(
+                DatabaseSchema.lotsTable,
+                where: 'manzana_numero = ? AND solar_numero = ?',
+                whereArgs: [blockNumber, lotNumber],
+                limit: 1,
+              )
+            : const <Map<String, Object?>>[];
+        final resolvedExistingRows = existingRows.isEmpty
+            ? matchingSlotRows
+            : existingRows;
+        final localRow = resolvedExistingRows.isEmpty
+            ? null
+            : resolvedExistingRows.first;
         final localDeletedAt = localRow?['deleted_at']?.toString().trim();
         final localSyncStatus =
             localRow?['sync_status']?.toString().trim().toLowerCase() ?? '';
@@ -131,7 +149,7 @@ class ProductsSyncRepository implements SyncRepository {
         }
 
         if (_shouldKeepLocal(
-          existingRows,
+          resolvedExistingRows,
           record,
           updatedAtField: 'fecha_actualizacion',
         )) {
@@ -142,12 +160,12 @@ class ProductsSyncRepository implements SyncRepository {
           final tombstoneValues = {
             'sync_id': syncId,
             'id_remote': record['id']?.toString().trim(),
-            'id_local': existingRows.isEmpty ? null : existingRows.first['id'],
+            'id_local': resolvedExistingRows.isEmpty
+                ? null
+                : resolvedExistingRows.first['id'],
             'version': _readVersion(record),
-            'manzana_numero': _readRequiredString(record['block_number']) ??
-                '_deleted_block_$syncId',
-            'solar_numero': _readRequiredString(record['lot_number']) ??
-                '_deleted_lot_$syncId',
+            'manzana_numero': blockNumber ?? '_deleted_block_$syncId',
+            'solar_numero': lotNumber ?? '_deleted_lot_$syncId',
             'metros_cuadrados': _readDouble(record['area']),
             'precio_por_metro': _readDouble(record['price_per_square_meter']),
             'estado': record['status'] ?? 'disponible',
@@ -157,14 +175,14 @@ class ProductsSyncRepository implements SyncRepository {
             'deleted_at': _readNullableDate(record['deleted_at']),
             'sync_status': DatabaseSchema.syncStatusSynced,
           };
-          if (existingRows.isEmpty) {
+          if (resolvedExistingRows.isEmpty) {
             await txn.insert(DatabaseSchema.lotsTable, tombstoneValues);
           } else {
             await txn.update(
               DatabaseSchema.lotsTable,
               tombstoneValues,
-              where: 'sync_id = ?',
-              whereArgs: [syncId],
+              where: 'id = ?',
+              whereArgs: [resolvedExistingRows.first['id']],
             );
           }
           continue;
@@ -173,10 +191,12 @@ class ProductsSyncRepository implements SyncRepository {
         final values = {
           'sync_id': syncId,
           'id_remote': record['id']?.toString().trim(),
-          'id_local': existingRows.isEmpty ? null : existingRows.first['id'],
+          'id_local': resolvedExistingRows.isEmpty
+              ? null
+              : resolvedExistingRows.first['id'],
           'version': _readVersion(record),
-          'manzana_numero': record['block_number'] ?? '',
-          'solar_numero': record['lot_number'] ?? '',
+          'manzana_numero': blockNumber ?? '',
+          'solar_numero': lotNumber ?? '',
           'metros_cuadrados': _readDouble(record['area']),
           'precio_por_metro': _readDouble(record['price_per_square_meter']),
           'estado': record['status'] ?? 'disponible',
@@ -187,14 +207,14 @@ class ProductsSyncRepository implements SyncRepository {
           'sync_status': DatabaseSchema.syncStatusSynced,
         };
 
-        if (existingRows.isEmpty) {
+        if (resolvedExistingRows.isEmpty) {
           await txn.insert(DatabaseSchema.lotsTable, values);
         } else {
           await txn.update(
             DatabaseSchema.lotsTable,
             values,
-            where: 'sync_id = ?',
-            whereArgs: [syncId],
+            where: 'id = ?',
+            whereArgs: [resolvedExistingRows.first['id']],
           );
         }
       }

@@ -445,6 +445,7 @@ class SyncService {
   Future<int> downloadUpdatesForScopes(
     Iterable<String> scopes, {
     bool forceFullDownload = false,
+    bool allowRecoveryPass = true,
   }) async {
     if (!_downloadFromCloudEnabled) {
       return 0;
@@ -502,6 +503,16 @@ class SyncService {
     for (final scope in targetScopes) {
       cursorBeforeByScope[scope] = await _configRepository.loadCursor(scope);
     }
+    final cascadedFullScopes = _buildDependentFullDownloadScopes(
+      targetScopes,
+      cursorBeforeByScope,
+    );
+    if (cascadedFullScopes.isNotEmpty) {
+      await _configRepository.clearCursors(cascadedFullScopes);
+      for (final scope in cascadedFullScopes) {
+        cursorBeforeByScope[scope] = null;
+      }
+    }
 
     late final SyncDownloadResponse response;
     try {
@@ -520,6 +531,7 @@ class SyncService {
 
     var downloadedRecords = 0;
     final scopeWarnings = <String>[];
+    final retryScopes = <String>{};
 
     for (final repository in _repositories) {
       if (!targetScopes.contains(repository.scope)) {
@@ -570,6 +582,24 @@ class SyncService {
           },
         );
       } catch (error) {
+        if (error is RemoteSyncDependencyException) {
+          final recoveryScopes = _expandRecoveryScopes({
+            repository.scope,
+            ...error.missingScopes,
+          }).intersection(targetScopes);
+          if (recoveryScopes.isNotEmpty) {
+            await _configRepository.clearCursors(recoveryScopes);
+            retryScopes.addAll(recoveryScopes);
+          }
+          await _syncLogger.log(
+            action: 'download-scope',
+            entity: repository.scope,
+            result: 'retry',
+            error: error.toString(),
+            extra: {'retry_scopes': recoveryScopes.toList()},
+          );
+          continue;
+        }
         await _syncLogger.log(
           action: 'download-scope',
           entity: repository.scope,
@@ -580,6 +610,14 @@ class SyncService {
           'No se pudieron aplicar cambios remotos de ${repository.scope}: $error',
         );
       }
+    }
+
+    if (retryScopes.isNotEmpty && allowRecoveryPass) {
+      downloadedRecords += await downloadUpdatesForScopes(
+        retryScopes,
+        forceFullDownload: true,
+        allowRecoveryPass: false,
+      );
     }
 
     _lastScopeWarnings = scopeWarnings;
@@ -767,5 +805,51 @@ class SyncService {
       return value.toInt();
     }
     return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  Set<String> _buildDependentFullDownloadScopes(
+    Set<String> targetScopes,
+    Map<String, DateTime?> cursorBeforeByScope,
+  ) {
+    final incompleteScopes = <String>{};
+    for (final scope in const ['clients', 'products', 'sales', 'installments']) {
+      if (!targetScopes.contains(scope)) {
+        continue;
+      }
+      if (cursorBeforeByScope[scope] == null) {
+        incompleteScopes.add(scope);
+      }
+    }
+    return _expandRecoveryScopes(incompleteScopes).intersection(targetScopes);
+  }
+
+  Set<String> _expandRecoveryScopes(Set<String> scopes) {
+    final expanded = <String>{...scopes};
+    var changed = true;
+    while (changed) {
+      changed = false;
+      if ((expanded.contains('clients') ||
+              expanded.contains('products') ||
+              expanded.contains('sellers')) &&
+          !expanded.contains('sales')) {
+        expanded.add('sales');
+        changed = true;
+      }
+      if (expanded.contains('sales')) {
+        if (!expanded.contains('installments')) {
+          expanded.add('installments');
+          changed = true;
+        }
+        if (!expanded.contains('payments')) {
+          expanded.add('payments');
+          changed = true;
+        }
+      }
+      if (expanded.contains('installments') && !expanded.contains('payments')) {
+        expanded.add('payments');
+        changed = true;
+      }
+    }
+    return expanded;
   }
 }

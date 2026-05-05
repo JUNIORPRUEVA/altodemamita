@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -65,7 +66,7 @@ void main() {
         jwtToken: 'jwt-token',
         queueRetryInterval: Duration(seconds: 5),
         realtimePollingInterval: Duration(seconds: 5),
-        conflictStrategy: SyncConflictStrategy.serverWins,
+        conflictStrategy: SyncConflictStrategy.lastWriteWins,
         deviceId: 'device-test',
       ),
     );
@@ -84,6 +85,24 @@ class _StaticJsonHttpClient implements HttpClient {
   _StaticJsonHttpClient(this.payload);
 
   final Map<String, Object?> payload;
+  Duration? _connectionTimeout;
+  Duration? _idleTimeout;
+
+  @override
+  Duration? get connectionTimeout => _connectionTimeout;
+
+  @override
+  set connectionTimeout(Duration? value) {
+    _connectionTimeout = value;
+  }
+
+  @override
+  Duration get idleTimeout => _idleTimeout ?? Duration.zero;
+
+  @override
+  set idleTimeout(Duration value) {
+    _idleTimeout = value;
+  }
 
   @override
   Future<HttpClientRequest> getUrl(Uri url) async =>
@@ -142,6 +161,22 @@ class _StaticJsonResponse extends Stream<List<int>>
 }
 
 class _StaticHeaders implements HttpHeaders {
+  ContentType? _contentType;
+  final Map<String, Object> _values = {};
+
+  @override
+  ContentType? get contentType => _contentType;
+
+  @override
+  set contentType(ContentType? value) {
+    _contentType = value;
+  }
+
+  @override
+  void set(String name, Object value, {bool preserveHeaderCase = false}) {
+    _values[name] = value;
+  }
+
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
