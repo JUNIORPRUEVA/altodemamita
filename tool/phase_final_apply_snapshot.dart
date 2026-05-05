@@ -103,6 +103,7 @@ Future<void> main(List<String> args) async {
 
   var appliedRecords = 0;
   var retryScopes = <String>{};
+  final retryDetails = <Map<String, Object?>>[];
   for (final scope in _applyOrder) {
     final scopeRecords = remoteRecordsByScope[scope] ?? const <Map<String, dynamic>>[];
     try {
@@ -114,6 +115,12 @@ Future<void> main(List<String> args) async {
       if (error is RemoteSyncDependencyException) {
         retryScopes.add(scope);
         retryScopes.addAll(error.missingScopes);
+        retryDetails.add({
+          'scope': scope,
+          'record_sync_id': error.recordSyncId,
+          'missing_scopes': error.missingScopes.toList(),
+          'message': error.message,
+        });
         continue;
       }
       rethrow;
@@ -134,6 +141,12 @@ Future<void> main(List<String> args) async {
         if (error is RemoteSyncDependencyException) {
           retryScopes.add(scope);
           retryScopes.addAll(error.missingScopes);
+          retryDetails.add({
+            'scope': scope,
+            'record_sync_id': error.recordSyncId,
+            'missing_scopes': error.missingScopes.toList(),
+            'message': error.message,
+          });
           continue;
         }
         rethrow;
@@ -160,6 +173,7 @@ Future<void> main(List<String> args) async {
       'snapshot_path': snapshotPath,
       'applied_records': appliedRecords,
       'remaining_retry_scopes': retryScopes.toList(),
+      'retry_details': retryDetails,
       'before': {
         'local_summary': beforeSummary,
         'comparison': beforeComparison,

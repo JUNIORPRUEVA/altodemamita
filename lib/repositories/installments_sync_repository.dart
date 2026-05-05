@@ -128,18 +128,7 @@ class InstallmentsSyncRepository implements SyncRepository {
                 )
               : _readInt(existingRows.first['venta_id']);
           final installmentNumber = _readInt(record['installment_number']);
-          final uniqueInstallmentRows =
-              existingRows.isEmpty && resolvedSaleId != null
-              ? await txn.query(
-                  DatabaseSchema.installmentsTable,
-                  where: 'venta_id = ? AND numero_cuota = ?',
-                  whereArgs: [resolvedSaleId, installmentNumber],
-                  limit: 1,
-                )
-              : const <Map<String, Object?>>[];
-          final matchedRows = existingRows.isNotEmpty
-              ? existingRows
-              : uniqueInstallmentRows;
+            final matchedRows = existingRows;
           final matchedRow = matchedRows.isEmpty ? null : matchedRows.first;
           final saleId = matchedRow != null
               ? _readInt(matchedRow['venta_id'])

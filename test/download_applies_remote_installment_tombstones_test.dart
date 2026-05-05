@@ -119,7 +119,7 @@ void main() {
     expect(rows.single['sync_status'], DatabaseSchema.syncStatusSynced);
   });
 
-  test('reuses local installment occupying the same sale and number slot', () async {
+  test('keeps local installment and inserts remote tombstone with same sale and number', () async {
     final db = await appDatabase.database;
     final now = DateTime.now().toIso8601String();
     await db.insert(DatabaseSchema.clientsTable, {
@@ -221,11 +221,20 @@ void main() {
       },
     ]);
 
-    final rows = await db.query(DatabaseSchema.installmentsTable);
+    final rows = await db.query(
+      DatabaseSchema.installmentsTable,
+      orderBy: 'sync_id ASC',
+    );
 
-    expect(rows, hasLength(1));
-    expect(rows.single['sync_id'], 'installment-1');
-    expect(rows.single['deleted_at'], now);
-    expect(rows.single['sync_status'], DatabaseSchema.syncStatusSynced);
+    expect(rows, hasLength(2));
+    expect(
+      rows.where((row) => row['sync_id'] == 'local-installment-conflict'),
+      hasLength(1),
+    );
+    expect(rows.where((row) => row['sync_id'] == 'installment-1'), hasLength(1));
+    expect(
+      rows.firstWhere((row) => row['sync_id'] == 'installment-1')['deleted_at'],
+      now,
+    );
   });
 }

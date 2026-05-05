@@ -111,15 +111,7 @@ class SalesSyncRepository implements SyncRepository {
                   productSyncId,
                 )
               : _readInt(existingRows.first['solar_id']);
-          final uniqueProductRows = existingRows.isEmpty && resolvedProductId != null
-              ? await txn.query(
-                  DatabaseSchema.salesTable,
-                  where: 'solar_id = ?',
-                  whereArgs: [resolvedProductId],
-                  limit: 1,
-                )
-              : const <Map<String, Object?>>[];
-          final matchedRows = existingRows.isNotEmpty ? existingRows : uniqueProductRows;
+          final matchedRows = existingRows;
           final matchedRow = matchedRows.isEmpty ? null : matchedRows.first;
           final clientId = matchedRow != null
               ? _readInt(matchedRow['cliente_id'])

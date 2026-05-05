@@ -119,18 +119,19 @@ class ProductsSyncRepository implements SyncRepository {
           limit: 1,
         );
         final matchingSlotRows = existingRows.isEmpty &&
-                blockNumber != null &&
-                lotNumber != null
-            ? await txn.query(
-                DatabaseSchema.lotsTable,
-                where: 'manzana_numero = ? AND solar_numero = ?',
-                whereArgs: [blockNumber, lotNumber],
-                limit: 1,
-              )
-            : const <Map<String, Object?>>[];
+            blockNumber != null &&
+            lotNumber != null &&
+            !_isDeleted(record['deleted_at'])
+          ? await txn.query(
+            DatabaseSchema.lotsTable,
+            where: 'manzana_numero = ? AND solar_numero = ?',
+            whereArgs: [blockNumber, lotNumber],
+            limit: 1,
+            )
+          : const <Map<String, Object?>>[];
         final resolvedExistingRows = existingRows.isEmpty
-            ? matchingSlotRows
-            : existingRows;
+          ? matchingSlotRows
+          : existingRows;
         final localRow = resolvedExistingRows.isEmpty
             ? null
             : resolvedExistingRows.first;

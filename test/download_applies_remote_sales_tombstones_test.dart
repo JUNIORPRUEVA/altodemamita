@@ -97,7 +97,7 @@ void main() {
     expect(rows.single['sync_status'], DatabaseSchema.syncStatusSynced);
   });
 
-  test('reuses local sale occupying the same solar unique slot', () async {
+  test('keeps local sale and inserts remote sales tombstone with same solar', () async {
     final db = await appDatabase.database;
     final now = DateTime.now().toIso8601String();
     await db.insert(DatabaseSchema.clientsTable, {
@@ -185,12 +185,18 @@ void main() {
       },
     ]);
 
-    final rows = await db.query(DatabaseSchema.salesTable);
+    final rows = await db.query(
+      DatabaseSchema.salesTable,
+      orderBy: 'sync_id ASC',
+    );
 
-    expect(rows, hasLength(1));
-    expect(rows.single['sync_id'], 'sale-1');
-    expect(rows.single['deleted_at'], now);
-    expect(rows.single['sync_status'], DatabaseSchema.syncStatusSynced);
+    expect(rows, hasLength(2));
+    expect(rows.where((row) => row['sync_id'] == 'local-sale-conflict'), hasLength(1));
+    expect(rows.where((row) => row['sync_id'] == 'sale-1'), hasLength(1));
+    expect(
+      rows.firstWhere((row) => row['sync_id'] == 'sale-1')['deleted_at'],
+      now,
+    );
   });
 
   test('reuses local active sale occupying the same solar unique slot', () async {
