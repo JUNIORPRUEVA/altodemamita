@@ -47,16 +47,14 @@ class SalesRepository {
     final db = await _appDatabase.database;
     final normalizedQuery = query.trim();
     final whereClause = normalizedQuery.isEmpty
-        ? 'WHERE v.deleted_at IS NULL AND c.deleted_at IS NULL AND s.deleted_at IS NULL'
+        ? 'WHERE v.deleted_at IS NULL'
         : '''
       WHERE v.deleted_at IS NULL
-        AND c.deleted_at IS NULL
-        AND s.deleted_at IS NULL
         AND (
-          c.nombre LIKE ?
-        OR c.cedula LIKE ?
-        OR s.manzana_numero LIKE ?
-        OR s.solar_numero LIKE ?
+          COALESCE(c.nombre, '') LIKE ?
+        OR COALESCE(c.cedula, '') LIKE ?
+        OR COALESCE(s.manzana_numero, '') LIKE ?
+        OR COALESCE(s.solar_numero, '') LIKE ?
         OR v.estado LIKE ?
         )
     ''';
@@ -79,14 +77,14 @@ class SalesRepository {
         v.interes_mensual,
         v.cantidad_cuotas,
         v.estado,
-        c.nombre AS cliente_nombre,
-        c.cedula AS cliente_cedula,
-        s.manzana_numero,
-        s.solar_numero,
+        COALESCE(c.nombre, '[Cliente no disponible]') AS cliente_nombre,
+        COALESCE(c.cedula, '') AS cliente_cedula,
+        COALESCE(s.manzana_numero, '?') AS manzana_numero,
+        COALESCE(s.solar_numero, '?') AS solar_numero,
         COUNT(CASE WHEN q.estado <> 'ajustada' THEN 1 END) AS cuotas_generadas
       FROM ${DatabaseSchema.salesTable} v
-      INNER JOIN ${DatabaseSchema.clientsTable} c ON c.id = v.cliente_id
-      INNER JOIN ${DatabaseSchema.lotsTable} s ON s.id = v.solar_id
+      LEFT JOIN ${DatabaseSchema.clientsTable} c ON c.id = v.cliente_id
+      LEFT JOIN ${DatabaseSchema.lotsTable} s ON s.id = v.solar_id
       LEFT JOIN ${DatabaseSchema.installmentsTable} q ON q.venta_id = v.id AND q.deleted_at IS NULL
       $whereClause
       GROUP BY
@@ -145,19 +143,17 @@ class SalesRepository {
         v.interes_mensual,
         v.cantidad_cuotas,
         v.estado,
-        c.nombre AS cliente_nombre,
-        c.cedula AS cliente_cedula,
-        s.manzana_numero,
-        s.solar_numero,
+        COALESCE(c.nombre, '[Cliente no disponible]') AS cliente_nombre,
+        COALESCE(c.cedula, '') AS cliente_cedula,
+        COALESCE(s.manzana_numero, '?') AS manzana_numero,
+        COALESCE(s.solar_numero, '?') AS solar_numero,
         COUNT(CASE WHEN q.estado <> 'ajustada' THEN 1 END) AS cuotas_generadas
       FROM ${DatabaseSchema.salesTable} v
-      INNER JOIN ${DatabaseSchema.clientsTable} c ON c.id = v.cliente_id
-      INNER JOIN ${DatabaseSchema.lotsTable} s ON s.id = v.solar_id
+      LEFT JOIN ${DatabaseSchema.clientsTable} c ON c.id = v.cliente_id
+      LEFT JOIN ${DatabaseSchema.lotsTable} s ON s.id = v.solar_id
       LEFT JOIN ${DatabaseSchema.installmentsTable} q ON q.venta_id = v.id AND q.deleted_at IS NULL
       WHERE v.vendedor_id = ?
         AND v.deleted_at IS NULL
-        AND c.deleted_at IS NULL
-        AND s.deleted_at IS NULL
       GROUP BY
         v.id,
         v.sync_status,
@@ -196,19 +192,19 @@ class SalesRepository {
       '''
       SELECT
         v.*,
-        c.nombre AS cliente_nombre,
-        c.cedula AS cliente_cedula,
-        s.manzana_numero,
-        s.solar_numero,
-        s.metros_cuadrados,
-        s.precio_por_metro,
+        COALESCE(c.nombre, '[Cliente no disponible]') AS cliente_nombre,
+        COALESCE(c.cedula, '') AS cliente_cedula,
+        COALESCE(s.manzana_numero, '?') AS manzana_numero,
+        COALESCE(s.solar_numero, '?') AS solar_numero,
+        COALESCE(s.metros_cuadrados, 0) AS metros_cuadrados,
+        COALESCE(s.precio_por_metro, 0) AS precio_por_metro,
         u.nombre AS usuario_nombre,
         vnd.nombre AS vendedor_nombre,
         vnd.cedula AS vendedor_cedula,
         vnd.telefono AS vendedor_telefono
       FROM ${DatabaseSchema.salesTable} v
-      INNER JOIN ${DatabaseSchema.clientsTable} c ON c.id = v.cliente_id
-      INNER JOIN ${DatabaseSchema.lotsTable} s ON s.id = v.solar_id
+      LEFT JOIN ${DatabaseSchema.clientsTable} c ON c.id = v.cliente_id
+      LEFT JOIN ${DatabaseSchema.lotsTable} s ON s.id = v.solar_id
       INNER JOIN ${DatabaseSchema.usersTable} u ON u.id = v.usuario_id
       LEFT JOIN ${DatabaseSchema.sellersTable} vnd ON vnd.id = v.vendedor_id
       WHERE v.id = ? AND v.deleted_at IS NULL

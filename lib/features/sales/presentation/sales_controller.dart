@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../../../core/resilience/friendly_error_messages.dart';
@@ -168,7 +170,8 @@ class SalesController extends ChangeNotifier {
 
     try {
       await _salesRepository.deleteSale(saleId);
-      await _reloadAfterDelete();
+      _removeDeletedSaleFromView(saleId);
+      unawaited(_reloadAfterDeleteInBackground());
       return null;
     } catch (error) {
       return FriendlyErrorMessages.forOperation(
@@ -178,6 +181,25 @@ class SalesController extends ChangeNotifier {
       );
     } finally {
       isSaving = false;
+      _notifyIfActive();
+    }
+  }
+
+  void _removeDeletedSaleFromView(int saleId) {
+    sales = sales.where((sale) => sale.id != saleId).toList(growable: false);
+  }
+
+  Future<void> _reloadAfterDeleteInBackground() async {
+    if (_isDisposed) {
+      return;
+    }
+
+    try {
+      await _reloadAfterDelete();
+    } catch (_) {
+      // The local deletion already succeeded; a later reload or sync will
+      // converge derived lists if this refresh fails transiently.
+    } finally {
       _notifyIfActive();
     }
   }

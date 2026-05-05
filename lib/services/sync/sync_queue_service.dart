@@ -397,16 +397,12 @@ class SyncQueueService {
     final queuedByScope = <String, List<String>>{};
 
     await db.transaction((txn) async {
-      for (final item in normalizedItems) {
-        final existingRows = await txn.query(
-          DatabaseSchema.syncQueueTable,
-          columns: ['id'],
-          where: 'scope = ? AND record_sync_id = ?',
-          whereArgs: [item.scope, item.recordSyncId],
-          limit: 1,
-        );
+      final batch = txn.batch();
 
-        final values = <String, Object?>{
+      for (final item in normalizedItems) {
+        batch.insert(
+          DatabaseSchema.syncQueueTable,
+          <String, Object?>{
           'scope': item.scope,
           'record_sync_id': item.recordSyncId,
           'operation': 'delete',
@@ -415,26 +411,17 @@ class SyncQueueService {
           'next_attempt_at': now,
           'last_error': null,
           'attempt_count': 0,
-        };
-
-        if (existingRows.isEmpty) {
-          await txn.insert(DatabaseSchema.syncQueueTable, {
-            ...values,
             'created_at': now,
-          });
-        } else {
-          await txn.update(
-            DatabaseSchema.syncQueueTable,
-            values,
-            where: 'scope = ? AND record_sync_id = ?',
-            whereArgs: [item.scope, item.recordSyncId],
-          );
-        }
+          },
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
 
         queuedByScope.putIfAbsent(item.scope, () => <String>[]).add(
           item.recordSyncId,
         );
       }
+
+      await batch.commit(noResult: true);
     });
 
     for (final entry in queuedByScope.entries) {
@@ -788,6 +775,13 @@ class SyncQueueService {
             );
           }
 
+          if (scope == 'sales' && affectedIds.isNotEmpty) {
+            await _handleDependentInstallmentConflictsForSales(
+              saleSyncIds: affectedIds,
+              settings: settings,
+            );
+          }
+
           await _deleteQueuedRecords(scope, affectedIds);
 
           final retryIds = entryItems
@@ -1129,6 +1123,66 @@ class SyncQueueService {
       }
       rethrow;
     }
+  }
+
+  Future<void> _handleDependentInstallmentConflictsForSales({
+    required Iterable<String> saleSyncIds,
+    required SyncSettings settings,
+  }) async {
+    final installmentsRepository = _repositoriesByScope['installments'];
+    if (installmentsRepository == null) {
+      return;
+    }
+
+    final dependentInstallmentIds = await _findQueuedInstallmentIdsForSales(
+      saleSyncIds,
+    );
+    if (dependentInstallmentIds.isEmpty) {
+      return;
+    }
+
+    await installmentsRepository.markAsConflict(dependentInstallmentIds);
+    await _deleteQueuedRecords('installments', dependentInstallmentIds);
+    await _attemptConflictRecoveryDownload(
+      scope: 'installments',
+      settings: settings,
+      repository: installmentsRepository,
+      conflictedIds: dependentInstallmentIds,
+    );
+  }
+
+  Future<List<String>> _findQueuedInstallmentIdsForSales(
+    Iterable<String> saleSyncIds,
+  ) async {
+    final normalizedSaleIds = saleSyncIds
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+    if (normalizedSaleIds.isEmpty) {
+      return const [];
+    }
+
+    final db = await _appDatabase.database;
+    final placeholders = List.filled(normalizedSaleIds.length, '?').join(', ');
+    final rows = await db.rawQuery(
+      '''
+      SELECT DISTINCT sq.record_sync_id
+      FROM ${DatabaseSchema.syncQueueTable} sq
+      INNER JOIN ${DatabaseSchema.installmentsTable} i
+        ON i.sync_id = sq.record_sync_id
+      INNER JOIN ${DatabaseSchema.salesTable} s
+        ON s.id = i.venta_id
+      WHERE sq.scope = 'installments'
+        AND s.sync_id IN ($placeholders)
+      ''',
+      normalizedSaleIds,
+    );
+
+    return rows
+        .map((row) => row['record_sync_id']?.toString().trim() ?? '')
+        .where((value) => value.isNotEmpty)
+        .toList(growable: false);
   }
 
   Future<void> _deleteQueuedScopes(Iterable<String> scopes) async {

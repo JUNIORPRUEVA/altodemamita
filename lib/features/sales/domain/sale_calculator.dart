@@ -1,5 +1,17 @@
 import '../../installments/domain/installment.dart';
 
+class SaleScheduleEntry {
+  const SaleScheduleEntry({
+    required this.capitalPayment,
+    required this.interestPayment,
+    required this.totalPayment,
+  });
+
+  final double capitalPayment;
+  final double interestPayment;
+  final double totalPayment;
+}
+
 class SaleCalculator {
   static double calculateDownPaymentAmount({
     required double salePrice,
@@ -86,6 +98,35 @@ class SaleCalculator {
             installmentCount: installmentCount,
           ),
     );
+  }
+
+  static List<SaleScheduleEntry> generateSchedule({
+    required double financedBalance,
+    required double monthlyInterest,
+    required int installmentCount,
+  }) {
+    if (installmentCount <= 0 || financedBalance <= 0) {
+      return const [];
+    }
+
+    final installments = buildInstallmentSchedule(
+      saleId: 0,
+      saleDate: DateTime(2000, 1, 1),
+      financedBalance: financedBalance,
+      monthlyInterest: monthlyInterest,
+      installmentCount: installmentCount,
+      createdAt: DateTime(2000, 1, 1),
+    );
+
+    return installments
+        .map(
+          (installment) => SaleScheduleEntry(
+            capitalPayment: installment.principalAmount,
+            interestPayment: installment.interestAmount,
+            totalPayment: installment.totalAmount,
+          ),
+        )
+        .toList(growable: false);
   }
 
   static List<Installment> buildInstallmentSchedule({

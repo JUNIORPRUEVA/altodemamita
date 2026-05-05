@@ -626,7 +626,7 @@ class _InstallmentsSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SectionTitle(title: 'Cuotas del financiamiento'),
+        const _SectionTitle(title: 'Cuotas amortizadas'),
         const SizedBox(height: 10),
         Container(
           width: double.infinity,
@@ -991,7 +991,7 @@ class _BottomBar extends StatelessWidget {
                 ),
                 const SizedBox(width: 6),
                 Text(
-                  'Resumen del financiamiento',
+                  'Resumen de amortización',
                   style: const TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w800,

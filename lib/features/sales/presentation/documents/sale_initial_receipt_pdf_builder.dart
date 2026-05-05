@@ -312,7 +312,7 @@ class SaleInitialReceiptPdfBuilder {
       _F('Inicial mÃ­nimo requerido', _money(sale.requiredInitialPayment)),
       _F('Inicial real pagado',      _money(sale.paidInitialPayment), highlight: true),
       _F('Inicial pendiente',        _money(sale.pendingInitialPayment)),
-      _F('Capital financiado',       _money(sale.financedBalance),    highlight: true),
+      _F('Saldo financiado',         _money(sale.financedBalance),    highlight: true),
       _F('Saldo pendiente',          _money(sale.pendingBalance)),
       _F('Cuota fija estimada',      _money(estAmt)),
     ], columns: 2);

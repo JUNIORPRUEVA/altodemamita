@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -53,14 +52,6 @@ class _SalesPageState extends State<SalesPage> {
   bool _hasInternet = true;
   int _internetProbeFailures = 0;
   StreamSubscription<List<ConnectivityResult>>? _internetSubscription;
-  bool _isUpdatingSale = false;
-  OverlayEntry? _savingOverlayEntry;
-
-  void _debugEditLog(String message) {
-    if (kDebugMode) {
-      debugPrint('[SALES][EDIT] $message');
-    }
-  }
 
   Future<void> _reloadControllerSafely() async {
     if (!mounted || _controller.isDisposed) {
@@ -389,11 +380,6 @@ class _SalesPageState extends State<SalesPage> {
     _SaleAdminAction action,
     SaleSummary summary,
   ) async {
-    if (_controller.isSaving || _isUpdatingSale) {
-      _showMessage('Ya hay una operacion de guardado en progreso.');
-      return;
-    }
-
     switch (action) {
       case _SaleAdminAction.editSale:
         await _editSale(summary);
@@ -473,17 +459,8 @@ class _SalesPageState extends State<SalesPage> {
   }
 
   Future<void> _editSale(SaleSummary summary) async {
-    if (_controller.isSaving || _isUpdatingSale) {
-      _debugEditLog(
-        'blocked duplicate edit request saleId=${summary.id} (isSaving=${_controller.isSaving}, isUpdatingSale=$_isUpdatingSale)',
-      );
-      return;
-    }
-
-    _debugEditLog('start edit flow saleId=${summary.id}');
     final detail = await _controller.fetchDetail(summary.id);
     if (!mounted || detail == null) {
-      _debugEditLog('stop: detail unavailable saleId=${summary.id}');
       return;
     }
 
@@ -531,113 +508,15 @@ class _SalesPageState extends State<SalesPage> {
       onSellerCreated: _reloadControllerSafely,
     );
     if (!mounted || draft == null) {
-      _debugEditLog('stop: dialog canceled saleId=${summary.id}');
       return;
     }
 
-    _debugEditLog(
-      'submit update saleId=${summary.id} clientId=${draft.clientId} lotId=${draft.lotId} installments=${draft.installmentCount}',
-    );
-
-    setState(() {
-      _isUpdatingSale = true;
-    });
-
-    var loadingShown = false;
-    try {
-      if (mounted) {
-        loadingShown = _showSavingOverlay();
-      }
-
-      final error = await _controller.updateSale(summary.id, draft);
-      if (!mounted) {
-        return;
-      }
-
-      _debugEditLog(
-        error == null
-            ? 'update success saleId=${summary.id}'
-            : 'update failed saleId=${summary.id} error=$error',
-      );
-      _showMessage(error ?? 'Venta actualizada correctamente.');
-    } finally {
-      if (mounted) {
-        if (loadingShown) {
-          _hideSavingOverlay();
-        }
-        setState(() {
-          _isUpdatingSale = false;
-        });
-      }
-    }
-  }
-
-  bool _showSavingOverlay({
-    String message = 'Guardando cambios de la venta...',
-  }) {
-    if (_savingOverlayEntry != null) {
-      return false;
+    final error = await _controller.updateSale(summary.id, draft);
+    if (!mounted) {
+      return;
     }
 
-    final overlayState = Overlay.of(context, rootOverlay: true);
-
-    _savingOverlayEntry = OverlayEntry(
-      builder: (overlayContext) {
-        return Stack(
-          children: [
-            const ModalBarrier(
-              dismissible: false,
-              color: Color(0x66000000),
-            ),
-            Center(
-              child: Material(
-                color: Colors.transparent,
-                child: Container(
-                  constraints: const BoxConstraints(maxWidth: 340),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 16,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(28),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Color(0x22000000),
-                        blurRadius: 18,
-                        offset: Offset(0, 8),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2.2),
-                      ),
-                      const SizedBox(width: 12),
-                      Flexible(
-                        child: Text(message),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-
-    overlayState.insert(_savingOverlayEntry!);
-    return true;
-  }
-
-  void _hideSavingOverlay() {
-    _savingOverlayEntry?.remove();
-    _savingOverlayEntry = null;
+    _showMessage(error ?? 'Venta actualizada correctamente.');
   }
 
   Future<void> _confirmDeleteSale(SaleSummary summary) async {
@@ -667,25 +546,12 @@ class _SalesPageState extends State<SalesPage> {
       return;
     }
 
-    var loadingShown = false;
-    try {
-      if (mounted) {
-        loadingShown = _showSavingOverlay(
-          message: 'Eliminando venta y preparando sincronizacion...',
-        );
-      }
-
-      final error = await _controller.deleteSale(summary.id);
-      if (!mounted) {
-        return;
-      }
-
-      _showMessage(error ?? 'Venta eliminada correctamente.');
-    } finally {
-      if (mounted && loadingShown) {
-        _hideSavingOverlay();
-      }
+    final error = await _controller.deleteSale(summary.id);
+    if (!mounted) {
+      return;
     }
+
+    _showMessage(error ?? 'Venta eliminada correctamente.');
   }
 
   Future<void> _editSeller(SaleSummary summary) async {

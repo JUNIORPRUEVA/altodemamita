@@ -310,14 +310,10 @@ class ClientRepository implements SyncRepository {
 
     final db = await _appDatabase.database;
     final placeholders = List.filled(normalizedIds.length, '?').join(', ');
-    await db.rawDelete(
-      'DELETE FROM ${DatabaseSchema.clientsTable} WHERE deleted_at IS NOT NULL AND sync_id IN ($placeholders)',
-      normalizedIds,
-    );
     await db.rawUpdate(
       'UPDATE ${DatabaseSchema.clientsTable} '
       'SET sync_status = ? '
-      'WHERE deleted_at IS NULL AND sync_id IN ($placeholders)',
+      'WHERE sync_id IN ($placeholders)',
       [SyncStatus.synced.storageValue, ...normalizedIds],
     );
   }

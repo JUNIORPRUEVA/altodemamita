@@ -1,4 +1,5 @@
 ﻿import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 import 'package:pdf/pdf.dart';
@@ -228,11 +229,7 @@ class SaleAmortizationPdfBuilder {
         ? null : detail.installments.first;
     final estAmt = firstInstallment?.totalAmount ??
         (sale.installmentCount > 0
-            ? SaleCalculator.calculateEstimatedInstallmentAmount(
-                financedBalance: sale.financedBalance,
-                monthlyInterest: sale.monthlyInterest,
-                installmentCount: sale.installmentCount,
-              )
+            ? sale.financedBalance / sale.installmentCount
             : 0.0);
 
     final items = <_SumItem>[
@@ -240,12 +237,9 @@ class SaleAmortizationPdfBuilder {
       _SumItem('Cliente',          detail.clientName),
       _SumItem('Precio del solar', _money(sale.salePrice)),
       _SumItem('Inicial pagado',   _money(sale.paidInitialPayment)),
-      _SumItem('Capital financiado', _money(sale.financedBalance), bold: true),
+      _SumItem('Saldo financiado', _money(sale.financedBalance), bold: true),
       _SumItem('InterÃ©s mensual',  '${sale.monthlyInterest.toStringAsFixed(2)}%'),
-      _SumItem('InterÃ©s total',    _money(computed.totalInterest)),
       _SumItem('No. de cuotas',    '${sale.installmentCount}'),
-      _SumItem('Total del plan',   _money(computed.totalAmount), bold: true),
-      _SumItem('Saldo pendiente',  _money(sale.pendingBalance)),
       _SumItem('Cuota estimada',   _money(estAmt), bold: true),
     ];
 
@@ -325,6 +319,8 @@ class SaleAmortizationPdfBuilder {
     const headers = [
       'Cuota', 'Fecha', 'Capital', 'InterÃ©s', 'Total', 'Saldo Pendiente',
     ];
+    const hStyle = pw.TextStyle();
+
     return pw.TableHelper.fromTextArray(
       headers: headers,
       data: computed.rows,
@@ -432,26 +428,42 @@ class _ComputedTable {
   final double totalAmount;
 
   factory _ComputedTable.fromDetail(SaleDetail detail) {
-    var totalCapital = 0.0;
-    var totalInterest = 0.0;
-    var totalAmount = 0.0;
+    final sale = detail.sale;
+    final schedule = SaleCalculator.generateSchedule(
+      financedBalance: sale.financedBalance,
+      monthlyInterest: sale.monthlyInterest,
+      installmentCount: sale.installmentCount,
+    );
 
-    final rows = detail.installments.map((inst) {
-      totalCapital += inst.principalAmount;
-      totalInterest += inst.interestAmount;
-      totalAmount += inst.totalAmount;
-      final d = inst.dueDate;
-      final date =
-          '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
-      return [
-        '${inst.installmentNumber}',
-        date,
-        'RD\$ ${formatRdCurrency(inst.principalAmount)}',
-        'RD\$ ${formatRdCurrency(inst.interestAmount)}',
-        'RD\$ ${formatRdCurrency(inst.totalAmount)}',
-        'RD\$ ${formatRdCurrency(inst.endingBalance)}',
-      ];
-    }).toList();
+    double totalCapital  = 0;
+    double totalInterest = 0;
+    double totalAmount   = 0;
+    double balance       = sale.financedBalance;
+
+    final rows = <List<String>>[];
+    DateTime cursor = sale.saleDate;
+
+    for (var i = 0; i < schedule.length; i++) {
+      final item = schedule[i];
+      cursor = DateTime(cursor.year, cursor.month + 1, cursor.day);
+      balance -= item.capitalPayment;
+      if (balance < 0) balance = 0;
+      totalCapital  += item.capitalPayment;
+      totalInterest += item.interestPayment;
+      totalAmount   += item.totalPayment;
+
+      final day   = cursor.day.toString().padLeft(2, '0');
+      final month = cursor.month.toString().padLeft(2, '0');
+
+      rows.add([
+        '${i + 1}',
+        '$day/$month/${cursor.year}',
+        'RD\$ ${formatRdCurrency(item.capitalPayment)}',
+        'RD\$ ${formatRdCurrency(item.interestPayment)}',
+        'RD\$ ${formatRdCurrency(item.totalPayment)}',
+        'RD\$ ${formatRdCurrency(balance)}',
+      ]);
+    }
 
     return _ComputedTable(
       rows: rows,

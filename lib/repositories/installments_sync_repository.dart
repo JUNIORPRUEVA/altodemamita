@@ -284,6 +284,9 @@ bool _shouldKeepLocal(
   final local = existingRows.first;
   final localSyncStatus =
       (local['sync_status'] as String? ?? '').trim().toLowerCase();
+  if (localSyncStatus == DatabaseSchema.syncStatusConflict) {
+    return false;
+  }
   final localPending = DatabaseSchema.writableSyncStatuses.contains(
     localSyncStatus,
   );

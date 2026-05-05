@@ -31,12 +31,14 @@ class SyncService {
     SyncConfigRepository? configRepository,
     SyncApiClient? apiClient,
     SyncQueueService? syncQueueService,
+    AppDatabase? appDatabase,
   }) : _repositories = repositories,
        _onSyncFinished = onSyncFinished,
        _onCloudSessionExpired = onCloudSessionExpired,
        _configRepository = configRepository ?? SyncConfigRepository(),
        _apiClient = apiClient ?? SyncApiClient(),
-       _syncQueueService = syncQueueService ?? SyncQueueService.instance {
+       _syncQueueService = syncQueueService ?? SyncQueueService.instance,
+       _appDatabase = appDatabase ?? AppDatabase.instance {
     for (final repository in repositories) {
       _syncQueueService.registerRepository(repository);
       _repositoriesByScope[repository.scope] = repository;
@@ -50,7 +52,7 @@ class SyncService {
   final SyncConfigRepository _configRepository;
   final SyncApiClient _apiClient;
   final SyncQueueService _syncQueueService;
-  final AppDatabase _appDatabase = AppDatabase.instance;
+  final AppDatabase _appDatabase;
   final SyncLogger _syncLogger = SyncLogger.instance;
   List<String> _lastScopeWarnings = const [];
   bool _isSyncing = false;
@@ -692,7 +694,35 @@ class SyncService {
     final db = await _appDatabase.database;
     final clientsCount = await _countRows(db, DatabaseSchema.clientsTable);
     final lotsCount = await _countRows(db, DatabaseSchema.lotsTable);
-    return clientsCount > 0 && lotsCount == 0;
+    if (clientsCount > 0 && lotsCount == 0) {
+      return true;
+    }
+
+    final salesCount = await _countRows(db, DatabaseSchema.salesTable);
+    if (clientsCount > 0 && lotsCount > 0 && salesCount == 0) {
+      return _hasAnyBusinessCursor(targetScopes);
+    }
+
+    return false;
+  }
+
+  Future<bool> _hasAnyBusinessCursor(Set<String> targetScopes) async {
+    for (final scope in const [
+      'clients',
+      'products',
+      'sales',
+      'installments',
+      'payments',
+    ]) {
+      if (!targetScopes.contains(scope)) {
+        continue;
+      }
+      final cursor = await _configRepository.loadCursor(scope);
+      if (cursor != null) {
+        return true;
+      }
+    }
+    return false;
   }
 
   Future<int> _countRows(dynamic db, String tableName) async {
