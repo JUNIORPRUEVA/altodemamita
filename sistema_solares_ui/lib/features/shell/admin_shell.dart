@@ -6,6 +6,23 @@ import 'package:provider/provider.dart';
 import 'package:sistema_solares_ui/core/auth/auth_controller.dart';
 import 'package:sistema_solares_ui/core/realtime/realtime_controller.dart';
 
+const double shellMobileBreakpoint = 760;
+const double shellDesktopBreakpoint = 1024;
+const double shellSidebarLaptopWidth = 232;
+const double shellSidebarDesktopWidth = 264;
+
+bool isCompactShellWidth(double width) => width < shellMobileBreakpoint;
+
+bool isDesktopShellWidth(double width) => width >= shellDesktopBreakpoint;
+
+double shellSidebarWidthFor(double width) {
+  if (!isDesktopShellWidth(width)) {
+    return 0;
+  }
+
+  return width >= 1280 ? shellSidebarDesktopWidth : shellSidebarLaptopWidth;
+}
+
 class AdminShell extends StatelessWidget {
   const AdminShell({super.key, required this.child});
 
@@ -107,8 +124,9 @@ class AdminShell extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final wide = constraints.maxWidth >= 1120;
-        final compact = constraints.maxWidth < 760;
+        final wide = isDesktopShellWidth(constraints.maxWidth);
+        final compact = isCompactShellWidth(constraints.maxWidth);
+        final desktopSidebarWidth = shellSidebarWidthFor(constraints.maxWidth);
         if (compact && location == '/payments') {
           final redirectRoute = authController.canAccessSales
               ? '/sales'
@@ -177,7 +195,7 @@ class AdminShell extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                if (wide) SizedBox(width: 264, child: sidebar),
+                if (wide) SizedBox(width: desktopSidebarWidth, child: sidebar),
                 Expanded(
                   child: Padding(
                     padding: EdgeInsets.fromLTRB(

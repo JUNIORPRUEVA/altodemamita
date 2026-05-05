@@ -318,6 +318,13 @@ bool _shouldKeepLocal(
   final local = existingRows.first;
   final localSyncStatus =
       (local['sync_status'] as String? ?? '').trim().toLowerCase();
+  final remoteDeleted = _isDeleted(remoteRecord['deleted_at']);
+  if (
+    localSyncStatus == DatabaseSchema.syncStatusPendingDelete &&
+    !remoteDeleted
+  ) {
+    return true;
+  }
   final localPending = DatabaseSchema.writableSyncStatuses.contains(
     localSyncStatus,
   );

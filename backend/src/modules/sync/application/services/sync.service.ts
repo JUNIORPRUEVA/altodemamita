@@ -1,6 +1,6 @@
 import { BadRequestException, HttpException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { Prisma, RoleCode, SaleStatus, SyncStatus } from '@prisma/client';
+import { InstallmentStatus, Prisma, RoleCode, SaleStatus, SyncStatus } from '@prisma/client';
 
 import { PrismaService } from 'src/infrastructure/prisma/prisma.service';
 import { PERMISSIONS } from 'src/shared/constants/permissions.constants';
@@ -134,6 +134,12 @@ export class SyncService {
   private async persistBatch(records: SyncRecordCollections) {
     const affectedSales = new Set<string>();
     const domainEvents: SyncDomainEvent[] = [];
+    const deletedSaleSyncIds = new Set(
+      records.sales
+        .map((sale) => sale as Record<string, unknown>)
+        .filter((payload) => this.readDate(payload, ['deletedAt', 'deleted_at']) != null)
+        .map((payload) => this.readRecordSyncId(payload)),
+    );
 
     await this.prisma.$transaction(async (tx) => {
       await this.ensureSyncUserRoles(tx);
@@ -799,6 +805,9 @@ export class SyncService {
           where: { syncId: recordSyncId },
           select: { id: true, syncId: true, updatedAt: true },
         });
+        const saleDeleteContext = deletedAt != null && existing
+          ? await this.loadSaleDeleteContext(tx, existing.id)
+          : null;
         if (existing?.updatedAt) {
           if (!incomingUpdatedAt) {
             const server = await tx.sale.findUnique({
@@ -821,7 +830,10 @@ export class SyncService {
 
           const existingMs = existing.updatedAt.getTime();
           const incomingMs = incomingUpdatedAt.getTime();
-          if (existingMs > incomingMs) {
+          if (
+            existingMs > incomingMs &&
+            !(deletedAt != null && this.canApplySafeSaleDelete(saleDeleteContext))
+          ) {
             const server = await tx.sale.findUnique({
               where: { id: existing.id },
               include: {
@@ -850,26 +862,16 @@ export class SyncService {
             continue;
           }
 
-          const saleWithRelations = await tx.sale.findUnique({
-            where: { id: existing.id },
-            include: {
-              client: { select: { syncId: true } },
-              product: { select: { syncId: true } },
-              seller: { select: { syncId: true } },
-              payments: {
-                where: { deletedAt: null },
-                select: { id: true, syncId: true, updatedAt: true },
-              },
-              installments: {
-                where: { deletedAt: null },
-                select: { id: true },
-              },
-            },
-          });
+          const saleWithRelations =
+            saleDeleteContext ?? (await this.loadSaleDeleteContext(tx, existing.id));
           if ((saleWithRelations?.payments.length ?? 0) > 0) {
             this.throwManualConflict({
               scope: 'sales',
               recordSyncId,
+              entity: 'sale',
+              id: existing.id,
+              saleId: existing.id,
+              reason: 'sale_has_payments',
               localRecord: payload,
               serverRecord: saleWithRelations
                 ? {
@@ -884,14 +886,29 @@ export class SyncService {
             });
           }
 
-          await tx.installment.updateMany({
-            where: { saleId: existing.id, deletedAt: null },
-            data: {
-              deletedAt,
-              ...(incomingUpdatedAt ? { updatedAt: incomingUpdatedAt } : {}),
-              syncStatus: SyncStatus.synced,
-            },
-          });
+          const saleWasAlreadyDeleted = saleWithRelations?.deletedAt != null;
+
+          if (!saleWasAlreadyDeleted) {
+            await tx.installment.updateMany({
+              where: { saleId: existing.id, deletedAt: null },
+              data: {
+                deletedAt,
+                status: InstallmentStatus.cancelled,
+                ...(incomingUpdatedAt ? { updatedAt: incomingUpdatedAt } : {}),
+                syncStatus: SyncStatus.synced,
+              },
+            });
+
+            if (saleWithRelations?.product?.id) {
+              await tx.product.update({
+                where: { id: saleWithRelations.product.id },
+                data: {
+                  stock: { increment: 1 },
+                  syncStatus: SyncStatus.synced,
+                },
+              });
+            }
+          }
 
           const persisted = await tx.sale.update({
             where: { id: existing.id },
@@ -1043,6 +1060,9 @@ export class SyncService {
           where: { syncId: recordSyncId },
           select: { id: true, syncId: true, updatedAt: true, saleId: true },
         });
+        const installmentDeleteContext = deletedAt != null && existing
+          ? await this.loadInstallmentDeleteContext(tx, existing.id)
+          : null;
         if (existing?.updatedAt) {
           if (!incomingUpdatedAt) {
             const server = await tx.installment.findUnique({
@@ -1061,7 +1081,13 @@ export class SyncService {
 
           const existingMs = existing.updatedAt.getTime();
           const incomingMs = incomingUpdatedAt.getTime();
-          if (existingMs > incomingMs) {
+          if (
+            existingMs > incomingMs &&
+            !this.canApplyDependentInstallmentDelete(
+              installmentDeleteContext,
+              deletedSaleSyncIds,
+            )
+          ) {
             const server = await tx.installment.findUnique({
               where: { id: existing.id },
               include: { sale: { select: { syncId: true } } },
@@ -1069,6 +1095,10 @@ export class SyncService {
             this.throwManualConflict({
               scope: 'installments',
               recordSyncId,
+              entity: 'installment',
+              id: existing.id,
+              saleId: existing.saleId,
+              reason: 'server_newer_installment',
               localRecord: payload,
               serverRecord: server ? this.serializeInstallmentRecord(server) : null,
               message:
@@ -1088,11 +1118,34 @@ export class SyncService {
             continue;
           }
 
+          if (
+            !this.canApplyDependentInstallmentDelete(
+              installmentDeleteContext,
+              deletedSaleSyncIds,
+            )
+          ) {
+            this.throwManualConflict({
+              scope: 'installments',
+              recordSyncId,
+              entity: 'installment',
+              id: existing.id,
+              saleId: existing.saleId,
+              reason: 'parent_sale_not_deleted',
+              localRecord: payload,
+              serverRecord: installmentDeleteContext
+                ? this.serializeInstallmentRecord(installmentDeleteContext)
+                : null,
+              message:
+                'Conflicto de sincronizacion: no se puede borrar la cuota mientras la venta padre siga activa en la nube.',
+            });
+          }
+
           affectedSales.add(existing.saleId);
           const persisted = await tx.installment.update({
             where: { id: existing.id },
             data: {
               deletedAt,
+              status: InstallmentStatus.cancelled,
               ...(incomingUpdatedAt ? { updatedAt: incomingUpdatedAt } : {}),
               syncStatus: SyncStatus.synced,
             },
@@ -1965,6 +2018,10 @@ export class SyncService {
     message: string;
     localRecord: Record<string, unknown>;
     serverRecord: Record<string, unknown> | null;
+    entity?: string;
+    id?: string;
+    saleId?: string;
+    reason?: string;
   }): Record<string, unknown> {
     const localVersion = this.readNumber(params.localRecord, ['version']);
     const serverVersion = params.serverRecord
@@ -1975,11 +2032,19 @@ export class SyncService {
       message: params.message,
       scope: params.scope,
       strategy: 'manual',
+      entity: params.entity ?? null,
+      id: params.id ?? null,
+      saleId: params.saleId ?? null,
+      reason: params.reason ?? null,
       server_time: new Date().toISOString(),
       conflicts: [
         {
           scope: params.scope,
           record_sync_id: params.recordSyncId,
+          entity: params.entity ?? null,
+          id: params.id ?? null,
+          saleId: params.saleId ?? null,
+          reason: params.reason ?? null,
           local_version: localVersion,
           server_version: serverVersion,
           local_record: params.localRecord,
@@ -1997,11 +2062,89 @@ export class SyncService {
     message: string;
     localRecord: Record<string, unknown>;
     serverRecord: Record<string, unknown> | null;
+    entity?: string;
+    id?: string;
+    saleId?: string;
+    reason?: string;
   }): never {
     throw new HttpException(
       this.buildManualConflictPayload(params),
       HttpStatus.CONFLICT,
     );
+  }
+
+  private async loadSaleDeleteContext(tx: Prisma.TransactionClient, saleId: string) {
+    return tx.sale.findUnique({
+      where: { id: saleId },
+      include: {
+        client: { select: { syncId: true } },
+        product: { select: { id: true, syncId: true } },
+        seller: { select: { syncId: true } },
+        payments: {
+          where: { deletedAt: null },
+          select: { id: true, syncId: true, updatedAt: true },
+        },
+        installments: {
+          where: { deletedAt: null },
+          select: { id: true },
+        },
+      },
+    });
+  }
+
+  private canApplySafeSaleDelete(
+    sale:
+      | Awaited<ReturnType<SyncService['loadSaleDeleteContext']>>
+      | null,
+  ): boolean {
+    return sale != null && sale.payments.length === 0;
+  }
+
+  private async loadInstallmentDeleteContext(
+    tx: Prisma.TransactionClient,
+    installmentId: string,
+  ) {
+    return tx.installment.findUnique({
+      where: { id: installmentId },
+      include: {
+        sale: {
+          select: {
+            id: true,
+            syncId: true,
+            status: true,
+            deletedAt: true,
+            payments: {
+              where: { deletedAt: null },
+              select: { id: true },
+            },
+          },
+        },
+      },
+    });
+  }
+
+  private canApplyDependentInstallmentDelete(
+    installment:
+      | Awaited<ReturnType<SyncService['loadInstallmentDeleteContext']>>
+      | null,
+    deletedSaleSyncIds: Set<string>,
+  ): boolean {
+    if (!installment?.sale) {
+      return false;
+    }
+
+    if (
+      installment.sale.deletedAt != null ||
+      installment.sale.status === SaleStatus.cancelled
+    ) {
+      return true;
+    }
+
+    if (deletedSaleSyncIds.has(installment.sale.syncId)) {
+      return true;
+    }
+
+    return false;
   }
 
   private resolveClientNames(payload: Record<string, unknown>): { firstName: string; lastName: string } {

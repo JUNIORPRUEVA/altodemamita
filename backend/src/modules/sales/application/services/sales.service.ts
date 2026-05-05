@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { Prisma, SaleStatus, SyncStatus } from '@prisma/client';
+import { InstallmentStatus, Prisma, SaleStatus, SyncStatus } from '@prisma/client';
 
 import { PrismaService } from 'src/infrastructure/prisma/prisma.service';
 import { RealtimeEventsService } from 'src/modules/realtime/realtime-events.service';
@@ -321,7 +321,11 @@ export class SalesService {
     await this.prisma.$transaction(async (tx) => {
       await tx.installment.updateMany({
         where: { saleId: id, deletedAt: null },
-        data: { deletedAt: new Date(), syncStatus: SyncStatus.pending },
+        data: {
+          deletedAt: new Date(),
+          status: InstallmentStatus.cancelled,
+          syncStatus: SyncStatus.pending,
+        },
       });
       await tx.sale.update({
         where: { id },
