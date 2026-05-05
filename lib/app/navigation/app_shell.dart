@@ -235,8 +235,9 @@ class _AppShellState extends State<AppShell> {
       return;
     }
 
-    // UX rule: sidebar starts collapsed by default on each app launch.
-    final nextSidebarExpanded = false;
+    // On Windows desktop, starting expanded avoids first-frame tooltip/menu
+    // overlay assertions while the shell stabilizes.
+    final nextSidebarExpanded = true;
     final nextAdministrationExpanded =
         preferences.getBool(_sidebarAdministrationPreferenceKey) ?? false;
 

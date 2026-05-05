@@ -1,3 +1,5 @@
+import 'dart:developer' as developer;
+
 import '../core/database/app_database.dart';
 import '../core/database/database_schema.dart';
 import 'sync_repository.dart';
@@ -7,6 +9,15 @@ class ProductsSyncRepository implements SyncRepository {
     : _appDatabase = appDatabase ?? AppDatabase.instance;
 
   final AppDatabase _appDatabase;
+
+  void _log(String message, {Object? error, StackTrace? stackTrace}) {
+    developer.log(
+      message,
+      name: 'SistemaSolares.ProductsSyncRepository',
+      error: error,
+      stackTrace: stackTrace,
+    );
+  }
 
   @override
   String get scope => 'products';
@@ -37,11 +48,42 @@ class ProductsSyncRepository implements SyncRepository {
 
   @override
   Future<void> markAsSynced(Iterable<String> syncIds) async {
-    await _markScopeRowsAsSynced(
-      appDatabase: _appDatabase,
-      tableName: DatabaseSchema.lotsTable,
-      syncIds: syncIds,
-    );
+    final ids = syncIds
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toList(growable: false);
+    if (ids.isEmpty) {
+      return;
+    }
+
+    final db = await _appDatabase.database;
+    final placeholders = List.filled(ids.length, '?').join(', ');
+    final now = DateTime.now().toIso8601String();
+
+    await db.transaction((txn) async {
+      final tombstoneRows = await txn.query(
+        DatabaseSchema.lotsTable,
+        columns: ['sync_id'],
+        where: 'deleted_at IS NOT NULL AND sync_id IN ($placeholders)',
+        whereArgs: ids,
+      );
+
+      await txn.rawUpdate(
+        'UPDATE ${DatabaseSchema.lotsTable} '
+        'SET sync_status = ?, fecha_actualizacion = ?, '
+        'last_modified_local = COALESCE(last_modified_local, ?) '
+        'WHERE sync_id IN ($placeholders)',
+        [DatabaseSchema.syncStatusSynced, now, now, ...ids],
+      );
+
+      if (tombstoneRows.isNotEmpty) {
+        _log('product_delete_ack sync_ids=${tombstoneRows.length}');
+        _log('product_tombstone_kept sync_ids=${tombstoneRows.length}');
+        _log(
+          'product_delete_skipped_hard_delete sync_ids=${tombstoneRows.length}',
+        );
+      }
+    });
   }
 
   @override
@@ -73,6 +115,21 @@ class ProductsSyncRepository implements SyncRepository {
           whereArgs: [syncId],
           limit: 1,
         );
+        final localRow = existingRows.isEmpty ? null : existingRows.first;
+        final localDeletedAt = localRow?['deleted_at']?.toString().trim();
+        final localSyncStatus =
+            localRow?['sync_status']?.toString().trim().toLowerCase() ?? '';
+
+        if (localRow != null &&
+            localDeletedAt != null &&
+            localDeletedAt.isNotEmpty &&
+            !_isDeleted(record['deleted_at'])) {
+          _log(
+            'product_download_skipped_local_deleted sync_id=$syncId status=$localSyncStatus',
+          );
+          continue;
+        }
+
         if (_shouldKeepLocal(
           existingRows,
           record,
@@ -202,8 +259,9 @@ bool _shouldKeepLocal(
     return false;
   }
   final local = existingRows.first;
-  final localSyncStatus =
-      (local['sync_status'] as String? ?? '').trim().toLowerCase();
+  final localSyncStatus = (local['sync_status'] as String? ?? '')
+      .trim()
+      .toLowerCase();
   final localPending = DatabaseSchema.writableSyncStatuses.contains(
     localSyncStatus,
   );
@@ -221,7 +279,8 @@ bool _shouldKeepLocal(
   }
 
   final localUpdated = _parseDate(
-    local['last_modified_local']?.toString() ?? local[updatedAtField]?.toString(),
+    local['last_modified_local']?.toString() ??
+        local[updatedAtField]?.toString(),
   );
   final remoteUpdated = _parseDate(
     remoteRecord['last_modified_remote']?.toString() ??
