@@ -7,7 +7,7 @@ import '../security/password_hasher.dart';
 
 class DatabaseSchema {
   static const String databaseName = 'sistema_solares.db';
-  static const int databaseVersion = 20;
+  static const int databaseVersion = 21;
   static const String defaultSyncBaseUrl = BASE_URL;
 
   static const String clientsTable = 'clientes';
@@ -124,6 +124,7 @@ class DatabaseSchema {
     await _migrateToVersion18(db);
     await _migrateToVersion19(db);
     await _migrateToVersion20(db);
+    await _migrateToVersion21(db);
   }
 
   static Future<void> ensureCoreStructures(DatabaseExecutor db) async {
@@ -145,6 +146,7 @@ class DatabaseSchema {
     await _migrateToVersion18(db);
     await _migrateToVersion19(db);
     await _migrateToVersion20(db);
+    await _migrateToVersion21(db);
     await seedDefaults(db);
   }
 
@@ -363,6 +365,10 @@ class DatabaseSchema {
 
     if (oldVersion < 20 && newVersion >= 20) {
       await _migrateToVersion20(db);
+    }
+
+    if (oldVersion < 21 && newVersion >= 21) {
+      await _migrateToVersion21(db);
     }
 
     await seedDefaults(db);
@@ -681,6 +687,356 @@ class DatabaseSchema {
         WHERE NOT EXISTS (SELECT 1 FROM $companyProfilesTable)
       ''');
     }
+  }
+
+  static Future<void> _migrateToVersion21(DatabaseExecutor db) async {
+    final hasLots = await _tableExists(db, lotsTable);
+    final hasSales = await _tableExists(db, salesTable);
+    final hasInstallments = await _tableExists(db, installmentsTable);
+    final hasPayments = await _tableExists(db, paymentsTable);
+
+    if (!hasLots || !hasSales || !hasInstallments) {
+      return;
+    }
+
+    const oldLotsTable = 'solares_v21_old';
+    const oldSalesTable = 'ventas_v21_old';
+    const oldInstallmentsTable = 'cuotas_v21_old';
+    const oldPaymentsTable = 'pagos_v21_old';
+
+    await db.execute('DROP TABLE IF EXISTS $oldPaymentsTable');
+    await db.execute('DROP TABLE IF EXISTS $oldInstallmentsTable');
+    await db.execute('DROP TABLE IF EXISTS $oldSalesTable');
+    await db.execute('DROP TABLE IF EXISTS $oldLotsTable');
+
+    if (hasPayments) {
+      await db.execute('ALTER TABLE $paymentsTable RENAME TO $oldPaymentsTable');
+    }
+    await db.execute('ALTER TABLE $installmentsTable RENAME TO $oldInstallmentsTable');
+    await db.execute('ALTER TABLE $salesTable RENAME TO $oldSalesTable');
+    await db.execute('ALTER TABLE $lotsTable RENAME TO $oldLotsTable');
+
+    await _createLotsTableForVersion21(db, lotsTable);
+    await db.execute('''
+      INSERT INTO $lotsTable (
+        id, manzana_numero, solar_numero, metros_cuadrados, precio_por_metro,
+        estado, fecha_creacion, fecha_actualizacion, version, sync_id,
+        deleted_at, sync_status, id_local, id_remote, last_modified_local,
+        last_modified_remote
+      )
+      SELECT
+        id, manzana_numero, solar_numero, metros_cuadrados, precio_por_metro,
+        estado, fecha_creacion, fecha_actualizacion, version, sync_id,
+        deleted_at, sync_status, id_local, id_remote, last_modified_local,
+        last_modified_remote
+      FROM $oldLotsTable
+    ''');
+
+    await _createSalesTableForVersion21(db, salesTable);
+    await db.execute('''
+      INSERT INTO $salesTable (
+        id, cliente_id, solar_id, usuario_id, vendedor_id, fecha_venta,
+        precio_venta, inicial_porcentaje, inicial_monto,
+        monto_inicial_requerido, monto_inicial_pagado,
+        monto_inicial_pendiente, monto_apartado_minimo, fecha_limite_inicial,
+        fecha_activacion, saldo_financiado, saldo_pendiente, interes_mensual,
+        cantidad_cuotas, estado, fecha_creacion, fecha_actualizacion, version,
+        sync_id, deleted_at, sync_status, id_local, id_remote,
+        last_modified_local, last_modified_remote
+      )
+      SELECT
+        id, cliente_id, solar_id, usuario_id, vendedor_id, fecha_venta,
+        precio_venta, inicial_porcentaje, inicial_monto,
+        monto_inicial_requerido, monto_inicial_pagado,
+        monto_inicial_pendiente, monto_apartado_minimo, fecha_limite_inicial,
+        fecha_activacion, saldo_financiado, saldo_pendiente, interes_mensual,
+        cantidad_cuotas, estado, fecha_creacion, fecha_actualizacion, version,
+        sync_id, deleted_at, sync_status, id_local, id_remote,
+        last_modified_local, last_modified_remote
+      FROM $oldSalesTable
+    ''');
+
+    await _createInstallmentsTableForVersion21(db, installmentsTable);
+    await db.execute('''
+      INSERT INTO $installmentsTable (
+        id, venta_id, numero_cuota, fecha_vencimiento, saldo_inicial,
+        capital_cuota, interes_cuota, monto_cuota, monto_pagado,
+        capital_pagado, interes_pagado, saldo_final, estado, fecha_creacion,
+        fecha_actualizacion, version, sync_id, deleted_at, sync_status,
+        id_local, id_remote, last_modified_local, last_modified_remote
+      )
+      SELECT
+        id, venta_id, numero_cuota, fecha_vencimiento, saldo_inicial,
+        capital_cuota, interes_cuota, monto_cuota, monto_pagado,
+        capital_pagado, interes_pagado, saldo_final, estado, fecha_creacion,
+        fecha_actualizacion, version, sync_id, deleted_at, sync_status,
+        id_local, id_remote, last_modified_local, last_modified_remote
+      FROM $oldInstallmentsTable
+    ''');
+
+    if (hasPayments) {
+      await _createPaymentsTableForVersion21(db, paymentsTable);
+      await db.execute('''
+        INSERT INTO $paymentsTable (
+          id, venta_id, cliente_id, usuario_id, cuota_id, fecha_pago,
+          monto_pagado, metodo_pago, tipo_pago, referencia, fecha_creacion,
+          fecha_actualizacion, ano_a_pagar, version, sync_id, deleted_at,
+          sync_status, id_local, id_remote, last_modified_local,
+          last_modified_remote
+        )
+        SELECT
+          id, venta_id, cliente_id, usuario_id, cuota_id, fecha_pago,
+          monto_pagado, metodo_pago, tipo_pago, referencia, fecha_creacion,
+          fecha_actualizacion, ano_a_pagar, version, sync_id, deleted_at,
+          sync_status, id_local, id_remote, last_modified_local,
+          last_modified_remote
+        FROM $oldPaymentsTable
+      ''');
+    }
+
+    if (hasPayments) {
+      await db.execute('DROP TABLE $oldPaymentsTable');
+    }
+    await db.execute('DROP TABLE $oldInstallmentsTable');
+    await db.execute('DROP TABLE $oldSalesTable');
+    await db.execute('DROP TABLE $oldLotsTable');
+  }
+
+  static Future<void> _createLotsTableForVersion21(
+    DatabaseExecutor db,
+    String tableName,
+  ) async {
+    await db.execute('''
+      CREATE TABLE $tableName (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        manzana_numero TEXT NOT NULL,
+        solar_numero TEXT NOT NULL,
+        metros_cuadrados REAL NOT NULL DEFAULT 0,
+        precio_por_metro REAL NOT NULL DEFAULT 0,
+        estado TEXT NOT NULL DEFAULT 'disponible'
+          CHECK(estado IN ('disponible', 'reservado', 'vendido')),
+        fecha_creacion TEXT NOT NULL,
+        fecha_actualizacion TEXT NOT NULL,
+        version INTEGER NOT NULL DEFAULT 1,
+        sync_id TEXT,
+        deleted_at TEXT,
+        sync_status TEXT NOT NULL DEFAULT '$syncStatusSynced',
+        id_local INTEGER,
+        id_remote TEXT,
+        last_modified_local TEXT,
+        last_modified_remote TEXT
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_solares_estado ON $tableName(estado)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_solares_manzana_solar ON $tableName(manzana_numero, solar_numero)',
+    );
+    await db.execute('''
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_solares_manzana_solar_active
+      ON $tableName(manzana_numero, solar_numero)
+      WHERE deleted_at IS NULL
+    ''');
+    await _createSyncMetadataIndexesForTable(db, tableName);
+  }
+
+  static Future<void> _createSalesTableForVersion21(
+    DatabaseExecutor db,
+    String tableName,
+  ) async {
+    await db.execute('''
+      CREATE TABLE $tableName (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        cliente_id INTEGER NOT NULL,
+        solar_id INTEGER NOT NULL,
+        usuario_id INTEGER NOT NULL,
+        vendedor_id INTEGER,
+        fecha_venta TEXT NOT NULL,
+        precio_venta REAL NOT NULL DEFAULT 0,
+        inicial_porcentaje REAL NOT NULL DEFAULT 0,
+        inicial_monto REAL NOT NULL DEFAULT 0,
+        monto_inicial_requerido REAL NOT NULL DEFAULT 0,
+        monto_inicial_pagado REAL NOT NULL DEFAULT 0,
+        monto_inicial_pendiente REAL NOT NULL DEFAULT 0,
+        monto_apartado_minimo REAL,
+        fecha_limite_inicial TEXT,
+        fecha_activacion TEXT,
+        saldo_financiado REAL NOT NULL DEFAULT 0,
+        saldo_pendiente REAL NOT NULL DEFAULT 0,
+        interes_mensual REAL NOT NULL DEFAULT 0,
+        cantidad_cuotas INTEGER NOT NULL DEFAULT 0,
+        estado TEXT NOT NULL DEFAULT 'apartado',
+        fecha_creacion TEXT NOT NULL,
+        fecha_actualizacion TEXT NOT NULL,
+        version INTEGER NOT NULL DEFAULT 1,
+        sync_id TEXT,
+        deleted_at TEXT,
+        sync_status TEXT NOT NULL DEFAULT '$syncStatusSynced',
+        id_local INTEGER,
+        id_remote TEXT,
+        last_modified_local TEXT,
+        last_modified_remote TEXT,
+        FOREIGN KEY(cliente_id) REFERENCES $clientsTable(id)
+          ON UPDATE CASCADE
+          ON DELETE RESTRICT,
+        FOREIGN KEY(solar_id) REFERENCES $lotsTable(id)
+          ON UPDATE CASCADE
+          ON DELETE RESTRICT,
+        FOREIGN KEY(usuario_id) REFERENCES $usersTable(id)
+          ON UPDATE CASCADE
+          ON DELETE RESTRICT,
+        FOREIGN KEY(vendedor_id) REFERENCES $sellersTable(id)
+          ON UPDATE CASCADE
+          ON DELETE SET NULL
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_ventas_cliente_id ON $tableName(cliente_id)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_ventas_usuario_id ON $tableName(usuario_id)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_ventas_vendedor_id ON $tableName(vendedor_id)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_ventas_estado ON $tableName(estado)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_ventas_fecha_venta ON $tableName(fecha_venta)',
+    );
+    await db.execute('''
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_ventas_solar_id_active
+      ON $tableName(solar_id)
+      WHERE deleted_at IS NULL
+    ''');
+    await _createSyncMetadataIndexesForTable(db, tableName);
+  }
+
+  static Future<void> _createInstallmentsTableForVersion21(
+    DatabaseExecutor db,
+    String tableName,
+  ) async {
+    await db.execute('''
+      CREATE TABLE $tableName (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        venta_id INTEGER NOT NULL,
+        numero_cuota INTEGER NOT NULL,
+        fecha_vencimiento TEXT NOT NULL,
+        saldo_inicial REAL NOT NULL DEFAULT 0,
+        capital_cuota REAL NOT NULL DEFAULT 0,
+        interes_cuota REAL NOT NULL DEFAULT 0,
+        monto_cuota REAL NOT NULL DEFAULT 0,
+        monto_pagado REAL NOT NULL DEFAULT 0,
+        capital_pagado REAL NOT NULL DEFAULT 0,
+        interes_pagado REAL NOT NULL DEFAULT 0,
+        saldo_final REAL NOT NULL DEFAULT 0,
+        estado TEXT NOT NULL DEFAULT 'pendiente',
+        fecha_creacion TEXT NOT NULL,
+        fecha_actualizacion TEXT NOT NULL,
+        version INTEGER NOT NULL DEFAULT 1,
+        sync_id TEXT,
+        deleted_at TEXT,
+        sync_status TEXT NOT NULL DEFAULT '$syncStatusSynced',
+        id_local INTEGER,
+        id_remote TEXT,
+        last_modified_local TEXT,
+        last_modified_remote TEXT,
+        FOREIGN KEY(venta_id) REFERENCES $salesTable(id)
+          ON UPDATE CASCADE
+          ON DELETE CASCADE
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_cuotas_venta_id ON $tableName(venta_id)',
+    );
+    await db.execute('''
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_cuotas_venta_numero_active
+      ON $tableName(venta_id, numero_cuota)
+      WHERE deleted_at IS NULL
+    ''');
+    await _createSyncMetadataIndexesForTable(db, tableName);
+  }
+
+  static Future<void> _createPaymentsTableForVersion21(
+    DatabaseExecutor db,
+    String tableName,
+  ) async {
+    await db.execute('''
+      CREATE TABLE $tableName (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        venta_id INTEGER NOT NULL,
+        cliente_id INTEGER NOT NULL,
+        usuario_id INTEGER,
+        cuota_id INTEGER,
+        fecha_pago TEXT NOT NULL,
+        monto_pagado REAL NOT NULL DEFAULT 0,
+        metodo_pago TEXT,
+        tipo_pago TEXT NOT NULL DEFAULT 'cuota',
+        referencia TEXT,
+        fecha_creacion TEXT NOT NULL,
+        fecha_actualizacion TEXT NOT NULL,
+        ano_a_pagar TEXT,
+        version INTEGER NOT NULL DEFAULT 1,
+        sync_id TEXT,
+        deleted_at TEXT,
+        sync_status TEXT NOT NULL DEFAULT '$syncStatusSynced',
+        id_local INTEGER,
+        id_remote TEXT,
+        last_modified_local TEXT,
+        last_modified_remote TEXT,
+        FOREIGN KEY(venta_id) REFERENCES $salesTable(id)
+          ON UPDATE CASCADE
+          ON DELETE CASCADE,
+        FOREIGN KEY(cliente_id) REFERENCES $clientsTable(id)
+          ON UPDATE CASCADE
+          ON DELETE RESTRICT,
+        FOREIGN KEY(usuario_id) REFERENCES $usersTable(id)
+          ON UPDATE CASCADE
+          ON DELETE SET NULL,
+        FOREIGN KEY(cuota_id) REFERENCES $installmentsTable(id)
+          ON UPDATE CASCADE
+          ON DELETE SET NULL
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_pagos_venta_id ON $tableName(venta_id)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_pagos_cliente_id ON $tableName(cliente_id)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_pagos_usuario_id ON $tableName(usuario_id)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_pagos_fecha_pago ON $tableName(fecha_pago)',
+    );
+    await _createSyncMetadataIndexesForTable(db, tableName);
+  }
+
+  static Future<void> _createSyncMetadataIndexesForTable(
+    DatabaseExecutor db,
+    String tableName,
+  ) async {
+    await db.execute(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_${tableName}_sync_id ON $tableName(sync_id)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_${tableName}_deleted_at ON $tableName(deleted_at)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_${tableName}_id_local ON $tableName(id_local)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_${tableName}_id_remote ON $tableName(id_remote)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_${tableName}_last_modified_local ON $tableName(last_modified_local)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_${tableName}_last_modified_remote ON $tableName(last_modified_remote)',
+    );
   }
 
   static Future<void> _migrateToVersion18(DatabaseExecutor db) async {
@@ -1642,8 +1998,7 @@ class DatabaseSchema {
         estado TEXT NOT NULL DEFAULT 'disponible'
           CHECK(estado IN ('disponible', 'reservado', 'vendido')),
         fecha_creacion TEXT NOT NULL,
-        fecha_actualizacion TEXT NOT NULL,
-        UNIQUE(manzana_numero, solar_numero)
+        fecha_actualizacion TEXT NOT NULL
       )
     ''');
 
@@ -1703,7 +2058,6 @@ class DatabaseSchema {
         estado TEXT NOT NULL DEFAULT 'pendiente',
         fecha_creacion TEXT NOT NULL,
         fecha_actualizacion TEXT NOT NULL,
-        UNIQUE(venta_id, numero_cuota),
         FOREIGN KEY(venta_id) REFERENCES $salesTable(id)
           ON UPDATE CASCADE
           ON DELETE CASCADE

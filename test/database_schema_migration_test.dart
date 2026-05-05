@@ -645,4 +645,356 @@ void main() {
 
     await db.close();
   });
+
+  test(
+    'migracion v21 permite historico borrado y fila activa con misma clave de negocio',
+    () async {
+      final dbPath = path.join(tempDirectory.path, 'migration_v21.db');
+      final db = await databaseFactory.openDatabase(dbPath);
+
+      final nowIso = DateTime(2026, 5, 5, 9, 0).toIso8601String();
+      final deletedAt = DateTime(2026, 5, 5, 9, 30).toIso8601String();
+
+      await db.execute('PRAGMA foreign_keys = ON');
+      await db.execute('''
+        CREATE TABLE usuarios (
+          id INTEGER PRIMARY KEY,
+          nombre TEXT,
+          email TEXT,
+          password_hash TEXT,
+          password_reset_required INTEGER,
+          rol TEXT,
+          activo INTEGER,
+          telefono TEXT,
+          fecha_creacion TEXT,
+          fecha_actualizacion TEXT,
+          password_updated_at TEXT
+        )
+      ''');
+      await db.execute('''
+        CREATE TABLE clientes (
+          id INTEGER PRIMARY KEY,
+          nombre TEXT,
+          cedula TEXT,
+          telefono TEXT,
+          direccion TEXT,
+          fecha_creacion TEXT,
+          fecha_actualizacion TEXT
+        )
+      ''');
+      await db.execute('''
+        CREATE TABLE vendedores (
+          id INTEGER PRIMARY KEY,
+          nombre TEXT,
+          cedula TEXT,
+          telefono TEXT,
+          fecha_creacion TEXT,
+          fecha_actualizacion TEXT
+        )
+      ''');
+      await db.execute('''
+        CREATE TABLE configuracion (
+          clave TEXT PRIMARY KEY,
+          valor TEXT NOT NULL,
+          fecha_actualizacion TEXT NOT NULL
+        )
+      ''');
+      await db.execute('''
+        CREATE TABLE solares (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          manzana_numero TEXT NOT NULL,
+          solar_numero TEXT NOT NULL,
+          metros_cuadrados REAL NOT NULL DEFAULT 0,
+          precio_por_metro REAL NOT NULL DEFAULT 0,
+          estado TEXT NOT NULL DEFAULT 'disponible',
+          fecha_creacion TEXT NOT NULL,
+          fecha_actualizacion TEXT NOT NULL,
+          version INTEGER NOT NULL DEFAULT 1,
+          sync_id TEXT,
+          deleted_at TEXT,
+          sync_status TEXT NOT NULL DEFAULT 'synced',
+          id_local INTEGER,
+          id_remote TEXT,
+          last_modified_local TEXT,
+          last_modified_remote TEXT,
+          UNIQUE(manzana_numero, solar_numero)
+        )
+      ''');
+      await db.execute('''
+        CREATE TABLE ventas (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          cliente_id INTEGER NOT NULL,
+          solar_id INTEGER NOT NULL UNIQUE,
+          usuario_id INTEGER NOT NULL,
+          vendedor_id INTEGER,
+          fecha_venta TEXT NOT NULL,
+          precio_venta REAL NOT NULL DEFAULT 0,
+          inicial_porcentaje REAL NOT NULL DEFAULT 0,
+          inicial_monto REAL NOT NULL DEFAULT 0,
+          monto_inicial_requerido REAL NOT NULL DEFAULT 0,
+          monto_inicial_pagado REAL NOT NULL DEFAULT 0,
+          monto_inicial_pendiente REAL NOT NULL DEFAULT 0,
+          monto_apartado_minimo REAL,
+          fecha_limite_inicial TEXT,
+          fecha_activacion TEXT,
+          saldo_financiado REAL NOT NULL DEFAULT 0,
+          saldo_pendiente REAL NOT NULL DEFAULT 0,
+          interes_mensual REAL NOT NULL DEFAULT 0,
+          cantidad_cuotas INTEGER NOT NULL DEFAULT 0,
+          estado TEXT NOT NULL DEFAULT 'apartado',
+          fecha_creacion TEXT NOT NULL,
+          fecha_actualizacion TEXT NOT NULL,
+          version INTEGER NOT NULL DEFAULT 1,
+          sync_id TEXT,
+          deleted_at TEXT,
+          sync_status TEXT NOT NULL DEFAULT 'synced',
+          id_local INTEGER,
+          id_remote TEXT,
+          last_modified_local TEXT,
+          last_modified_remote TEXT,
+          FOREIGN KEY(cliente_id) REFERENCES clientes(id),
+          FOREIGN KEY(solar_id) REFERENCES solares(id),
+          FOREIGN KEY(usuario_id) REFERENCES usuarios(id),
+          FOREIGN KEY(vendedor_id) REFERENCES vendedores(id)
+        )
+      ''');
+      await db.execute('''
+        CREATE TABLE cuotas (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          venta_id INTEGER NOT NULL,
+          numero_cuota INTEGER NOT NULL,
+          fecha_vencimiento TEXT NOT NULL,
+          saldo_inicial REAL NOT NULL DEFAULT 0,
+          capital_cuota REAL NOT NULL DEFAULT 0,
+          interes_cuota REAL NOT NULL DEFAULT 0,
+          monto_cuota REAL NOT NULL DEFAULT 0,
+          monto_pagado REAL NOT NULL DEFAULT 0,
+          capital_pagado REAL NOT NULL DEFAULT 0,
+          interes_pagado REAL NOT NULL DEFAULT 0,
+          saldo_final REAL NOT NULL DEFAULT 0,
+          estado TEXT NOT NULL DEFAULT 'pendiente',
+          fecha_creacion TEXT NOT NULL,
+          fecha_actualizacion TEXT NOT NULL,
+          version INTEGER NOT NULL DEFAULT 1,
+          sync_id TEXT,
+          deleted_at TEXT,
+          sync_status TEXT NOT NULL DEFAULT 'synced',
+          id_local INTEGER,
+          id_remote TEXT,
+          last_modified_local TEXT,
+          last_modified_remote TEXT,
+          UNIQUE(venta_id, numero_cuota),
+          FOREIGN KEY(venta_id) REFERENCES ventas(id)
+        )
+      ''');
+
+      await db.insert('usuarios', {
+        'id': 1,
+        'nombre': 'Admin',
+        'email': 'admin@test.local',
+        'password_hash': '',
+        'password_reset_required': 0,
+        'rol': 'admin',
+        'activo': 1,
+        'telefono': '',
+        'fecha_creacion': nowIso,
+        'fecha_actualizacion': nowIso,
+        'password_updated_at': nowIso,
+      });
+      await db.insert('clientes', {
+        'id': 1,
+        'nombre': 'Cliente',
+        'cedula': '001',
+        'telefono': '',
+        'direccion': '',
+        'fecha_creacion': nowIso,
+        'fecha_actualizacion': nowIso,
+      });
+      await db.insert('vendedores', {
+        'id': 1,
+        'nombre': 'Vendedor',
+        'cedula': '002',
+        'telefono': '',
+        'fecha_creacion': nowIso,
+        'fecha_actualizacion': nowIso,
+      });
+
+      await db.insert('solares', {
+        'id': 1,
+        'manzana_numero': 'KL',
+        'solar_numero': '158',
+        'metros_cuadrados': 200.0,
+        'precio_por_metro': 2500.0,
+        'estado': 'vendido',
+        'fecha_creacion': nowIso,
+        'fecha_actualizacion': nowIso,
+        'version': 1,
+        'sync_id': 'product-deleted',
+        'deleted_at': deletedAt,
+        'sync_status': 'synced',
+        'id_local': 1,
+        'id_remote': 'remote-product-deleted',
+        'last_modified_local': deletedAt,
+        'last_modified_remote': deletedAt,
+      });
+      await db.insert('ventas', {
+        'id': 1,
+        'cliente_id': 1,
+        'solar_id': 1,
+        'usuario_id': 1,
+        'vendedor_id': 1,
+        'fecha_venta': nowIso,
+        'precio_venta': 500000.0,
+        'inicial_porcentaje': 10.0,
+        'inicial_monto': 50000.0,
+        'monto_inicial_requerido': 50000.0,
+        'monto_inicial_pagado': 50000.0,
+        'monto_inicial_pendiente': 0.0,
+        'monto_apartado_minimo': null,
+        'fecha_limite_inicial': nowIso,
+        'fecha_activacion': nowIso,
+        'saldo_financiado': 450000.0,
+        'saldo_pendiente': 450000.0,
+        'interes_mensual': 1.0,
+        'cantidad_cuotas': 60,
+        'estado': 'cancelada',
+        'fecha_creacion': nowIso,
+        'fecha_actualizacion': deletedAt,
+        'version': 1,
+        'sync_id': 'sale-deleted',
+        'deleted_at': deletedAt,
+        'sync_status': 'synced',
+        'id_local': 1,
+        'id_remote': 'remote-sale-deleted',
+        'last_modified_local': deletedAt,
+        'last_modified_remote': deletedAt,
+      });
+      await db.insert('cuotas', {
+        'id': 1,
+        'venta_id': 1,
+        'numero_cuota': 1,
+        'fecha_vencimiento': nowIso,
+        'saldo_inicial': 450000.0,
+        'capital_cuota': 7500.0,
+        'interes_cuota': 4500.0,
+        'monto_cuota': 12000.0,
+        'monto_pagado': 12000.0,
+        'capital_pagado': 7500.0,
+        'interes_pagado': 4500.0,
+        'saldo_final': 442500.0,
+        'estado': 'pagada',
+        'fecha_creacion': nowIso,
+        'fecha_actualizacion': deletedAt,
+        'version': 1,
+        'sync_id': 'installment-deleted',
+        'deleted_at': deletedAt,
+        'sync_status': 'synced',
+        'id_local': 1,
+        'id_remote': 'remote-installment-deleted',
+        'last_modified_local': deletedAt,
+        'last_modified_remote': deletedAt,
+      });
+
+      await DatabaseSchema.migrate(db, 20, 21);
+
+      await db.insert('solares', {
+        'id': 2,
+        'manzana_numero': 'KL',
+        'solar_numero': '158',
+        'metros_cuadrados': 200.0,
+        'precio_por_metro': 2500.0,
+        'estado': 'vendido',
+        'fecha_creacion': nowIso,
+        'fecha_actualizacion': nowIso,
+        'version': 2,
+        'sync_id': 'product-active',
+        'deleted_at': null,
+        'sync_status': 'synced',
+        'id_local': 2,
+        'id_remote': 'remote-product-active',
+        'last_modified_local': nowIso,
+        'last_modified_remote': nowIso,
+      });
+      await db.insert('ventas', {
+        'id': 2,
+        'cliente_id': 1,
+        'solar_id': 1,
+        'usuario_id': 1,
+        'vendedor_id': 1,
+        'fecha_venta': nowIso,
+        'precio_venta': 500000.0,
+        'inicial_porcentaje': 10.0,
+        'inicial_monto': 50000.0,
+        'monto_inicial_requerido': 50000.0,
+        'monto_inicial_pagado': 50000.0,
+        'monto_inicial_pendiente': 0.0,
+        'monto_apartado_minimo': null,
+        'fecha_limite_inicial': nowIso,
+        'fecha_activacion': nowIso,
+        'saldo_financiado': 450000.0,
+        'saldo_pendiente': 450000.0,
+        'interes_mensual': 1.0,
+        'cantidad_cuotas': 60,
+        'estado': 'activa',
+        'fecha_creacion': nowIso,
+        'fecha_actualizacion': nowIso,
+        'version': 2,
+        'sync_id': 'sale-active',
+        'deleted_at': null,
+        'sync_status': 'synced',
+        'id_local': 2,
+        'id_remote': 'remote-sale-active',
+        'last_modified_local': nowIso,
+        'last_modified_remote': nowIso,
+      });
+      await db.insert('cuotas', {
+        'id': 2,
+        'venta_id': 1,
+        'numero_cuota': 1,
+        'fecha_vencimiento': nowIso,
+        'saldo_inicial': 450000.0,
+        'capital_cuota': 7500.0,
+        'interes_cuota': 4500.0,
+        'monto_cuota': 12000.0,
+        'monto_pagado': 0.0,
+        'capital_pagado': 0.0,
+        'interes_pagado': 0.0,
+        'saldo_final': 442500.0,
+        'estado': 'pendiente',
+        'fecha_creacion': nowIso,
+        'fecha_actualizacion': nowIso,
+        'version': 2,
+        'sync_id': 'installment-active',
+        'deleted_at': null,
+        'sync_status': 'synced',
+        'id_local': 2,
+        'id_remote': 'remote-installment-active',
+        'last_modified_local': nowIso,
+        'last_modified_remote': nowIso,
+      });
+
+      final lotRows = await db.query(
+        'solares',
+        where: 'manzana_numero = ? AND solar_numero = ?',
+        whereArgs: ['KL', '158'],
+      );
+      expect(lotRows, hasLength(2));
+
+      final saleRows = await db.query(
+        'ventas',
+        where: 'solar_id = ?',
+        whereArgs: [1],
+      );
+      expect(saleRows, hasLength(2));
+
+      final installmentRows = await db.query(
+        'cuotas',
+        where: 'venta_id = ? AND numero_cuota = ?',
+        whereArgs: [1, 1],
+      );
+      expect(installmentRows, hasLength(2));
+
+      await db.close();
+    },
+  );
 }
