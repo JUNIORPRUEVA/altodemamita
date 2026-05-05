@@ -439,8 +439,9 @@ class ClientRepository implements SyncRepository {
 
         final localRow = existingRows.first;
         final localClient = Client.fromMap(localRow);
-        final localStatus =
-            (localRow['sync_status']?.toString() ?? '').trim().toLowerCase();
+        final localStatus = (localRow['sync_status']?.toString() ?? '')
+            .trim()
+            .toLowerCase();
         final localPending = DatabaseSchema.writableSyncStatuses.contains(
           localStatus,
         );
@@ -468,6 +469,15 @@ class ClientRepository implements SyncRepository {
         }
 
         final localId = existingRows.first['id'] as int?;
+        final localDeletedAt = localRow['deleted_at']?.toString().trim();
+        final remoteDeletedAt = remoteClient.deletedAt
+            ?.toIso8601String()
+            .trim();
+        if (localDeletedAt != null &&
+            localDeletedAt.isNotEmpty &&
+            (remoteDeletedAt == null || remoteDeletedAt.isEmpty)) {
+          continue;
+        }
         await txn.update(
           DatabaseSchema.clientsTable,
           remoteClient.toMap()

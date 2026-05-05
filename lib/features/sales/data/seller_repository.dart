@@ -312,6 +312,15 @@ class SellerRepository implements SyncRepository {
           whereArgs: [syncId],
           limit: 1,
         );
+        final localRow = existing.isEmpty ? null : existing.first;
+        final localDeletedAt = localRow?['deleted_at']?.toString().trim();
+        final remoteDeletedAt = record['deleted_at']?.toString().trim();
+        if (localRow != null &&
+            localDeletedAt != null &&
+            localDeletedAt.isNotEmpty &&
+            (remoteDeletedAt == null || remoteDeletedAt.isEmpty)) {
+          continue;
+        }
 
         if (_shouldKeepLocal(existing, record)) {
           continue;
@@ -366,15 +375,13 @@ class SellerRepository implements SyncRepository {
 
     final db = await _appDatabase.database;
     final placeholders = List.filled(ids.length, '?').join(', ');
-    if (status == SyncStatus.synced.storageValue) {
-      await db.rawDelete(
-        'DELETE FROM ${DatabaseSchema.sellersTable} WHERE deleted_at IS NOT NULL AND sync_id IN ($placeholders)',
-        ids,
-      );
-    }
+    final now = DateTime.now().toIso8601String();
     await db.rawUpdate(
-      'UPDATE ${DatabaseSchema.sellersTable} SET sync_status = ? WHERE deleted_at IS NULL AND sync_id IN ($placeholders)',
-      [status, ...ids],
+      'UPDATE ${DatabaseSchema.sellersTable} '
+      'SET sync_status = ?, fecha_actualizacion = COALESCE(fecha_actualizacion, ?), '
+      'last_modified_local = COALESCE(last_modified_local, ?) '
+      'WHERE sync_id IN ($placeholders)',
+      [status, now, now, ...ids],
     );
   }
 
@@ -389,8 +396,9 @@ class SellerRepository implements SyncRepository {
     }
 
     final local = existingRows.first;
-    final localSyncStatus =
-        (local['sync_status'] as String? ?? '').trim().toLowerCase();
+    final localSyncStatus = (local['sync_status'] as String? ?? '')
+        .trim()
+        .toLowerCase();
     final localPending = DatabaseSchema.writableSyncStatuses.contains(
       localSyncStatus,
     );

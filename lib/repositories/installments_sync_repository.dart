@@ -103,6 +103,14 @@ class InstallmentsSyncRepository implements SyncRepository {
           whereArgs: [syncId],
           limit: 1,
         );
+        final localRow = existingRows.isEmpty ? null : existingRows.first;
+        final localDeletedAt = localRow?['deleted_at']?.toString().trim();
+        if (localRow != null &&
+            localDeletedAt != null &&
+            localDeletedAt.isNotEmpty &&
+            !_isDeleted(record['deleted_at'])) {
+          continue;
+        }
         if (_isDeleted(record['deleted_at'])) {
           if (_shouldKeepLocal(
             existingRows,
@@ -214,13 +222,13 @@ Future<void> _markScopeRowsAsSynced({
   }
   final db = await appDatabase.database;
   final placeholders = List.filled(ids.length, '?').join(', ');
-  await db.rawDelete(
-    'DELETE FROM $tableName WHERE deleted_at IS NOT NULL AND sync_id IN ($placeholders)',
-    ids,
-  );
+  final now = DateTime.now().toIso8601String();
   await db.rawUpdate(
-    'UPDATE $tableName SET sync_status = ? WHERE deleted_at IS NULL AND sync_id IN ($placeholders)',
-    [DatabaseSchema.syncStatusSynced, ...ids],
+    'UPDATE $tableName '
+    'SET sync_status = ?, fecha_actualizacion = ?, '
+    'last_modified_local = COALESCE(last_modified_local, ?) '
+    'WHERE sync_id IN ($placeholders)',
+    [DatabaseSchema.syncStatusSynced, now, now, ...ids],
   );
 }
 
@@ -282,13 +290,12 @@ bool _shouldKeepLocal(
     return false;
   }
   final local = existingRows.first;
-  final localSyncStatus =
-      (local['sync_status'] as String? ?? '').trim().toLowerCase();
+  final localSyncStatus = (local['sync_status'] as String? ?? '')
+      .trim()
+      .toLowerCase();
   final remoteDeleted = _isDeleted(remoteRecord['deleted_at']);
-  if (
-    localSyncStatus == DatabaseSchema.syncStatusPendingDelete &&
-    !remoteDeleted
-  ) {
+  if (localSyncStatus == DatabaseSchema.syncStatusPendingDelete &&
+      !remoteDeleted) {
     return true;
   }
   if (localSyncStatus == DatabaseSchema.syncStatusConflict) {
@@ -311,7 +318,8 @@ bool _shouldKeepLocal(
   }
 
   final localUpdated = _parseDate(
-    local['last_modified_local']?.toString() ?? local[updatedAtField]?.toString(),
+    local['last_modified_local']?.toString() ??
+        local[updatedAtField]?.toString(),
   );
   final remoteUpdated = _parseDate(
     remoteRecord['last_modified_remote']?.toString() ??

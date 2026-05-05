@@ -105,6 +105,14 @@ class UsersSyncRepository implements SyncRepository {
             limit: 1,
           );
         }
+        final localRow = existingRows.isEmpty ? null : existingRows.first;
+        final localDeletedAt = localRow?['deleted_at']?.toString().trim();
+        if (localRow != null &&
+            localDeletedAt != null &&
+            localDeletedAt.isNotEmpty &&
+            !_isDeleted(record['deleted_at'])) {
+          continue;
+        }
         if (_shouldKeepLocal(
           existingRows,
           record,
@@ -147,32 +155,33 @@ class UsersSyncRepository implements SyncRepository {
             ? (record['password_hash']?.toString() ?? '').trim()
             : '';
         final existingPasswordHash =
-          (existingRow?['password_hash'] as String? ?? '').trim();
+            (existingRow?['password_hash'] as String? ?? '').trim();
         final resolvedPasswordHash = incomingPasswordHash.isNotEmpty
             ? incomingPasswordHash
             : existingPasswordHash;
         final incomingEmail =
-          record['email']?.toString().trim().toLowerCase() ?? '';
-        final existingEmail =
-          (existingRow?['email'] as String? ?? '').trim().toLowerCase();
+            record['email']?.toString().trim().toLowerCase() ?? '';
+        final existingEmail = (existingRow?['email'] as String? ?? '')
+            .trim()
+            .toLowerCase();
         final incomingNombre =
-          (record['full_name'] ?? record['fullName'] ?? record['name'])
-            ?.toString()
-            .trim() ??
-          '';
+            (record['full_name'] ?? record['fullName'] ?? record['name'])
+                ?.toString()
+                .trim() ??
+            '';
         final existingNombre = (existingRow?['nombre'] as String? ?? '').trim();
         final incomingRole = (record['role']?.toString() ?? '').trim();
         final existingRole = (existingRow?['rol'] as String? ?? '').trim();
         final hasIsActiveField = record.containsKey('is_active');
         final hasPasswordUpdatedAt = record.containsKey('password_updated_at');
         final existingPasswordUpdatedAt =
-          (existingRow?['password_updated_at'] as String?)?.trim();
+            (existingRow?['password_updated_at'] as String?)?.trim();
         final existingAuthSource =
-          (existingRow?['auth_source'] as String? ?? '').trim();
+            (existingRow?['auth_source'] as String? ?? '').trim();
         final existingLastOnlineLoginAt =
-          (existingRow?['last_online_login_at'] as String?)?.trim();
+            (existingRow?['last_online_login_at'] as String?)?.trim();
         final resolvedRemoteId =
-          remoteId ?? (existingRow?['id_remote'] as String?)?.trim();
+            remoteId ?? (existingRow?['id_remote'] as String?)?.trim();
 
         final values = {
           'sync_id': syncId,
@@ -180,26 +189,26 @@ class UsersSyncRepository implements SyncRepository {
           'remote_auth_id': resolvedRemoteId,
           'id_local': existingRows.isEmpty ? null : existingRows.first['id'],
           'version': _readVersion(record),
-            'nombre': incomingNombre.isNotEmpty ? incomingNombre : existingNombre,
+          'nombre': incomingNombre.isNotEmpty ? incomingNombre : existingNombre,
           'email': incomingEmail.isNotEmpty ? incomingEmail : existingEmail,
           'password_hash': resolvedPasswordHash,
           'password_reset_required':
               _readBool(record['password_reset_required']) ? 1 : 0,
           'rol': incomingRole.isNotEmpty
-            ? _readRole(record['role'])
-            : existingRole,
+              ? _readRole(record['role'])
+              : existingRole,
           'activo': hasIsActiveField
-            ? (_readBool(record['is_active']) ? 1 : 0)
-            : ((existingRow?['activo'] as int? ?? 1) == 1 ? 1 : 0),
+              ? (_readBool(record['is_active']) ? 1 : 0)
+              : ((existingRow?['activo'] as int? ?? 1) == 1 ? 1 : 0),
           'telefono': record['phone']?.toString().trim(),
           'fecha_creacion': _readDate(record['created_at']),
           'fecha_actualizacion': _readDate(record['updated_at']),
           'last_modified_remote': _readDate(record['updated_at']),
           'password_updated_at': hasPasswordUpdatedAt
-            ? _readNullableDate(record['password_updated_at'])
-            : existingPasswordUpdatedAt,
+              ? _readNullableDate(record['password_updated_at'])
+              : existingPasswordUpdatedAt,
           'auth_source': existingAuthSource.isNotEmpty
-            ? existingAuthSource
+              ? existingAuthSource
               : 'local',
           'last_online_login_at': existingLastOnlineLoginAt,
           'deleted_at': _readNullableDate(record['deleted_at']),
@@ -294,9 +303,9 @@ class UsersSyncRepository implements SyncRepository {
         module: module,
         actions: actions,
       );
-      permissionsByUserId.putIfAbsent(userId, () => <String>[]).addAll(
-        _permissionCodesFromLocal(permission),
-      );
+      permissionsByUserId
+          .putIfAbsent(userId, () => <String>[])
+          .addAll(_permissionCodesFromLocal(permission));
     }
 
     for (final entry in permissionsByUserId.entries) {
@@ -370,13 +379,13 @@ Future<void> _markScopeRowsAsSynced({
   }
   final db = await appDatabase.database;
   final placeholders = List.filled(ids.length, '?').join(', ');
-  await db.rawDelete(
-    'DELETE FROM $tableName WHERE deleted_at IS NOT NULL AND sync_id IN ($placeholders)',
-    ids,
-  );
+  final now = DateTime.now().toIso8601String();
   await db.rawUpdate(
-    'UPDATE $tableName SET sync_status = ? WHERE deleted_at IS NULL AND sync_id IN ($placeholders)',
-    [DatabaseSchema.syncStatusSynced, ...ids],
+    'UPDATE $tableName '
+    'SET sync_status = ?, fecha_actualizacion = ?, '
+    'last_modified_local = COALESCE(last_modified_local, ?) '
+    'WHERE sync_id IN ($placeholders)',
+    [DatabaseSchema.syncStatusSynced, now, now, ...ids],
   );
 }
 
@@ -409,8 +418,9 @@ bool _shouldKeepLocal(
     return false;
   }
   final local = existingRows.first;
-  final localSyncStatus =
-      (local['sync_status'] as String? ?? '').trim().toLowerCase();
+  final localSyncStatus = (local['sync_status'] as String? ?? '')
+      .trim()
+      .toLowerCase();
   final localPending = DatabaseSchema.writableSyncStatuses.contains(
     localSyncStatus,
   );
@@ -428,7 +438,8 @@ bool _shouldKeepLocal(
   }
 
   final localUpdated = _parseDate(
-    local['last_modified_local']?.toString() ?? local[updatedAtField]?.toString(),
+    local['last_modified_local']?.toString() ??
+        local[updatedAtField]?.toString(),
   );
   final remoteUpdated = _parseDate(
     remoteRecord['last_modified_remote']?.toString() ??

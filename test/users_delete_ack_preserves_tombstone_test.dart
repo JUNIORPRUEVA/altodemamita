@@ -23,7 +23,7 @@ void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     tempDirectory = await Directory.systemTemp.createTemp(
-      'user_delete_offline_sync_',
+      'users_delete_ack_tombstone_',
     );
     appDatabase = AppDatabase.test(path.join(tempDirectory.path, 'auth.db'));
     await appDatabase.initialize();
@@ -45,47 +45,49 @@ void main() {
     }
   });
 
-  test(
-    'user delete while offline remains as tombstone after sync ack',
-    () async {
-      final created = await authService.createUser(
-        nombre: 'Vendedor Baja',
-        email: 'vendedor.baja@test.local',
-        password: 'Vendedor123',
-        role: UserRole.user,
-        permissions: const [
-          PermissionModel(module: PermissionCatalog.sales, read: true),
-        ],
-      );
+  test('users_delete_ack_preserves_tombstone_test', () async {
+    final created = await authService.createUser(
+      nombre: 'Supervisor Baja',
+      email: 'supervisor.baja@test.local',
+      password: 'Supervisor123',
+      role: UserRole.user,
+      permissions: const [
+        PermissionModel(module: PermissionCatalog.sales, read: true),
+      ],
+    );
 
-      await authService.deleteUser(created.id!);
+    await authService.deleteUser(created.id!);
 
-      final db = await appDatabase.database;
-      final rows = await db.query(
-        DatabaseSchema.usersTable,
-        columns: ['sync_id', 'sync_status', 'deleted_at'],
-        where: 'id = ?',
-        whereArgs: [created.id],
-        limit: 1,
-      );
+    final db = await appDatabase.database;
+    final beforeRows = await db.query(
+      DatabaseSchema.usersTable,
+      columns: ['sync_id', 'sync_status', 'deleted_at'],
+      where: 'id = ?',
+      whereArgs: [created.id],
+      limit: 1,
+    );
 
-      expect(rows, hasLength(1));
-      expect(rows.first['sync_status'], DatabaseSchema.syncStatusPendingDelete);
-      expect((rows.first['deleted_at'] as String?)?.isNotEmpty, isTrue);
+    expect(beforeRows, hasLength(1));
+    expect(
+      beforeRows.first['sync_status'],
+      DatabaseSchema.syncStatusPendingDelete,
+    );
+    expect((beforeRows.first['deleted_at'] as String?)?.isNotEmpty, isTrue);
 
-      final syncId = rows.first['sync_id'] as String;
-      await usersSyncRepository.markAsSynced([syncId]);
+    final syncId = beforeRows.first['sync_id'] as String;
+    await usersSyncRepository.markAsSynced([syncId]);
 
-      final syncedRows = await db.query(
-        DatabaseSchema.usersTable,
-        where: 'id = ?',
-        whereArgs: [created.id],
-        limit: 1,
-      );
-      expect(syncedRows, hasLength(1));
-      expect(syncedRows.first['deleted_at'], isNotNull);
-      expect(syncedRows.first['sync_status'], DatabaseSchema.syncStatusSynced);
-      expect(syncedRows.first['activo'], 0);
-    },
-  );
+    final afterRows = await db.query(
+      DatabaseSchema.usersTable,
+      columns: ['deleted_at', 'sync_status', 'activo'],
+      where: 'id = ?',
+      whereArgs: [created.id],
+      limit: 1,
+    );
+
+    expect(afterRows, hasLength(1));
+    expect((afterRows.first['deleted_at'] as String?)?.isNotEmpty, isTrue);
+    expect(afterRows.first['sync_status'], DatabaseSchema.syncStatusSynced);
+    expect(afterRows.first['activo'], 0);
+  });
 }

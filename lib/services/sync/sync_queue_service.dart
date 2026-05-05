@@ -123,6 +123,14 @@ class SyncQueueService {
     'installments': DatabaseSchema.installmentsTable,
     'payments': DatabaseSchema.paymentsTable,
   };
+  static const Set<String> _deleteAckRepairScopes = {
+    'products',
+    'sales',
+    'installments',
+    'payments',
+    'users',
+    'sellers',
+  };
   static const int _maxRetryAttempts = 12;
 
   Timer? _retryTimer;
@@ -637,8 +645,8 @@ class SyncQueueService {
           }
 
           var entryItems = [item];
-          if (scope == 'products' && repository is ProductsSyncRepository) {
-            await _repairFailedProductDeleteQueueEntries(entryItems);
+          if (_deleteAckRepairScopes.contains(scope)) {
+            await _repairFailedDeleteQueueEntries(scope, entryItems);
           }
 
           entryItems = await _pruneOrphanedUpserts(
@@ -1146,11 +1154,16 @@ class SyncQueueService {
     }
   }
 
-  Future<void> _repairFailedProductDeleteQueueEntries(
+  Future<void> _repairFailedDeleteQueueEntries(
+    String scope,
     Iterable<SyncQueueItem> items,
   ) async {
+    final tableName = _scopeTableMap[scope];
+    if (tableName == null) {
+      return;
+    }
     final deleteIds = items
-        .where((item) => item.scope == 'products' && item.operation == 'delete')
+        .where((item) => item.scope == scope && item.operation == 'delete')
         .map((item) => item.recordSyncId.trim())
         .where((value) => value.isNotEmpty)
         .toSet()
@@ -1162,7 +1175,7 @@ class SyncQueueService {
     final db = await _appDatabase.database;
     final placeholders = List.filled(deleteIds.length, '?').join(', ');
     final rows = await db.rawQuery(
-      'SELECT sync_id FROM ${DatabaseSchema.lotsTable} '
+      'SELECT sync_id FROM $tableName '
       'WHERE deleted_at IS NOT NULL '
       'AND sync_status = ? '
       'AND sync_id IN ($placeholders)',
@@ -1175,7 +1188,7 @@ class SyncQueueService {
     final now = DateTime.now().toIso8601String();
     await db.transaction((txn) async {
       await txn.rawUpdate(
-        'UPDATE ${DatabaseSchema.lotsTable} '
+        'UPDATE $tableName '
         'SET sync_status = ?, '
         'last_modified_local = COALESCE(last_modified_local, ?), '
         'fecha_actualizacion = COALESCE(fecha_actualizacion, ?) '
@@ -1195,13 +1208,15 @@ class SyncQueueService {
         'UPDATE ${DatabaseSchema.syncQueueTable} '
         'SET last_error = NULL, attempt_count = 0, updated_at = ?, next_attempt_at = ? '
         'WHERE scope = ? AND operation = ? AND record_sync_id IN ($placeholders)',
-        [now, now, 'products', 'delete', ...deleteIds],
+        [now, now, scope, 'delete', ...deleteIds],
       );
     });
 
     await _syncLogger.log(
-      action: 'product_delete_skipped_hard_delete',
-      entity: 'products',
+      action: scope == 'products'
+          ? 'product_delete_skipped_hard_delete'
+          : 'delete_skipped_hard_delete',
+      entity: scope,
       result: 'warning',
       extra: {'count': rows.length},
     );
