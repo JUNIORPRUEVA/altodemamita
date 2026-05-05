@@ -225,10 +225,31 @@ class SalesSyncRepository implements SyncRepository {
           continue;
         }
 
+        final uniqueProductRows = existingRows.isEmpty
+            ? await txn.query(
+                DatabaseSchema.salesTable,
+                where: 'solar_id = ?',
+                whereArgs: [productId],
+                limit: 1,
+              )
+            : const <Map<String, Object?>>[];
+        final matchedRows = existingRows.isNotEmpty
+            ? existingRows
+            : uniqueProductRows;
+        if (matchedRows.isNotEmpty &&
+            _shouldKeepLocal(
+              matchedRows,
+              record,
+              updatedAtField: 'fecha_actualizacion',
+            )) {
+          continue;
+        }
+        final matchedRow = matchedRows.isEmpty ? null : matchedRows.first;
+
         final values = {
           'sync_id': syncId,
           'id_remote': record['id']?.toString().trim(),
-          'id_local': existingRows.isEmpty ? null : existingRows.first['id'],
+          'id_local': matchedRow?['id'],
           'version': _readVersion(record),
           'cliente_id': clientId,
           'solar_id': productId,
@@ -264,14 +285,14 @@ class SalesSyncRepository implements SyncRepository {
           'sync_status': DatabaseSchema.syncStatusSynced,
         };
 
-        if (existingRows.isEmpty) {
+        if (matchedRows.isEmpty) {
           await txn.insert(DatabaseSchema.salesTable, values);
         } else {
           await txn.update(
             DatabaseSchema.salesTable,
             values,
-            where: 'sync_id = ?',
-            whereArgs: [syncId],
+            where: 'id = ?',
+            whereArgs: [matchedRow!['id']],
           );
         }
       }

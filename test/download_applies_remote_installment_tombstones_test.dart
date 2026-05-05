@@ -118,4 +118,114 @@ void main() {
     expect(rows.single['deleted_at'], now);
     expect(rows.single['sync_status'], DatabaseSchema.syncStatusSynced);
   });
+
+  test('reuses local installment occupying the same sale and number slot', () async {
+    final db = await appDatabase.database;
+    final now = DateTime.now().toIso8601String();
+    await db.insert(DatabaseSchema.clientsTable, {
+      'sync_id': 'client-1',
+      'version': 1,
+      'nombre': 'Cliente 1',
+      'cedula': '001-0000001-1',
+      'telefono': '8095551111',
+      'direccion': 'Dir 1',
+      'fecha_creacion': now,
+      'fecha_actualizacion': now,
+      'sync_status': DatabaseSchema.syncStatusSynced,
+    });
+    await db.insert(DatabaseSchema.lotsTable, {
+      'sync_id': 'product-1',
+      'version': 1,
+      'manzana_numero': 'A',
+      'solar_numero': '1',
+      'metros_cuadrados': 100,
+      'precio_por_metro': 1000,
+      'estado': 'vendido',
+      'fecha_creacion': now,
+      'fecha_actualizacion': now,
+      'sync_status': DatabaseSchema.syncStatusSynced,
+    });
+    final clientId = (await db.query(DatabaseSchema.clientsTable, limit: 1))
+        .single['id'];
+    final productId = (await db.query(DatabaseSchema.lotsTable, limit: 1))
+        .single['id'];
+    await db.insert(DatabaseSchema.salesTable, {
+      'sync_id': 'sale-1',
+      'version': 1,
+      'cliente_id': clientId,
+      'solar_id': productId,
+      'usuario_id': 1,
+      'vendedor_id': null,
+      'fecha_venta': now,
+      'precio_venta': 500000,
+      'inicial_porcentaje': 10,
+      'inicial_monto': 50000,
+      'monto_inicial_requerido': 50000,
+      'monto_inicial_pagado': 50000,
+      'monto_inicial_pendiente': 0,
+      'monto_apartado_minimo': null,
+      'fecha_limite_inicial': null,
+      'fecha_activacion': now,
+      'saldo_financiado': 450000,
+      'saldo_pendiente': 450000,
+      'interes_mensual': 1,
+      'cantidad_cuotas': 12,
+      'estado': 'activa',
+      'fecha_creacion': now,
+      'fecha_actualizacion': now,
+      'sync_status': DatabaseSchema.syncStatusSynced,
+    });
+
+    final saleId = (await db.query(DatabaseSchema.salesTable, limit: 1))
+        .single['id'];
+    await db.insert(DatabaseSchema.installmentsTable, {
+      'sync_id': 'local-installment-conflict',
+      'version': 1,
+      'venta_id': saleId,
+      'numero_cuota': 1,
+      'fecha_vencimiento': now,
+      'saldo_inicial': 450000,
+      'capital_cuota': 37500,
+      'interes_cuota': 4500,
+      'monto_cuota': 42000,
+      'monto_pagado': 0,
+      'capital_pagado': 0,
+      'interes_pagado': 0,
+      'saldo_final': 412500,
+      'estado': 'pendiente',
+      'fecha_creacion': now,
+      'fecha_actualizacion': now,
+      'sync_status': DatabaseSchema.syncStatusSynced,
+    });
+
+    await repository.mergeRemoteRecords([
+      {
+        'id': 'remote-installment-1',
+        'sync_id': 'installment-1',
+        'version': 2,
+        'sale_sync_id': 'sale-1',
+        'installment_number': 1,
+        'due_date': now,
+        'opening_balance': 450000,
+        'principal_amount': 37500,
+        'interest_amount': 4500,
+        'total_amount': 42000,
+        'paid_amount': 0,
+        'paid_principal_amount': 0,
+        'paid_interest_amount': 0,
+        'ending_balance': 412500,
+        'status': 'cancelada',
+        'created_at': now,
+        'updated_at': now,
+        'deleted_at': now,
+      },
+    ]);
+
+    final rows = await db.query(DatabaseSchema.installmentsTable);
+
+    expect(rows, hasLength(1));
+    expect(rows.single['sync_id'], 'installment-1');
+    expect(rows.single['deleted_at'], now);
+    expect(rows.single['sync_status'], DatabaseSchema.syncStatusSynced);
+  });
 }

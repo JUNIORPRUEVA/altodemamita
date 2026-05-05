@@ -120,13 +120,30 @@ class InstallmentsSyncRepository implements SyncRepository {
             continue;
           }
           final saleSyncId = _readRequiredString(record['sale_sync_id']);
-          final saleId = existingRows.isEmpty
+          final resolvedSaleId = existingRows.isEmpty
               ? await _resolveIdBySyncId(
                   txn,
                   DatabaseSchema.salesTable,
                   saleSyncId,
                 )
               : _readInt(existingRows.first['venta_id']);
+          final installmentNumber = _readInt(record['installment_number']);
+          final uniqueInstallmentRows =
+              existingRows.isEmpty && resolvedSaleId != null
+              ? await txn.query(
+                  DatabaseSchema.installmentsTable,
+                  where: 'venta_id = ? AND numero_cuota = ?',
+                  whereArgs: [resolvedSaleId, installmentNumber],
+                  limit: 1,
+                )
+              : const <Map<String, Object?>>[];
+          final matchedRows = existingRows.isNotEmpty
+              ? existingRows
+              : uniqueInstallmentRows;
+          final matchedRow = matchedRows.isEmpty ? null : matchedRows.first;
+          final saleId = matchedRow != null
+              ? _readInt(matchedRow['venta_id'])
+              : resolvedSaleId;
           if (saleId == null) {
             throw RemoteSyncDependencyException(
               scope: scope,
@@ -142,10 +159,10 @@ class InstallmentsSyncRepository implements SyncRepository {
           final tombstoneValues = {
             'sync_id': syncId,
             'id_remote': record['id']?.toString().trim(),
-            'id_local': existingRows.isEmpty ? null : existingRows.first['id'],
+            'id_local': matchedRow?['id'],
             'version': _readVersion(record),
             'venta_id': saleId,
-            'numero_cuota': _readInt(record['installment_number']),
+            'numero_cuota': installmentNumber,
             'fecha_vencimiento': _readDate(record['due_date'] ?? record['created_at']),
             'saldo_inicial': _readDouble(record['opening_balance']),
             'capital_cuota': _readDouble(record['principal_amount']),
@@ -162,14 +179,14 @@ class InstallmentsSyncRepository implements SyncRepository {
             'deleted_at': _readNullableDate(record['deleted_at']),
             'sync_status': DatabaseSchema.syncStatusSynced,
           };
-          if (existingRows.isEmpty) {
+          if (matchedRows.isEmpty) {
             await txn.insert(DatabaseSchema.installmentsTable, tombstoneValues);
           } else {
             await txn.update(
               DatabaseSchema.installmentsTable,
               tombstoneValues,
-              where: 'sync_id = ?',
-              whereArgs: [syncId],
+              where: 'id = ?',
+              whereArgs: [matchedRow!['id']],
             );
           }
           continue;
