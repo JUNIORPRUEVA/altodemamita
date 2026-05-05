@@ -327,6 +327,109 @@ void main() {
       }
     },
   );
+
+  test(
+    'borra venta offline sin pagos y al reconectar sincroniza el soft delete sin revivirla',
+    () async {
+      final db = await appDatabase.database;
+      final now = DateTime(2026, 4, 26, 10, 15);
+
+      final clientId = await db.insert(DatabaseSchema.clientsTable, {
+        'sync_id': 'client-offline-delete-1',
+        'version': 1,
+        'nombre': 'Cliente Delete Sync',
+        'cedula': '001-0000303-7',
+        'telefono': '8095550303',
+        'direccion': 'Calle Proyecto 3',
+        'fecha_creacion': now.toIso8601String(),
+        'fecha_actualizacion': now.toIso8601String(),
+        'deleted_at': null,
+        'sync_status': DatabaseSchema.syncStatusSynced,
+      });
+      final lotId = await db.insert(DatabaseSchema.lotsTable, {
+        'sync_id': 'product-offline-delete-1',
+        'version': 1,
+        'manzana_numero': 'C',
+        'solar_numero': '07',
+        'metros_cuadrados': 210.0,
+        'precio_por_metro': 3000.0,
+        'estado': 'disponible',
+        'fecha_creacion': now.toIso8601String(),
+        'fecha_actualizacion': now.toIso8601String(),
+        'deleted_at': null,
+        'sync_status': DatabaseSchema.syncStatusSynced,
+      });
+
+      final saleId = await salesRepository.createSale(
+        SaleDraft(
+          clientId: clientId,
+          lotId: lotId,
+          userId: 1,
+          saleDate: now,
+          salePrice: 500000,
+          downPaymentPercentage: 10,
+          requiredInitialPayment: 50000,
+          initialPaymentPaid: 50000,
+          monthlyInterest: 1,
+          installmentCount: 120,
+        ),
+      );
+
+      await syncQueueService.start();
+      online = true;
+      connectivityController.add(const [ConnectivityResult.wifi]);
+      await _waitUntil(() async => await syncQueueService.pendingCount() == 0);
+
+      final saleRow = (await db.query(
+        DatabaseSchema.salesTable,
+        columns: ['sync_id'],
+        where: 'id = ?',
+        whereArgs: [saleId],
+        limit: 1,
+      )).single;
+      final saleSyncId = saleRow['sync_id'] as String;
+
+      online = false;
+      await salesRepository.deleteSale(saleId);
+
+      expect(await salesRepository.fetchDetail(saleId), isNull);
+
+      final deletedRow = (await db.query(
+        DatabaseSchema.salesTable,
+        columns: ['deleted_at', 'sync_status', 'version'],
+        where: 'id = ?',
+        whereArgs: [saleId],
+        limit: 1,
+      )).single;
+      expect(deletedRow['deleted_at'], isNotNull);
+      expect(deletedRow['sync_status'], DatabaseSchema.syncStatusPendingDelete);
+      expect(deletedRow['version'], 2);
+
+      online = true;
+      connectivityController.add(const [ConnectivityResult.wifi]);
+      await _waitUntil(() async => await syncQueueService.pendingCount() == 0);
+
+      final saleUploads =
+          apiClient.uploadedRecordsByScope['sales'] ?? const <Map<String, dynamic>>[];
+      final deleteUpload = saleUploads.lastWhere(
+        (record) =>
+            record['sync_id'] == saleSyncId && record['deleted_at'] != null,
+      );
+      expect(deleteUpload['version'], 2);
+      expect(deleteUpload['updated_at'], deleteUpload['deleted_at']);
+
+      final syncedRow = (await db.query(
+        DatabaseSchema.salesTable,
+        columns: ['deleted_at', 'sync_status'],
+        where: 'id = ?',
+        whereArgs: [saleId],
+        limit: 1,
+      )).single;
+      expect(syncedRow['deleted_at'], isNotNull);
+      expect(syncedRow['sync_status'], DatabaseSchema.syncStatusSynced);
+      expect(await salesRepository.fetchDetail(saleId), isNull);
+    },
+  );
 }
 
 Future<int> _countByStatus(

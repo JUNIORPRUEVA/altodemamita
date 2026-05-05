@@ -1,6 +1,6 @@
 import { BadRequestException, HttpException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { Prisma, RoleCode, SyncStatus } from '@prisma/client';
+import { Prisma, RoleCode, SaleStatus, SyncStatus } from '@prisma/client';
 
 import { PrismaService } from 'src/infrastructure/prisma/prisma.service';
 import { PERMISSIONS } from 'src/shared/constants/permissions.constants';
@@ -850,10 +850,61 @@ export class SyncService {
             continue;
           }
 
+          const saleWithRelations = await tx.sale.findUnique({
+            where: { id: existing.id },
+            include: {
+              client: { select: { syncId: true } },
+              product: { select: { syncId: true } },
+              seller: { select: { syncId: true } },
+              payments: {
+                where: { deletedAt: null },
+                select: { id: true, syncId: true, updatedAt: true },
+              },
+              installments: {
+                where: { deletedAt: null },
+                select: { id: true },
+              },
+            },
+          });
+          if ((saleWithRelations?.payments.length ?? 0) > 0) {
+            this.throwManualConflict({
+              scope: 'sales',
+              recordSyncId,
+              localRecord: payload,
+              serverRecord: saleWithRelations
+                ? {
+                    ...this.serializeSaleRecord(saleWithRelations),
+                    reason: 'sale_has_payments',
+                    actionRequired: 'manual_review',
+                    serverUpdatedAt: saleWithRelations.updatedAt.toISOString(),
+                  }
+                : null,
+              message:
+                'Conflicto de sincronizacion: no se puede borrar la venta en la nube porque ya tiene pagos registrados. Se requiere revision manual.',
+            });
+          }
+
+          await tx.installment.updateMany({
+            where: { saleId: existing.id, deletedAt: null },
+            data: {
+              deletedAt,
+              ...(incomingUpdatedAt ? { updatedAt: incomingUpdatedAt } : {}),
+              syncStatus: SyncStatus.synced,
+            },
+          });
+
           const persisted = await tx.sale.update({
             where: { id: existing.id },
             data: {
               deletedAt,
+              status: SaleStatus.cancelled,
+              syncPayload: this.toJsonValue({
+                ...payload,
+                sync_id: recordSyncId,
+                deleted_at: deletedAt.toISOString(),
+                updated_at: (incomingUpdatedAt ?? deletedAt).toISOString(),
+                status: 'cancelada',
+              }),
               ...(incomingUpdatedAt ? { updatedAt: incomingUpdatedAt } : {}),
               syncStatus: SyncStatus.synced,
             },
@@ -1327,7 +1378,16 @@ export class SyncService {
     });
 
     for (const saleId of affectedSales) {
-      await this.accountingService.syncSaleAggregates(this.prisma, saleId);
+      const sale = await this.prisma.sale.findUnique({
+        where: { id: saleId },
+        select: { deletedAt: true },
+      });
+      if (!sale) {
+        continue;
+      }
+      if (sale.deletedAt == null) {
+        await this.accountingService.syncSaleAggregates(this.prisma, saleId);
+      }
       await this.prisma.sale.update({
         where: { id: saleId },
         data: { syncStatus: SyncStatus.synced },

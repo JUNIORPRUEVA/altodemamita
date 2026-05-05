@@ -315,11 +315,10 @@ export class SalesService {
 
   async remove(id: string) {
     const sale = await this.findOne(id);
+    if (sale.payments.length > 0) {
+      throw new BadRequestException('No se puede eliminar una venta que ya tiene pagos registrados.');
+    }
     await this.prisma.$transaction(async (tx) => {
-      await tx.payment.updateMany({
-        where: { saleId: id, deletedAt: null },
-        data: { deletedAt: new Date(), syncStatus: SyncStatus.pending },
-      });
       await tx.installment.updateMany({
         where: { saleId: id, deletedAt: null },
         data: { deletedAt: new Date(), syncStatus: SyncStatus.pending },

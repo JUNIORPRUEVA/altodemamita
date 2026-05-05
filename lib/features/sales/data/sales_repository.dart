@@ -911,6 +911,11 @@ class SalesRepository {
         where: 'venta_id = ? AND deleted_at IS NULL',
         whereArgs: [saleId],
       );
+      if (paymentRows.isNotEmpty) {
+        throw StateError(
+          'No se puede eliminar una venta que ya tiene pagos registrados.',
+        );
+      }
       final installmentRows = await txn.query(
         DatabaseSchema.installmentsTable,
         where: 'venta_id = ? AND deleted_at IS NULL',
@@ -945,6 +950,7 @@ class SalesRepository {
 
       final saleRow = saleRows.first;
       final saleSyncId = (saleRow['sync_id'] as String?)?.trim();
+      final nextSaleVersion = ((saleRow['version'] as int?) ?? 1) + 1;
       if (saleSyncId != null && saleSyncId.isNotEmpty) {
         deleteQueue.add((
           scope: 'sales',
@@ -966,21 +972,25 @@ class SalesRepository {
         whereArgs: [saleId],
       );
 
-      await txn.update(
-        DatabaseSchema.installmentsTable,
-        {
-          'deleted_at': deletedAt,
-          'fecha_actualizacion': deletedAt,
-          'last_modified_local': deletedAt,
-          'sync_status': DatabaseSchema.syncStatusPendingDelete,
-        },
-        where: 'venta_id = ? AND deleted_at IS NULL',
-        whereArgs: [saleId],
+      await txn.rawUpdate(
+        'UPDATE ${DatabaseSchema.installmentsTable} '
+        'SET version = COALESCE(version, 1) + 1, '
+        'deleted_at = ?, fecha_actualizacion = ?, last_modified_local = ?, sync_status = ? '
+        'WHERE venta_id = ? AND deleted_at IS NULL',
+        [
+          deletedAt,
+          deletedAt,
+          deletedAt,
+          DatabaseSchema.syncStatusPendingDelete,
+          saleId,
+        ],
       );
 
       await txn.update(
         DatabaseSchema.salesTable,
         {
+          'version': nextSaleVersion,
+          'estado': 'cancelada',
           'deleted_at': deletedAt,
           'fecha_actualizacion': deletedAt,
           'last_modified_local': deletedAt,
