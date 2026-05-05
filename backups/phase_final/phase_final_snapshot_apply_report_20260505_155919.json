@@ -1,0 +1,145 @@
+{
+  "started_at": "2026-05-05T15:59:19.231702",
+  "finished_at": "2026-05-05T15:59:20.028227",
+  "sqlite_backup": "C:\\Users\\pc\\DEV\\PROYECTOS\\CLIENTES\\SISTEMA_SOLARES\\backups\\phase_final\\sqlite_before_snapshot_apply_20260505_155919.db",
+  "snapshot_path": "C:\\Users\\pc\\DEV\\PROYECTOS\\CLIENTES\\SISTEMA_SOLARES\\backups\\phase_final\\backend_snapshot_before_20260505_145351.json",
+  "applied_records": 595,
+  "remaining_retry_scopes": [],
+  "retry_details": [],
+  "before": {
+    "local_summary": {
+      "sync_queue_total": 0,
+      "sync_queue_failed": 0,
+      "clients": {
+        "active": 0,
+        "deleted": 12
+      },
+      "products": {
+        "active": 0,
+        "deleted": 10
+      },
+      "sales": {
+        "active": 1,
+        "deleted": 7
+      },
+      "installments": {
+        "active": 12,
+        "deleted": 442
+      },
+      "payments": {
+        "active": 2,
+        "deleted": 6
+      }
+    },
+    "comparison": {
+      "clients": {
+        "local_active": 0,
+        "local_deleted": 12,
+        "backend_active": 0,
+        "backend_deleted": 12,
+        "backend_active_not_in_local": [],
+        "backend_deleted_not_in_local": []
+      },
+      "products": {
+        "local_active": 0,
+        "local_deleted": 10,
+        "backend_active": 0,
+        "backend_deleted": 10,
+        "backend_active_not_in_local": [],
+        "backend_deleted_not_in_local": []
+      },
+      "sales": {
+        "local_active": 1,
+        "local_deleted": 7,
+        "backend_active": 2,
+        "backend_deleted": 6,
+        "backend_active_not_in_local": [],
+        "backend_deleted_not_in_local": []
+      },
+      "installments": {
+        "local_active": 12,
+        "local_deleted": 442,
+        "backend_active": 71,
+        "backend_deleted": 383,
+        "backend_active_not_in_local": [],
+        "backend_deleted_not_in_local": []
+      },
+      "payments": {
+        "local_active": 2,
+        "local_deleted": 6,
+        "backend_active": 2,
+        "backend_deleted": 6,
+        "backend_active_not_in_local": [],
+        "backend_deleted_not_in_local": []
+      }
+    }
+  },
+  "after": {
+    "local_summary": {
+      "sync_queue_total": 0,
+      "sync_queue_failed": 0,
+      "clients": {
+        "active": 0,
+        "deleted": 12
+      },
+      "products": {
+        "active": 0,
+        "deleted": 10
+      },
+      "sales": {
+        "active": 2,
+        "deleted": 6
+      },
+      "installments": {
+        "active": 71,
+        "deleted": 383
+      },
+      "payments": {
+        "active": 2,
+        "deleted": 6
+      }
+    },
+    "comparison": {
+      "clients": {
+        "local_active": 0,
+        "local_deleted": 12,
+        "backend_active": 0,
+        "backend_deleted": 12,
+        "backend_active_not_in_local": [],
+        "backend_deleted_not_in_local": []
+      },
+      "products": {
+        "local_active": 0,
+        "local_deleted": 10,
+        "backend_active": 0,
+        "backend_deleted": 10,
+        "backend_active_not_in_local": [],
+        "backend_deleted_not_in_local": []
+      },
+      "sales": {
+        "local_active": 2,
+        "local_deleted": 6,
+        "backend_active": 2,
+        "backend_deleted": 6,
+        "backend_active_not_in_local": [],
+        "backend_deleted_not_in_local": []
+      },
+      "installments": {
+        "local_active": 71,
+        "local_deleted": 383,
+        "backend_active": 71,
+        "backend_deleted": 383,
+        "backend_active_not_in_local": [],
+        "backend_deleted_not_in_local": []
+      },
+      "payments": {
+        "local_active": 2,
+        "local_deleted": 6,
+        "backend_active": 2,
+        "backend_deleted": 6,
+        "backend_active_not_in_local": [],
+        "backend_deleted_not_in_local": []
+      }
+    }
+  }
+}

@@ -826,7 +826,14 @@ class _SaleRow extends StatelessWidget {
               if (availableActions.isNotEmpty)
                 PopupMenuButton<_SaleAdminAction>(
                   tooltip: '',
-                  onSelected: onAction,
+                  onSelected: (action) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (!context.mounted) {
+                        return;
+                      }
+                      onAction(action);
+                    });
+                  },
                   itemBuilder: (context) => availableActions
                       .map(
                         (action) => PopupMenuItem<_SaleAdminAction>(

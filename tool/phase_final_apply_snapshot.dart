@@ -269,6 +269,9 @@ Map<String, Object?> _compareScope({
 
   final backendActiveNotInLocal = <Map<String, Object?>>[];
   final backendDeletedNotInLocal = <Map<String, Object?>>[];
+  final localActiveNotInBackend = <Map<String, Object?>>[];
+  final localDeletedNotInBackend = <Map<String, Object?>>[];
+  final stateMismatches = <Map<String, Object?>>[];
 
   for (final entry in remoteBySyncId.entries) {
     final syncId = entry.key;
@@ -276,6 +279,22 @@ Map<String, Object?> _compareScope({
     final localRow = localBySyncId[syncId];
     final remoteDeleted = _readString(remoteRow['deleted_at']) != null;
     if (localRow != null) {
+      final localDeleted = _readString(localRow['deleted_at']) != null;
+      if (localDeleted != remoteDeleted) {
+        final payload = <String, Object?>{
+          'sync_id': syncId,
+          'remote_deleted_at': _readString(remoteRow['deleted_at']),
+          'local_deleted_at': _readString(localRow['deleted_at']),
+          'local_sync_status': _readString(localRow['sync_status']),
+          'remote_id': _readString(remoteRow['id']),
+          'local_id': _readString(localRow['id']),
+        };
+        if (scope.remoteScope == 'sales') {
+          payload['remote_installments'] = remoteInstallmentsBySale[syncId] ?? 0;
+          payload['remote_payments'] = remotePaymentsBySale[syncId] ?? 0;
+        }
+        stateMismatches.add(payload);
+      }
       continue;
     }
 
@@ -295,6 +314,26 @@ Map<String, Object?> _compareScope({
     }
   }
 
+  for (final entry in localBySyncId.entries) {
+    final syncId = entry.key;
+    final localRow = entry.value;
+    if (remoteBySyncId.containsKey(syncId)) {
+      continue;
+    }
+    final localDeleted = _readString(localRow['deleted_at']) != null;
+    final payload = <String, Object?>{
+      'sync_id': syncId,
+      'local_deleted_at': _readString(localRow['deleted_at']),
+      'local_sync_status': _readString(localRow['sync_status']),
+      'local_id': _readString(localRow['id']),
+    };
+    if (localDeleted) {
+      localDeletedNotInBackend.add(payload);
+    } else {
+      localActiveNotInBackend.add(payload);
+    }
+  }
+
   return {
     'local_active': localRows.where((row) => _readString(row['deleted_at']) == null).length,
     'local_deleted': localRows.where((row) => _readString(row['deleted_at']) != null).length,
@@ -302,6 +341,9 @@ Map<String, Object?> _compareScope({
     'backend_deleted': remoteRows.where((row) => _readString(row['deleted_at']) != null).length,
     'backend_active_not_in_local': backendActiveNotInLocal,
     'backend_deleted_not_in_local': backendDeletedNotInLocal,
+    'local_active_not_in_backend': localActiveNotInBackend,
+    'local_deleted_not_in_backend': localDeletedNotInBackend,
+    'state_mismatches': stateMismatches,
   };
 }
 

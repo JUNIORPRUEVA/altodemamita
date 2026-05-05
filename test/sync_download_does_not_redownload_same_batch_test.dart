@@ -82,6 +82,44 @@ void main() {
     expect(apiClient.downloadCalls, 2);
     expect(repository.mergedRecords, hasLength(1));
   });
+
+  test('download applies remote tombstones before active records in same scope', () async {
+    apiClient.recordsByScope = {
+      'roles': [
+        {
+          'id': 'role-remote-active-1',
+          'sync_id': 'role-sync-active-1',
+          'version': 2,
+          'code': 'ADMIN',
+          'name': 'Administrador activo',
+          'description': 'Activo',
+          'created_at': '2026-05-05T10:00:00.000Z',
+          'updated_at': '2026-05-05T10:05:00.000Z',
+          'deleted_at': null,
+          'sync_status': 'synced',
+        },
+        {
+          'id': 'role-remote-delete-1',
+          'sync_id': 'role-sync-delete-1',
+          'version': 3,
+          'code': 'LEGACY',
+          'name': 'Administrador borrado',
+          'description': 'Eliminado',
+          'created_at': '2026-05-05T09:00:00.000Z',
+          'updated_at': '2026-05-05T10:06:00.000Z',
+          'deleted_at': '2026-05-05T10:06:00.000Z',
+          'sync_status': 'synced',
+        },
+      ],
+    };
+
+    await syncService.downloadUpdatesForScopes(['roles'], forceFullDownload: true);
+
+    expect(
+      repository.mergedRecords.map((record) => record['sync_id']).toList(),
+      ['role-sync-delete-1', 'role-sync-active-1'],
+    );
+  });
 }
 
 class _RecordingSyncRepository implements SyncRepository {

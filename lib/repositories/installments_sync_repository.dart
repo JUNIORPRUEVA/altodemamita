@@ -1,3 +1,5 @@
+import 'dart:developer' as developer;
+
 import '../core/database/app_database.dart';
 import '../core/database/database_schema.dart';
 import 'sync_repository.dart';
@@ -7,6 +9,15 @@ class InstallmentsSyncRepository implements SyncRepository {
     : _appDatabase = appDatabase ?? AppDatabase.instance;
 
   final AppDatabase _appDatabase;
+
+  void _log(String message, {Object? error, StackTrace? stackTrace}) {
+    developer.log(
+      message,
+      name: 'SistemaSolares.InstallmentsSyncRepository',
+      error: error,
+      stackTrace: stackTrace,
+    );
+  }
 
   @override
   String get scope => 'installments';
@@ -103,22 +114,7 @@ class InstallmentsSyncRepository implements SyncRepository {
           whereArgs: [syncId],
           limit: 1,
         );
-        final localRow = existingRows.isEmpty ? null : existingRows.first;
-        final localDeletedAt = localRow?['deleted_at']?.toString().trim();
-        if (localRow != null &&
-            localDeletedAt != null &&
-            localDeletedAt.isNotEmpty &&
-            !_isDeleted(record['deleted_at'])) {
-          continue;
-        }
         if (_isDeleted(record['deleted_at'])) {
-          if (_shouldKeepLocal(
-            existingRows,
-            record,
-            updatedAtField: 'fecha_actualizacion',
-          )) {
-            continue;
-          }
           final saleSyncId = _readRequiredString(record['sale_sync_id']);
           final resolvedSaleId = existingRows.isEmpty
               ? await _resolveIdBySyncId(
@@ -128,7 +124,7 @@ class InstallmentsSyncRepository implements SyncRepository {
                 )
               : _readInt(existingRows.first['venta_id']);
           final installmentNumber = _readInt(record['installment_number']);
-            final matchedRows = existingRows;
+          final matchedRows = existingRows;
           final matchedRow = matchedRows.isEmpty ? null : matchedRows.first;
           final saleId = matchedRow != null
               ? _readInt(matchedRow['venta_id'])
@@ -168,16 +164,8 @@ class InstallmentsSyncRepository implements SyncRepository {
             'deleted_at': _readNullableDate(record['deleted_at']),
             'sync_status': DatabaseSchema.syncStatusSynced,
           };
-          if (matchedRows.isEmpty) {
-            await txn.insert(DatabaseSchema.installmentsTable, tombstoneValues);
-          } else {
-            await txn.update(
-              DatabaseSchema.installmentsTable,
-              tombstoneValues,
-              where: 'id = ?',
-              whereArgs: [matchedRow!['id']],
-            );
-          }
+          _log('UPSERT TOMBSTONE: installments $syncId');
+          await _upsertInstallment(txn, tombstoneValues);
           continue;
         }
 
@@ -238,8 +226,10 @@ class InstallmentsSyncRepository implements SyncRepository {
         };
 
         if (resolvedExistingRows.isEmpty) {
+          _log('[SYNC] Insert new record: table=installments id=$syncId remote_delete=false');
           await txn.insert(DatabaseSchema.installmentsTable, values);
         } else {
+          _log('[SYNC] Updating local record: table=installments id=$syncId remote_delete=false');
           await txn.update(
             DatabaseSchema.installmentsTable,
             values,
@@ -372,6 +362,21 @@ bool _shouldKeepLocal(
   return localUpdated != null &&
       remoteUpdated != null &&
       localUpdated.isAfter(remoteUpdated);
+}
+
+Future<void> _upsertInstallment(
+  dynamic txn,
+  Map<String, Object?> values,
+) async {
+  final updated = await txn.update(
+    DatabaseSchema.installmentsTable,
+    values,
+    where: 'sync_id = ?',
+    whereArgs: [values['sync_id']],
+  );
+  if (updated == 0) {
+    await txn.insert(DatabaseSchema.installmentsTable, values);
+  }
 }
 
 DateTime? _parseDate(String? value) {

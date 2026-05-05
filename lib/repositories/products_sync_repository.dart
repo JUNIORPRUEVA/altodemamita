@@ -132,31 +132,6 @@ class ProductsSyncRepository implements SyncRepository {
         final resolvedExistingRows = existingRows.isEmpty
           ? matchingSlotRows
           : existingRows;
-        final localRow = resolvedExistingRows.isEmpty
-            ? null
-            : resolvedExistingRows.first;
-        final localDeletedAt = localRow?['deleted_at']?.toString().trim();
-        final localSyncStatus =
-            localRow?['sync_status']?.toString().trim().toLowerCase() ?? '';
-
-        if (localRow != null &&
-            localDeletedAt != null &&
-            localDeletedAt.isNotEmpty &&
-            !_isDeleted(record['deleted_at'])) {
-          _log(
-            'product_download_skipped_local_deleted sync_id=$syncId status=$localSyncStatus',
-          );
-          continue;
-        }
-
-        if (_shouldKeepLocal(
-          resolvedExistingRows,
-          record,
-          updatedAtField: 'fecha_actualizacion',
-        )) {
-          continue;
-        }
-
         if (_isDeleted(record['deleted_at'])) {
           final tombstoneValues = {
             'sync_id': syncId,
@@ -176,16 +151,16 @@ class ProductsSyncRepository implements SyncRepository {
             'deleted_at': _readNullableDate(record['deleted_at']),
             'sync_status': DatabaseSchema.syncStatusSynced,
           };
-          if (resolvedExistingRows.isEmpty) {
-            await txn.insert(DatabaseSchema.lotsTable, tombstoneValues);
-          } else {
-            await txn.update(
-              DatabaseSchema.lotsTable,
-              tombstoneValues,
-              where: 'id = ?',
-              whereArgs: [resolvedExistingRows.first['id']],
-            );
-          }
+          _log('UPSERT TOMBSTONE: products $syncId');
+          await _upsertProduct(txn, tombstoneValues);
+          continue;
+        }
+
+        if (_shouldKeepLocal(
+          resolvedExistingRows,
+          record,
+          updatedAtField: 'fecha_actualizacion',
+        )) {
           continue;
         }
 
@@ -209,8 +184,10 @@ class ProductsSyncRepository implements SyncRepository {
         };
 
         if (resolvedExistingRows.isEmpty) {
+          _log('[SYNC] Insert new record: table=products id=$syncId remote_delete=false');
           await txn.insert(DatabaseSchema.lotsTable, values);
         } else {
+          _log('[SYNC] Updating local record: table=products id=$syncId remote_delete=false');
           await txn.update(
             DatabaseSchema.lotsTable,
             values,
@@ -237,6 +214,21 @@ class ProductsSyncRepository implements SyncRepository {
       'deleted_at': row['deleted_at'],
       'sync_status': row['sync_status'],
     };
+  }
+}
+
+Future<void> _upsertProduct(
+  dynamic txn,
+  Map<String, Object?> values,
+) async {
+  final updated = await txn.update(
+    DatabaseSchema.lotsTable,
+    values,
+    where: 'sync_id = ?',
+    whereArgs: [values['sync_id']],
+  );
+  if (updated == 0) {
+    await txn.insert(DatabaseSchema.lotsTable, values);
   }
 }
 

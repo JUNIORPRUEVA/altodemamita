@@ -1,3 +1,5 @@
+import 'dart:developer' as developer;
+
 import '../core/database/app_database.dart';
 import '../core/database/database_schema.dart';
 import 'sync_repository.dart';
@@ -7,6 +9,15 @@ class PaymentsSyncRepository implements SyncRepository {
     : _appDatabase = appDatabase ?? AppDatabase.instance;
 
   final AppDatabase _appDatabase;
+
+  void _log(String message, {Object? error, StackTrace? stackTrace}) {
+    developer.log(
+      message,
+      name: 'SistemaSolares.PaymentsSyncRepository',
+      error: error,
+      stackTrace: stackTrace,
+    );
+  }
 
   @override
   String get scope => 'payments';
@@ -104,22 +115,6 @@ class PaymentsSyncRepository implements SyncRepository {
           whereArgs: [syncId],
           limit: 1,
         );
-        final localRow = existingRows.isEmpty ? null : existingRows.first;
-        final localDeletedAt = localRow?['deleted_at']?.toString().trim();
-        if (localRow != null &&
-            localDeletedAt != null &&
-            localDeletedAt.isNotEmpty &&
-            !_isDeleted(record['deleted_at'])) {
-          continue;
-        }
-        if (_shouldKeepLocal(
-          existingRows,
-          record,
-          updatedAtField: 'fecha_actualizacion',
-        )) {
-          continue;
-        }
-
         if (_isDeleted(record['deleted_at'])) {
           final saleSyncId = _readRequiredString(record['sale_sync_id']);
           final clientSyncId = _readRequiredString(record['client_sync_id']);
@@ -185,16 +180,16 @@ class PaymentsSyncRepository implements SyncRepository {
             'deleted_at': _readNullableDate(record['deleted_at']),
             'sync_status': DatabaseSchema.syncStatusSynced,
           };
-          if (existingRows.isEmpty) {
-            await txn.insert(DatabaseSchema.paymentsTable, tombstoneValues);
-          } else {
-            await txn.update(
-              DatabaseSchema.paymentsTable,
-              tombstoneValues,
-              where: 'sync_id = ?',
-              whereArgs: [syncId],
-            );
-          }
+          _log('UPSERT TOMBSTONE: payments $syncId');
+          await _upsertPayment(txn, tombstoneValues);
+          continue;
+        }
+
+        if (_shouldKeepLocal(
+          existingRows,
+          record,
+          updatedAtField: 'fecha_actualizacion',
+        )) {
           continue;
         }
 
@@ -245,8 +240,10 @@ class PaymentsSyncRepository implements SyncRepository {
         };
 
         if (existingRows.isEmpty) {
+          _log('[SYNC] Insert new record: table=payments id=$syncId remote_delete=false');
           await txn.insert(DatabaseSchema.paymentsTable, values);
         } else {
+          _log('[SYNC] Updating local record: table=payments id=$syncId remote_delete=false');
           await txn.update(
             DatabaseSchema.paymentsTable,
             values,
@@ -371,6 +368,21 @@ bool _shouldKeepLocal(
   return localUpdated != null &&
       remoteUpdated != null &&
       localUpdated.isAfter(remoteUpdated);
+}
+
+Future<void> _upsertPayment(
+  dynamic txn,
+  Map<String, Object?> values,
+) async {
+  final updated = await txn.update(
+    DatabaseSchema.paymentsTable,
+    values,
+    where: 'sync_id = ?',
+    whereArgs: [values['sync_id']],
+  );
+  if (updated == 0) {
+    await txn.insert(DatabaseSchema.paymentsTable, values);
+  }
 }
 
 DateTime? _parseDate(String? value) {

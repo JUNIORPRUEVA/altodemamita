@@ -137,4 +137,113 @@ void main() {
       expect(rows.single['version'], 9);
     },
   );
+
+  test(
+    'mergeRemoteRecords revive una venta local borrada ya sincronizada cuando backend la reporta activa',
+    () async {
+      final db = await appDatabase.database;
+      final createdAt = DateTime(2026, 5, 5, 9, 0).toIso8601String();
+      final deletedAt = DateTime(2026, 5, 5, 10, 0).toIso8601String();
+      final remoteUpdatedAt = DateTime(2026, 5, 5, 11, 0).toIso8601String();
+
+      final clientId = await db.insert(DatabaseSchema.clientsTable, {
+        'sync_id': 'client-sale-revive-1',
+        'version': 1,
+        'nombre': 'Cliente Revive',
+        'cedula': '001-0000556-1',
+        'telefono': '8095555552',
+        'direccion': 'Calle Revive',
+        'fecha_creacion': createdAt,
+        'fecha_actualizacion': createdAt,
+        'deleted_at': null,
+        'sync_status': DatabaseSchema.syncStatusSynced,
+      });
+      final lotId = await db.insert(DatabaseSchema.lotsTable, {
+        'sync_id': 'product-sale-revive-1',
+        'version': 1,
+        'manzana_numero': 'R',
+        'solar_numero': '03',
+        'metros_cuadrados': 120,
+        'precio_por_metro': 3200,
+        'estado': 'vendido',
+        'fecha_creacion': createdAt,
+        'fecha_actualizacion': createdAt,
+        'deleted_at': null,
+        'sync_status': DatabaseSchema.syncStatusSynced,
+      });
+
+      await db.insert(DatabaseSchema.salesTable, {
+        'sync_id': 'sale-revive-1',
+        'id_remote': 'remote-sale-revive-1',
+        'version': 4,
+        'cliente_id': clientId,
+        'solar_id': lotId,
+        'usuario_id': 1,
+        'vendedor_id': null,
+        'fecha_venta': createdAt,
+        'precio_venta': 350000,
+        'inicial_porcentaje': 10,
+        'inicial_monto': 35000,
+        'monto_inicial_requerido': 35000,
+        'monto_inicial_pagado': 35000,
+        'monto_inicial_pendiente': 0,
+        'monto_apartado_minimo': null,
+        'fecha_limite_inicial': null,
+        'fecha_activacion': createdAt,
+        'saldo_financiado': 315000,
+        'saldo_pendiente': 315000,
+        'interes_mensual': 1,
+        'cantidad_cuotas': 12,
+        'estado': 'cancelada',
+        'fecha_creacion': createdAt,
+        'fecha_actualizacion': deletedAt,
+        'last_modified_local': deletedAt,
+        'last_modified_remote': deletedAt,
+        'deleted_at': deletedAt,
+        'sync_status': DatabaseSchema.syncStatusSynced,
+      });
+
+      await repository.mergeRemoteRecords([
+        {
+          'id': 'remote-sale-revive-1',
+          'sync_id': 'sale-revive-1',
+          'client_sync_id': 'client-sale-revive-1',
+          'product_sync_id': 'product-sale-revive-1',
+          'seller_sync_id': null,
+          'version': 5,
+          'sale_date': createdAt,
+          'sale_price': 355000,
+          'down_payment_percentage': 10,
+          'down_payment_amount': 35500,
+          'required_initial_payment': 35500,
+          'paid_initial_payment': 35500,
+          'pending_initial_payment': 0,
+          'minimum_reserve_amount': null,
+          'initial_payment_deadline': null,
+          'activation_date': createdAt,
+          'financed_balance': 319500,
+          'pending_balance': 319500,
+          'monthly_interest': 1,
+          'installment_count': 12,
+          'status': 'activa',
+          'created_at': createdAt,
+          'updated_at': remoteUpdatedAt,
+          'deleted_at': null,
+        },
+      ]);
+
+      final row = (await db.query(
+        DatabaseSchema.salesTable,
+        where: 'sync_id = ?',
+        whereArgs: ['sale-revive-1'],
+        limit: 1,
+      )).single;
+
+      expect(row['deleted_at'], isNull);
+      expect(row['sync_status'], DatabaseSchema.syncStatusSynced);
+      expect(row['version'], 5);
+      expect(row['estado'], 'activa');
+      expect(row['precio_venta'], 355000.0);
+    },
+  );
 }

@@ -51,11 +51,35 @@ void main() {
             },
           ],
           'clients': const [],
-          'products': const [],
+          'products': [
+            {
+              'sync_id': 'product-1',
+              'updated_at': '2026-05-05T11:00:00.000Z',
+              'deleted_at': '2026-05-05T10:30:00.000Z',
+            },
+          ],
           'sellers': const [],
-          'sales': const [],
-          'installments': const [],
-          'payments': const [],
+          'sales': [
+            {
+              'sync_id': 'sale-1',
+              'updated_at': '2026-05-05T11:00:00.000Z',
+              'deleted_at': '2026-05-05T10:31:00.000Z',
+            },
+          ],
+          'installments': [
+            {
+              'sync_id': 'installment-1',
+              'updated_at': '2026-05-05T11:00:00.000Z',
+              'deleted_at': '2026-05-05T10:32:00.000Z',
+            },
+          ],
+          'payments': [
+            {
+              'sync_id': 'payment-1',
+              'updated_at': '2026-05-05T11:00:00.000Z',
+              'deleted_at': '2026-05-05T10:33:00.000Z',
+            },
+          ],
         },
       }),
     );
@@ -77,6 +101,22 @@ void main() {
     expect(response.supportsScope('permissions'), isTrue);
     expect(response.recordsForScope('roles'), hasLength(1));
     expect(response.recordsForScope('permissions'), hasLength(1));
+    expect(
+      response.recordsForScope('products').single['deleted_at'],
+      '2026-05-05T10:30:00.000Z',
+    );
+    expect(
+      response.recordsForScope('sales').single['deleted_at'],
+      '2026-05-05T10:31:00.000Z',
+    );
+    expect(
+      response.recordsForScope('installments').single['deleted_at'],
+      '2026-05-05T10:32:00.000Z',
+    );
+    expect(
+      response.recordsForScope('payments').single['deleted_at'],
+      '2026-05-05T10:33:00.000Z',
+    );
     expect(response.cursorForScope('payments'), isNotNull);
   });
 }

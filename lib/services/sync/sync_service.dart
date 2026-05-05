@@ -556,7 +556,10 @@ class SyncService {
           continue;
         }
 
-        final scopeRecords = response.recordsForScope(repository.scope);
+        final scopeRecords = _prepareScopeRecordsForApply(
+          repository.scope,
+          response.recordsForScope(repository.scope),
+        );
 
         if (scopeRecords.isNotEmpty) {
           await repository.mergeRemoteRecords(scopeRecords);
@@ -651,12 +654,13 @@ class SyncService {
       return 0;
     }
 
-    await repository.mergeRemoteRecords(records);
+    final preparedRecords = _prepareScopeRecordsForApply(scope, records);
+    await repository.mergeRemoteRecords(preparedRecords);
     final resolvedCursor = cursor ?? _findLatestTimestamp(records);
     if (resolvedCursor != null) {
       await _configRepository.saveCursor(scope, resolvedCursor);
     }
-    return records.length;
+    return preparedRecords.length;
   }
 
   bool hasScope(String scope) => _repositoriesByScope.containsKey(scope);
@@ -747,6 +751,56 @@ class SyncService {
       }
     }
     return latest;
+  }
+
+  List<Map<String, dynamic>> _prepareScopeRecordsForApply(
+    String scope,
+    List<Map<String, dynamic>> records,
+  ) {
+    if (records.length <= 1) {
+      _logPreparedScopeRecords(scope, records);
+      return records;
+    }
+
+    final deletes = <Map<String, dynamic>>[];
+    final upserts = <Map<String, dynamic>>[];
+
+    for (final record in records) {
+      if (_isRemoteDeleteRecord(record)) {
+        deletes.add(record);
+      } else {
+        upserts.add(record);
+      }
+    }
+
+    final ordered = <Map<String, dynamic>>[
+      ...deletes,
+      ...upserts,
+    ];
+    _logPreparedScopeRecords(scope, ordered);
+    return ordered;
+  }
+
+  bool _isRemoteDeleteRecord(Map<String, dynamic> record) {
+    final deletedAt = record['deleted_at']?.toString().trim() ?? '';
+    return deletedAt.isNotEmpty;
+  }
+
+  void _logPreparedScopeRecords(
+    String scope,
+    List<Map<String, dynamic>> records,
+  ) {
+    for (final record in records) {
+      final syncId = record['sync_id']?.toString().trim();
+      if (syncId == null || syncId.isEmpty) {
+        continue;
+      }
+      if (_isRemoteDeleteRecord(record)) {
+        debugPrint('[SYNC] Applying remote delete: table=$scope id=$syncId');
+      } else {
+        debugPrint('[SYNC] Applying remote upsert: table=$scope id=$syncId');
+      }
+    }
   }
 
   Future<bool> _shouldForceFullBusinessDownload(
