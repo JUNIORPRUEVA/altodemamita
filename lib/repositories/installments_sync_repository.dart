@@ -119,17 +119,44 @@ class InstallmentsSyncRepository implements SyncRepository {
           )) {
             continue;
           }
-          if (existingRows.isNotEmpty) {
+          final saleId = await _resolveIdBySyncId(
+            txn,
+            DatabaseSchema.salesTable,
+            _readRequiredString(record['sale_sync_id']),
+          );
+          if (saleId == null) {
+            continue;
+          }
+
+          final tombstoneValues = {
+            'sync_id': syncId,
+            'id_remote': record['id']?.toString().trim(),
+            'id_local': existingRows.isEmpty ? null : existingRows.first['id'],
+            'version': _readVersion(record),
+            'venta_id': saleId,
+            'numero_cuota': _readInt(record['installment_number']),
+            'fecha_vencimiento': _readDate(record['due_date'] ?? record['created_at']),
+            'saldo_inicial': _readDouble(record['opening_balance']),
+            'capital_cuota': _readDouble(record['principal_amount']),
+            'interes_cuota': _readDouble(record['interest_amount']),
+            'monto_cuota': _readDouble(record['total_amount']),
+            'monto_pagado': _readDouble(record['paid_amount']),
+            'capital_pagado': _readDouble(record['paid_principal_amount']),
+            'interes_pagado': _readDouble(record['paid_interest_amount']),
+            'saldo_final': _readDouble(record['ending_balance']),
+            'estado': record['status'] ?? 'cancelada',
+            'fecha_creacion': _readDate(record['created_at']),
+            'fecha_actualizacion': _readDate(record['updated_at']),
+            'last_modified_remote': _readDate(record['updated_at']),
+            'deleted_at': _readNullableDate(record['deleted_at']),
+            'sync_status': DatabaseSchema.syncStatusSynced,
+          };
+          if (existingRows.isEmpty) {
+            await txn.insert(DatabaseSchema.installmentsTable, tombstoneValues);
+          } else {
             await txn.update(
               DatabaseSchema.installmentsTable,
-              {
-                'version': _readVersion(record),
-                'id_remote': record['id']?.toString().trim(),
-                'fecha_actualizacion': _readDate(record['updated_at']),
-                'last_modified_remote': _readDate(record['updated_at']),
-                'deleted_at': _readNullableDate(record['deleted_at']),
-                'sync_status': DatabaseSchema.syncStatusSynced,
-              },
+              tombstoneValues,
               where: 'sync_id = ?',
               whereArgs: [syncId],
             );

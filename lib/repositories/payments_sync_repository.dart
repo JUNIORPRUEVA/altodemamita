@@ -121,17 +121,57 @@ class PaymentsSyncRepository implements SyncRepository {
         }
 
         if (_isDeleted(record['deleted_at'])) {
-          if (existingRows.isNotEmpty) {
+          final saleId = await _resolveIdBySyncId(
+            txn,
+            DatabaseSchema.salesTable,
+            _readRequiredString(record['sale_sync_id']),
+          );
+          final clientId = await _resolveIdBySyncId(
+            txn,
+            DatabaseSchema.clientsTable,
+            _readRequiredString(record['client_sync_id']),
+          );
+          final installmentSyncId = _readRequiredString(
+            record['installment_sync_id'],
+          );
+          final installmentId = installmentSyncId == null
+              ? null
+              : await _resolveIdBySyncId(
+                  txn,
+                  DatabaseSchema.installmentsTable,
+                  installmentSyncId,
+                );
+          if (saleId == null || clientId == null) {
+            continue;
+          }
+
+          final tombstoneValues = {
+            'sync_id': syncId,
+            'id_remote': record['id']?.toString().trim(),
+            'id_local': existingRows.isEmpty ? null : existingRows.first['id'],
+            'version': _readVersion(record),
+            'venta_id': saleId,
+            'cliente_id': clientId,
+            'usuario_id': 1,
+            'cuota_id': installmentId,
+            'fecha_pago': _readDate(record['payment_date'] ?? record['created_at']),
+            'monto_pagado': _readDouble(record['amount_paid']),
+            'metodo_pago': record['payment_method'],
+            'tipo_pago': record['payment_type'] ?? 'cuota',
+            'referencia': record['reference'],
+            'ano_a_pagar': record['year_to_pay'],
+            'fecha_creacion': _readDate(record['created_at']),
+            'fecha_actualizacion': _readDate(record['updated_at']),
+            'last_modified_remote': _readDate(record['updated_at']),
+            'deleted_at': _readNullableDate(record['deleted_at']),
+            'sync_status': DatabaseSchema.syncStatusSynced,
+          };
+          if (existingRows.isEmpty) {
+            await txn.insert(DatabaseSchema.paymentsTable, tombstoneValues);
+          } else {
             await txn.update(
               DatabaseSchema.paymentsTable,
-              {
-                'version': _readVersion(record),
-                'id_remote': record['id']?.toString().trim(),
-                'fecha_actualizacion': _readDate(record['updated_at']),
-                'last_modified_remote': _readDate(record['updated_at']),
-                'deleted_at': _readNullableDate(record['deleted_at']),
-                'sync_status': DatabaseSchema.syncStatusSynced,
-              },
+              tombstoneValues,
               where: 'sync_id = ?',
               whereArgs: [syncId],
             );

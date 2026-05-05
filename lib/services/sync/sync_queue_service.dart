@@ -14,7 +14,6 @@ import '../../core/utils/client_data_guard.dart';
 import '../../models/sync/sync_conflict_strategy.dart';
 import '../../models/sync/sync_runtime_state.dart';
 import '../../models/sync/sync_settings.dart';
-import '../../repositories/products_sync_repository.dart';
 import '../../repositories/sync_repository.dart';
 import 'sync_conflict_service.dart';
 import 'sync_api_client.dart';
@@ -130,6 +129,12 @@ class SyncQueueService {
     'payments',
     'users',
     'sellers',
+  };
+  static const Set<String> _businessRepairScopes = {
+    'products',
+    'sales',
+    'installments',
+    'payments',
   };
   static const int _maxRetryAttempts = 12;
 
@@ -646,7 +651,8 @@ class SyncQueueService {
 
           var entryItems = [item];
           if (_deleteAckRepairScopes.contains(scope)) {
-            await _repairFailedDeleteQueueEntries(scope, entryItems);
+            await _repairFailedDeleteQueueEntries(scope, entryItems, settings);
+            entryItems = await _retainQueuedItems(scope, entryItems);
           }
 
           entryItems = await _pruneOrphanedUpserts(
@@ -927,6 +933,39 @@ class SyncQueueService {
     }
   }
 
+  Future<bool> hasLegacyDeleteBacklog({Iterable<String>? scopes}) async {
+    final targetScopes = (scopes ?? _deleteAckRepairScopes)
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toSet()
+        .intersection(_deleteAckRepairScopes);
+    if (targetScopes.isEmpty) {
+      return false;
+    }
+
+    final db = await _appDatabase.database;
+    final placeholders = List.filled(targetScopes.length, '?').join(', ');
+    final rows = await db.rawQuery(
+      'SELECT 1 FROM ${DatabaseSchema.syncQueueTable} '
+      'WHERE operation = ? '
+      'AND scope IN ($placeholders) '
+      'AND ('
+      'last_error LIKE ? OR '
+      'last_error LIKE ? OR '
+      'last_error LIKE ?'
+      ') '
+      'LIMIT 1',
+      [
+        'delete',
+        ...targetScopes,
+        '%FOREIGN KEY constraint failed%',
+        '%DELETE FROM solares WHERE deleted_at IS NOT NULL%',
+        '%hard delete%',
+      ],
+    );
+    return rows.isNotEmpty;
+  }
+
   Future<void> _enqueue({
     required String scope,
     required String recordSyncId,
@@ -1069,6 +1108,35 @@ class SyncQueueService {
     return rows.map(SyncQueueItem.fromMap).toList(growable: false);
   }
 
+  Future<List<SyncQueueItem>> _retainQueuedItems(
+    String scope,
+    Iterable<SyncQueueItem> items,
+  ) async {
+    final ids = items
+        .map((item) => item.recordSyncId.trim())
+        .where((value) => value.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+    if (ids.isEmpty) {
+      return const <SyncQueueItem>[];
+    }
+
+    final db = await _appDatabase.database;
+    final placeholders = List.filled(ids.length, '?').join(', ');
+    final rows = await db.rawQuery(
+      'SELECT record_sync_id FROM ${DatabaseSchema.syncQueueTable} '
+      'WHERE scope = ? AND record_sync_id IN ($placeholders)',
+      [scope, ...ids],
+    );
+    final survivingIds = rows
+        .map((row) => row['record_sync_id']?.toString().trim() ?? '')
+        .where((value) => value.isNotEmpty)
+        .toSet();
+    return items
+        .where((item) => survivingIds.contains(item.recordSyncId))
+        .toList(growable: false);
+  }
+
   String? _readReturnedRecordSyncId(Map<String, dynamic> record) {
     final syncId =
         record['sync_id']?.toString().trim() ??
@@ -1157,6 +1225,7 @@ class SyncQueueService {
   Future<void> _repairFailedDeleteQueueEntries(
     String scope,
     Iterable<SyncQueueItem> items,
+    SyncSettings settings,
   ) async {
     final tableName = _scopeTableMap[scope];
     if (tableName == null) {
@@ -1174,52 +1243,212 @@ class SyncQueueService {
 
     final db = await _appDatabase.database;
     final placeholders = List.filled(deleteIds.length, '?').join(', ');
-    final rows = await db.rawQuery(
-      'SELECT sync_id FROM $tableName '
-      'WHERE deleted_at IS NOT NULL '
-      'AND sync_status = ? '
-      'AND sync_id IN ($placeholders)',
-      [DatabaseSchema.syncStatusFailed, ...deleteIds],
+    final queueRows = await db.rawQuery(
+      'SELECT record_sync_id, last_error '
+      'FROM ${DatabaseSchema.syncQueueTable} '
+      'WHERE scope = ? AND operation = ? '
+      'AND record_sync_id IN ($placeholders)',
+      [scope, 'delete', ...deleteIds],
     );
-    if (rows.isEmpty) {
+    if (queueRows.isEmpty) {
       return;
     }
 
+    final sourceRows = await db.rawQuery(
+      'SELECT sync_id, deleted_at, sync_status '
+      'FROM $tableName '
+      'WHERE sync_id IN ($placeholders)',
+      deleteIds,
+    );
+    final sourceRowBySyncId = {
+      for (final row in sourceRows)
+        row['sync_id']?.toString().trim() ?? '': row,
+    };
+    final failedIds = sourceRows
+        .where(
+          (row) =>
+              (row['deleted_at']?.toString().trim().isNotEmpty ?? false) &&
+              row['sync_status'] == DatabaseSchema.syncStatusFailed,
+        )
+        .map((row) => row['sync_id']?.toString().trim() ?? '')
+        .where((value) => value.isNotEmpty)
+        .toSet();
+    final syncedTombstoneIds = sourceRows
+        .where(
+          (row) =>
+              (row['deleted_at']?.toString().trim().isNotEmpty ?? false) &&
+              row['sync_status'] == DatabaseSchema.syncStatusSynced,
+        )
+        .map((row) => row['sync_id']?.toString().trim() ?? '')
+        .where((value) => value.isNotEmpty)
+        .toSet();
+    final legacyQueueIds = queueRows
+        .where(
+          (row) => _hasLegacyHardDeleteError(
+            row['last_error']?.toString(),
+          ),
+        )
+        .map((row) => row['record_sync_id']?.toString().trim() ?? '')
+        .where((value) => value.isNotEmpty)
+        .toSet();
+    final authoritativeCheckIds = syncedTombstoneIds
+        .intersection(legacyQueueIds)
+        .toList(growable: false);
+    final remoteDeletedIds = authoritativeCheckIds.isEmpty
+        ? const <String>{}
+        : await _loadRemoteDeletedSyncIds(
+            scope: scope,
+            settings: settings,
+            candidateIds: authoritativeCheckIds,
+          );
+    final acknowledgedQueueIds = legacyQueueIds
+        .where((id) => remoteDeletedIds.contains(id))
+        .toSet();
+    final retryQueueIds = legacyQueueIds.difference(acknowledgedQueueIds);
     final now = DateTime.now().toIso8601String();
     await db.transaction((txn) async {
-      await txn.rawUpdate(
-        'UPDATE $tableName '
-        'SET sync_status = ?, '
-        'last_modified_local = COALESCE(last_modified_local, ?), '
-        'fecha_actualizacion = COALESCE(fecha_actualizacion, ?) '
-        'WHERE deleted_at IS NOT NULL '
-        'AND sync_status = ? '
-        'AND sync_id IN ($placeholders)',
-        [
-          DatabaseSchema.syncStatusPendingDelete,
-          now,
-          now,
-          DatabaseSchema.syncStatusFailed,
-          ...deleteIds,
-        ],
-      );
+      if (failedIds.isNotEmpty) {
+        final failedPlaceholders = List.filled(failedIds.length, '?').join(', ');
+        await txn.rawUpdate(
+          'UPDATE $tableName '
+          'SET sync_status = ?, '
+          'last_modified_local = COALESCE(last_modified_local, ?), '
+          'fecha_actualizacion = COALESCE(fecha_actualizacion, ?) '
+          'WHERE deleted_at IS NOT NULL '
+          'AND sync_status = ? '
+          'AND sync_id IN ($failedPlaceholders)',
+          [
+            DatabaseSchema.syncStatusPendingDelete,
+            now,
+            now,
+            DatabaseSchema.syncStatusFailed,
+            ...failedIds,
+          ],
+        );
+      }
 
-      await txn.rawUpdate(
-        'UPDATE ${DatabaseSchema.syncQueueTable} '
-        'SET last_error = NULL, attempt_count = 0, updated_at = ?, next_attempt_at = ? '
-        'WHERE scope = ? AND operation = ? AND record_sync_id IN ($placeholders)',
-        [now, now, scope, 'delete', ...deleteIds],
-      );
+      final resetQueueIds = {...failedIds, ...retryQueueIds};
+      if (resetQueueIds.isNotEmpty) {
+        final resetPlaceholders = List.filled(resetQueueIds.length, '?').join(', ');
+        final sourceResetIds = resetQueueIds
+            .where((id) {
+              final row = sourceRowBySyncId[id];
+              return row != null &&
+                  (row['deleted_at']?.toString().trim().isNotEmpty ?? false);
+            })
+            .toList(growable: false);
+        if (sourceResetIds.isNotEmpty) {
+          final sourceResetPlaceholders = List.filled(
+            sourceResetIds.length,
+            '?',
+          ).join(', ');
+          await txn.rawUpdate(
+            'UPDATE $tableName '
+            'SET sync_status = ?, '
+            'last_modified_local = COALESCE(last_modified_local, ?), '
+            'fecha_actualizacion = COALESCE(fecha_actualizacion, ?) '
+            'WHERE deleted_at IS NOT NULL '
+            'AND sync_id IN ($sourceResetPlaceholders)',
+            [
+              DatabaseSchema.syncStatusPendingDelete,
+              now,
+              now,
+              ...sourceResetIds,
+            ],
+          );
+        }
+
+        await txn.rawUpdate(
+          'UPDATE ${DatabaseSchema.syncQueueTable} '
+          'SET last_error = NULL, attempt_count = 0, updated_at = ?, next_attempt_at = ? '
+          'WHERE scope = ? AND operation = ? AND record_sync_id IN ($resetPlaceholders)',
+          [now, now, scope, 'delete', ...resetQueueIds],
+        );
+      }
+
+      if (acknowledgedQueueIds.isNotEmpty) {
+        final ackPlaceholders = List.filled(
+          acknowledgedQueueIds.length,
+          '?',
+        ).join(', ');
+        await txn.rawDelete(
+          'DELETE FROM ${DatabaseSchema.syncQueueTable} '
+          'WHERE scope = ? AND operation = ? AND record_sync_id IN ($ackPlaceholders)',
+          [scope, 'delete', ...acknowledgedQueueIds],
+        );
+      }
     });
 
-    await _syncLogger.log(
-      action: scope == 'products'
-          ? 'product_delete_skipped_hard_delete'
-          : 'delete_skipped_hard_delete',
-      entity: scope,
-      result: 'warning',
-      extra: {'count': rows.length},
+    if (failedIds.isNotEmpty || retryQueueIds.isNotEmpty) {
+      await _syncLogger.log(
+        action: scope == 'products'
+            ? 'product_delete_skipped_hard_delete'
+            : 'delete_skipped_hard_delete',
+        entity: scope,
+        result: 'warning',
+        extra: {'count': failedIds.length + retryQueueIds.length},
+      );
+    }
+    if (acknowledgedQueueIds.isNotEmpty) {
+      await _conflictService.resolveConflicts(
+        scope: scope,
+        recordSyncIds: acknowledgedQueueIds,
+        resolution: 'synced',
+      );
+      await _syncLogger.log(
+        action: scope == 'products'
+            ? 'product_delete_queue_repaired'
+            : 'delete_queue_repaired',
+        entity: scope,
+        result: 'ok',
+        extra: {'count': acknowledgedQueueIds.length},
+      );
+    }
+    if (failedIds.isNotEmpty ||
+        retryQueueIds.isNotEmpty ||
+        acknowledgedQueueIds.isNotEmpty) {
+      await _configRepository.clearCursors(_businessRepairScopes);
+    }
+    await _refreshState(clearLastError: acknowledgedQueueIds.isNotEmpty);
+  }
+
+  Future<Set<String>> _loadRemoteDeletedSyncIds({
+    required String scope,
+    required SyncSettings settings,
+    required Iterable<String> candidateIds,
+  }) async {
+    final normalizedIds = candidateIds
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toSet();
+    if (normalizedIds.isEmpty) {
+      return const <String>{};
+    }
+
+    final response = await _apiClient.downloadChanges(
+      settings: settings,
+      updatedSinceByScope: {
+        scope: DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
+      },
     );
+    final deletedIds = <String>{};
+    for (final record in response.recordsForScope(scope)) {
+      final syncId = _readReturnedRecordSyncId(record);
+      final deletedAt = record['deleted_at']?.toString().trim() ?? '';
+      if (syncId != null &&
+          normalizedIds.contains(syncId) &&
+          deletedAt.isNotEmpty) {
+        deletedIds.add(syncId);
+      }
+    }
+    return deletedIds;
+  }
+
+  bool _hasLegacyHardDeleteError(String? errorMessage) {
+    final normalized = errorMessage?.trim().toLowerCase() ?? '';
+    return normalized.contains('foreign key constraint failed') ||
+        normalized.contains('delete from solares where deleted_at is not null') ||
+        normalized.contains('hard delete');
   }
 
   Future<void> _handleDependentInstallmentConflictsForSales({

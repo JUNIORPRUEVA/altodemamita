@@ -101,17 +101,69 @@ class SalesSyncRepository implements SyncRepository {
         }
 
         if (_isDeleted(record['deleted_at'])) {
-          if (existingRows.isNotEmpty) {
+          final clientId = await _resolveIdBySyncId(
+            txn,
+            DatabaseSchema.clientsTable,
+            _readRequiredString(record['client_sync_id']),
+          );
+          final productId = await _resolveIdBySyncId(
+            txn,
+            DatabaseSchema.lotsTable,
+            _readRequiredString(record['product_sync_id']),
+          );
+          final sellerId = await _resolveIdBySyncId(
+            txn,
+            DatabaseSchema.sellersTable,
+            _readRequiredString(record['seller_sync_id']),
+          );
+          if (clientId == null || productId == null) {
+            continue;
+          }
+
+          final tombstoneValues = {
+            'sync_id': syncId,
+            'id_remote': record['id']?.toString().trim(),
+            'id_local': existingRows.isEmpty ? null : existingRows.first['id'],
+            'version': _readVersion(record),
+            'cliente_id': clientId,
+            'solar_id': productId,
+            'usuario_id': 1,
+            'vendedor_id': sellerId,
+            'fecha_venta': _readDate(record['sale_date'] ?? record['created_at']),
+            'precio_venta': _readDouble(record['sale_price']),
+            'inicial_porcentaje': _readDouble(record['down_payment_percentage']),
+            'inicial_monto': _readDouble(record['down_payment_amount']),
+            'monto_inicial_requerido': _readDouble(
+              record['required_initial_payment'],
+            ),
+            'monto_inicial_pagado': _readDouble(record['paid_initial_payment']),
+            'monto_inicial_pendiente': _readDouble(
+              record['pending_initial_payment'],
+            ),
+            'monto_apartado_minimo': _readNullableDouble(
+              record['minimum_reserve_amount'],
+            ),
+            'fecha_limite_inicial': _readNullableDate(
+              record['initial_payment_deadline'],
+            ),
+            'fecha_activacion': _readNullableDate(record['activation_date']),
+            'saldo_financiado': _readDouble(record['financed_balance']),
+            'saldo_pendiente': _readDouble(record['pending_balance']),
+            'interes_mensual': _readDouble(record['monthly_interest']),
+            'cantidad_cuotas': _readInt(record['installment_count']),
+            'estado': record['status'] ?? 'cancelada',
+            'fecha_creacion': _readDate(record['created_at']),
+            'fecha_actualizacion': _readDate(record['updated_at']),
+            'last_modified_remote': _readDate(record['updated_at']),
+            'deleted_at': _readNullableDate(record['deleted_at']),
+            'sync_status': DatabaseSchema.syncStatusSynced,
+          };
+          if (existingRows.isEmpty) {
+            await txn.insert(DatabaseSchema.salesTable, tombstoneValues);
+          } else {
             await txn.update(
               DatabaseSchema.salesTable,
-              {
-                'version': _readVersion(record),
-                'id_remote': record['id']?.toString().trim(),
-                'fecha_actualizacion': _readDate(record['updated_at']),
-                'last_modified_remote': _readDate(record['updated_at']),
-                'deleted_at': _readNullableDate(record['deleted_at']),
-                'sync_status': DatabaseSchema.syncStatusSynced,
-              },
+              tombstoneValues,
               where: 'sync_id = ?',
               whereArgs: [syncId],
             );

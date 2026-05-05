@@ -139,17 +139,30 @@ class ProductsSyncRepository implements SyncRepository {
         }
 
         if (_isDeleted(record['deleted_at'])) {
-          if (existingRows.isNotEmpty) {
+          final tombstoneValues = {
+            'sync_id': syncId,
+            'id_remote': record['id']?.toString().trim(),
+            'id_local': existingRows.isEmpty ? null : existingRows.first['id'],
+            'version': _readVersion(record),
+            'manzana_numero': _readRequiredString(record['block_number']) ??
+                '_deleted_block_$syncId',
+            'solar_numero': _readRequiredString(record['lot_number']) ??
+                '_deleted_lot_$syncId',
+            'metros_cuadrados': _readDouble(record['area']),
+            'precio_por_metro': _readDouble(record['price_per_square_meter']),
+            'estado': record['status'] ?? 'disponible',
+            'fecha_creacion': _readDate(record['created_at']),
+            'fecha_actualizacion': _readDate(record['updated_at']),
+            'last_modified_remote': _readDate(record['updated_at']),
+            'deleted_at': _readNullableDate(record['deleted_at']),
+            'sync_status': DatabaseSchema.syncStatusSynced,
+          };
+          if (existingRows.isEmpty) {
+            await txn.insert(DatabaseSchema.lotsTable, tombstoneValues);
+          } else {
             await txn.update(
               DatabaseSchema.lotsTable,
-              {
-                'version': _readVersion(record),
-                'id_remote': record['id']?.toString().trim(),
-                'fecha_actualizacion': _readDate(record['updated_at']),
-                'last_modified_remote': _readDate(record['updated_at']),
-                'deleted_at': _readNullableDate(record['deleted_at']),
-                'sync_status': DatabaseSchema.syncStatusSynced,
-              },
+              tombstoneValues,
               where: 'sync_id = ?',
               whereArgs: [syncId],
             );
@@ -204,30 +217,6 @@ class ProductsSyncRepository implements SyncRepository {
       'sync_status': row['sync_status'],
     };
   }
-}
-
-Future<void> _markScopeRowsAsSynced({
-  required AppDatabase appDatabase,
-  required String tableName,
-  required Iterable<String> syncIds,
-}) async {
-  final ids = syncIds
-      .map((value) => value.trim())
-      .where((value) => value.isNotEmpty)
-      .toList(growable: false);
-  if (ids.isEmpty) {
-    return;
-  }
-  final db = await appDatabase.database;
-  final placeholders = List.filled(ids.length, '?').join(', ');
-  await db.rawDelete(
-    'DELETE FROM $tableName WHERE deleted_at IS NOT NULL AND sync_id IN ($placeholders)',
-    ids,
-  );
-  await db.rawUpdate(
-    'UPDATE $tableName SET sync_status = ? WHERE deleted_at IS NULL AND sync_id IN ($placeholders)',
-    [DatabaseSchema.syncStatusSynced, ...ids],
-  );
 }
 
 Future<void> _markScopeRowsAsConflict({

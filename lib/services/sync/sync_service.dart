@@ -155,10 +155,25 @@ class SyncService {
       }
       debugPrint('[Sync] sync started with valid jwt.');
 
-      final uploadedCount = await uploadPendingData();
-      final downloadedCount = _downloadFromCloudEnabled
-          ? await downloadUpdates(forceFullDownload: forceFullDownload)
-          : 0;
+      final shouldRunPreUploadFullDownload =
+          _downloadFromCloudEnabled &&
+          (forceFullDownload ||
+              await _syncQueueService.hasLegacyDeleteBacklog(
+                scopes: _repositoriesByScope.keys,
+              ));
+
+      var uploadedCount = 0;
+      var downloadedCount = 0;
+      if (shouldRunPreUploadFullDownload) {
+        downloadedCount += await downloadUpdates(forceFullDownload: true);
+        uploadedCount = await uploadPendingData();
+        downloadedCount += await downloadUpdates();
+      } else {
+        uploadedCount = await uploadPendingData();
+        downloadedCount = _downloadFromCloudEnabled
+            ? await downloadUpdates(forceFullDownload: forceFullDownload)
+            : 0;
+      }
       final warnings = List<String>.of(_lastScopeWarnings);
       final pendingRecords = await _syncQueueService.pendingCount();
       final report = SyncReport(
