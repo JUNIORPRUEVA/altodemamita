@@ -107,7 +107,11 @@ class AppDatabase {
       } catch (_) {
         // Best effort checkpoint before close.
       }
-      await currentDatabase.close();
+      try {
+        await currentDatabase.close();
+      } catch (_) {
+        // The handle may already be closed by another recovery flow.
+      }
     }
   }
 

@@ -972,4 +972,110 @@ void main() {
       expect(find.text('Opcional'), findsOneWidget);
     },
   );
+
+  testWidgets(
+    'crear cliente en una venta cancelada y luego editarlo en nueva venta no lanza excepciones',
+    (tester) async {
+      final now = DateTime(2026, 3, 26);
+      final sellerRepository = SellerRepository(database: appDatabase);
+
+      await _configureDesktopSurface(tester, const Size(1400, 1000));
+
+      await tester.pumpWidget(
+        _buildTestApp(
+          Builder(
+            builder: (context) {
+              return FilledButton(
+                onPressed: () async {
+                  await SaleFormDialog.show(
+                    context,
+                    clients: await clientRepository.fetchAll(),
+                    availableLots: [
+                      _testLot(
+                        id: 1,
+                        blockNumber: 'A',
+                        lotNumber: '10',
+                        area: 180,
+                        totalPrice: 850000,
+                        now: now,
+                      ),
+                    ],
+                    sellers: await sellerRepository.getAll(),
+                    defaults: const SaleDefaults(
+                      downPaymentPercentage: 10,
+                      monthlyInterest: 1,
+                      installmentCount: 12,
+                    ),
+                    clientRepository: clientRepository,
+                    lotRepository: lotRepository,
+                    sellerRepository: sellerRepository,
+                  );
+                },
+                child: const Text('Abrir venta'),
+              );
+            },
+          ),
+        ),
+      );
+      await _settle(tester);
+
+      await tester.tap(find.text('Abrir venta'));
+      await _settle(tester);
+
+      await tester.tap(find.byKey(saleFormCreateClientButtonKey));
+      await _settle(tester);
+
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Nombre').last,
+        'Maria Gomez',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Cédula').last,
+        '001-1234567-8',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Teléfono').last,
+        '8095550199',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Dirección').last,
+        'Calle 1',
+      );
+
+      await tester.tap(find.text('Crear cliente'));
+      await _settle(tester);
+
+      await tester.tap(find.text('Cancelar'));
+      await _settle(tester);
+      await tester.tap(find.text('Descartar cambios'));
+      await _settle(tester);
+
+      await tester.tap(find.text('Abrir venta'));
+      await _settle(tester);
+
+      await tester.tap(find.byTooltip('Buscar').first);
+      await _settle(tester);
+
+      await tester.enterText(find.byType(TextField).last, 'Maria');
+      await _settle(tester);
+
+      await tester.tap(find.textContaining('Maria Gomez').last);
+      await _settle(tester);
+
+      await tester.tap(find.byTooltip('Editar cliente'));
+      await _settle(tester);
+
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Nombre').last,
+        'Maria Gomez Editada',
+      );
+      await tester.tap(find.text('Guardar cambios'));
+      await _settle(tester);
+
+      final clients = await clientRepository.fetchAll();
+      expect(clients, hasLength(1));
+      expect(clients.single.fullName, 'Maria Gomez Editada');
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

@@ -347,6 +347,13 @@ class SalesRepository {
           minimumReserveAmount: draft.minimumReserveAmount,
           financedBalance: financedBalance,
         );
+        final pendingBalance = saleStatus == 'activa' || saleStatus == 'pagada'
+            ? SaleCalculator.calculateTotalFinancingAmount(
+                financedBalance: financedBalance,
+                monthlyInterest: draft.monthlyInterest,
+                installmentCount: draft.installmentCount,
+              )
+            : financedBalance;
 
         if (initialPaidAmount < 0) {
           throw StateError('El inicial pagado no puede ser negativo.');
@@ -396,7 +403,7 @@ class SalesRepository {
               ? draft.saleDate.toIso8601String()
               : null,
           'saldo_financiado': financedBalance,
-          'saldo_pendiente': financedBalance,
+            'saldo_pendiente': pendingBalance,
           'interes_mensual': draft.monthlyInterest,
           'cantidad_cuotas': draft.installmentCount,
           'estado': saleStatus,
@@ -641,6 +648,13 @@ class SalesRepository {
           minimumReserveAmount: draft.minimumReserveAmount,
           financedBalance: financedBalance,
         );
+        final pendingBalance = saleStatus == 'activa' || saleStatus == 'pagada'
+            ? SaleCalculator.calculateTotalFinancingAmount(
+                financedBalance: financedBalance,
+                monthlyInterest: draft.monthlyInterest,
+                installmentCount: draft.installmentCount,
+              )
+            : financedBalance;
 
         if (initialPaidAmount < 0) {
           throw StateError('El inicial pagado no puede ser negativo.');
@@ -688,7 +702,7 @@ class SalesRepository {
                 ? draft.saleDate.toIso8601String()
                 : null,
             'saldo_financiado': financedBalance,
-            'saldo_pendiente': financedBalance,
+            'saldo_pendiente': pendingBalance,
             'interes_mensual': draft.monthlyInterest,
             'cantidad_cuotas': draft.installmentCount,
             'estado': saleStatus,

@@ -35,6 +35,11 @@ class _SellerFormDialogState extends State<SellerFormDialog> {
       return 'La cédula es obligatoria.';
     }
 
+    final digits = value.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.length != 11) {
+      return 'La cédula debe tener 11 caracteres.';
+    }
+
     return null;
   }
 
@@ -89,6 +94,8 @@ class _SellerFormDialogState extends State<SellerFormDialog> {
                 TextFormField(
                   controller: _documentIdController,
                   decoration: const InputDecoration(labelText: 'Cédula'),
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [DominicanIdFormatter()],
                   validator: _validateDocumentId,
                 ),
                 const SizedBox(height: 12),

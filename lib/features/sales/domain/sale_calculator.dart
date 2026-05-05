@@ -1,5 +1,3 @@
-import 'dart:math';
-
 import '../../installments/domain/installment.dart';
 
 class SaleCalculator {
@@ -32,14 +30,61 @@ class SaleCalculator {
     required double monthlyInterest,
     required int installmentCount,
   }) {
-    if (installmentCount <= 0) {
+    if (installmentCount <= 0 || financedBalance <= 0) {
       return 0;
     }
 
-    return _calculateFixedPayment(
+    return calculateTotalFinancingAmount(
       financedBalance: financedBalance,
       monthlyInterest: monthlyInterest,
       installmentCount: installmentCount,
+    ) /
+        installmentCount;
+  }
+
+  static double calculateFixedMonthlyInterestAmount({
+    required double financedBalance,
+    required double monthlyInterest,
+  }) {
+    if (financedBalance <= 0 || monthlyInterest <= 0) {
+      return 0;
+    }
+
+    return _roundCurrency(financedBalance * (monthlyInterest / 100));
+  }
+
+  static double calculateTotalInterestAmount({
+    required double financedBalance,
+    required double monthlyInterest,
+    required int installmentCount,
+  }) {
+    if (installmentCount <= 0 || financedBalance <= 0) {
+      return 0;
+    }
+
+    final monthlyInterestAmount = calculateFixedMonthlyInterestAmount(
+      financedBalance: financedBalance,
+      monthlyInterest: monthlyInterest,
+    );
+    return _roundCurrency(monthlyInterestAmount * installmentCount);
+  }
+
+  static double calculateTotalFinancingAmount({
+    required double financedBalance,
+    required double monthlyInterest,
+    required int installmentCount,
+  }) {
+    if (financedBalance <= 0) {
+      return 0;
+    }
+
+    return _roundCurrency(
+      financedBalance +
+          calculateTotalInterestAmount(
+            financedBalance: financedBalance,
+            monthlyInterest: monthlyInterest,
+            installmentCount: installmentCount,
+          ),
     );
   }
 
@@ -83,48 +128,69 @@ class SaleCalculator {
       return const [];
     }
 
-    final monthlyRate = monthlyInterest / 100;
-    final paymentAmount = _calculateFixedPayment(
-      financedBalance: financedBalance,
-      monthlyInterest: monthlyInterest,
-      installmentCount: dueDates.length,
+    final principalCents = _toCents(financedBalance);
+    final fixedInterestCents = _toCents(
+      calculateFixedMonthlyInterestAmount(
+        financedBalance: financedBalance,
+        monthlyInterest: monthlyInterest,
+      ),
     );
-    final paymentCents = _toCents(paymentAmount);
-    var balanceCents = _toCents(financedBalance);
+    final totalPlanCents = _toCents(
+      calculateTotalFinancingAmount(
+        financedBalance: financedBalance,
+        monthlyInterest: monthlyInterest,
+        installmentCount: dueDates.length,
+      ),
+    );
+    final fixedPaymentCents = _toCents(
+      calculateEstimatedInstallmentAmount(
+        financedBalance: financedBalance,
+        monthlyInterest: monthlyInterest,
+        installmentCount: dueDates.length,
+      ),
+    );
+    var remainingPrincipalCents = principalCents;
+    var remainingPlanCents = totalPlanCents;
     final installments = <Installment>[];
     final resolvedUpdatedAt = updatedAt ?? createdAt;
 
     for (var index = 0; index < dueDates.length; index++) {
-      final openingBalanceCents = balanceCents;
-      if (openingBalanceCents <= 0) {
+      final openingBalanceCents = remainingPrincipalCents;
+      if (openingBalanceCents <= 0 || remainingPlanCents <= 0) {
         break;
       }
 
       final isLastInstallment = index == dueDates.length - 1;
-      var interestCents = _toCents((_fromCents(openingBalanceCents)) * monthlyRate);
-      var principalCents = paymentCents - interestCents;
-      var totalAmountCents = paymentCents;
-
-      if (principalCents < 0) {
-        principalCents = 0;
-        interestCents = paymentCents;
-        totalAmountCents = paymentCents;
+      var totalAmountCents = isLastInstallment
+          ? remainingPlanCents
+          : fixedPaymentCents;
+      if (totalAmountCents > remainingPlanCents) {
+        totalAmountCents = remainingPlanCents;
       }
 
-      if (principalCents >= openingBalanceCents || isLastInstallment) {
-        principalCents = openingBalanceCents;
-        final adjustedInterestCents = paymentCents - principalCents;
-        if (adjustedInterestCents >= 0) {
-          interestCents = adjustedInterestCents;
-          totalAmountCents = paymentCents;
-        } else {
-          totalAmountCents = principalCents + interestCents;
+      var interestCents = fixedInterestCents;
+      var principalCentsForInstallment = totalAmountCents - interestCents;
+
+      if (principalCentsForInstallment < 0) {
+        principalCentsForInstallment = 0;
+        interestCents = totalAmountCents;
+      }
+
+      if (principalCentsForInstallment >= openingBalanceCents ||
+          isLastInstallment) {
+        principalCentsForInstallment = openingBalanceCents;
+        interestCents = totalAmountCents - principalCentsForInstallment;
+        if (interestCents < 0) {
+          interestCents = 0;
+          totalAmountCents = principalCentsForInstallment;
         }
       }
 
-      final endingBalanceCents = (principalCents >= openingBalanceCents || isLastInstallment)
-          ? 0
-          : openingBalanceCents - principalCents;
+      final endingBalanceCents =
+          (openingBalanceCents - principalCentsForInstallment).clamp(
+            0,
+            openingBalanceCents,
+          );
 
       installments.add(
         Installment(
@@ -135,7 +201,7 @@ class SaleCalculator {
           installmentNumber: startingInstallmentNumber + index,
           dueDate: dueDates[index],
           openingBalance: _fromCents(openingBalanceCents),
-          principalAmount: _fromCents(principalCents),
+          principalAmount: _fromCents(principalCentsForInstallment),
           interestAmount: _fromCents(interestCents),
           totalAmount: _fromCents(totalAmountCents),
           paidAmount: 0,
@@ -148,7 +214,11 @@ class SaleCalculator {
         ),
       );
 
-      balanceCents = endingBalanceCents;
+      remainingPrincipalCents = endingBalanceCents;
+      remainingPlanCents = (remainingPlanCents - totalAmountCents).clamp(
+        0,
+        remainingPlanCents,
+      );
     }
 
     return installments;
@@ -169,7 +239,12 @@ class SaleCalculator {
       return const [];
     }
 
-    final monthlyRate = monthlyInterest / 100;
+    final fixedInterestCents = _toCents(
+      calculateFixedMonthlyInterestAmount(
+        financedBalance: financedBalance,
+      monthlyInterest: monthlyInterest,
+      ),
+    );
     final fixedPaymentCents = _toCents(fixedPaymentAmount);
     var balanceCents = _toCents(financedBalance);
     final installments = <Installment>[];
@@ -181,22 +256,18 @@ class SaleCalculator {
         break;
       }
 
-      var interestCents = monthlyRate == 0
-          ? 0
-          : _toCents(_fromCents(openingBalanceCents) * monthlyRate);
+      var interestCents = fixedInterestCents;
       var totalAmountCents = fixedPaymentCents;
       var principalCents = totalAmountCents - interestCents;
 
       if (principalCents < 0) {
         principalCents = 0;
-        totalAmountCents = interestCents;
+        interestCents = totalAmountCents;
       }
 
       final payoffAmountCents = openingBalanceCents + interestCents;
-      if (payoffAmountCents <= fixedPaymentCents) {
-        principalCents = openingBalanceCents;
-        totalAmountCents = payoffAmountCents;
-      } else if (principalCents >= openingBalanceCents) {
+      if (payoffAmountCents <= fixedPaymentCents ||
+          principalCents >= openingBalanceCents) {
         principalCents = openingBalanceCents;
         totalAmountCents = payoffAmountCents;
       }
@@ -232,28 +303,6 @@ class SaleCalculator {
     }
 
     return installments;
-  }
-
-  static double _calculateFixedPayment({
-    required double financedBalance,
-    required double monthlyInterest,
-    required int installmentCount,
-  }) {
-    if (installmentCount <= 0 || financedBalance <= 0) {
-      return 0;
-    }
-
-    final monthlyRate = monthlyInterest / 100;
-    if (monthlyRate == 0) {
-      return _roundCurrency(financedBalance / installmentCount);
-    }
-
-    final factor = 1 - (1 / (pow(1 + monthlyRate, installmentCount)));
-    if (factor == 0) {
-      return _roundCurrency(financedBalance / installmentCount);
-    }
-
-    return _roundCurrency((financedBalance * monthlyRate) / factor);
   }
 
   static DateTime _addMonths(DateTime date, int monthsToAdd) {

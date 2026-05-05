@@ -1,5 +1,6 @@
 import '../../installments/domain/installment.dart';
 import '../../settings/domain/company_info.dart';
+import '../../../core/utils/dominican_formatters.dart';
 import '../domain/payment_history_item.dart';
 import '../domain/payment_sale_option.dart';
 
@@ -71,7 +72,7 @@ class Receipt {
 
   /// Retorna el monto pagado formateado
   String get formattedAmount {
-    return totalAmount.toStringAsFixed(2);
+    return formatRdCurrency(totalAmount);
   }
 
   double get totalAmount {

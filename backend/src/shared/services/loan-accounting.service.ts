@@ -38,40 +38,51 @@ export class LoanAccountingService {
     }
 
     const installments: InstallmentDraft[] = [];
-    const monthlyRate = input.interestRate / 100;
     const paymentAmount = this.calculateFixedPayment({
       financedAmount,
       interestRate: input.interestRate,
       installmentCount: input.termMonths,
     });
+    const fixedInterestAmount = this.calculateFixedMonthlyInterest({
+      financedAmount,
+      interestRate: input.interestRate,
+    });
     const paymentCents = this.toCents(paymentAmount);
     let balanceCents = this.toCents(financedAmount);
+    let remainingPlanCents = this.toCents(
+      this.calculateTotalFinancingAmount({
+        financedAmount,
+        interestRate: input.interestRate,
+        installmentCount: input.termMonths,
+      }),
+    );
 
     for (let index = 1; index <= input.termMonths; index += 1) {
       const openingBalanceCents = balanceCents;
-      if (openingBalanceCents <= 0) {
+      if (openingBalanceCents <= 0 || remainingPlanCents <= 0) {
         break;
       }
 
       const isLastInstallment = index === input.termMonths;
-      let interestCents = this.toCents(this.fromCents(openingBalanceCents) * monthlyRate);
-      let principalCents = paymentCents - interestCents;
-      let totalAmountCents = paymentCents;
+      let totalAmountCents = isLastInstallment ? remainingPlanCents : paymentCents;
+      if (totalAmountCents > remainingPlanCents) {
+        totalAmountCents = remainingPlanCents;
+      }
+
+      let interestCents = this.toCents(fixedInterestAmount);
+      let principalCents = totalAmountCents - interestCents;
 
       if (principalCents < 0) {
         principalCents = 0;
-        interestCents = paymentCents;
-        totalAmountCents = paymentCents;
+        interestCents = totalAmountCents;
       }
 
       if (principalCents >= openingBalanceCents || isLastInstallment) {
         principalCents = openingBalanceCents;
-        const adjustedInterestCents = paymentCents - principalCents;
-        if (adjustedInterestCents >= 0) {
-          interestCents = adjustedInterestCents;
-          totalAmountCents = paymentCents;
-        } else {
-          totalAmountCents = principalCents + interestCents;
+        interestCents = totalAmountCents - principalCents;
+        if (interestCents < 0) {
+          interestCents = 0;
+          totalAmountCents = principalCents;
         }
       }
 
@@ -88,6 +99,7 @@ export class LoanAccountingService {
       });
 
       balanceCents = endingBalanceCents;
+      remainingPlanCents = Math.max(remainingPlanCents - totalAmountCents, 0);
     }
 
     const totalInstallments = this.roundCurrency(
@@ -200,17 +212,35 @@ export class LoanAccountingService {
       return 0;
     }
 
-    const monthlyRate = input.interestRate / 100;
-    if (monthlyRate === 0) {
-      return this.roundCurrency(input.financedAmount / input.installmentCount);
+    return this.roundCurrency(
+      this.calculateTotalFinancingAmount(input) / input.installmentCount,
+    );
+  }
+
+  private calculateFixedMonthlyInterest(input: {
+    financedAmount: number;
+    interestRate: number;
+  }): number {
+    if (input.financedAmount <= 0 || input.interestRate <= 0) {
+      return 0;
     }
 
-    const factor = 1 - (1 / Math.pow(1 + monthlyRate, input.installmentCount));
-    if (factor === 0) {
-      return this.roundCurrency(input.financedAmount / input.installmentCount);
+    return this.roundCurrency(input.financedAmount * (input.interestRate / 100));
+  }
+
+  private calculateTotalFinancingAmount(input: {
+    financedAmount: number;
+    interestRate: number;
+    installmentCount: number;
+  }): number {
+    if (input.financedAmount <= 0) {
+      return 0;
     }
 
-    return this.roundCurrency((input.financedAmount * monthlyRate) / factor);
+    const totalInterest = this.roundCurrency(
+      this.calculateFixedMonthlyInterest(input) * input.installmentCount,
+    );
+    return this.roundCurrency(input.financedAmount + totalInterest);
   }
 
   private addMonths(date: Date, monthsToAdd: number): Date {

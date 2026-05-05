@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sistema_solares/core/database/app_database.dart';
 import 'package:sistema_solares/core/database/database_schema.dart';
 import 'package:sistema_solares/core/resilience/app_paths.dart';
+import 'package:sistema_solares/repositories/installments_sync_repository.dart';
 import 'package:sistema_solares/repositories/users_sync_repository.dart';
 import 'package:sistema_solares/features/sales/data/seller_repository.dart';
 import 'package:sistema_solares/models/sync/sync_conflict_strategy.dart';
@@ -188,6 +189,101 @@ void main() {
     expect(rows.first['deleted_at'], isNotNull);
     expect(rows.first['sync_status'], DatabaseSchema.syncStatusSynced);
   });
+
+  test(
+    'reconcilia cuota remota por venta y numero cuando cambia sync_id',
+    () async {
+      final db = await appDatabase.database;
+      final now = DateTime.now().toIso8601String();
+
+      await db.insert(DatabaseSchema.salesTable, {
+        'sync_id': 'sale-sync-1',
+        'version': 1,
+        'cliente_id': 1,
+        'solar_id': 1,
+        'usuario_id': 1,
+        'vendedor_id': null,
+        'fecha_venta': now,
+        'precio_venta': 500000,
+        'inicial_porcentaje': 10,
+        'inicial_monto': 50000,
+        'monto_inicial_requerido': 50000,
+        'monto_inicial_pagado': 50000,
+        'monto_inicial_pendiente': 0,
+        'monto_apartado_minimo': null,
+        'fecha_limite_inicial': null,
+        'fecha_activacion': now,
+        'saldo_financiado': 450000,
+        'saldo_pendiente': 450000,
+        'interes_mensual': 1,
+        'cantidad_cuotas': 12,
+        'estado': 'activa',
+        'fecha_creacion': now,
+        'fecha_actualizacion': now,
+        'deleted_at': null,
+        'sync_status': DatabaseSchema.syncStatusSynced,
+      });
+
+      await db.insert(DatabaseSchema.installmentsTable, {
+        'sync_id': 'local-slot-sync',
+        'version': 1,
+        'venta_id': 1,
+        'numero_cuota': 1,
+        'fecha_vencimiento': now,
+        'saldo_inicial': 450000,
+        'capital_cuota': 30000,
+        'interes_cuota': 4500,
+        'monto_cuota': 34500,
+        'monto_pagado': 0,
+        'capital_pagado': 0,
+        'interes_pagado': 0,
+        'saldo_final': 420000,
+        'estado': 'pendiente',
+        'fecha_creacion': now,
+        'fecha_actualizacion': now,
+        'deleted_at': null,
+        'sync_status': DatabaseSchema.syncStatusSynced,
+      });
+
+      final repository = InstallmentsSyncRepository(appDatabase: appDatabase);
+      await repository.mergeRemoteRecords([
+        {
+          'id': 'remote-installment-id',
+          'sync_id': 'remote-slot-sync',
+          'version': 4,
+          'sale_sync_id': 'sale-sync-1',
+          'installment_number': 1,
+          'due_date': now,
+          'opening_balance': 450000,
+          'principal_amount': 35481.95,
+          'interest_amount': 4500,
+          'total_amount': 39981.95,
+          'paid_amount': 0,
+          'paid_principal_amount': 0,
+          'paid_interest_amount': 0,
+          'ending_balance': 414518.05,
+          'status': 'pendiente',
+          'created_at': now,
+          'updated_at': now,
+          'deleted_at': null,
+          'sync_status': DatabaseSchema.syncStatusSynced,
+        },
+      ]);
+
+      final rows = await db.query(
+        DatabaseSchema.installmentsTable,
+        where: 'venta_id = ? AND numero_cuota = ?',
+        whereArgs: [1, 1],
+      );
+
+      expect(rows, hasLength(1));
+      expect(rows.first['sync_id'], 'remote-slot-sync');
+      expect(rows.first['id_remote'], 'remote-installment-id');
+      expect(rows.first['version'], 4);
+      expect(rows.first['monto_cuota'], 39981.95);
+      expect(rows.first['saldo_final'], 414518.05);
+    },
+  );
 
   test('sync logger escribe en logs/sync.log', () async {
     final appPaths = AppPaths(supportDirectory: tempDirectory.path);

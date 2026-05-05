@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../domain/client_pagare_report.dart';
+import '../domain/payment_history_item.dart';
 import '../domain/payment_sale_option.dart';
 
 Future<void> openClientPaymentHistoryFullscreen(
@@ -13,6 +14,21 @@ Future<void> openClientPaymentHistoryFullscreen(
       builder: (_) => _ClientPaymentHistoryFullscreenPage(
         sale: sale,
         report: report,
+      ),
+    ),
+  );
+}
+
+Future<void> openSalePaymentHistoryFullscreen(
+  BuildContext context, {
+  required PaymentSaleOption sale,
+  required List<PaymentHistoryItem> history,
+}) {
+  return Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (_) => _SalePaymentHistoryFullscreenPage(
+        sale: sale,
+        history: history,
       ),
     ),
   );
@@ -59,6 +75,67 @@ class _ClientPaymentHistoryFullscreenPage extends StatelessWidget {
               left: 12,
               child: FloatingActionButton.small(
                 heroTag: 'payments-history-fullscreen-back',
+                backgroundColor: Colors.white,
+                foregroundColor: const Color(0xFF1F4B99),
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Icon(Icons.arrow_back),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SalePaymentHistoryFullscreenPage extends StatelessWidget {
+  const _SalePaymentHistoryFullscreenPage({
+    required this.sale,
+    required this.history,
+  });
+
+  final PaymentSaleOption sale;
+  final List<PaymentHistoryItem> history;
+
+  @override
+  Widget build(BuildContext context) {
+    final remainingAmount = sale.pendingBalance + sale.pendingInitialPayment;
+    final totalPaid = history.fold<double>(
+      0,
+      (sum, item) => sum + item.amountPaid,
+    );
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF6F8FC),
+      body: SafeArea(
+        child: Stack(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 56, 12, 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _SaleHistoryHeader(sale: sale, historyCount: history.length),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: _SaleHistoryTableViewport(
+                      history: history,
+                      lotDisplayCode: sale.lotDisplayCode,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  _HistoryTotalsFooter(
+                    totalPaid: totalPaid,
+                    remainingAmount: remainingAmount,
+                  ),
+                ],
+              ),
+            ),
+            Positioned(
+              top: 10,
+              left: 12,
+              child: FloatingActionButton.small(
+                heroTag: 'sale-payments-history-fullscreen-back',
                 backgroundColor: Colors.white,
                 foregroundColor: const Color(0xFF1F4B99),
                 onPressed: () => Navigator.of(context).pop(),
@@ -203,6 +280,98 @@ class _HeaderMetric extends StatelessWidget {
   }
 }
 
+class _SaleHistoryHeader extends StatelessWidget {
+  const _SaleHistoryHeader({required this.sale, required this.historyCount});
+
+  final PaymentSaleOption sale;
+  final int historyCount;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE4EAF2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEAF0FB),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.receipt_long_outlined,
+                  size: 18,
+                  color: Color(0xFF2D5AA6),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Historial de pagos de la venta · ${sale.clientName}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF172433),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF4F7FB),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '$historyCount pago(s)',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF6B7494),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 16,
+            runSpacing: 6,
+            children: [
+              _HeaderMetric(label: 'Venta', value: '#${sale.saleId}'),
+              _HeaderMetric(label: 'Solar', value: sale.lotDisplayCode),
+              _HeaderMetric(label: 'Cédula', value: sale.clientDocumentId),
+              _HeaderMetric(
+                label: 'Modalidad',
+                value: sale.isFinancingActive ? 'Financiamiento' : 'Inicial',
+              ),
+              _HeaderMetric(
+                label: 'Saldo restante',
+                value: _money(sale.pendingBalance + sale.pendingInitialPayment),
+                emphasize: true,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _HistoryTableViewport extends StatefulWidget {
   const _HistoryTableViewport({required this.report});
 
@@ -283,6 +452,111 @@ class _HistoryTableViewportState extends State<_HistoryTableViewport> {
                                 _hoveredPaymentId = hovered
                                     ? item.paymentId
                                     : (_hoveredPaymentId == item.paymentId
+                                          ? null
+                                          : _hoveredPaymentId);
+                              });
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SaleHistoryTableViewport extends StatefulWidget {
+  const _SaleHistoryTableViewport({
+    required this.history,
+    required this.lotDisplayCode,
+  });
+
+  final List<PaymentHistoryItem> history;
+  final String lotDisplayCode;
+
+  @override
+  State<_SaleHistoryTableViewport> createState() =>
+      _SaleHistoryTableViewportState();
+}
+
+class _SaleHistoryTableViewportState extends State<_SaleHistoryTableViewport> {
+  late final ScrollController _horizontalController;
+  late final ScrollController _verticalController;
+  int? _selectedPaymentId;
+  int? _hoveredPaymentId;
+
+  @override
+  void initState() {
+    super.initState();
+    _horizontalController = ScrollController();
+    _verticalController = ScrollController();
+    if (widget.history.isNotEmpty) {
+      _selectedPaymentId = widget.history.first.id;
+    }
+  }
+
+  @override
+  void dispose() {
+    _horizontalController.dispose();
+    _verticalController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFFCFDFE),
+        border: Border.all(color: const Color(0xFFE4EAF2)),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Scrollbar(
+          controller: _horizontalController,
+          thumbVisibility: true,
+          child: SingleChildScrollView(
+            controller: _horizontalController,
+            scrollDirection: Axis.horizontal,
+            child: SizedBox(
+              width: 980,
+              child: Column(
+                children: [
+                  const _HistoryTableHeader(),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: Scrollbar(
+                      controller: _verticalController,
+                      thumbVisibility: true,
+                      child: ListView.separated(
+                        controller: _verticalController,
+                        primary: false,
+                        padding: EdgeInsets.zero,
+                        itemCount: widget.history.length,
+                        separatorBuilder: (_, _) => const Divider(height: 1),
+                        itemBuilder: (context, index) {
+                          final item = widget.history[index];
+                          return _SaleHistoryTableRow(
+                            item: item,
+                            lotDisplayCode: widget.lotDisplayCode,
+                            selected: _selectedPaymentId == item.id,
+                            hovered: _hoveredPaymentId == item.id,
+                            onTap: () {
+                              setState(() {
+                                _selectedPaymentId = item.id;
+                              });
+                            },
+                            onHoverChanged: (hovered) {
+                              setState(() {
+                                _hoveredPaymentId = hovered
+                                    ? item.id
+                                    : (_hoveredPaymentId == item.id
                                           ? null
                                           : _hoveredPaymentId);
                               });
@@ -450,6 +724,146 @@ class _HistoryTableRow extends StatelessWidget {
                   width: 100,
                   child: Text(
                     item.lotDisplayCode,
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      color: Color(0xFF1A2235),
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: 88,
+                  child: Text(
+                    '#${item.saleId}',
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      color: Color(0xFF1A2235),
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: 128,
+                  child: Text(
+                    _money(item.amountPaid),
+                    textAlign: TextAlign.right,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF1A2235),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SaleHistoryTableRow extends StatelessWidget {
+  const _SaleHistoryTableRow({
+    required this.item,
+    required this.lotDisplayCode,
+    required this.selected,
+    required this.hovered,
+    this.onTap,
+    this.onHoverChanged,
+  });
+
+  final PaymentHistoryItem item;
+  final String lotDisplayCode;
+  final bool selected;
+  final bool hovered;
+  final VoidCallback? onTap;
+  final ValueChanged<bool>? onHoverChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final backgroundColor = selected
+        ? const Color(0xFFEAF2FF)
+        : hovered
+            ? const Color(0xFFF6F9FF)
+            : Colors.white;
+    final borderColor = selected
+        ? const Color(0xFF3B5BDB)
+        : hovered
+            ? const Color(0xFFD7E4FF)
+            : Colors.transparent;
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => onHoverChanged?.call(true),
+      onExit: (_) => onHoverChanged?.call(false),
+      child: Material(
+        color: backgroundColor,
+        child: InkWell(
+          onTap: onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: backgroundColor,
+              border: Border(
+                left: BorderSide(color: borderColor, width: 3),
+              ),
+            ),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 92,
+                  child: Text(
+                    _formatDate(item.paymentDate),
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF54627B),
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: 210,
+                  child: Text(
+                    _paymentTypeLabel(item.paymentType, item.installmentNumber),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF1A2235),
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: 120,
+                  child: Text(
+                    _capitalize(item.paymentMethod),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      color: Color(0xFF54627B),
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: 150,
+                  child: Text(
+                    (item.reference ?? '').trim().isEmpty
+                        ? '-'
+                        : item.reference!.trim(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      color: Color(0xFF54627B),
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: 100,
+                  child: Text(
+                    lotDisplayCode,
                     style: const TextStyle(
                       fontSize: 11.5,
                       color: Color(0xFF1A2235),

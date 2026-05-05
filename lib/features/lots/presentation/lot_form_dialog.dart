@@ -34,6 +34,8 @@ class LotFormDialog extends StatefulWidget {
 
 class _LotFormDialogState extends State<LotFormDialog> {
   final _formKey = GlobalKey<FormState>();
+  static final RdCurrencyInputFormatter _currencyFormatter =
+      RdCurrencyInputFormatter();
 
   late final TextEditingController _blockController;
   late final TextEditingController _lotNumberController;
@@ -57,7 +59,7 @@ class _LotFormDialogState extends State<LotFormDialog> {
       text: widget.initialLot?.area.toString() ?? '0',
     );
     _pricePerSquareMeterController = TextEditingController(
-      text: widget.initialLot?.pricePerSquareMeter.toString() ?? '0',
+      text: formatRdCurrency(widget.initialLot?.pricePerSquareMeter ?? 0),
     );
     _status = widget.initialLot?.status ?? Lot.statuses.first;
 
@@ -89,7 +91,7 @@ class _LotFormDialogState extends State<LotFormDialog> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Define ubicación, tamaño, precio por metro y estado del solar. El precio total se calcula automáticamente.',
+                  'Completa los datos del solar. El precio total se calcula automáticamente.',
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
                 const SizedBox(height: 16),
@@ -138,6 +140,7 @@ class _LotFormDialogState extends State<LotFormDialog> {
                           suffixText: 'm²',
                         ),
                         keyboardType: TextInputType.number,
+                        inputFormatters: [_currencyFormatter],
                         validator: (value) {
                           if (_parseDecimal(value) < 0) {
                             return 'No negativo';
@@ -155,7 +158,10 @@ class _LotFormDialogState extends State<LotFormDialog> {
                           prefixText: 'RD\$ ',
                           suffixText: '/m²',
                         ),
-                        keyboardType: TextInputType.number,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        inputFormatters: [_currencyFormatter],
                         validator: (value) {
                           if (_parseDecimal(value) < 0) {
                             return 'No negativo';
@@ -171,7 +177,7 @@ class _LotFormDialogState extends State<LotFormDialog> {
                   key: ValueKey(
                     'lot-total-${_computedTotalPrice.toStringAsFixed(2)}',
                   ),
-                  initialValue: _computedTotalPrice.toStringAsFixed(2),
+                  initialValue: formatRdCurrency(_computedTotalPrice),
                   readOnly: true,
                   decoration: const InputDecoration(
                     labelText: 'Precio total calculado',

@@ -258,10 +258,12 @@ class _SaleDocumentsDialogContentState
   Map<String, PdfPageFormat> get _previewFormats {
     return switch (_selectedType) {
       SaleDocumentType.initialReceipt => {
-        'Carta horizontal': SaleInitialReceiptPdfBuilder.pageFormat,
+        'Carta horizontal': PdfPageFormat.letter.landscape,
+        'Carta vertical': PdfPageFormat.letter.portrait,
       },
       SaleDocumentType.amortization => {
-        'A4 vertical': SaleAmortizationPdfBuilder.pageFormat,
+        'A4 vertical': PdfPageFormat.a4.portrait,
+        'A4 horizontal': PdfPageFormat.a4.landscape,
       },
     };
   }
@@ -508,8 +510,8 @@ class _SaleDocumentsDialogContentState
                             initialPageFormat: _documentPageFormat,
                             pageFormats: _previewFormats,
                             maxPageWidth: _previewMaxPageWidth,
-                            canChangePageFormat: false,
-                            canChangeOrientation: false,
+                            canChangePageFormat: true,
+                            canChangeOrientation: true,
                             canDebug: false,
                             allowPrinting: false,
                             allowSharing: false,

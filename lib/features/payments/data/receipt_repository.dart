@@ -27,6 +27,19 @@ class ReceiptRepository {
 
   /// Obtiene un recibo de pago específico por ID de pago
   Future<Receipt?> fetchReceiptByPaymentId(int paymentId) async {
+    try {
+      return await _fetchReceiptByPaymentId(paymentId);
+    } on DatabaseException catch (error) {
+      if (!_isDatabaseClosedError(error)) {
+        rethrow;
+      }
+
+      await _appDatabase.close();
+      return _fetchReceiptByPaymentId(paymentId);
+    }
+  }
+
+  Future<Receipt?> _fetchReceiptByPaymentId(int paymentId) async {
     final db = await _appDatabase.database;
 
     final paymentRows = await db.rawQuery(
@@ -189,10 +202,10 @@ class ReceiptRepository {
         ? 'Pago aplicado al inicial requerido de la venta. El financiamiento solo inicia cuando el inicial queda completado.'
         : installmentCount <= 0
         ? 'Pago registrado sin plan de cuotas asociado.'
-      : '$installmentCount cuotas mensuales fijas con interes decreciente de ${monthlyInterest.toStringAsFixed(2)}% sobre saldo.';
+      : '$installmentCount cuotas mensuales fijas con interes simple de ${monthlyInterest.toStringAsFixed(2)}% sobre el capital financiado original.';
     final note = hasInitialStagePayments
         ? 'Este recibo corresponde a un pago previo a la activación del financiamiento. El saldo del inicial y el estado de la venta fueron actualizados en el sistema.'
-      : 'Conserve este recibo. Cada pago reduce el saldo pendiente y mantiene la cuota mensual fija con amortización progresiva de capital.';
+      : 'Conserve este recibo. Cada pago reduce el saldo pendiente del plan sin recalcular el interes pactado ni cambiar la cuota mensual fija.';
 
     return Receipt(
       paymentId: paymentId,
@@ -227,6 +240,10 @@ class ReceiptRepository {
       conditionsOfPayment: conditionsOfPayment,
       note: note,
     );
+  }
+
+  bool _isDatabaseClosedError(DatabaseException error) {
+    return error.toString().toLowerCase().contains('database_closed');
   }
 
   /// Genera un número de recibo único basado en fecha y ID de pago

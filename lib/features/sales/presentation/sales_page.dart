@@ -1,9 +1,15 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../features/auth/domain/permission_model.dart';
 import '../../../features/auth/presentation/auth_provider.dart';
 import '../../../core/resilience/friendly_error_messages.dart';
+import '../../../shared/sync/row_sync_badge_policy.dart';
 import '../../../shared/widgets/base_layout.dart';
 import '../../../shared/widgets/recovery_experience.dart';
 import '../../clients/data/client_repository.dart';
@@ -14,7 +20,6 @@ import '../data/sales_repository.dart';
 import '../data/seller_repository.dart';
 import '../domain/sale_draft.dart';
 import '../domain/sale_summary.dart';
-import 'documents/sale_documents_dialog.dart';
 import 'sale_detail_dialog.dart';
 import 'sale_form_dialog.dart';
 import 'seller_form_dialog.dart';
@@ -45,6 +50,17 @@ class SalesPage extends StatefulWidget {
 class _SalesPageState extends State<SalesPage> {
   late final SalesController _controller;
   late final TextEditingController _searchController;
+  bool _hasInternet = true;
+  int _internetProbeFailures = 0;
+  StreamSubscription<List<ConnectivityResult>>? _internetSubscription;
+  bool _isUpdatingSale = false;
+  OverlayEntry? _savingOverlayEntry;
+
+  void _debugEditLog(String message) {
+    if (kDebugMode) {
+      debugPrint('[SALES][EDIT] $message');
+    }
+  }
 
   Future<void> _reloadControllerSafely() async {
     if (!mounted || _controller.isDisposed) {
@@ -64,14 +80,64 @@ class _SalesPageState extends State<SalesPage> {
       settingsRepository: widget.settingsRepository,
     );
     _searchController = TextEditingController();
+    _internetSubscription = Connectivity().onConnectivityChanged.listen((_) {
+      unawaited(_refreshInternetStatus());
+    });
+    unawaited(_refreshInternetStatus());
     _controller.load();
   }
 
   @override
   void dispose() {
+    unawaited(_internetSubscription?.cancel());
+    _internetSubscription = null;
     _controller.dispose();
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _refreshInternetStatus() async {
+    try {
+      final connectivityResults = await Connectivity().checkConnectivity();
+      final hasNetworkInterface = connectivityResults.any(
+        (result) => result != ConnectivityResult.none,
+      );
+      if (!hasNetworkInterface) {
+        _internetProbeFailures = 0;
+        _setInternetStatus(false);
+        return;
+      }
+
+      final lookup = await InternetAddress.lookup(
+        'one.one.one.one',
+      ).timeout(const Duration(seconds: 2));
+      _internetProbeFailures = 0;
+      _setInternetStatus(
+        lookup.isNotEmpty && lookup.first.rawAddress.isNotEmpty,
+      );
+    } on TimeoutException {
+      _internetProbeFailures += 1;
+      if (_internetProbeFailures >= 2) {
+        _setInternetStatus(false);
+      }
+    } on SocketException {
+      _internetProbeFailures += 1;
+      if (_internetProbeFailures >= 2) {
+        _setInternetStatus(false);
+      }
+    } catch (_) {
+      _internetProbeFailures = 0;
+      _setInternetStatus(true);
+    }
+  }
+
+  void _setInternetStatus(bool value) {
+    if (!mounted || _hasInternet == value) {
+      return;
+    }
+    setState(() {
+      _hasInternet = value;
+    });
   }
 
   @override
@@ -304,6 +370,7 @@ class _SalesPageState extends State<SalesPage> {
           final sale = _controller.sales[index];
           return _SaleRow(
             sale: sale,
+            hasInternet: _hasInternet,
             onTap: () => _openDetail(sale),
             onAction: (action) => _handleAdminAction(action, sale),
             availableActions: [
@@ -322,6 +389,11 @@ class _SalesPageState extends State<SalesPage> {
     _SaleAdminAction action,
     SaleSummary summary,
   ) async {
+    if (_controller.isSaving || _isUpdatingSale) {
+      _showMessage('Ya hay una operacion de guardado en progreso.');
+      return;
+    }
+
     switch (action) {
       case _SaleAdminAction.editSale:
         await _editSale(summary);
@@ -396,17 +468,22 @@ class _SalesPageState extends State<SalesPage> {
     );
 
     if (detail != null) {
-      await SaleDocumentsDialog.show(
-        context,
-        detail: detail,
-        initialType: SaleDocumentType.initialReceipt,
-      );
+      await SaleDetailDialog.show(context, detail);
     }
   }
 
   Future<void> _editSale(SaleSummary summary) async {
+    if (_controller.isSaving || _isUpdatingSale) {
+      _debugEditLog(
+        'blocked duplicate edit request saleId=${summary.id} (isSaving=${_controller.isSaving}, isUpdatingSale=$_isUpdatingSale)',
+      );
+      return;
+    }
+
+    _debugEditLog('start edit flow saleId=${summary.id}');
     final detail = await _controller.fetchDetail(summary.id);
     if (!mounted || detail == null) {
+      _debugEditLog('stop: detail unavailable saleId=${summary.id}');
       return;
     }
 
@@ -454,15 +531,111 @@ class _SalesPageState extends State<SalesPage> {
       onSellerCreated: _reloadControllerSafely,
     );
     if (!mounted || draft == null) {
+      _debugEditLog('stop: dialog canceled saleId=${summary.id}');
       return;
     }
 
-    final error = await _controller.updateSale(summary.id, draft);
-    if (!mounted) {
-      return;
+    _debugEditLog(
+      'submit update saleId=${summary.id} clientId=${draft.clientId} lotId=${draft.lotId} installments=${draft.installmentCount}',
+    );
+
+    setState(() {
+      _isUpdatingSale = true;
+    });
+
+    var loadingShown = false;
+    try {
+      if (mounted) {
+        loadingShown = _showSavingOverlay();
+      }
+
+      final error = await _controller.updateSale(summary.id, draft);
+      if (!mounted) {
+        return;
+      }
+
+      _debugEditLog(
+        error == null
+            ? 'update success saleId=${summary.id}'
+            : 'update failed saleId=${summary.id} error=$error',
+      );
+      _showMessage(error ?? 'Venta actualizada correctamente.');
+    } finally {
+      if (mounted) {
+        if (loadingShown) {
+          _hideSavingOverlay();
+        }
+        setState(() {
+          _isUpdatingSale = false;
+        });
+      }
+    }
+  }
+
+  bool _showSavingOverlay() {
+    if (_savingOverlayEntry != null) {
+      return false;
     }
 
-    _showMessage(error ?? 'Venta actualizada correctamente.');
+    final overlayState = Overlay.of(context, rootOverlay: true);
+
+    _savingOverlayEntry = OverlayEntry(
+      builder: (overlayContext) {
+        return Stack(
+          children: [
+            const ModalBarrier(
+              dismissible: false,
+              color: Color(0x66000000),
+            ),
+            Center(
+              child: Material(
+                color: Colors.transparent,
+                child: Container(
+                  constraints: const BoxConstraints(maxWidth: 340),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 16,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(28),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x22000000),
+                        blurRadius: 18,
+                        offset: Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2.2),
+                      ),
+                      SizedBox(width: 12),
+                      Flexible(
+                        child: Text('Guardando cambios de la venta...'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    overlayState.insert(_savingOverlayEntry!);
+    return true;
+  }
+
+  void _hideSavingOverlay() {
+    _savingOverlayEntry?.remove();
+    _savingOverlayEntry = null;
   }
 
   Future<void> _confirmDeleteSale(SaleSummary summary) async {
@@ -633,12 +806,14 @@ class _SalesPageState extends State<SalesPage> {
 class _SaleRow extends StatelessWidget {
   const _SaleRow({
     required this.sale,
+    required this.hasInternet,
     required this.onTap,
     required this.onAction,
     required this.availableActions,
   });
 
   final SaleSummary sale;
+  final bool hasInternet;
   final VoidCallback onTap;
   final void Function(_SaleAdminAction) onAction;
   final List<_SaleAdminAction> availableActions;
@@ -650,6 +825,16 @@ class _SaleRow extends StatelessWidget {
         : sale.clientName[0].toUpperCase();
     final statusColor = _saleRowStatusColor(sale.status);
     final dateLabel = _formatShortDate(context, sale.saleDate);
+    final isFailed = sale.syncStatus.trim().toLowerCase() == 'failed';
+    final showSyncBadge = shouldShowRowSyncBadge(
+      hasInternet: hasInternet,
+      syncStatus: sale.syncStatus,
+      isFailed: isFailed,
+    );
+    final syncBadgeLabel = rowSyncBadgeLabel(
+      syncStatus: sale.syncStatus,
+      isFailed: isFailed,
+    );
 
     return InkWell(
       onTap: onTap,
@@ -701,21 +886,10 @@ class _SaleRow extends StatelessWidget {
                             color: Color(0xFF1A2235),
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        Tooltip(
-                          message: sale.isPendingSync
-                              ? 'Pendiente de sincronizacion'
-                              : 'Sincronizado con la nube',
-                          child: Icon(
-                            sale.isPendingSync
-                                ? Icons.cloud_upload_rounded
-                                : Icons.cloud_done_rounded,
-                            size: 18,
-                            color: sale.isPendingSync
-                                ? const Color(0xFFE0A800)
-                                : const Color(0xFF2E7D32),
-                          ),
-                        ),
+                        if (showSyncBadge && syncBadgeLabel != null) ...[
+                          const SizedBox(width: 8),
+                          RowSyncListBadge(label: syncBadgeLabel),
+                        ],
                       ],
                     ),
                     const SizedBox(height: 4),

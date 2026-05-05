@@ -103,15 +103,14 @@ class InstallmentsSyncRepository implements SyncRepository {
           whereArgs: [syncId],
           limit: 1,
         );
-        if (_shouldKeepLocal(
-          existingRows,
-          record,
-          updatedAtField: 'fecha_actualizacion',
-        )) {
-          continue;
-        }
-
         if (_isDeleted(record['deleted_at'])) {
+          if (_shouldKeepLocal(
+            existingRows,
+            record,
+            updatedAtField: 'fecha_actualizacion',
+          )) {
+            continue;
+          }
           if (existingRows.isNotEmpty) {
             await txn.update(
               DatabaseSchema.installmentsTable,
@@ -139,13 +138,36 @@ class InstallmentsSyncRepository implements SyncRepository {
           continue;
         }
 
+        final installmentNumber = _readInt(record['installment_number']);
+        final matchingSlotRows = existingRows.isEmpty
+            ? await txn.query(
+                DatabaseSchema.installmentsTable,
+                where: 'venta_id = ? AND numero_cuota = ?',
+                whereArgs: [saleId, installmentNumber],
+                limit: 1,
+              )
+            : const <Map<String, Object?>>[];
+        final resolvedExistingRows = existingRows.isEmpty
+            ? matchingSlotRows
+            : existingRows;
+
+        if (_shouldKeepLocal(
+          resolvedExistingRows,
+          record,
+          updatedAtField: 'fecha_actualizacion',
+        )) {
+          continue;
+        }
+
         final values = {
           'sync_id': syncId,
           'id_remote': record['id']?.toString().trim(),
-          'id_local': existingRows.isEmpty ? null : existingRows.first['id'],
+          'id_local': resolvedExistingRows.isEmpty
+              ? null
+              : resolvedExistingRows.first['id'],
           'version': _readVersion(record),
           'venta_id': saleId,
-          'numero_cuota': _readInt(record['installment_number']),
+          'numero_cuota': installmentNumber,
           'fecha_vencimiento': _readDate(record['due_date']),
           'saldo_inicial': _readDouble(record['opening_balance']),
           'capital_cuota': _readDouble(record['principal_amount']),
@@ -163,14 +185,14 @@ class InstallmentsSyncRepository implements SyncRepository {
           'sync_status': DatabaseSchema.syncStatusSynced,
         };
 
-        if (existingRows.isEmpty) {
+        if (resolvedExistingRows.isEmpty) {
           await txn.insert(DatabaseSchema.installmentsTable, values);
         } else {
           await txn.update(
             DatabaseSchema.installmentsTable,
             values,
-            where: 'sync_id = ?',
-            whereArgs: [syncId],
+            where: 'id = ?',
+            whereArgs: [resolvedExistingRows.first['id']],
           );
         }
       }

@@ -57,7 +57,6 @@ const List<AppModule> _administrationSidebarModules = [
   AppModule.lots,
   AppModule.installments,
   AppModule.sellers,
-  AppModule.settings,
 ];
 
 const double _sidebarCollapsedWidth = 96;
@@ -96,12 +95,12 @@ class _AppShellState extends State<AppShell> {
   final ProductsSyncRepository _productsSyncRepository =
       ProductsSyncRepository();
   final UsersSyncRepository _usersSyncRepository = UsersSyncRepository();
-    final RolesSyncRepository _rolesSyncRepository = RolesSyncRepository();
-    final UserRolesSyncRepository _userRolesSyncRepository =
+  final RolesSyncRepository _rolesSyncRepository = RolesSyncRepository();
+  final UserRolesSyncRepository _userRolesSyncRepository =
       UserRolesSyncRepository();
-    final RolePermissionsSyncRepository _rolePermissionsSyncRepository =
+  final RolePermissionsSyncRepository _rolePermissionsSyncRepository =
       RolePermissionsSyncRepository();
-    final PermissionsSyncRepository _permissionsSyncRepository =
+  final PermissionsSyncRepository _permissionsSyncRepository =
       PermissionsSyncRepository();
   final SalesSyncRepository _salesSyncRepository = SalesSyncRepository();
   final InstallmentsSyncRepository _installmentsSyncRepository =
@@ -147,6 +146,7 @@ class _AppShellState extends State<AppShell> {
   bool _hasInternet = true;
   int _internetProbeFailures = 0;
   StreamSubscription<List<ConnectivityResult>>? _internetSubscription;
+  Timer? _sidebarAutoCollapseTimer;
 
   @override
   void initState() {
@@ -164,6 +164,8 @@ class _AppShellState extends State<AppShell> {
 
   @override
   void dispose() {
+    _sidebarAutoCollapseTimer?.cancel();
+    _sidebarAutoCollapseTimer = null;
     unawaited(_internetSubscription?.cancel());
     _internetSubscription = null;
     _syncQueueService.setCloudSessionExpiredHandler(null);
@@ -213,7 +215,6 @@ class _AppShellState extends State<AppShell> {
         _setInternetStatus(false);
       }
     } catch (_) {
-      // If lookup is blocked by network policy, keep UI non-alarmist.
       _internetProbeFailures = 0;
       _setInternetStatus(true);
     }
@@ -234,8 +235,8 @@ class _AppShellState extends State<AppShell> {
       return;
     }
 
-    final nextSidebarExpanded =
-        preferences.getBool(_sidebarExpandedPreferenceKey) ?? false;
+    // UX rule: sidebar starts collapsed by default on each app launch.
+    final nextSidebarExpanded = false;
     final nextAdministrationExpanded =
         preferences.getBool(_sidebarAdministrationPreferenceKey) ?? false;
 
@@ -248,6 +249,7 @@ class _AppShellState extends State<AppShell> {
       _isSidebarExpanded = nextSidebarExpanded;
       _isAdministrationMenuExpanded = nextAdministrationExpanded;
     });
+    _syncSidebarAutoCollapseTimer();
   }
 
   Future<void> _persistNavigationPreferences() async {
@@ -339,7 +341,28 @@ class _AppShellState extends State<AppShell> {
     setState(() {
       _isSidebarExpanded = !_isSidebarExpanded;
     });
+    _syncSidebarAutoCollapseTimer();
     await _persistNavigationPreferences();
+  }
+
+  void _syncSidebarAutoCollapseTimer() {
+    _sidebarAutoCollapseTimer?.cancel();
+    _sidebarAutoCollapseTimer = null;
+
+    if (!_isSidebarExpanded) {
+      return;
+    }
+
+    _sidebarAutoCollapseTimer = Timer(const Duration(minutes: 5), () {
+      if (!mounted || !_isSidebarExpanded) {
+        return;
+      }
+
+      setState(() {
+        _isSidebarExpanded = false;
+      });
+      unawaited(_persistNavigationPreferences());
+    });
   }
 
   Future<void> _toggleAdministrationMenu() async {
@@ -448,6 +471,7 @@ class _AppShellState extends State<AppShell> {
     final administrationModules = _administrationSidebarModules
         .where(accessibleModules.contains)
         .toList();
+    final canAccessSettings = accessibleModules.contains(AppModule.settings);
     final currentPage = KeyedSubtree(
       key: ValueKey(
         Object.hash(
@@ -474,9 +498,7 @@ class _AppShellState extends State<AppShell> {
                 if (shouldShowOfflineChip(hasInternet: _hasInternet))
                   const Padding(
                     padding: EdgeInsets.only(right: 8),
-                    child: Center(
-                      child: _SyncStatusBadge(compact: true),
-                    ),
+                    child: Center(child: _SyncStatusBadge(compact: true)),
                   ),
                 if (user != null)
                   Padding(
@@ -497,6 +519,7 @@ class _AppShellState extends State<AppShell> {
                 selectedModule: resolvedModule,
                 primaryModules: primaryModules,
                 administrationModules: administrationModules,
+                showSettingsAction: canAccessSettings,
                 isCollapsed: false,
                 isAdministrationMenuExpanded: true,
                 allowCollapse: false,
@@ -541,6 +564,7 @@ class _AppShellState extends State<AppShell> {
                         selectedModule: resolvedModule,
                         primaryModules: primaryModules,
                         administrationModules: administrationModules,
+                        showSettingsAction: canAccessSettings,
                         isCollapsed: !_isSidebarExpanded,
                         isAdministrationMenuExpanded:
                             _isAdministrationMenuExpanded,
@@ -693,9 +717,7 @@ class _ShellHeader extends StatelessWidget {
 }
 
 class _SyncStatusBadge extends StatelessWidget {
-  const _SyncStatusBadge({
-    this.compact = false,
-  });
+  const _SyncStatusBadge({this.compact = false});
 
   final bool compact;
 
@@ -746,6 +768,7 @@ class _ShellNavigation extends StatelessWidget {
     required this.selectedModule,
     required this.primaryModules,
     required this.administrationModules,
+    required this.showSettingsAction,
     required this.isCollapsed,
     required this.isAdministrationMenuExpanded,
     required this.allowCollapse,
@@ -757,6 +780,7 @@ class _ShellNavigation extends StatelessWidget {
   final AppModule selectedModule;
   final List<AppModule> primaryModules;
   final List<AppModule> administrationModules;
+  final bool showSettingsAction;
   final bool isCollapsed;
   final bool isAdministrationMenuExpanded;
   final bool allowCollapse;
@@ -1033,33 +1057,59 @@ class _ShellNavigation extends StatelessWidget {
                           ),
                         ),
                       const SizedBox(height: 10),
-                      Row(
-                        mainAxisAlignment: effectiveCollapsed
-                            ? MainAxisAlignment.center
-                            : MainAxisAlignment.spaceBetween,
-                        children: [
-                          if (!effectiveCollapsed)
-                            Expanded(
-                              child: Text(
-                                selectedInAdministration
-                                    ? 'Administración activa'
-                                    : 'Módulo listo',
-                                style: TextStyle(
-                                  color: Colors.white.withValues(alpha: 0.44),
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                      if (effectiveCollapsed)
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            if (showSettingsAction) ...[
+                              _SidebarCompactAction(
+                                icon: Icons.settings_outlined,
+                                tooltip: 'Configuración',
+                                onTap: () => onSelectModule(AppModule.settings),
+                              ),
+                              const SizedBox(height: 8),
+                            ],
+                            _SidebarCompactAction(
+                              icon: Icons.logout_rounded,
+                              tooltip: 'Cerrar sesión',
+                              onTap: () async {
+                                await context.read<AuthProvider>().signOut();
+                              },
+                            ),
+                          ],
+                        )
+                      else
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Text(
+                              selectedInAdministration
+                                  ? 'Administración activa'
+                                  : 'Módulo listo',
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.44),
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
-                          _SidebarCompactAction(
-                            icon: Icons.logout_rounded,
-                            tooltip: 'Cerrar sesión',
-                            onTap: () async {
-                              await context.read<AuthProvider>().signOut();
-                            },
-                          ),
-                        ],
-                      ),
+                            const SizedBox(height: 8),
+                            if (showSettingsAction) ...[
+                              _SidebarFooterActionButton(
+                                icon: Icons.settings_outlined,
+                                label: 'Configuración',
+                                onTap: () => onSelectModule(AppModule.settings),
+                              ),
+                              const SizedBox(height: 6),
+                            ],
+                            _SidebarFooterActionButton(
+                              icon: Icons.logout_rounded,
+                              label: 'Cerrar sesión',
+                              onTap: () async {
+                                await context.read<AuthProvider>().signOut();
+                              },
+                            ),
+                          ],
+                        ),
                     ],
                   ),
                 ),
@@ -1096,37 +1146,72 @@ class _AdministrationMenu extends StatelessWidget {
     final isSelected = modules.contains(selectedModule);
 
     if (isCollapsed) {
-      return _PremiumTooltip(
-        message: 'Administración',
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(16),
-          child: Material(
-            color: isSelected
-                ? const Color(0xFF143B61)
-                : Colors.white.withValues(alpha: 0.03),
-            child: InkWell(
-              onTap: onToggle,
-              child: Container(
-                height: 58,
-                alignment: Alignment.center,
-                child: Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(14),
-                    color: isSelected
-                        ? const Color(0xFF5BAEE8).withValues(alpha: 0.18)
-                        : Colors.white.withValues(alpha: 0.08),
-                    border: Border.all(
-                      color: isSelected
-                          ? const Color(0xFF83CAFF).withValues(alpha: 0.55)
-                          : Colors.white.withValues(alpha: 0.08),
+      return PopupMenuButton<AppModule>(
+        tooltip: 'Administración',
+        onSelected: onSelectModule,
+        color: const Color(0xFF102C47),
+        elevation: 10,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        offset: const Offset(56, 0),
+        itemBuilder: (context) => [
+          for (final module in modules)
+            PopupMenuItem<AppModule>(
+              value: module,
+              child: Row(
+                children: [
+                  Icon(
+                    module.icon,
+                    size: 18,
+                    color: module == selectedModule
+                        ? const Color(0xFF83CAFF)
+                        : Colors.white.withValues(alpha: 0.82),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      module.label,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.92),
+                        fontWeight: module == selectedModule
+                            ? FontWeight.w700
+                            : FontWeight.w500,
+                      ),
                     ),
                   ),
-                  child: const Icon(
-                    Icons.admin_panel_settings_outlined,
-                    size: 20,
-                    color: Color(0xFF9AD6FF),
+                ],
+              ),
+            ),
+        ],
+        child: _PremiumTooltip(
+          message: 'Administración',
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: Material(
+              color: isSelected
+                  ? const Color(0xFF143B61)
+                  : Colors.white.withValues(alpha: 0.03),
+              child: SizedBox(
+                height: 58,
+                child: Center(
+                  child: Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(14),
+                      color: isSelected
+                          ? const Color(0xFF5BAEE8).withValues(alpha: 0.18)
+                          : Colors.white.withValues(alpha: 0.08),
+                      border: Border.all(
+                        color: isSelected
+                            ? const Color(0xFF83CAFF).withValues(alpha: 0.55)
+                            : Colors.white.withValues(alpha: 0.08),
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons.admin_panel_settings_outlined,
+                      size: 20,
+                      color: Color(0xFF9AD6FF),
+                    ),
                   ),
                 ),
               ),
@@ -1184,7 +1269,7 @@ class _AdministrationMenu extends StatelessWidget {
                           ),
                           SizedBox(height: 2),
                           Text(
-                            'Clientes, solares, cuotas y configuración',
+                            'Clientes, solares, cuotas y vendedores',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
@@ -1487,6 +1572,65 @@ class _SidebarCompactAction extends StatelessWidget {
               size: 19,
               color: Colors.white.withValues(alpha: 0.72),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SidebarFooterActionButton extends StatelessWidget {
+  const _SidebarFooterActionButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        hoverColor: Colors.white.withValues(alpha: 0.05),
+        splashColor: Colors.white.withValues(alpha: 0.07),
+        child: Container(
+          height: 42,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.08),
+              width: 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                icon,
+                size: 18,
+                color: Colors.white.withValues(alpha: 0.74),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.82),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),

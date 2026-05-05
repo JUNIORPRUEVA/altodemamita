@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/utils/dominican_formatters.dart';
 import '../../../features/auth/domain/permission_model.dart';
 import '../../../features/auth/presentation/auth_provider.dart';
 import '../../../core/resilience/friendly_error_messages.dart';
@@ -609,12 +610,9 @@ class _PaymentsPageState extends State<PaymentsPage> {
                       return _CompactInstallmentRow(
                         installment: installment,
                         formattedDate: _formatDate(installment.dueDate),
-                        formattedAmount:
-                            'RD\$ ${installment.totalAmount.toStringAsFixed(2)}',
-                        formattedPaid:
-                            'RD\$ ${installment.paidAmount.toStringAsFixed(2)}',
-                        formattedRemaining:
-                            'RD\$ ${installment.remainingAmount.toStringAsFixed(2)}',
+                        formattedAmount: _money(installment.totalAmount),
+                        formattedPaid: _money(installment.paidAmount),
+                        formattedRemaining: _money(installment.remainingAmount),
                         statusLabel: statusLabel,
                         statusColor: _installmentColor(statusLabel),
                         selected: item.saleId == _effectiveSelectedSaleId,
@@ -726,7 +724,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
               : 'El próximo pago se aplicará al inicial. Cuando el pendiente llegue a cero, la venta se activará y se generarán las cuotas.'
         : actionableInstallment == null
         ? 'No hay cuota vencida o exigible. Si registras un pago ahora, irá directo a capital.'
-        : 'El próximo pago cubrirá primero la cuota #${actionableInstallment.installmentNumber} con restante de RD\$ ${actionableInstallment.remainingAmount.toStringAsFixed(2)}.';
+        : 'El próximo pago cubrirá primero la cuota #${actionableInstallment.installmentNumber} con restante de ${_money(actionableInstallment.remainingAmount)}.';
 
     final content = Padding(
       padding: const EdgeInsets.all(16),
@@ -770,18 +768,20 @@ class _PaymentsPageState extends State<PaymentsPage> {
                   label: isFinancingActive
                       ? 'Saldo pendiente'
                       : 'Inicial mínimo requerido',
-                  value:
-                      'RD\$ ${(isFinancingActive ? sale.pendingBalance : sale.requiredInitialPayment).toStringAsFixed(2)}',
+                  value: _money(
+                    isFinancingActive
+                        ? sale.pendingBalance
+                        : sale.requiredInitialPayment,
+                  ),
                   emphasized: true,
                 ),
                 _DetailItem(
                   label: 'Inicial real pagado',
-                  value: 'RD\$ ${sale.paidInitialPayment.toStringAsFixed(2)}',
+                  value: _money(sale.paidInitialPayment),
                 ),
                 _DetailItem(
                   label: 'Inicial pendiente',
-                  value:
-                      'RD\$ ${sale.pendingInitialPayment.toStringAsFixed(2)}',
+                  value: _money(sale.pendingInitialPayment),
                 ),
                 _DetailItem(
                   label: 'Interes mensual',
@@ -916,8 +916,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
                             ),
                             subtitle:
                                 '${_formatDate(payment.paymentDate)}  ·  ${_capitalize(payment.paymentMethod)}',
-                            amount:
-                                'RD\$ ${payment.amountPaid.toStringAsFixed(2)}',
+                            amount: _money(payment.amountPaid),
                             color: _paymentTypeColor(payment.paymentType),
                             icon: _paymentTypeIcon(payment.paymentType),
                             canDelete:
@@ -1517,15 +1516,18 @@ class _PaymentsPageState extends State<PaymentsPage> {
   }
 
   Future<void> _showClientPagares(PaymentSaleContext contextData) async {
-    final report = await _loadClientPagareReport(contextData.sale.clientId);
-    if (!mounted || report == null) {
+    if (contextData.history.isEmpty) {
       return;
     }
 
-    await openClientPaymentHistoryFullscreen(
+    if (!mounted) {
+      return;
+    }
+
+    await openSalePaymentHistoryFullscreen(
       context,
       sale: contextData.sale,
-      report: report,
+      history: contextData.history,
     );
   }
 
@@ -1668,7 +1670,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
         return AlertDialog(
           title: const Text('Anular pago'),
           content: Text(
-            'Esta accion eliminara el ultimo pago registrado y recalculara el saldo de la venta.\n\nMonto: RD\$ ${payment.amountPaid.toStringAsFixed(2)}\nTipo: ${_paymentTypeLabel(payment.paymentType, payment.installmentNumber)}\n\nSolo debe usarse para corregir un registro reciente.',
+            'Esta accion eliminara el ultimo pago registrado y recalculara el saldo de la venta.\n\nMonto: ${_money(payment.amountPaid)}\nTipo: ${_paymentTypeLabel(payment.paymentType, payment.installmentNumber)}\n\nSolo debe usarse para corregir un registro reciente.',
           ),
           actions: [
             TextButton(
@@ -1727,6 +1729,8 @@ class _PaymentsPageState extends State<PaymentsPage> {
     final day = value.day.toString().padLeft(2, '0');
     return '$day/$month/${value.year}';
   }
+
+  String _money(double value) => 'RD\$ ${formatRdCurrency(value)}';
 
   String _capitalize(String value) {
     if (value.isEmpty) {

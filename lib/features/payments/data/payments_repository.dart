@@ -35,6 +35,19 @@ class PaymentsRepository {
     developer.log(message, name: 'SistemaSolares.PaymentsSync');
   }
 
+  Future<T> _runWithDatabaseRetry<T>(Future<T> Function() action) async {
+    try {
+      return await action();
+    } on DatabaseException catch (error) {
+      if (!_isDatabaseClosedError(error)) {
+        rethrow;
+      }
+
+      await _appDatabase.close();
+      return action();
+    }
+  }
+
   Future<List<PaymentSaleOption>> fetchActiveSales() async {
     final db = await _appDatabase.database;
     final rows = await db.rawQuery('''
@@ -75,8 +88,9 @@ class PaymentsRepository {
   }
 
   Future<PaymentSaleContext?> fetchSaleContext(int saleId) async {
-    final db = await _appDatabase.database;
-    final saleRows = await db.rawQuery(
+    return _runWithDatabaseRetry(() async {
+      final db = await _appDatabase.database;
+      final saleRows = await db.rawQuery(
       '''
       SELECT
         v.id,
@@ -106,19 +120,19 @@ class PaymentsRepository {
       [saleId],
     );
 
-    if (saleRows.isEmpty) {
-      return null;
-    }
+      if (saleRows.isEmpty) {
+        return null;
+      }
 
-    final installmentRows = await db.query(
+      final installmentRows = await db.query(
       DatabaseSchema.installmentsTable,
       where: 'venta_id = ? AND deleted_at IS NULL AND estado <> ?',
       whereArgs: [saleId, 'ajustada'],
       orderBy: 'numero_cuota ASC',
     );
-    final installments = installmentRows.map(Installment.fromMap).toList();
+      final installments = installmentRows.map(Installment.fromMap).toList();
 
-    final historyRows = await db.rawQuery(
+      final historyRows = await db.rawQuery(
       '''
       SELECT
         p.*,
@@ -131,16 +145,17 @@ class PaymentsRepository {
       [saleId],
     );
 
-    return PaymentSaleContext(
-      sale: PaymentSaleOption.fromMap(saleRows.first),
-      monthlyInterest: _toDouble(saleRows.first['interes_mensual']),
-      installments: installments,
-      history: historyRows.map(PaymentHistoryItem.fromMap).toList(),
-      actionableInstallment: _findActionableInstallment(
-        installments,
-        DateTime.now(),
-      ),
-    );
+      return PaymentSaleContext(
+        sale: PaymentSaleOption.fromMap(saleRows.first),
+        monthlyInterest: _toDouble(saleRows.first['interes_mensual']),
+        installments: installments,
+        history: historyRows.map(PaymentHistoryItem.fromMap).toList(),
+        actionableInstallment: _findActionableInstallment(
+          installments,
+          DateTime.now(),
+        ),
+      );
+    });
   }
 
   Future<ClientPagareReport> fetchClientPagareReport(int clientId) async {
@@ -193,15 +208,17 @@ class PaymentsRepository {
   }
 
   Future<void> registerPayment(PaymentDraft draft) async {
-    final db = await _appDatabase.database;
     final deletedInstallmentPayloads = <Map<String, Object?>>[];
 
-    await db.transaction<void>((txn) async {
-      await _registerPaymentInTransaction(
-        txn,
-        draft,
-        deletedInstallmentPayloads,
-      );
+    await _runWithDatabaseRetry(() async {
+      final db = await _appDatabase.database;
+      await db.transaction<void>((txn) async {
+        await _registerPaymentInTransaction(
+          txn,
+          draft,
+          deletedInstallmentPayloads,
+        );
+      });
     });
     _log(
       'Guardado en local -> scope=payments operation=create saleId=${draft.saleId} sync_status=${DatabaseSchema.syncStatusPending}',
@@ -226,11 +243,12 @@ class PaymentsRepository {
   }
 
   Future<void> deletePayment(int paymentId) async {
-    final db = await _appDatabase.database;
     final deleteQueue =
         <({String scope, String syncId, Map<String, Object?> payload})>[];
 
-    await db.transaction<void>((txn) async {
+    await _runWithDatabaseRetry(() async {
+      final db = await _appDatabase.database;
+      await db.transaction<void>((txn) async {
       final paymentRows = await txn.query(
         DatabaseSchema.paymentsTable,
         where: 'id = ?',
@@ -290,9 +308,6 @@ class PaymentsRepository {
         _toDouble(saleRow['monto_inicial_requerido']),
       );
       final salePrice = _roundCurrency(_toDouble(saleRow['precio_venta']));
-      final currentPendingBalance = _roundCurrency(
-        _toDouble(saleRow['saldo_pendiente']),
-      );
       final financedBalance = _roundCurrency(
         _toDouble(saleRow['saldo_financiado']),
       );
@@ -381,7 +396,12 @@ class PaymentsRepository {
                       (saleDate ?? paymentDate ?? DateTime.now())
                           .toIso8601String())
                 : null,
-            'saldo_pendiente': updatedFinancedBalance,
+            'saldo_pendiente': _resolveSalePendingBalance(
+              saleStatus: newSaleStatus,
+              financedBalance: updatedFinancedBalance,
+              monthlyInterest: monthlyInterest,
+              installmentCount: installmentCount,
+            ),
             'fecha_actualizacion': updatedAt,
           },
           where: 'id = ?',
@@ -488,8 +508,9 @@ class PaymentsRepository {
           whereArgs: [installmentId],
         );
 
-        final newPendingBalance = _roundCurrency(
-          (currentPendingBalance + principalReversal).clamp(0, financedBalance),
+        final newPendingBalance = await _loadOutstandingContractBalance(
+          txn,
+          saleId,
         );
 
         await txn.update(
@@ -507,9 +528,6 @@ class PaymentsRepository {
       }
 
       if (paymentType == 'abono_capital') {
-        final newPendingBalance = _roundCurrency(
-          (currentPendingBalance + paymentAmount).clamp(0, financedBalance),
-        );
         final installmentRows = await txn.query(
           DatabaseSchema.installmentsTable,
           where: 'venta_id = ?',
@@ -517,6 +535,9 @@ class PaymentsRepository {
           orderBy: 'numero_cuota ASC',
         );
         final installments = installmentRows.map(Installment.fromMap).toList();
+        final outstandingPrincipal = _calculateOutstandingPrincipal(
+          installments,
+        );
         final lastPaidInstallmentNumber = installments
             .where((item) => item.paidAmount > 0.009 || item.status == 'pagada')
             .fold<int>(0, (current, item) {
@@ -536,9 +557,16 @@ class PaymentsRepository {
             monthlyInterest: monthlyInterest,
             installmentCount: installmentCount,
           ),
-          newPendingBalance: newPendingBalance,
+          remainingPrincipalBalance: _roundCurrency(
+            (outstandingPrincipal + paymentAmount).clamp(0, financedBalance),
+          ),
           updatedAt: updatedAt,
           shouldRecalculate: true,
+        );
+
+        final newPendingBalance = await _loadOutstandingContractBalance(
+          txn,
+          saleId,
         );
 
         await txn.update(
@@ -555,7 +583,8 @@ class PaymentsRepository {
         return;
       }
 
-      throw StateError('El tipo de pago no admite anulacion automatica.');
+        throw StateError('El tipo de pago no admite anulacion automatica.');
+      });
     });
 
     for (final item in deleteQueue) {
@@ -598,6 +627,7 @@ class PaymentsRepository {
         draft.registeredByUserId ?? (saleRow['usuario_id'] as int?);
     final monthlyInterest = _toDouble(saleRow['interes_mensual']);
     final pendingBalance = _toDouble(saleRow['saldo_pendiente']);
+    final financedBalance = _toDouble(saleRow['saldo_financiado']);
     final salePrice = _toDouble(saleRow['precio_venta']);
     final requiredInitial = _toDouble(saleRow['monto_inicial_requerido']);
     final paidInitial = _toDouble(saleRow['monto_inicial_pagado']);
@@ -674,7 +704,12 @@ class PaymentsRepository {
             'monto_inicial_pagado': updatedInitialPaid,
             'monto_inicial_pendiente': updatedInitialPending,
             'saldo_financiado': updatedFinancedBalance,
-            'saldo_pendiente': updatedFinancedBalance,
+            'saldo_pendiente': _resolveSalePendingBalance(
+              saleStatus: newStatus,
+              financedBalance: updatedFinancedBalance,
+              monthlyInterest: monthlyInterest,
+              installmentCount: installmentCount,
+            ),
             'estado': newStatus,
             'fecha_activacion': newStatus == 'activa' || newStatus == 'pagada'
                 ? timestamp
@@ -761,7 +796,7 @@ class PaymentsRepository {
     }
     if (pendingBalance <= 0) {
       throw StateError(
-        'La venta seleccionada ya no tiene saldo financiado pendiente.',
+        'La venta seleccionada ya no tiene saldo pendiente del plan.',
       );
     }
 
@@ -772,6 +807,7 @@ class PaymentsRepository {
       orderBy: 'numero_cuota ASC',
     );
     final installments = installmentRows.map(Installment.fromMap).toList();
+    final outstandingPrincipal = _calculateOutstandingPrincipal(installments);
     final actionableInstallment = _findActionableInstallment(
       installments,
       draft.paymentDate,
@@ -827,7 +863,7 @@ class PaymentsRepository {
 
     var capitalPrepayment = 0.0;
     if (remainingAmount > 0) {
-      final maxCapitalPayment = pendingBalance - totalPrincipalReduction;
+      final maxCapitalPayment = outstandingPrincipal - totalPrincipalReduction;
       if (maxCapitalPayment <= 0) {
         throw StateError('El pago excede el saldo pendiente disponible.');
       }
@@ -862,10 +898,6 @@ class PaymentsRepository {
       throw StateError('El pago excede el saldo pendiente de la venta.');
     }
 
-    final newPendingBalance = _roundCurrency(
-      (pendingBalance - totalPrincipalReduction).clamp(0, double.infinity),
-    );
-
     await _recalculateFutureInstallments(
       txn: txn,
       installments: installments,
@@ -873,9 +905,19 @@ class PaymentsRepository {
       currentInstallmentNumber: currentInstallmentNumber,
       monthlyInterest: monthlyInterest,
       fixedInstallmentAmount: fixedInstallmentAmount,
-      newPendingBalance: newPendingBalance,
+      remainingPrincipalBalance: _roundCurrency(
+        (outstandingPrincipal - totalPrincipalReduction).clamp(
+          0,
+          financedBalance,
+        ),
+      ),
       updatedAt: timestamp,
       shouldRecalculate: capitalPrepayment > 0,
+    );
+
+    final newPendingBalance = await _loadOutstandingContractBalance(
+      txn,
+      draft.saleId,
     );
 
     await txn.update(
@@ -981,7 +1023,7 @@ class PaymentsRepository {
     required int currentInstallmentNumber,
     required double monthlyInterest,
     required double fixedInstallmentAmount,
-    required double newPendingBalance,
+    required double remainingPrincipalBalance,
     required String updatedAt,
     required bool shouldRecalculate,
   }) async {
@@ -1003,7 +1045,7 @@ class PaymentsRepository {
       return;
     }
 
-    if (newPendingBalance <= 0) {
+    if (remainingPrincipalBalance <= 0) {
       for (final installment in futureInstallments) {
         await txn.update(
           DatabaseSchema.installmentsTable,
@@ -1028,7 +1070,7 @@ class PaymentsRepository {
     }
 
     final schedule = _rebuildSchedule(
-      startingPrincipal: newPendingBalance,
+      startingPrincipal: remainingPrincipalBalance,
       monthlyInterest: monthlyInterest,
       fixedInstallmentAmount: fixedInstallmentAmount,
       futureInstallments: futureInstallments,
@@ -1119,6 +1161,64 @@ class PaymentsRepository {
 
   bool _isClosedStatus(String status) {
     return status == 'pagada' || status == 'ajustada';
+  }
+
+  bool _isDatabaseClosedError(DatabaseException error) {
+    return error.toString().toLowerCase().contains('database_closed');
+  }
+
+  double _resolveSalePendingBalance({
+    required String saleStatus,
+    required double financedBalance,
+    required double monthlyInterest,
+    required int installmentCount,
+  }) {
+    if (saleStatus != 'activa' && saleStatus != 'pagada') {
+      return _roundCurrency(financedBalance);
+    }
+
+    return SaleCalculator.calculateTotalFinancingAmount(
+      financedBalance: financedBalance,
+      monthlyInterest: monthlyInterest,
+      installmentCount: installmentCount,
+    );
+  }
+
+  double _calculateOutstandingPrincipal(List<Installment> installments) {
+    return _roundCurrency(
+      installments
+          .where((item) => item.status != 'ajustada')
+          .fold<double>(0, (sum, item) {
+            return sum +
+                (item.principalAmount - item.paidPrincipalAmount).clamp(
+                  0,
+                  item.principalAmount,
+                );
+          }),
+    );
+  }
+
+  Future<double> _loadOutstandingContractBalance(
+    DatabaseExecutor txn,
+    int saleId,
+  ) async {
+    final rows = await txn.rawQuery(
+      '''
+      SELECT
+        COALESCE(SUM(MAX(monto_cuota - monto_pagado, 0)), 0) AS total_pendiente
+      FROM ${DatabaseSchema.installmentsTable}
+      WHERE venta_id = ?
+        AND deleted_at IS NULL
+        AND estado <> ?
+      ''',
+      [saleId, 'ajustada'],
+    );
+
+    if (rows.isEmpty) {
+      return 0;
+    }
+
+    return _roundCurrency(_toDouble(rows.first['total_pendiente']));
   }
 
   double _roundCurrency(double value) {

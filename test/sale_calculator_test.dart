@@ -2,32 +2,29 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sistema_solares/features/sales/domain/sale_calculator.dart';
 
 void main() {
-  test('genera una cuota fija con interes decreciente y capital creciente', () {
-    const financedBalance = 900000.0;
+  test('genera cuota fija con interes simple sobre el capital original', () {
+    const financedBalance = 450000.0;
     final schedule = SaleCalculator.buildInstallmentSchedule(
       saleId: 1,
       saleDate: DateTime(2026, 3, 31),
       financedBalance: financedBalance,
       monthlyInterest: 1,
-      installmentCount: 12,
+      installmentCount: 120,
       createdAt: DateTime(2026, 3, 31),
     );
 
-    expect(schedule, hasLength(12));
+    expect(schedule, hasLength(120));
 
     final fixedInstallmentAmount = schedule.first.totalAmount;
     for (final installment in schedule) {
       expect(installment.totalAmount, fixedInstallmentAmount);
+      expect(installment.interestAmount, 4500);
     }
 
     for (var index = 1; index < schedule.length; index++) {
       expect(
-        schedule[index].interestAmount,
-        lessThan(schedule[index - 1].interestAmount),
-      );
-      expect(
         schedule[index].principalAmount,
-        greaterThan(schedule[index - 1].principalAmount),
+        schedule[index - 1].principalAmount,
       );
       expect(
         schedule[index].openingBalance,
@@ -48,15 +45,17 @@ void main() {
       (sum, installment) => sum + installment.totalAmount,
     );
 
+    expect(fixedInstallmentAmount, 8250);
     expect(principalSum, closeTo(financedBalance, 0.0001));
-    expect(totalPayments, closeTo(financedBalance + interestSum, 0.0001));
+    expect(interestSum, closeTo(540000, 0.0001));
+    expect(totalPayments, closeTo(990000, 0.0001));
     expect(schedule.last.endingBalance, 0);
   });
 
-  test('puede recalcular con cuota fija y menos cuotas futuras', () {
-    const financedBalance = 900000.0;
+  test('puede recalcular con cuota fija simple y menos cuotas futuras', () {
+    const financedBalance = 450000.0;
     const monthlyInterest = 1.0;
-    const installmentCount = 12;
+    const installmentCount = 120;
 
     final fixedPayment = SaleCalculator.calculateEstimatedInstallmentAmount(
       financedBalance: financedBalance,
@@ -66,14 +65,14 @@ void main() {
 
     final dueDates = List<DateTime>.generate(
       installmentCount,
-      (index) => DateTime(2026, 4 + index, 30),
+      (index) => DateTime(2026, 4, 30 + index),
     );
 
     final schedule =
         SaleCalculator.buildInstallmentScheduleForDueDatesWithFixedPayment(
       saleId: 1,
       dueDates: dueDates,
-      financedBalance: 700000,
+      financedBalance: 300000,
       monthlyInterest: monthlyInterest,
       fixedPaymentAmount: fixedPayment,
       createdAt: DateTime(2026, 3, 31),
@@ -96,13 +95,36 @@ void main() {
 
       final previousInstallment = schedule[index - 1];
       expect(installment.openingBalance, previousInstallment.endingBalance);
-      expect(
-        installment.interestAmount,
-        lessThan(previousInstallment.interestAmount),
-      );
+      expect(installment.interestAmount, previousInstallment.interestAmount);
     }
 
     expect(schedule.last.endingBalance, 0);
+  });
+
+  test('calcula resumen contractual con interes fijo simple', () {
+    expect(
+      SaleCalculator.calculateFixedMonthlyInterestAmount(
+        financedBalance: 450000,
+        monthlyInterest: 1,
+      ),
+      4500,
+    );
+    expect(
+      SaleCalculator.calculateTotalInterestAmount(
+        financedBalance: 450000,
+        monthlyInterest: 1,
+        installmentCount: 120,
+      ),
+      540000,
+    );
+    expect(
+      SaleCalculator.calculateTotalFinancingAmount(
+        financedBalance: 450000,
+        monthlyInterest: 1,
+        installmentCount: 120,
+      ),
+      990000,
+    );
   });
 
   test('usa division simple cuando la tasa mensual es cero', () {

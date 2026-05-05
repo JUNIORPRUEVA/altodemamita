@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import '../../../../core/utils/dominican_formatters.dart';
 import '../../domain/receipt.dart';
 
 class ReceiptView extends StatelessWidget {
@@ -604,7 +605,7 @@ class ReceiptView extends StatelessWidget {
           SizedBox(
             width: 96 * scale,
             child: Text(
-              'RD\$ ${entry.amount.toStringAsFixed(2)}',
+              _money(entry.amount),
               textAlign: TextAlign.right,
               style: TextStyle(
                 fontSize: 9.2 * scale,
@@ -669,19 +670,19 @@ class ReceiptView extends StatelessWidget {
             ),
             _FieldItem(
               'Balance actual',
-              'RD\$ ${receipt.currentOutstandingBalance.toStringAsFixed(2)}',
+              _money(receipt.currentOutstandingBalance),
             ),
             _FieldItem(
-              'Saldo financiado',
-              'RD\$ ${receipt.remainingFinancedBalance.toStringAsFixed(2)}',
+              'Saldo pendiente del plan',
+              _money(receipt.remainingFinancedBalance),
             ),
             _FieldItem(
               'Inicial pendiente',
-              'RD\$ ${receipt.remainingInitialBalance.toStringAsFixed(2)}',
+              _money(receipt.remainingInitialBalance),
             ),
             _FieldItem(
               'Abonado acumulado',
-              'RD\$ ${receipt.totalPaidAccumulated.toStringAsFixed(2)}',
+              _money(receipt.totalPaidAccumulated),
             ),
             _FieldItem('Estado actual', receipt.accountStatusLabel),
           ],
@@ -962,8 +963,10 @@ class ReceiptView extends StatelessWidget {
     if (installmentNumber == null || installmentAmount == null) {
       return '-';
     }
-    return '#$installmentNumber · RD\$ ${installmentAmount.toStringAsFixed(2)}';
+    return '#$installmentNumber · ${_money(installmentAmount)}';
   }
+
+  String _money(double value) => 'RD\$ ${formatRdCurrency(value)}';
 
   Uint8List? _tryDecodeBase64(String? value) {
     if (value == null || value.trim().isEmpty) {

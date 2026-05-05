@@ -500,6 +500,33 @@ void main() {
       expect(queueRows.containsKey('sales'), isFalse);
     },
   );
+
+  test('pending_records_trigger_background_sync_when_online_test', () async {
+    apiClient = _RecordingSyncApiClient();
+    service = SyncQueueService.test(
+      appDatabase: appDatabase,
+      configRepository: configRepository,
+      apiClient: apiClient,
+      conflictService: SyncConflictService(appDatabase: appDatabase),
+      connectivityProbe: (_) async => true,
+    );
+    service.registerRepository(
+      _FakeSyncRepository('clients', pendingSyncIds: {'client-online-sync'}),
+    );
+
+    await _insertQueuedRecord(
+      appDatabase,
+      scope: 'clients',
+      syncId: 'client-online-sync',
+    );
+
+    await service.start();
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    final queueRows = await _readQueueRows(appDatabase);
+    expect(apiClient.uploadedScopes, contains('clients'));
+    expect(queueRows.containsKey('clients'), isFalse);
+  });
 }
 
 SyncSettings _buildSettings({required bool isConfigured}) {

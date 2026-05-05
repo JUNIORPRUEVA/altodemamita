@@ -107,8 +107,8 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
     'cheque',
     'tarjeta',
   ];
-  static final CurrencyTextFormatter _currencyFormatter =
-      CurrencyTextFormatter();
+  static final RdCurrencyInputFormatter _currencyFormatter =
+      RdCurrencyInputFormatter();
 
   final _formKey = GlobalKey<FormState>();
 
@@ -170,7 +170,6 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
   );
   int? get _currentUserId => context.read<AuthProvider>().currentUser?.id;
   int _durationMonths = 0;
-  final Set<int> _lotsCreatedInForm = {};
   DateTime? _initialPaymentDeadline;
   bool _isInitialDeadlineManuallyEdited = false;
 
@@ -361,6 +360,13 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
 
   double get _estimatedInstallmentAmount =>
       SaleCalculator.calculateEstimatedInstallmentAmount(
+        financedBalance: _financedBalance,
+        monthlyInterest: _monthlyInterest,
+        installmentCount: _installmentCount,
+      );
+
+  double get _totalFinancingAmount =>
+      SaleCalculator.calculateTotalFinancingAmount(
         financedBalance: _financedBalance,
         monthlyInterest: _monthlyInterest,
         installmentCount: _installmentCount,
@@ -789,7 +795,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
                   (lot) => DropdownMenuItem<int>(
                     value: lot.id,
                     child: Text(
-                      '${lot.displayCode} • ${lot.area.toStringAsFixed(1)} m² • RD\$${lot.pricePerSquareMeter.toStringAsFixed(2)}/m² • ${_formatCurrency(lot.totalPrice)}',
+                      '${lot.displayCode} • ${lot.area.toStringAsFixed(1)} m² • RD\$${formatRdCurrency(lot.pricePerSquareMeter)}/m² • ${_formatCurrency(lot.totalPrice)}',
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
@@ -819,7 +825,6 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
                 onPressed: _showAddLotDialog,
               ),
             if (selectedLot != null &&
-                _lotsCreatedInForm.contains(_selectedLotId) &&
                 _canUpdateLots)
               _buildCompactIconButton(
                 icon: Icons.edit_outlined,
@@ -993,9 +998,6 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
               if (parsed < 0) {
                 return 'Monto válido';
               }
-              if (parsed + 0.009 < _requiredInitialPayment) {
-                return 'Debe cubrir al menos el inicial mínimo';
-              }
               if (parsed - _salePrice > 0.009) {
                 return 'No puede exceder el precio total';
               }
@@ -1108,36 +1110,27 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
           runSpacing: 8,
           children: [
             _buildSummaryText(
-              'Inicial minimo',
-              _formatCurrency(_requiredInitialPayment),
-            ),
-            _buildSummaryText(
-              'Inicial real',
-              _formatCurrency(_appliedInitialPayment),
-            ),
-            _buildSummaryText(
-              'Pendiente minimo',
+              'Inicial pendiente',
               _formatCurrency(_pendingInitialPayment),
             ),
-          ],
-        ),
-        const SizedBox(height: 6),
-        Wrap(
-          spacing: 18,
-          runSpacing: 8,
-          children: [
-            _buildSummaryText('Total', _formatCurrency(_salePrice)),
-            _buildSummaryText('Financiado', _formatCurrency(_financedBalance)),
+            _buildSummaryText(
+              'Capital financiado',
+              _formatCurrency(_financedBalance),
+            ),
+            _buildSummaryText(
+              'Total del plan',
+              _formatCurrency(_totalFinancingAmount),
+            ),
             _buildSummaryText(
               'Cuota fija mensual',
               _formatCurrency(_estimatedInstallmentAmount),
             ),
-            _buildSummaryActionButton(),
             _buildSummaryText(
               'Estado',
               _formatSaleStatus(_saleLifecycleStatus),
               emphasisColor: statusColor,
             ),
+            _buildSummaryActionButton(),
           ],
         ),
       ],
@@ -1210,11 +1203,20 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
   }
 
   Widget _buildSummaryActionButton() {
-    final previewDetail = _buildPreviewSaleDetail();
+    final canPreview =
+        _selectedLot != null &&
+        _findClientById(_selectedClientId) != null &&
+        _installmentCount > 0;
     return OutlinedButton.icon(
-      onPressed: previewDetail == null
+      onPressed: !canPreview
           ? null
-          : () => openInstallmentsFullscreen(context, previewDetail),
+          : () {
+              final previewDetail = _buildPreviewSaleDetail();
+              if (previewDetail == null) {
+                return;
+              }
+              openInstallmentsFullscreen(context, previewDetail);
+            },
       icon: const Icon(Icons.visibility_outlined, size: 16),
       label: const Text('Ver'),
       style: OutlinedButton.styleFrom(
@@ -1438,7 +1440,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
       emptyMessage: 'No hay solares disponibles.',
       titleBuilder: (lot) => lot.displayCode,
       subtitleBuilder: (lot) =>
-          '${lot.area.toStringAsFixed(1)} m² • RD\$${lot.pricePerSquareMeter.toStringAsFixed(2)}/m² • ${_formatCurrency(lot.totalPrice)}',
+          '${lot.area.toStringAsFixed(1)} m² • RD\$${formatRdCurrency(lot.pricePerSquareMeter)}/m² • ${_formatCurrency(lot.totalPrice)}',
       matches: (lot, query) {
         return lot.displayCode.toLowerCase().contains(query) ||
             lot.area.toString().contains(query) ||
@@ -1468,96 +1470,99 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
     required String Function(T item) subtitleBuilder,
     required bool Function(T item, String query) matches,
     required int? Function(T item) idBuilder,
-  }) {
-    return showDialog<int>(
-      context: context,
-      builder: (dialogContext) {
-        final searchController = TextEditingController(text: controller.text);
+  }) async {
+    final searchController = TextEditingController(text: controller.text);
+    try {
+      return await showDialog<int>(
+        context: context,
+        builder: (dialogContext) {
+          return StatefulBuilder(
+            builder: (dialogContext, setDialogState) {
+              final query = searchController.text.trim().toLowerCase();
+              final filteredItems = query.isEmpty
+                  ? items
+                  : items.where((item) => matches(item, query)).toList();
 
-        return StatefulBuilder(
-          builder: (dialogContext, setDialogState) {
-            final query = searchController.text.trim().toLowerCase();
-            final filteredItems = query.isEmpty
-                ? items
-                : items.where((item) => matches(item, query)).toList();
-
-            return AlertDialog(
-              title: Text(title),
-              content: SizedBox(
-                width: 560,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: searchController,
-                      decoration: InputDecoration(
-                        hintText: 'Buscar...',
-                        prefixIcon: const Icon(Icons.search),
-                        suffixIcon: searchController.text.isEmpty
-                            ? null
-                            : IconButton(
-                                onPressed: () {
-                                  searchController.clear();
-                                  setDialogState(() {});
+              return AlertDialog(
+                title: Text(title),
+                content: SizedBox(
+                  width: 560,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextField(
+                        controller: searchController,
+                        decoration: InputDecoration(
+                          hintText: 'Buscar...',
+                          prefixIcon: const Icon(Icons.search),
+                          suffixIcon: searchController.text.isEmpty
+                              ? null
+                              : IconButton(
+                                  onPressed: () {
+                                    searchController.clear();
+                                    setDialogState(() {});
+                                  },
+                                  icon: const Icon(Icons.clear),
+                                ),
+                        ),
+                        onChanged: (_) => setDialogState(() {}),
+                      ),
+                      const SizedBox(height: 12),
+                      Flexible(
+                        child: filteredItems.isEmpty
+                            ? Center(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(20),
+                                  child: Text(
+                                    emptyMessage,
+                                    style: Theme.of(
+                                      dialogContext,
+                                    ).textTheme.bodyMedium,
+                                  ),
+                                ),
+                              )
+                            : ListView.separated(
+                                shrinkWrap: true,
+                                itemCount: filteredItems.length,
+                                separatorBuilder: (_, _) =>
+                                    const Divider(height: 1),
+                                itemBuilder: (context, index) {
+                                  final item = filteredItems[index];
+                                  return ListTile(
+                                    dense: true,
+                                    title: Text(titleBuilder(item)),
+                                    subtitle: Text(
+                                      subtitleBuilder(item),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    onTap: () {
+                                      controller.text = searchController.text;
+                                      Navigator.of(
+                                        dialogContext,
+                                      ).pop(idBuilder(item));
+                                    },
+                                  );
                                 },
-                                icon: const Icon(Icons.clear),
                               ),
                       ),
-                      onChanged: (_) => setDialogState(() {}),
-                    ),
-                    const SizedBox(height: 12),
-                    Flexible(
-                      child: filteredItems.isEmpty
-                          ? Center(
-                              child: Padding(
-                                padding: const EdgeInsets.all(20),
-                                child: Text(
-                                  emptyMessage,
-                                  style: Theme.of(
-                                    dialogContext,
-                                  ).textTheme.bodyMedium,
-                                ),
-                              ),
-                            )
-                          : ListView.separated(
-                              shrinkWrap: true,
-                              itemCount: filteredItems.length,
-                              separatorBuilder: (_, _) =>
-                                  const Divider(height: 1),
-                              itemBuilder: (context, index) {
-                                final item = filteredItems[index];
-                                return ListTile(
-                                  dense: true,
-                                  title: Text(titleBuilder(item)),
-                                  subtitle: Text(
-                                    subtitleBuilder(item),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  onTap: () {
-                                    controller.text = searchController.text;
-                                    Navigator.of(
-                                      dialogContext,
-                                    ).pop(idBuilder(item));
-                                  },
-                                );
-                              },
-                            ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('Cerrar'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    child: const Text('Cerrar'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      searchController.dispose();
+    }
   }
 
   List<Widget> _withActionSpacing(List<Widget> actions) {
@@ -1572,12 +1577,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
   }
 
   String _formatCurrency(double value) {
-    final parts = value.toStringAsFixed(2).split('.');
-    final whole = parts.first.replaceAllMapped(
-      RegExp(r'\B(?=(\d{3})+(?!\d))'),
-      (match) => ',',
-    );
-    return 'RD\$$whole.${parts.last}';
+    return 'RD\$${formatRdCurrency(value)}';
   }
 
   String _formatPendingFields(List<String> fields) {
@@ -1755,9 +1755,6 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
       setState(() {
         _availableLots = updatedLots;
         _selectedLotId = createdLot.id;
-        if (createdLot.id != null) {
-          _lotsCreatedInForm.add(createdLot.id!);
-        }
         _syncLotPriceFromSelection();
       });
 
@@ -2136,8 +2133,12 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
   }
 
   double _parseDouble(String? value, double fallback) {
-    final parsed = DecimalNumberParser.tryParse(value);
-    if (parsed == null) {
+    if (value == null || value.trim().isEmpty) {
+      return fallback;
+    }
+
+    final parsed = parseRdCurrency(value);
+    if (!parsed.isFinite) {
       return fallback;
     }
 
@@ -2145,7 +2146,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
   }
 
   String _formatCurrencyInput(double value) {
-    return _currencyFormatter.formatValue(value);
+    return formatRdCurrency(value);
   }
 
   int _parseInt(String? value, int fallback) {
@@ -2202,12 +2203,23 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
     try {
       await widget.clientRepository.save(editedClient);
       final updatedClients = await widget.clientRepository.fetchAll();
+      final selectedClient = updatedClients
+          .where((client) => client.id == editedClient.id)
+          .firstOrNull;
+
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
         _clients = updatedClients;
-        // Mantener la selección
-        _selectedClientId = editedClient.id;
+        _selectedClientId = selectedClient?.id;
+        _clientSearchController.text = selectedClient?.fullName ?? '';
       });
+
+      if (widget.onClientCreated != null) {
+        await widget.onClientCreated!();
+      }
 
       if (!mounted) {
         return;
@@ -2246,12 +2258,23 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
     try {
       await widget.sellerRepository.update(editedSeller);
       final updatedSellers = await widget.sellerRepository.getAll();
+      final selectedSeller = updatedSellers
+          .where((seller) => seller.id == editedSeller.id)
+          .firstOrNull;
+
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
         _sellers = updatedSellers;
-        // Mantener la selección
-        _selectedSellerId = editedSeller.id;
+        _selectedSellerId = selectedSeller?.id;
+        _sellerSearchController.text = selectedSeller?.name ?? '';
       });
+
+      if (widget.onSellerCreated != null) {
+        await widget.onSellerCreated!();
+      }
 
       if (!mounted) {
         return;
@@ -2359,7 +2382,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
                                           style: const TextStyle(fontSize: 13),
                                         ),
                                         subtitle: Text(
-                                          'RD\$${lot.pricePerSquareMeter.toStringAsFixed(2)}/m² • Total RD\$${lot.totalPrice.toStringAsFixed(2)}',
+                                          'RD\$${formatRdCurrency(lot.pricePerSquareMeter)}/m² • Total RD\$${formatRdCurrency(lot.totalPrice)}',
                                           style: TextStyle(
                                             color: Theme.of(
                                               dialogContext,
@@ -2435,11 +2458,26 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
     try {
       await widget.lotRepository.save(editedLot.copyWith(status: 'disponible'));
       final updatedLots = await widget.lotRepository.fetchAvailable();
+      final selectedLotId = _selectedLotId;
+      final selectedLotExists =
+          selectedLotId != null && updatedLots.any((lot) => lot.id == selectedLotId);
+
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
         _availableLots = updatedLots;
+        if (!selectedLotExists) {
+          _selectedLotId = null;
+          _additionalLotIds.clear();
+        }
         _syncLotPriceFromSelection();
       });
+
+      if (widget.onLotCreated != null) {
+        await widget.onLotCreated!();
+      }
 
       if (!mounted) {
         return;
@@ -2493,11 +2531,11 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
               ),
               _buildDetailRow(
                 'Precio por metro',
-                'RD\$${lot.pricePerSquareMeter.toStringAsFixed(2)} /m²',
+                'RD\$${formatRdCurrency(lot.pricePerSquareMeter)} /m²',
               ),
               _buildDetailRow(
                 'Precio total',
-                'RD\$${lot.totalPrice.toStringAsFixed(2)}',
+                'RD\$${formatRdCurrency(lot.totalPrice)}',
               ),
               _buildDetailRow('Estado', lot.status),
             ],

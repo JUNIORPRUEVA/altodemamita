@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/utils/dominican_formatters.dart';
 import '../../installments/domain/installment.dart';
 import '../domain/payment_draft.dart';
 import '../domain/payment_sale_option.dart';
@@ -49,6 +50,8 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
   ];
 
   final _formKey = GlobalKey<FormState>();
+  static final RdCurrencyInputFormatter _amountFormatter =
+      RdCurrencyInputFormatter();
   late final TextEditingController _amountController;
   late final TextEditingController _yearToPayController;
   late String _selectedPaymentMethod;
@@ -90,6 +93,11 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
     final capitalApplied = isFinancingActive
         ? (amount - installmentApplied).clamp(0.0, double.infinity)
         : 0.0;
+    final currentPendingAmount = isFinancingActive
+      ? widget.sale.pendingBalance
+      : widget.sale.pendingInitialPayment;
+    final projectedPendingAmount =
+      (currentPendingAmount - amount).clamp(0.0, double.infinity);
 
     return AlertDialog(
       icon: const Icon(Icons.payments_outlined),
@@ -114,8 +122,8 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
                 const SizedBox(height: 8),
                 Text(
                   isFinancingActive
-                      ? 'Saldo financiado pendiente: ${widget.sale.pendingBalance.toStringAsFixed(2)}'
-                      : 'Inicial pendiente: ${widget.sale.pendingInitialPayment.toStringAsFixed(2)} de ${widget.sale.requiredInitialPayment.toStringAsFixed(2)}',
+                      ? 'Saldo pendiente del plan: ${_money(widget.sale.pendingBalance)}'
+                      : 'Inicial pendiente: ${_money(widget.sale.pendingInitialPayment)} de ${_money(widget.sale.requiredInitialPayment)}',
                 ),
                 const SizedBox(height: 8),
                 Text(
@@ -123,7 +131,7 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
                       ? 'Este pago se registrará como apartado o abono a inicial. Las cuotas no operan hasta completar el inicial.'
                       : actionableInstallment == null
                       ? 'No hay cuota vencida o exigible hoy. El pago se aplicara directo a capital.'
-                      : 'Cuota exigible: #${actionableInstallment.installmentNumber} por ${actionableInstallment.remainingAmount.toStringAsFixed(2)}',
+                          : 'Cuota exigible: #${actionableInstallment.installmentNumber} por ${_money(actionableInstallment.remainingAmount)}',
                 ),
                 const SizedBox(height: 16),
                 TextFormField(
@@ -135,6 +143,7 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
+                  inputFormatters: [_amountFormatter],
                   validator: (value) {
                     final parsed = _parseDouble(value);
                     if (parsed == null || parsed <= 0) {
@@ -258,24 +267,43 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
                             ? 'Cuota #${actionableInstallment.installmentNumber} + abono a capital'
                             : 'Cuota #${actionableInstallment.installmentNumber}',
                       ),
+                      _summaryRow('Pago a registrar', _money(amount)),
                       _summaryRow(
-                        'Monto total',
-                        'RD\$ ${amount.toStringAsFixed(2)}',
+                        isFinancingActive
+                            ? 'Saldo actual del plan'
+                            : 'Inicial pendiente actual',
+                        _money(currentPendingAmount),
+                      ),
+                      _summaryRow(
+                        isFinancingActive
+                            ? 'Saldo luego del pago'
+                            : 'Inicial luego del pago',
+                        _money(projectedPendingAmount),
+                        highlight: true,
                       ),
                       if (installmentApplied > 0)
                         _summaryRow(
-                          'Aplicado a cuota',
-                          'RD\$ ${installmentApplied.toStringAsFixed(2)}',
-                        ),
-                      if (!isFinancingActive)
-                        _summaryRow(
-                          'Aplicado a inicial',
-                          'RD\$ ${amount.toStringAsFixed(2)}',
+                          'Cubre de la cuota',
+                          'Cuota #${actionableInstallment!.installmentNumber} -> ${_money(installmentApplied)}',
                         ),
                       if (capitalApplied > 0)
                         _summaryRow(
-                          'Aplicado a capital',
-                          'RD\$ ${capitalApplied.toStringAsFixed(2)}',
+                          'Resta adicional al capital',
+                          _money(capitalApplied),
+                        ),
+                      if (!isFinancingActive)
+                        _summaryRow(
+                          'Aplicación',
+                          amount <= 0
+                              ? 'Se aplicará al inicial cuando confirmes el pago.'
+                              : 'Reduce el inicial pendiente en ${_money(amount)}.',
+                        ),
+                      if (isFinancingActive && actionableInstallment == null)
+                        _summaryRow(
+                          'Aplicación',
+                          amount <= 0
+                              ? 'Se aplicará directo al capital cuando confirmes el pago.'
+                              : 'Reduce el saldo del plan en ${_money(amount)} como abono a capital.',
                         ),
                     ],
                   ),
@@ -344,8 +372,10 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
       return null;
     }
 
-    return double.tryParse(value.replaceAll(',', '.').trim());
+    return parseRdCurrency(value);
   }
+
+  String _money(double value) => 'RD\$ ${formatRdCurrency(value)}';
 
   String _formatDate(DateTime value) {
     final month = value.month.toString().padLeft(2, '0');
@@ -370,7 +400,7 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
     return 'Abono a inicial';
   }
 
-  Widget _summaryRow(String label, String value) {
+  Widget _summaryRow(String label, String value, {bool highlight = false}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Row(
@@ -380,10 +410,21 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
             width: 130,
             child: Text(
               '$label:',
-              style: const TextStyle(fontWeight: FontWeight.w700),
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: highlight ? Theme.of(context).colorScheme.primary : null,
+              ),
             ),
           ),
-          Expanded(child: Text(value)),
+          Expanded(
+            child: Text(
+              value,
+              style: TextStyle(
+                fontWeight: highlight ? FontWeight.w700 : FontWeight.w400,
+                color: highlight ? Theme.of(context).colorScheme.primary : null,
+              ),
+            ),
+          ),
         ],
       ),
     );

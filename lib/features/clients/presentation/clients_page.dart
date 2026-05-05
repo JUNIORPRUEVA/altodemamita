@@ -1,11 +1,14 @@
-﻿import 'dart:convert';
+﻿import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
-import 'package:flutter/foundation.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../features/auth/domain/permission_model.dart';
 import '../../../features/auth/presentation/auth_provider.dart';
+import '../../../shared/sync/row_sync_badge_policy.dart';
 import '../../../shared/widgets/base_layout.dart';
 import '../../../shared/widgets/recovery_experience.dart';
 import '../data/client_repository.dart';
@@ -25,20 +28,73 @@ class ClientsPage extends StatefulWidget {
 class _ClientsPageState extends State<ClientsPage> {
   late final ClientsController _controller;
   late final TextEditingController _searchController;
+  bool _hasInternet = true;
+  int _internetProbeFailures = 0;
+  StreamSubscription<List<ConnectivityResult>>? _internetSubscription;
 
   @override
   void initState() {
     super.initState();
     _controller = ClientsController(repository: widget.repository);
     _searchController = TextEditingController();
+    _internetSubscription = Connectivity().onConnectivityChanged.listen((_) {
+      unawaited(_refreshInternetStatus());
+    });
+    unawaited(_refreshInternetStatus());
     _controller.load();
   }
 
   @override
   void dispose() {
+    unawaited(_internetSubscription?.cancel());
+    _internetSubscription = null;
     _controller.dispose();
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _refreshInternetStatus() async {
+    try {
+      final connectivityResults = await Connectivity().checkConnectivity();
+      final hasNetworkInterface = connectivityResults.any(
+        (result) => result != ConnectivityResult.none,
+      );
+      if (!hasNetworkInterface) {
+        _internetProbeFailures = 0;
+        _setInternetStatus(false);
+        return;
+      }
+
+      final lookup = await InternetAddress.lookup(
+        'one.one.one.one',
+      ).timeout(const Duration(seconds: 2));
+      _internetProbeFailures = 0;
+      _setInternetStatus(
+        lookup.isNotEmpty && lookup.first.rawAddress.isNotEmpty,
+      );
+    } on TimeoutException {
+      _internetProbeFailures += 1;
+      if (_internetProbeFailures >= 2) {
+        _setInternetStatus(false);
+      }
+    } on SocketException {
+      _internetProbeFailures += 1;
+      if (_internetProbeFailures >= 2) {
+        _setInternetStatus(false);
+      }
+    } catch (_) {
+      _internetProbeFailures = 0;
+      _setInternetStatus(true);
+    }
+  }
+
+  void _setInternetStatus(bool value) {
+    if (!mounted || _hasInternet == value) {
+      return;
+    }
+    setState(() {
+      _hasInternet = value;
+    });
   }
 
   @override
@@ -256,6 +312,15 @@ class _ClientsPageState extends State<ClientsPage> {
             client.documentId,
             if (client.phone != null && client.phone!.isNotEmpty) client.phone!,
           ].where((s) => s.isNotEmpty).join('  ·  ');
+          final showSyncBadge = shouldShowRowSyncBadge(
+            hasInternet: _hasInternet,
+            syncStatus: client.syncStatus.storageValue,
+            isFailed: client.syncStatus.isFailed,
+          );
+          final syncBadgeLabel = rowSyncBadgeLabel(
+            syncStatus: client.syncStatus.storageValue,
+            isFailed: client.syncStatus.isFailed,
+          );
 
           return InkWell(
             onTap: canUpdate ? () => _editClient(client) : null,
@@ -301,15 +366,10 @@ class _ClientsPageState extends State<ClientsPage> {
                               ),
                               overflow: TextOverflow.ellipsis,
                             ),
-                          if (client.syncStatus.isConflict)
-                            _SyncBadge(
-                              label: 'Conflicto de sync',
-                              color: const Color(0xFFD32F2F),
-                            )
-                          else if (client.syncStatus.isPending)
-                            _SyncBadge(
-                              label: 'Pendiente de sync',
-                              color: const Color(0xFFF9A825),
+                          if (showSyncBadge && syncBadgeLabel != null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 3),
+                              child: RowSyncListBadge(label: syncBadgeLabel),
                             ),
                         ],
                       ),
@@ -453,33 +513,5 @@ class _ClientsPageState extends State<ClientsPage> {
   void _clearSearch() {
     _searchController.clear();
     _controller.load(query: '');
-  }
-}
-
-class _SyncBadge extends StatelessWidget {
-  const _SyncBadge({required this.label, required this.color});
-
-  final String label;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(top: 3),
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: color.withValues(alpha: 0.35), width: 0.8),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w600,
-          color: color,
-        ),
-      ),
-    );
   }
 }

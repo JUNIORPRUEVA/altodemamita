@@ -1,6 +1,54 @@
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
+final NumberFormat _rdCurrencyFormat = NumberFormat('#,##0.00', 'en_US');
+
+String formatRdCurrency(num value) {
+  final safeValue = value.toDouble();
+  if (!safeValue.isFinite) {
+    return _rdCurrencyFormat.format(0);
+  }
+  return _rdCurrencyFormat.format(safeValue);
+}
+
+double parseRdCurrency(String value) {
+  final trimmed = value.trim();
+  if (trimmed.isEmpty || !RegExp(r'\d').hasMatch(trimmed)) {
+    return 0;
+  }
+
+  final sanitized = trimmed.replaceAll(RegExp(r'[^0-9,.-]'), '');
+  if (sanitized.isEmpty || sanitized == '-' || sanitized == '.' || sanitized == ',') {
+    return 0;
+  }
+
+  String normalized = sanitized;
+  final commaCount = ','.allMatches(normalized).length;
+  final dotCount = '.'.allMatches(normalized).length;
+
+  if (commaCount > 0 && dotCount == 0) {
+    final lastComma = normalized.lastIndexOf(',');
+    final decimalDigits = normalized.length - lastComma - 1;
+    if (decimalDigits > 0 && decimalDigits <= 2) {
+      normalized = normalized.replaceFirst(',', '.');
+      normalized = normalized.replaceAll(',', '');
+    } else {
+      normalized = normalized.replaceAll(',', '');
+    }
+  } else {
+    normalized = normalized.replaceAll(',', '');
+  }
+
+  if ('.'.allMatches(normalized).length > 1) {
+    final lastDot = normalized.lastIndexOf('.');
+    final integerPart = normalized.substring(0, lastDot).replaceAll('.', '');
+    final decimalPart = normalized.substring(lastDot + 1);
+    normalized = '$integerPart.$decimalPart';
+  }
+
+  return double.tryParse(normalized) ?? 0;
+}
+
 class DecimalNumberParser {
   static double? tryParse(String? value) {
     if (value == null) {
@@ -12,20 +60,16 @@ class DecimalNumberParser {
       return null;
     }
 
-    final normalized = trimmed
-        .replaceAll(RegExp(r'[^0-9,.-]'), '')
-        .replaceAll(',', '');
-
-    if (normalized.isEmpty || normalized == '-' || normalized == '.') {
+    if (!RegExp(r'\d').hasMatch(trimmed)) {
       return null;
     }
 
-    return double.tryParse(normalized);
+    return parseRdCurrency(trimmed);
   }
 }
 
-class CurrencyTextFormatter extends TextInputFormatter {
-  CurrencyTextFormatter({this.decimalDigits = 2})
+class RdCurrencyInputFormatter extends TextInputFormatter {
+  RdCurrencyInputFormatter({this.decimalDigits = 2})
     : _numberFormat = NumberFormat(
         decimalDigits <= 0 ? '#,##0' : '#,##0.${'0' * decimalDigits}',
         'en_US',
@@ -35,6 +79,9 @@ class CurrencyTextFormatter extends TextInputFormatter {
   final NumberFormat _numberFormat;
 
   String formatValue(num value) {
+    if (decimalDigits == 2) {
+      return formatRdCurrency(value);
+    }
     return _numberFormat.format(value);
   }
 
@@ -48,13 +95,12 @@ class CurrencyTextFormatter extends TextInputFormatter {
       return const TextEditingValue(text: '');
     }
 
-    final normalized = _normalizeDecimalInput(rawText);
-    if (normalized == null) {
+    if (!RegExp(r'\d').hasMatch(rawText)) {
       return oldValue;
     }
 
-    final parsed = double.tryParse(normalized);
-    if (parsed == null) {
+    final parsed = parseRdCurrency(rawText);
+    if (!parsed.isFinite) {
       return oldValue;
     }
 
@@ -69,38 +115,6 @@ class CurrencyTextFormatter extends TextInputFormatter {
       text: formatted,
       selection: TextSelection.collapsed(offset: targetCursor),
     );
-  }
-
-  String? _normalizeDecimalInput(String value) {
-    final buffer = StringBuffer();
-    bool hasDecimalSeparator = false;
-    bool hasMinus = false;
-
-    for (final rune in value.runes) {
-      final character = String.fromCharCode(rune);
-      if (RegExp(r'\d').hasMatch(character)) {
-        buffer.write(character);
-        continue;
-      }
-
-      if (character == '.' && !hasDecimalSeparator) {
-        hasDecimalSeparator = true;
-        buffer.write(character);
-        continue;
-      }
-
-      if (character == '-' && !hasMinus && buffer.isEmpty) {
-        hasMinus = true;
-        buffer.write(character);
-      }
-    }
-
-    final normalized = buffer.toString();
-    if (normalized.isEmpty || normalized == '-' || normalized == '.') {
-      return '0';
-    }
-
-    return normalized;
   }
 
   int _mapCursorPosition({
@@ -137,6 +151,11 @@ class CurrencyTextFormatter extends TextInputFormatter {
   bool _isMeaningfulCharacter(String character) {
     return RegExp(r'[0-9.]').hasMatch(character);
   }
+}
+
+class CurrencyTextFormatter extends RdCurrencyInputFormatter {
+  CurrencyTextFormatter({int decimalDigits = 2})
+    : super(decimalDigits: decimalDigits);
 }
 
 /// Formatter para cédula dominicana (XXX-XXXXXXX-X)

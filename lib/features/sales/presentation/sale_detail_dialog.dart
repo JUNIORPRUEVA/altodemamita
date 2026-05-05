@@ -3,20 +3,73 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-import '../../installments/domain/installment.dart';
 import '../../payments/data/payments_repository.dart';
-import '../../payments/presentation/payments_page.dart';
+import '../../payments/presentation/payment_history_fullscreen.dart';
 import '../domain/sale_calculator.dart';
 import '../domain/sale_detail.dart';
 import 'documents/sale_documents_dialog.dart';
-
-enum _SaleDetailHeaderAction { export, print }
+import 'widgets/installments_flat_table.dart';
 
 Future<void> _printSaleDocument(BuildContext context, SaleDetail detail) async {
-  final selectedType = await SaleDocumentsDialog.chooseType(
-    context,
-    title: '¿Que deseas imprimir?',
+  await _showPrintDocumentOptions(context, detail);
+}
+
+Future<void> _showPrintDocumentOptions(
+  BuildContext context,
+  SaleDetail detail,
+) async {
+  final selectedType = await showDialog<SaleDocumentType>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        title: const Text('Imprimir documento'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _PrintOptionRow(
+              title: 'Recibo',
+              icon: Icons.receipt_long_outlined,
+              onPrint: () => Navigator.of(
+                dialogContext,
+              ).pop(SaleDocumentType.initialReceipt),
+              onPreview: () {
+                Navigator.of(dialogContext).pop();
+                SaleDocumentsDialog.show(
+                  context,
+                  detail: detail,
+                  initialType: SaleDocumentType.initialReceipt,
+                );
+              },
+            ),
+            const SizedBox(height: 8),
+            _PrintOptionRow(
+              title: 'Tabla de amortizacion',
+              icon: Icons.table_chart_outlined,
+              onPrint: () => Navigator.of(
+                dialogContext,
+              ).pop(SaleDocumentType.amortization),
+              onPreview: () {
+                Navigator.of(dialogContext).pop();
+                SaleDocumentsDialog.show(
+                  context,
+                  detail: detail,
+                  initialType: SaleDocumentType.amortization,
+                );
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancelar'),
+          ),
+        ],
+      );
+    },
   );
+
   if (!context.mounted || selectedType == null) {
     return;
   }
@@ -64,20 +117,26 @@ class SaleDetailDialog extends StatelessWidget {
     final screenSize = MediaQuery.sizeOf(context);
     final isWindows =
         !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
+    final windowsDialogWidth = math.min(760.0, screenSize.width - 24.0);
     final dialogInsetPadding = isWindows
-        ? const EdgeInsets.all(24)
+        ? EdgeInsets.fromLTRB(
+            math.max(0, screenSize.width - windowsDialogWidth - 12),
+            12,
+            12,
+            12,
+          )
         : EdgeInsets.symmetric(
             horizontal: screenSize.width * 0.10,
             vertical: screenSize.height * 0.10,
           );
 
     final double maxDialogWidth = isWindows
-        ? math.min(1020.0, math.max(560.0, screenSize.width - 48.0))
+        ? math.max(520.0, windowsDialogWidth)
         : screenSize.width * 0.80;
     final double maxDialogHeight = isWindows
-        ? math.min(900.0, math.max(520.0, screenSize.height - 48.0))
+        ? math.max(520.0, screenSize.height - 24.0)
         : screenSize.height * 0.80;
-    return Dialog(
+    final dialog = Dialog(
       insetPadding: dialogInsetPadding,
       clipBehavior: Clip.antiAlias,
       backgroundColor: Colors.white,
@@ -92,8 +151,7 @@ class SaleDetailDialog extends StatelessWidget {
           children: [
             _DialogHeader(detail: detail),
             const Divider(height: 1),
-            Flexible(
-              fit: FlexFit.loose,
+            Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 14),
                 child: Column(
@@ -115,6 +173,12 @@ class SaleDetailDialog extends StatelessWidget {
         ),
       ),
     );
+
+    if (!isWindows) {
+      return dialog;
+    }
+
+    return Align(alignment: Alignment.centerRight, child: dialog);
   }
 }
 
@@ -129,18 +193,43 @@ Future<void> openInstallmentsFullscreen(
   );
 }
 
-Future<void> openPaymentsFullscreen(
+Future<void> openSalePaymentsHistory(
   BuildContext context, {
   required int saleId,
-}) {
-  return Navigator.of(context).push(
-    MaterialPageRoute(
-      builder: (_) => PaymentsPage(
-        paymentsRepository: PaymentsRepository(),
-        initialSaleId: saleId,
+}) async {
+  final messenger = ScaffoldMessenger.maybeOf(context);
+  final repository = PaymentsRepository();
+
+  try {
+    final paymentContext = await repository.fetchSaleContext(saleId);
+    if (!context.mounted || paymentContext == null) {
+      return;
+    }
+
+    if (paymentContext.history.isEmpty) {
+      messenger?.showSnackBar(
+        const SnackBar(
+          content: Text('Esta venta todavia no tiene pagos registrados.'),
+        ),
+      );
+      return;
+    }
+
+    await openSalePaymentHistoryFullscreen(
+      context,
+      sale: paymentContext.sale,
+      history: paymentContext.history,
+    );
+  } catch (_) {
+    if (!context.mounted) {
+      return;
+    }
+    messenger?.showSnackBar(
+      const SnackBar(
+        content: Text('No se pudo cargar el historial de pagos de la venta.'),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _DialogHeader extends StatelessWidget {
@@ -222,9 +311,10 @@ class _DialogHeader extends StatelessWidget {
           IconButton(
             tooltip: 'Imprimir',
             onPressed: () => _printSaleDocument(context, detail),
-            icon: const Icon(Icons.print_outlined, size: 20),
+            icon: const Icon(Icons.print_outlined, size: 26),
             style: IconButton.styleFrom(
               foregroundColor: const Color(0xFF6B7494),
+              iconSize: 26,
             ),
           ),
           IconButton(
@@ -233,6 +323,68 @@ class _DialogHeader extends StatelessWidget {
             style: IconButton.styleFrom(
               foregroundColor: const Color(0xFF6B7494),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PrintOptionRow extends StatelessWidget {
+  const _PrintOptionRow({
+    required this.title,
+    required this.icon,
+    required this.onPrint,
+    required this.onPreview,
+  });
+
+  final String title;
+  final IconData icon;
+  final VoidCallback onPrint;
+  final VoidCallback onPreview;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFE4EAF2)),
+        color: const Color(0xFFFCFDFE),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: const Color(0xFF49608C)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              title,
+              style: const TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF1A2235),
+              ),
+            ),
+          ),
+          FilledButton.tonal(
+            onPressed: onPrint,
+            style: FilledButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              textStyle: const TextStyle(fontSize: 11.5),
+            ),
+            child: const Text('Imprimir'),
+          ),
+          const SizedBox(width: 4),
+          TextButton(
+            onPressed: onPreview,
+            style: TextButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              minimumSize: const Size(0, 28),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+            ),
+            child: const Text('Ver PDF', style: TextStyle(fontSize: 10.5)),
           ),
         ],
       ),
@@ -458,73 +610,88 @@ class _InstallmentsSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final saleId = detail.sale.id;
+    final hasAppliedPayments =
+        detail.sale.paidInitialPayment > 0.009 ||
+        detail.installments.any((item) => item.paidAmount > 0.009);
     final emptyMessage = detail.sale.isFinancingActive
         ? 'Esta venta no tiene cuotas generadas.'
         : 'Las cuotas se generarán cuando el inicial quede completado.';
     final hasInstallments = detail.installments.isNotEmpty;
-    final viewportHeight = hasInstallments ? 160.0 : 120.0;
-
-    final actionButtons = Positioned(
-      right: 14,
-      bottom: 22,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          if (hasInstallments)
-            _CompactFloatingActionButton.extended(
-              heroTag: 'sale-installments-fullscreen',
-              onPressed: () => openInstallmentsFullscreen(context, detail),
-              icon: Icons.open_in_full,
-              label: 'Ver cuotas',
-            ),
-          if (hasInstallments) const SizedBox(height: 10),
-          _CompactFloatingActionButton.extended(
-            heroTag: 'sale-payments-fullscreen',
-            onPressed: saleId == null
-                ? null
-                : () => openPaymentsFullscreen(
-                      context,
-                      saleId: saleId!,
-                    ),
-            icon: Icons.payments_outlined,
-            label: 'Ver pagos',
-          ),
-        ],
-      ),
-    );
+    final totalCount = detail.installments.length;
+    final paidCount = detail.installments
+        .where((item) => item.remainingAmount <= 0.009)
+        .length;
+    final pendingCount = totalCount - paidCount;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SectionTitle(title: 'Cuotas amortizadas'),
+        const _SectionTitle(title: 'Cuotas del financiamiento'),
         const SizedBox(height: 10),
-        SizedBox(
-          height: viewportHeight,
-          child: Stack(
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFCFDFE),
+            border: Border.all(color: const Color(0xFFE4EAF2)),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Positioned.fill(
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFCFDFE),
-                    border: Border.all(color: const Color(0xFFE4EAF2)),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  alignment: Alignment.center,
-                  padding: const EdgeInsets.symmetric(horizontal: 18),
-                  child: Text(
-                    hasInstallments
-                        ? 'Usa “Ver cuotas” o “Ver pagos” para ver el detalle.'
-                        : emptyMessage,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: Color(0xFF8893AA),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      hasInstallments
+                          ? 'Resumen rápido de cuotas'
+                          : 'Sin cuotas activas',
+                      style: const TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF1A2235),
+                      ),
                     ),
-                    textAlign: TextAlign.center,
-                  ),
+                    const SizedBox(height: 4),
+                    Text(
+                      hasInstallments
+                          ? '$totalCount cuotas · $paidCount pagadas · $pendingCount pendientes'
+                          : emptyMessage,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF6B7494),
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              actionButtons,
+              const SizedBox(width: 12),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  if (hasInstallments)
+                    _CompactFloatingActionButton.extended(
+                      heroTag: 'sale-installments-fullscreen',
+                      onPressed: () =>
+                          openInstallmentsFullscreen(context, detail),
+                      icon: Icons.open_in_full,
+                      label: 'Ver cuotas',
+                    ),
+                  if (hasInstallments && saleId != null && hasAppliedPayments)
+                    const SizedBox(height: 8),
+                  if (hasInstallments && saleId != null && hasAppliedPayments)
+                    _CompactFloatingActionButton.extended(
+                      heroTag: 'sale-payments-fullscreen',
+                      onPressed: () =>
+                          openSalePaymentsHistory(context, saleId: saleId),
+                      icon: Icons.list_alt_outlined,
+                      label: 'Ver lista de pago',
+                    ),
+                ],
+              ),
             ],
           ),
         ),
@@ -597,30 +764,9 @@ class _InstallmentsTableViewportState
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFFFCFDFE),
-        border: Border.all(color: const Color(0xFFE4EAF2)),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(14),
-        child: Scrollbar(
-          controller: _verticalController,
-          thumbVisibility: true,
-          child: ListView.separated(
-            controller: _verticalController,
-            padding: EdgeInsets.zero,
-            itemCount: widget.detail.installments.length,
-            separatorBuilder: (_, _) => const Divider(height: 1),
-            itemBuilder: (context, index) {
-              return _InstallmentCompactLine(
-                installment: widget.detail.installments[index],
-              );
-            },
-          ),
-        ),
-      ),
+    return InstallmentsFlatTable(
+      installments: widget.detail.installments,
+      scrollController: _verticalController,
     );
   }
 }
@@ -692,165 +838,6 @@ class _InstallmentsFullscreenPage extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _InstallmentCompactLine extends StatelessWidget {
-  const _InstallmentCompactLine({required this.installment});
-
-  final Installment installment;
-
-  @override
-  Widget build(BuildContext context) {
-    final statusColor = _installmentStatusColor(installment.status);
-
-    return Container(
-      color: Colors.white,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 80,
-            child: Text(
-              'Cuota ${installment.installmentNumber}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w800,
-                color: Color(0xFF1A2235),
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          SizedBox(
-            width: 96,
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: statusColor.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  installment.status,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                    color: statusColor,
-                  ),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          SizedBox(
-            width: 92,
-            child: Text(
-              _formatDate(installment.dueDate),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 11.5,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF54627B),
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  _InlineMetricChip(
-                    label: 'Fija',
-                    value: _money(installment.totalAmount),
-                    emphasize: true,
-                  ),
-                  const SizedBox(width: 8),
-                  _InlineMetricChip(
-                    label: 'Pend',
-                    value: _money(installment.remainingAmount),
-                  ),
-                  const SizedBox(width: 8),
-                  _InlineMetricChip(
-                    label: 'Pag',
-                    value: _money(installment.paidAmount),
-                  ),
-                  const SizedBox(width: 8),
-                  _InlineMetricChip(
-                    label: 'Cap',
-                    value: _money(installment.principalAmount),
-                  ),
-                  const SizedBox(width: 8),
-                  _InlineMetricChip(
-                    label: 'Int',
-                    value: _money(installment.interestAmount),
-                  ),
-                  const SizedBox(width: 8),
-                  _InlineMetricChip(
-                    label: 'Ini',
-                    value: _money(installment.openingBalance),
-                  ),
-                  const SizedBox(width: 8),
-                  _InlineMetricChip(
-                    label: 'Fin',
-                    value: _money(installment.endingBalance),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _InlineMetricChip extends StatelessWidget {
-  const _InlineMetricChip({
-    required this.label,
-    required this.value,
-    this.emphasize = false,
-  });
-
-  final String label;
-  final String value;
-  final bool emphasize;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 108,
-      child: Text.rich(
-        TextSpan(
-          children: [
-            TextSpan(
-              text: '$label: ',
-              style: const TextStyle(
-                fontSize: 10.5,
-                fontWeight: FontWeight.w800,
-                color: Color(0xFF6B7494),
-              ),
-            ),
-            TextSpan(
-              text: value,
-              style: TextStyle(
-                fontSize: emphasize ? 11.5 : 11,
-                fontWeight: emphasize ? FontWeight.w900 : FontWeight.w800,
-                color: const Color(0xFF1A2235),
-              ),
-            ),
-          ],
-        ),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
       ),
     );
   }
@@ -961,88 +948,183 @@ class _BottomBar extends StatelessWidget {
       0,
       (sum, installment) => sum + installment.totalAmount,
     );
+    final totalPaid = detail.installments.fold<double>(
+      0,
+      (sum, installment) => sum + installment.paidAmount,
+    );
+    final totalPending = detail.installments.fold<double>(
+      0,
+      (sum, installment) => sum + installment.remainingAmount,
+    );
+    final paidCount = detail.installments
+        .where((item) => item.remainingAmount <= 0.009)
+        .length;
+    final pendingCount = detail.installments.length - paidCount;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 14),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final chipWidth = (constraints.maxWidth - 12) / 2;
-
-          return Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            children: [
-              _BottomTotalChip(
-                width: chipWidth,
-                label: 'Capital total',
-                value: _money(totalPrincipal),
-                color: const Color(0xFF1565C0),
-              ),
-              _BottomTotalChip(
-                width: chipWidth,
-                label: 'Interés total',
-                value: _money(totalInterest),
-                color: const Color(0xFFE67E00),
-              ),
-              _BottomTotalChip(
-                width: chipWidth,
-                label: 'Total del plan',
-                value: _money(totalPlan),
-                color: const Color(0xFF2E7D32),
-              ),
-            ],
-          );
-        },
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 11),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF9FBFE),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFEAF0F7)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 24,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEAF0FF),
+                    borderRadius: BorderRadius.circular(7),
+                  ),
+                  child: const Icon(
+                    Icons.summarize_outlined,
+                    size: 14,
+                    color: Color(0xFF1F4B99),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  'Resumen del financiamiento',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF1A2235),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '${detail.installments.length} cuotas · $paidCount pagadas · $pendingCount pendientes',
+                  style: const TextStyle(
+                    fontSize: 10.5,
+                    color: Color(0xFF8893AA),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            // Fila 1: Capital total · Interés total · Total del plan
+            Row(
+              children: [
+                Expanded(
+                  child: _FlatMetric(
+                    label: 'Capital total',
+                    value: _money(totalPrincipal),
+                    color: const Color(0xFF1565C0),
+                  ),
+                ),
+                const _MetricDivider(),
+                Expanded(
+                  child: _FlatMetric(
+                    label: 'Interés total',
+                    value: _money(totalInterest),
+                    color: const Color(0xFFE67E00),
+                  ),
+                ),
+                const _MetricDivider(),
+                Expanded(
+                  child: _FlatMetric(
+                    label: 'Total del plan',
+                    value: _money(totalPlan),
+                    color: const Color(0xFF2E7D32),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            const Divider(height: 1, color: Color(0xFFEAF0F7)),
+            const SizedBox(height: 6),
+            // Fila 2: Total pagado · Saldo pendiente
+            Row(
+              children: [
+                Expanded(
+                  child: _FlatMetric(
+                    label: 'Total pagado',
+                    value: _money(totalPaid),
+                    color: const Color(0xFF00897B),
+                  ),
+                ),
+                const _MetricDivider(),
+                Expanded(
+                  child: _FlatMetric(
+                    label: 'Saldo pendiente',
+                    value: _money(totalPending),
+                    color: const Color(0xFFAD1457),
+                  ),
+                ),
+                // Spacer para mantener alineación con la fila de 3
+                const _MetricDivider(),
+                const Expanded(child: SizedBox.shrink()),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-class _BottomTotalChip extends StatelessWidget {
-  const _BottomTotalChip({
+class _FlatMetric extends StatelessWidget {
+  const _FlatMetric({
     required this.label,
     required this.value,
     required this.color,
-    this.width,
   });
 
   final String label;
   final String value;
   final Color color;
-  final double? width;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: width ?? 220,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.16)),
-      ),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Text(
             label,
-            style: const TextStyle(
-              fontSize: 11,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 9.5,
               fontWeight: FontWeight.w700,
-              color: Color(0xFF6B7494),
+              color: color.withValues(alpha: 0.75),
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 1),
           Text(
             value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              fontSize: 16,
+              fontSize: 13,
               fontWeight: FontWeight.w800,
               color: color,
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _MetricDivider extends StatelessWidget {
+  const _MetricDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 1,
+      height: 32,
+      color: const Color(0xFFE4EAF2),
     );
   }
 }
@@ -1183,19 +1265,6 @@ Color _saleDetailStatusColor(String status) {
       return const Color(0xFFC62828);
     case 'completada':
       return const Color(0xFF1565C0);
-    default:
-      return const Color(0xFF455A64);
-  }
-}
-
-Color _installmentStatusColor(String status) {
-  switch (status.toLowerCase()) {
-    case 'pagada':
-      return const Color(0xFF2E7D32);
-    case 'vencida':
-      return const Color(0xFFC62828);
-    case 'pendiente':
-      return const Color(0xFFE67E00);
     default:
       return const Color(0xFF455A64);
   }

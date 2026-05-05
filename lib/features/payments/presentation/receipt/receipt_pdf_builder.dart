@@ -1,11 +1,27 @@
-import 'dart:convert';
+﻿import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
+import '../../../../core/utils/dominican_formatters.dart';
 import '../../domain/receipt.dart';
 
+// ─── Shared brand tokens ───────────────────────────────────────────────────
+final _kAccent      = PdfColor.fromHex('#1B3F7A');
+final _kAccentDark  = PdfColor.fromHex('#163168');
+final _kAccentLight = PdfColor.fromHex('#E8EFFA');
+final _kInk         = PdfColor.fromHex('#0F1E2E');
+final _kMuted       = PdfColor.fromHex('#5C6E82');
+final _kSurface     = PdfColor.fromHex('#F5F8FC');
+final _kBorder      = PdfColor.fromHex('#CDD8E6');
+final _kSoftBorder  = PdfColor.fromHex('#E2EAF4');
+final _kSuccess     = PdfColor.fromHex('#0A5C3E');
+final _kSubtle      = PdfColor.fromHex('#B8CCEC');
+final _kGreenTint   = PdfColor.fromHex('#7EE8B8');
+
+// ─── ReceiptPdfBuilder ─────────────────────────────────────────────────────
 class ReceiptPdfBuilder {
   static final Future<pw.Font> _baseFontFuture = _loadFont(
     'assets/fonts/NotoSans-Regular.ttf',
@@ -14,436 +30,233 @@ class ReceiptPdfBuilder {
     'assets/fonts/NotoSans-Bold.ttf',
   );
 
-  static final PdfColor _borderColor = PdfColor.fromHex('#D8E0E8');
-  static final PdfColor _softBorderColor = PdfColor.fromHex('#E7EDF4');
-  static final PdfColor _surfaceTint = PdfColor.fromHex('#F4F7FB');
-  static final PdfColor _accentColor = PdfColor.fromHex('#234A84');
-  static final PdfColor _inkColor = PdfColor.fromHex('#172433');
-  static final PdfColor _mutedColor = PdfColor.fromHex('#667788');
-  static final PdfColor _successColor = PdfColor.fromHex('#0E6B4C');
-
+  /// Builds a two-page document: landscape (portrait fallback) on one PDF.
   static Future<Uint8List> build(Receipt receipt) async {
-    final baseFont = await _baseFontFuture;
-    final boldFont = await _boldFontFuture;
-    final logoImage = _decodeLogo(receipt.company.logoBytesBase64);
+    final base = await _baseFontFuture;
+    final bold = await _boldFontFuture;
+    final logo = _decodeLogo(receipt.company.logoBytesBase64);
 
-    final document = pw.Document(
-      theme: pw.ThemeData.withFont(base: baseFont, bold: boldFont),
+    final doc = pw.Document(
+      theme: pw.ThemeData.withFont(base: base, bold: bold),
     );
 
-    document.addPage(
+    doc.addPage(
       pw.Page(
         pageFormat: PdfPageFormat.letter.landscape,
-        margin: const pw.EdgeInsets.fromLTRB(20, 16, 20, 16),
-        build: (_) {
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              _buildHeader(receipt, logoImage),
-              pw.SizedBox(height: 10),
-              _divider(),
-              pw.SizedBox(height: 10),
-              _sectionTitle('Informacion principal'),
-              pw.SizedBox(height: 6),
-              _documentGrid([
-                _PdfField('Cliente', _textOrDash(receipt.sale.clientName)),
-                _PdfField('Cedula', _textOrDash(receipt.sale.clientDocumentId)),
-                _PdfField(
-                  'Solar',
-                  '${_textOrDash(receipt.blockNumber)} · ${_textOrDash(receipt.lotNumber)}',
-                ),
-                _PdfField('Venta asociada', '#${receipt.sale.saleId}'),
-                _PdfField(
-                  'Metodo de pago',
-                  _textOrDash(receipt.paymentMethodLabel),
-                ),
-                _PdfField('Concepto', _textOrDash(receipt.paymentConcept)),
-                _PdfField('Referencia', _paymentReference(receipt)),
-                _PdfField('Recibido por', _textOrDash(receipt.receivedBy)),
-                _PdfField('Entregado por', _textOrDash(receipt.deliveredBy)),
-                _PdfField(
-                  'Registrado por',
-                  _textOrDash(receipt.paymentRegisteredByName),
-                ),
-                _PdfField(
-                  'Estado actual',
-                  _textOrDash(receipt.accountStatusLabel),
-                ),
-                _PdfField('Proxima cuota', _nextInstallmentLabel(receipt)),
-              ], columns: 3),
-              pw.SizedBox(height: 10),
-              _sectionTitle('Detalle del pago'),
-              pw.SizedBox(height: 6),
-              pw.Expanded(
-                child: pw.Row(
-                  crossAxisAlignment: pw.CrossAxisAlignment.stretch,
-                  children: [
-                    pw.Expanded(
-                      flex: 12,
-                      child: pw.Column(
-                        crossAxisAlignment: pw.CrossAxisAlignment.start,
-                        children: [
-                          _boxSection(
-                            'Detalle del pago',
-                            _detailSection(receipt),
-                          ),
-                          pw.SizedBox(height: 10),
-                          pw.Expanded(
-                            child: _boxSection(
-                              'Monto en letras y observaciones',
-                              _narrativesSection(receipt),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    pw.SizedBox(width: 12),
-                    pw.Expanded(
-                      flex: 9,
-                      child: pw.Column(
-                        crossAxisAlignment: pw.CrossAxisAlignment.start,
-                        children: [
-                          _boxSection(
-                            'Resumen financiero',
-                            _summarySection(receipt),
-                          ),
-                          pw.SizedBox(height: 10),
-                          pw.Expanded(
-                            child: _boxSection(
-                              'Validacion y archivo',
-                              _validationSection(receipt),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              pw.SizedBox(height: 10),
-              _miniSummaryStrip(receipt),
-              pw.SizedBox(height: 10),
-              _divider(),
-              pw.SizedBox(height: 9),
-              pw.Row(
-                children: [
-                  pw.Expanded(
-                    child: _signatureBlock(
-                      'Entregado por',
-                      _textOrDash(receipt.deliveredBy),
-                    ),
-                  ),
-                  pw.SizedBox(width: 22),
-                  pw.Expanded(
-                    child: _signatureBlock(
-                      'Recibido por',
-                      _textOrDash(receipt.receivedBy),
-                    ),
-                  ),
-                ],
-              ),
-              pw.SizedBox(height: 6),
-              pw.Align(
-                alignment: pw.Alignment.centerRight,
-                child: pw.Text(
-                  'No aceptamos devoluciones',
-                  style: pw.TextStyle(
-                    fontSize: 7.4,
-                    color: _mutedColor,
-                    fontWeight: pw.FontWeight.bold,
-                  ),
-                ),
-              ),
-            ],
-          );
-        },
+        margin: const pw.EdgeInsets.fromLTRB(22, 18, 22, 20),
+        build: (ctx) => _buildContent(ctx, receipt, logo),
       ),
     );
 
-    return document.save();
+    return doc.save();
   }
 
-  static Future<pw.Font> _loadFont(String assetPath) async {
-    final fontData = await rootBundle.load(assetPath);
-    return pw.Font.ttf(fontData);
-  }
-
-  static pw.MemoryImage? _decodeLogo(String? logoBase64) {
-    if (logoBase64 == null || logoBase64.isEmpty) {
-      return null;
-    }
-    try {
-      return pw.MemoryImage(base64Decode(logoBase64));
-    } catch (_) {
-      return null;
-    }
-  }
-
-  static pw.Widget _buildHeader(Receipt receipt, pw.MemoryImage? logoImage) {
-    final companyName = receipt.company.nombre.trim().isEmpty
-        ? 'Sistema de Solares'
-        : receipt.company.nombre.trim();
-    final companyPhone = (receipt.company.telefono ?? '').trim();
-    final companyAddress = (receipt.company.direccion ?? '').trim();
-
-    return pw.Container(
-      width: double.infinity,
-      padding: const pw.EdgeInsets.all(14),
-      decoration: pw.BoxDecoration(
-        color: PdfColors.white,
-        borderRadius: pw.BorderRadius.circular(14),
-        border: pw.Border.all(color: _borderColor),
-      ),
-      child: pw.Column(
-        crossAxisAlignment: pw.CrossAxisAlignment.start,
-        children: [
-          pw.Row(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              _logoBox(logoImage),
-              pw.SizedBox(width: 12),
-              pw.Expanded(
-                child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Text(
-                      companyName,
-                      style: pw.TextStyle(
-                        fontSize: 13.8,
-                        fontWeight: pw.FontWeight.bold,
-                        color: _inkColor,
-                      ),
-                    ),
-                    if (companyPhone.isNotEmpty) ...[
-                      pw.SizedBox(height: 4),
-                      pw.Text(
-                        'Tel. $companyPhone',
-                        style: pw.TextStyle(fontSize: 8.8, color: _mutedColor),
-                      ),
-                    ],
-                    if (companyAddress.isNotEmpty) ...[
-                      pw.SizedBox(height: 3),
-                      pw.Text(
-                        companyAddress,
-                        style: pw.TextStyle(
-                          fontSize: 8.6,
-                          color: _mutedColor,
-                          lineSpacing: 1.22,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              pw.SizedBox(width: 12),
-              pw.Container(
-                width: 170,
-                padding: const pw.EdgeInsets.all(10),
-                decoration: pw.BoxDecoration(
-                  color: _surfaceTint,
-                  borderRadius: pw.BorderRadius.circular(12),
-                  border: pw.Border.all(color: _borderColor),
-                ),
-                child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    _metaLine('Recibo no.', _textOrDash(receipt.receiptNumber)),
-                    _metaLine('Fecha', receipt.formattedDateShort),
-                    _metaLine(
-                      'Monto',
-                      'RD\$ ${receipt.formattedAmount}',
-                      highlight: true,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          pw.SizedBox(height: 12),
-          pw.Container(
-            width: double.infinity,
-            padding: const pw.EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 10,
-            ),
-            decoration: pw.BoxDecoration(
-              color: _surfaceTint,
-              borderRadius: pw.BorderRadius.circular(12),
-              border: pw.Border.all(color: _borderColor),
-            ),
-            child: pw.Row(
-              children: [
-                pw.Container(
-                  width: 8,
-                  height: 34,
-                  decoration: pw.BoxDecoration(
-                    color: _accentColor,
-                    borderRadius: pw.BorderRadius.circular(8),
-                  ),
-                ),
-                pw.SizedBox(width: 10),
-                pw.Text(
-                  'COMPROBANTE DE PAGO',
-                  style: pw.TextStyle(
-                    fontSize: 11.8,
-                    fontWeight: pw.FontWeight.bold,
-                    color: _accentColor,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  static pw.Widget _logoBox(pw.MemoryImage? logoImage) {
-    return pw.Container(
-      width: 54,
-      height: 54,
-      padding: const pw.EdgeInsets.all(7),
-      decoration: pw.BoxDecoration(
-        color: _surfaceTint,
-        borderRadius: pw.BorderRadius.circular(12),
-        border: pw.Border.all(color: _borderColor),
-      ),
-      child: logoImage != null
-          ? pw.Image(logoImage, fit: pw.BoxFit.contain)
-          : pw.Center(
-              child: pw.Text(
-                'LOGO',
-                style: pw.TextStyle(
-                  fontSize: 7.2,
-                  fontWeight: pw.FontWeight.bold,
-                  color: _accentColor,
-                ),
-              ),
-            ),
-    );
-  }
-
-  static pw.Widget _metaLine(
-    String label,
-    String value, {
-    bool highlight = false,
-  }) {
-    return pw.Padding(
-      padding: const pw.EdgeInsets.only(bottom: 5),
-      child: pw.Column(
-        crossAxisAlignment: pw.CrossAxisAlignment.start,
-        children: [
-          pw.Text(
-            label.toUpperCase(),
-            style: pw.TextStyle(
-              fontSize: 7.4,
-              fontWeight: pw.FontWeight.bold,
-              color: _mutedColor,
-            ),
-          ),
-          pw.SizedBox(height: 2),
-          pw.Text(
-            value,
-            style: pw.TextStyle(
-              fontSize: highlight ? 9.8 : 8.9,
-              fontWeight: pw.FontWeight.bold,
-              color: highlight ? _successColor : _inkColor,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  static pw.Widget _sectionTitle(String title) {
-    return pw.Row(
+  // ─── Main page layout ────────────────────────────────────────────────────
+  static pw.Widget _buildContent(
+    pw.Context ctx,
+    Receipt receipt,
+    pw.MemoryImage? logo,
+  ) {
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
-        pw.Container(width: 18, height: 1.3, color: _accentColor),
-        pw.SizedBox(width: 8),
-        pw.Text(
-          title.toUpperCase(),
-          style: pw.TextStyle(
-            fontSize: 8.4,
-            fontWeight: pw.FontWeight.bold,
-            color: _accentColor,
-            letterSpacing: 0.8,
+        _header(receipt, logo),
+        pw.SizedBox(height: 12),
+        pw.Expanded(
+          child: pw.Row(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              // ── Left (60 %) ────────────────────────────────────────────
+              pw.Expanded(
+                flex: 60,
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    _card(
+                      title: 'Información del cliente y operación',
+                      child: _clientGrid(receipt),
+                    ),
+                    pw.SizedBox(height: 9),
+                    pw.Expanded(
+                      child: _card(
+                        title: 'Detalle del pago',
+                        child: _paymentTable(receipt),
+                      ),
+                    ),
+                    pw.SizedBox(height: 9),
+                    _amountInWords(receipt),
+                  ],
+                ),
+              ),
+              pw.SizedBox(width: 10),
+              // ── Right (40 %) ───────────────────────────────────────────
+              pw.Expanded(
+                flex: 40,
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    _card(
+                      title: 'Resumen financiero',
+                      child: _financialGrid(receipt),
+                    ),
+                    pw.SizedBox(height: 9),
+                    pw.Expanded(
+                      child: _card(
+                        title: 'Próximas cuotas y estado',
+                        child: _installmentStatus(receipt),
+                      ),
+                    ),
+                    pw.SizedBox(height: 9),
+                    _card(
+                      title: 'Validación',
+                      child: _validationPanel(receipt),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
+        pw.SizedBox(height: 12),
+        _footerSignatures(receipt),
       ],
     );
   }
 
-  static pw.Widget _documentGrid(
-    List<_PdfField> items, {
-    required int columns,
-  }) {
-    final normalized = List<_PdfField>.from(items);
-    while (normalized.length % columns != 0) {
-      normalized.add(const _PdfField('', ''));
-    }
+  // ─── Header ──────────────────────────────────────────────────────────────
+  static pw.Widget _header(Receipt receipt, pw.MemoryImage? logo) {
+    final co = receipt.company;
+    final name = co.nombre.trim().isEmpty ? 'Sistema de Solares' : co.nombre.trim();
+    final phone   = (co.telefono  ?? '').trim();
+    final address = (co.direccion ?? '').trim();
 
-    final rows = <pw.TableRow>[];
-    for (var index = 0; index < normalized.length; index += columns) {
-      rows.add(
-        pw.TableRow(
-          verticalAlignment: pw.TableCellVerticalAlignment.middle,
-          children: [
-            for (var column = 0; column < columns; column++)
-              _gridCell(normalized[index + column]),
-          ],
-        ),
-      );
-    }
-
-    return pw.Table(
-      border: pw.TableBorder.symmetric(
-        inside: pw.BorderSide(color: _softBorderColor, width: 0.7),
-        outside: pw.BorderSide(color: _borderColor, width: 0.8),
-      ),
-      children: rows,
-    );
-  }
-
-  static pw.Widget _gridCell(_PdfField item) {
     return pw.Container(
-      padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      child: item.label.isEmpty
-          ? pw.SizedBox()
-          : pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
+      width: double.infinity,
+      decoration: pw.BoxDecoration(
+        color: _kAccent,
+        borderRadius: pw.BorderRadius.circular(12),
+      ),
+      child: pw.Column(
+        children: [
+          // Top band
+          pw.Padding(
+            padding: const pw.EdgeInsets.fromLTRB(14, 13, 14, 11),
+            child: pw.Row(
+              crossAxisAlignment: pw.CrossAxisAlignment.center,
               children: [
-                pw.Text(
-                  item.label.toUpperCase(),
-                  style: pw.TextStyle(
-                    fontSize: 7.5,
-                    fontWeight: pw.FontWeight.bold,
-                    color: _mutedColor,
+                // Logo
+                pw.Container(
+                  width: 52, height: 52,
+                  padding: const pw.EdgeInsets.all(5),
+                  decoration: pw.BoxDecoration(
+                    color: PdfColors.white,
+                    borderRadius: pw.BorderRadius.circular(9),
+                  ),
+                  child: logo != null
+                      ? pw.Image(logo, fit: pw.BoxFit.contain)
+                      : pw.Center(
+                          child: pw.Text('LOGO',
+                            style: pw.TextStyle(fontSize: 7,
+                              fontWeight: pw.FontWeight.bold, color: _kAccent)),
+                        ),
+                ),
+                pw.SizedBox(width: 12),
+                // Company details
+                pw.Expanded(
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(name,
+                        style: pw.TextStyle(fontSize: 15,
+                          fontWeight: pw.FontWeight.bold,
+                          color: PdfColors.white)),
+                      if (phone.isNotEmpty) ...[
+                        pw.SizedBox(height: 3),
+                        pw.Text('Tel. $phone',
+                          style: pw.TextStyle(fontSize: 8.4, color: _kSubtle)),
+                      ],
+                      if (address.isNotEmpty) ...[
+                        pw.SizedBox(height: 2),
+                        pw.Text(address,
+                          style: pw.TextStyle(fontSize: 8.2, color: _kSubtle)),
+                      ],
+                    ],
                   ),
                 ),
-                pw.SizedBox(height: 2),
-                pw.Text(
-                  item.value,
-                  maxLines: 2,
-                  style: pw.TextStyle(
-                    fontSize: item.highlight ? 10.2 : 9.0,
-                    fontWeight: pw.FontWeight.bold,
-                    color: item.highlight ? _successColor : _inkColor,
-                    lineSpacing: 1.15,
+                pw.SizedBox(width: 10),
+                // Meta box
+                pw.Container(
+                  width: 165,
+                  padding: const pw.EdgeInsets.all(10),
+                  decoration: pw.BoxDecoration(
+                    color: _kAccentDark,
+                    borderRadius: pw.BorderRadius.circular(9),
+                  ),
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      _wMeta('Recibo', _d(receipt.receiptNumber)),
+                      pw.SizedBox(height: 4),
+                      _wMeta('Fecha', receipt.formattedDateShort),
+                      pw.SizedBox(height: 4),
+                      _wMeta('Monto pagado',
+                        'RD\$ ${receipt.formattedAmount}',
+                        highlight: true),
+                    ],
                   ),
                 ),
               ],
             ),
+          ),
+          // Banner
+          pw.Container(
+            width: double.infinity,
+            padding: const pw.EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+            decoration: pw.BoxDecoration(
+              color: _kAccentDark,
+              borderRadius: const pw.BorderRadius.only(
+                bottomLeft: pw.Radius.circular(12),
+                bottomRight: pw.Radius.circular(12),
+              ),
+            ),
+            child: pw.Text('COMPROBANTE DE PAGO',
+              style: pw.TextStyle(fontSize: 9.5,
+                fontWeight: pw.FontWeight.bold,
+                color: PdfColors.white,
+                letterSpacing: 1.8)),
+          ),
+        ],
+      ),
     );
   }
 
-  static pw.Widget _boxSection(String title, pw.Widget child) {
+  static pw.Widget _wMeta(String label, String value,
+      {bool highlight = false}) {
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.Text(label.toUpperCase(),
+          style: pw.TextStyle(fontSize: 6.8,
+            fontWeight: pw.FontWeight.bold, color: _kSubtle)),
+        pw.SizedBox(height: 1),
+        pw.Text(value,
+          style: pw.TextStyle(
+            fontSize: highlight ? 10.4 : 8.8,
+            fontWeight: pw.FontWeight.bold,
+            color: highlight ? _kGreenTint : PdfColors.white)),
+      ],
+    );
+  }
+
+  // ─── Card wrapper ─────────────────────────────────────────────────────────
+  static pw.Widget _card({required String title, required pw.Widget child}) {
     return pw.Container(
       width: double.infinity,
-      padding: const pw.EdgeInsets.all(10),
+      padding: const pw.EdgeInsets.all(11),
       decoration: pw.BoxDecoration(
         color: PdfColors.white,
-        borderRadius: pw.BorderRadius.circular(12),
-        border: pw.Border.all(color: _borderColor),
+        borderRadius: pw.BorderRadius.circular(10),
+        border: pw.Border.all(color: _kBorder),
       ),
       child: pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -451,17 +264,13 @@ class ReceiptPdfBuilder {
           pw.Container(
             padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: pw.BoxDecoration(
-              color: _surfaceTint,
-              borderRadius: pw.BorderRadius.circular(999),
+              color: _kAccentLight,
+              borderRadius: pw.BorderRadius.circular(6),
             ),
-            child: pw.Text(
-              title.toUpperCase(),
-              style: pw.TextStyle(
-                fontSize: 8,
-                fontWeight: pw.FontWeight.bold,
-                color: _accentColor,
-              ),
-            ),
+            child: pw.Text(title.toUpperCase(),
+              style: pw.TextStyle(fontSize: 7.2,
+                fontWeight: pw.FontWeight.bold, color: _kAccent,
+                letterSpacing: 0.4)),
           ),
           pw.SizedBox(height: 8),
           child,
@@ -470,405 +279,310 @@ class ReceiptPdfBuilder {
     );
   }
 
-  static pw.Widget _detailSection(Receipt receipt) {
-    return pw.Column(
-      children: [
-        _paymentTableHeader(),
-        pw.SizedBox(height: 4),
-        ...receipt.paymentBreakdown.map(
-          (entry) => _paymentLine(receipt, entry),
-        ),
-      ],
-    );
+  // ─── Client info grid ─────────────────────────────────────────────────────
+  static pw.Widget _clientGrid(Receipt receipt) {
+    return _grid([
+      _F('Cliente',      _d(receipt.sale.clientName)),
+      _F('Cédula',       _d(receipt.sale.clientDocumentId)),
+      _F('Solar',        _solarLabel(receipt)),
+      _F('Venta',        '#${receipt.sale.saleId}'),
+      _F('Concepto',     _d(receipt.paymentConcept)),
+      _F('Método pago',  _d(receipt.paymentMethodLabel)),
+      _F('Referencia',   _ref(receipt)),
+      _F('Recibido por', _d(receipt.receivedBy)),
+      _F('Registrado por', _d(receipt.paymentRegisteredByName)),
+      _F('Recibimos de', _d(receipt.receivedFrom)),
+      _F('Estado cuenta', _d(receipt.accountStatusLabel)),
+      _F('Entregado por', _d(receipt.deliveredBy)),
+    ], columns: 3);
   }
 
-  static pw.Widget _paymentTableHeader() {
-    final style = pw.TextStyle(
-      fontSize: 7.7,
-      fontWeight: pw.FontWeight.bold,
-      color: _mutedColor,
-    );
+  // ─── Payment detail table ─────────────────────────────────────────────────
+  static pw.Widget _paymentTable(Receipt receipt) {
+    final hStyle = pw.TextStyle(
+      fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: _kMuted);
 
-    return pw.Row(
-      children: [
-        pw.Expanded(flex: 10, child: pw.Text('CONCEPTO', style: style)),
-        pw.Expanded(flex: 8, child: pw.Text('DETALLE', style: style)),
-        pw.SizedBox(
-          width: 96,
-          child: pw.Align(
-            alignment: pw.Alignment.centerRight,
-            child: pw.Text('MONTO', style: style),
-          ),
-        ),
-      ],
-    );
-  }
-
-  static pw.Widget _paymentLine(Receipt receipt, ReceiptLineItem entry) {
-    return pw.Container(
-      padding: const pw.EdgeInsets.symmetric(vertical: 5),
-      decoration: pw.BoxDecoration(
-        border: pw.Border(bottom: pw.BorderSide(color: _softBorderColor)),
-      ),
-      child: pw.Row(
-        crossAxisAlignment: pw.CrossAxisAlignment.start,
-        children: [
-          pw.Expanded(
-            flex: 10,
-            child: pw.Text(
-              entry.label,
-              style: pw.TextStyle(
-                fontSize: 9.1,
-                fontWeight: pw.FontWeight.bold,
-                color: _inkColor,
-              ),
-            ),
-          ),
-          pw.SizedBox(width: 10),
-          pw.Expanded(
-            flex: 8,
-            child: pw.Text(
-              _paymentDetailText(receipt),
-              maxLines: 1,
-              style: pw.TextStyle(fontSize: 8.4, color: _mutedColor),
-            ),
-          ),
-          pw.SizedBox(width: 10),
-          pw.SizedBox(
-            width: 96,
-            child: pw.Text(
-              'RD\$ ${entry.amount.toStringAsFixed(2)}',
-              textAlign: pw.TextAlign.right,
-              style: pw.TextStyle(
-                fontSize: 9.2,
-                fontWeight: pw.FontWeight.bold,
-                color: _inkColor,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  static pw.Widget _summarySection(Receipt receipt) {
-    return pw.Column(
-      children: [
-        _documentGrid([
-          _PdfField(
-            'Pagado en recibo',
-            'RD\$ ${receipt.formattedAmount}',
-            highlight: true,
-          ),
-          _PdfField(
-            'Balance actual',
-            'RD\$ ${receipt.currentOutstandingBalance.toStringAsFixed(2)}',
-          ),
-          _PdfField(
-            'Saldo financiado',
-            'RD\$ ${receipt.remainingFinancedBalance.toStringAsFixed(2)}',
-          ),
-          _PdfField(
-            'Inicial pendiente',
-            'RD\$ ${receipt.remainingInitialBalance.toStringAsFixed(2)}',
-          ),
-          _PdfField(
-            'Abonado acumulado',
-            'RD\$ ${receipt.totalPaidAccumulated.toStringAsFixed(2)}',
-          ),
-          _PdfField('Estado actual', receipt.accountStatusLabel),
-        ], columns: 2),
-        pw.SizedBox(height: 8),
-        _statusRow('Cuotas pagadas', '${receipt.installmentsPaid}'),
-        _statusRow('Cuotas restantes', '${receipt.installmentsRemaining}'),
-        _statusRow('Proxima cuota', _nextInstallmentLabel(receipt)),
-        _statusRow(
-          'Proximo vencimiento',
-          receipt.nextInstallmentDueDate == null
-              ? '-'
-              : receipt.formatShortDate(receipt.nextInstallmentDueDate!),
-        ),
-        _statusRow('Aplicacion', _textOrDash(receipt.paymentConcept)),
-      ],
-    );
-  }
-
-  static pw.Widget _statusRow(String label, String value) {
-    return pw.Padding(
-      padding: const pw.EdgeInsets.only(bottom: 6),
-      child: pw.Row(
-        children: [
-          pw.Expanded(
-            child: pw.Text(
-              label,
-              style: pw.TextStyle(
-                fontSize: 8.7,
-                fontWeight: pw.FontWeight.bold,
-                color: _mutedColor,
-              ),
-            ),
-          ),
-          pw.SizedBox(width: 8),
-          pw.Expanded(
-            child: pw.Text(
-              value,
-              textAlign: pw.TextAlign.right,
-              maxLines: 1,
-              style: pw.TextStyle(
-                fontSize: 9.0,
-                fontWeight: pw.FontWeight.bold,
-                color: _inkColor,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  static pw.Widget _narrativesSection(Receipt receipt) {
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
-        _narrativeBox(
-          'Monto en letras',
-          receipt.amountInWords.toUpperCase(),
-          emphasize: true,
-          maxLines: 3,
-        ),
-        pw.SizedBox(height: 8),
-        pw.Row(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            pw.Expanded(
-              child: _narrativeBox(
-                'Observacion',
-                _textOrDash(receipt.note),
-                maxLines: 5,
-              ),
-            ),
-            pw.SizedBox(width: 10),
-            pw.Expanded(
-              child: _narrativeBox(
-                'Condiciones',
-                _textOrDash(receipt.conditionsOfPayment),
-                maxLines: 5,
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  static pw.Widget _narrativeBox(
-    String label,
-    String value, {
-    bool emphasize = false,
-    required int maxLines,
-  }) {
-    return pw.Column(
-      crossAxisAlignment: pw.CrossAxisAlignment.start,
-      children: [
-        pw.Text(
-          label.toUpperCase(),
-          style: pw.TextStyle(
-            fontSize: 7.7,
-            fontWeight: pw.FontWeight.bold,
-            color: _mutedColor,
-          ),
-        ),
-        pw.SizedBox(height: 3),
+        // Header row
         pw.Container(
-          width: double.infinity,
-          padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+          color: _kSurface,
+          child: pw.Row(children: [
+            pw.Expanded(flex: 5, child: pw.Text('CONCEPTO', style: hStyle)),
+            pw.Expanded(flex: 6, child: pw.Text('DETALLE',  style: hStyle)),
+            pw.SizedBox(width: 88,
+              child: pw.Align(alignment: pw.Alignment.centerRight,
+                child: pw.Text('MONTO', style: hStyle))),
+          ]),
+        ),
+        pw.Container(height: 0.5, color: _kBorder),
+        ...receipt.paymentBreakdown.map((entry) => pw.Container(
+          padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 5.5),
           decoration: pw.BoxDecoration(
-            color: _surfaceTint,
-            borderRadius: pw.BorderRadius.circular(10),
-            border: pw.Border.all(color: _softBorderColor),
+            border: pw.Border(
+              bottom: pw.BorderSide(color: _kSoftBorder, width: 0.5))),
+          child: pw.Row(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Expanded(flex: 5,
+                child: pw.Text(entry.label,
+                  style: pw.TextStyle(fontSize: 9,
+                    fontWeight: pw.FontWeight.bold, color: _kInk))),
+              pw.Expanded(flex: 6,
+                child: pw.Text(_detailText(receipt), maxLines: 1,
+                  style: pw.TextStyle(fontSize: 8.4, color: _kMuted))),
+              pw.SizedBox(width: 88,
+                child: pw.Text(_money(entry.amount),
+                  textAlign: pw.TextAlign.right,
+                  style: pw.TextStyle(fontSize: 9.2,
+                    fontWeight: pw.FontWeight.bold, color: _kInk))),
+            ],
           ),
-          child: pw.Text(
-            value,
-            maxLines: maxLines,
-            style: pw.TextStyle(
-              fontSize: emphasize ? 9.4 : 8.7,
-              fontWeight: emphasize ? pw.FontWeight.bold : pw.FontWeight.normal,
-              color: _inkColor,
-              lineSpacing: 1.22,
-            ),
-          ),
+        )),
+        pw.Container(height: 0.8, color: _kBorder),
+        // Total row
+        pw.Container(
+          padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          color: _kAccentLight,
+          child: pw.Row(children: [
+            pw.Expanded(
+              child: pw.Text('TOTAL PAGADO',
+                style: pw.TextStyle(fontSize: 8.4,
+                  fontWeight: pw.FontWeight.bold, color: _kAccent))),
+            pw.Text('RD\$ ${receipt.formattedAmount}',
+              style: pw.TextStyle(fontSize: 10.6,
+                fontWeight: pw.FontWeight.bold, color: _kSuccess)),
+          ]),
         ),
       ],
     );
   }
 
-  static pw.Widget _validationSection(Receipt receipt) {
-    return pw.Column(
-      crossAxisAlignment: pw.CrossAxisAlignment.start,
-      children: [
-        _validationLine('Recibimos de', _textOrDash(receipt.receivedFrom)),
-        _validationLine('Recibido por', _textOrDash(receipt.receivedBy)),
-        _validationLine('Entregado por', _textOrDash(receipt.deliveredBy)),
-        _validationLine('Venta', '#${receipt.sale.saleId}'),
-      ],
-    );
-  }
-
-  static pw.Widget _miniSummaryStrip(Receipt receipt) {
+  // ─── Amount in words ──────────────────────────────────────────────────────
+  static pw.Widget _amountInWords(Receipt receipt) {
     return pw.Container(
       width: double.infinity,
       padding: const pw.EdgeInsets.all(10),
       decoration: pw.BoxDecoration(
-        color: _surfaceTint,
-        borderRadius: pw.BorderRadius.circular(12),
-        border: pw.Border.all(color: _borderColor),
+        color: _kAccentLight,
+        borderRadius: pw.BorderRadius.circular(9),
+        border: pw.Border.all(color: _kBorder),
       ),
-      child: pw.Row(
-        children: [
-          pw.Expanded(
-            child: _miniSummaryItem(
-              'Balance actual',
-              'RD\$ ${receipt.currentOutstandingBalance.toStringAsFixed(2)}',
-            ),
-          ),
-          pw.SizedBox(width: 12),
-          pw.Expanded(
-            child: _miniSummaryItem(
-              'Saldo financiado',
-              'RD\$ ${receipt.remainingFinancedBalance.toStringAsFixed(2)}',
-            ),
-          ),
-          pw.SizedBox(width: 12),
-          pw.Expanded(
-            child: _miniSummaryItem(
-              'Estado',
-              _textOrDash(receipt.accountStatusLabel),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  static pw.Widget _miniSummaryItem(String label, String value) {
-    return pw.Column(
-      crossAxisAlignment: pw.CrossAxisAlignment.start,
-      children: [
-        pw.Text(
-          label.toUpperCase(),
-          style: pw.TextStyle(
-            fontSize: 7.3,
-            fontWeight: pw.FontWeight.bold,
-            color: _mutedColor,
-          ),
-        ),
-        pw.SizedBox(height: 3),
-        pw.Text(
-          value,
-          style: pw.TextStyle(
-            fontSize: 9.4,
-            fontWeight: pw.FontWeight.bold,
-            color: _inkColor,
-          ),
-        ),
-      ],
-    );
-  }
-
-  static pw.Widget _validationLine(String label, String value) {
-    return pw.Padding(
-      padding: const pw.EdgeInsets.only(bottom: 8),
       child: pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
-          pw.Text(
-            label.toUpperCase(),
-            style: pw.TextStyle(
-              fontSize: 7.7,
-              fontWeight: pw.FontWeight.bold,
-              color: _mutedColor,
-            ),
-          ),
-          pw.SizedBox(height: 2),
-          pw.Text(
-            value,
-            maxLines: 2,
-            style: pw.TextStyle(
-              fontSize: 9.0,
-              fontWeight: pw.FontWeight.bold,
-              color: _inkColor,
-              lineSpacing: 1.2,
-            ),
-          ),
+          pw.Text('MONTO EN LETRAS',
+            style: pw.TextStyle(fontSize: 7.3,
+              fontWeight: pw.FontWeight.bold, color: _kAccent)),
+          pw.SizedBox(height: 4),
+          pw.Text(receipt.amountInWords.toUpperCase(),
+            style: pw.TextStyle(fontSize: 9.4,
+              fontWeight: pw.FontWeight.bold, color: _kInk,
+              lineSpacing: 1.3)),
+          if ((receipt.note ?? '').trim().isNotEmpty) ...[
+            pw.SizedBox(height: 6),
+            pw.Text('OBSERVACIÓN',
+              style: pw.TextStyle(fontSize: 7.3,
+                fontWeight: pw.FontWeight.bold, color: _kMuted)),
+            pw.SizedBox(height: 3),
+            pw.Text(receipt.note!.trim(),
+              style: pw.TextStyle(fontSize: 8.8, color: _kInk,
+                lineSpacing: 1.3)),
+          ],
         ],
       ),
     );
   }
 
-  static pw.Widget _signatureBlock(String label, String value) {
+  // ─── Financial grid ───────────────────────────────────────────────────────
+  static pw.Widget _financialGrid(Receipt receipt) {
+    return _grid([
+      _F('Pagado en recibo',    'RD\$ ${receipt.formattedAmount}', highlight: true),
+      _F('Balance actual',      _money(receipt.currentOutstandingBalance)),
+      _F('Saldo pendiente del plan', _money(receipt.remainingFinancedBalance)),
+      _F('Inicial pendiente',   _money(receipt.remainingInitialBalance)),
+      _F('Total pagado acum.',  _money(receipt.totalPaidAccumulated)),
+      _F('Estado de cuenta',    _d(receipt.accountStatusLabel)),
+    ], columns: 2);
+  }
+
+  // ─── Installment status ───────────────────────────────────────────────────
+  static pw.Widget _installmentStatus(Receipt receipt) {
+    final next = receipt.nextInstallmentNumber;
+    final amt  = receipt.nextInstallmentAmount;
+    final due  = receipt.nextInstallmentDueDate;
+
     return pw.Column(
-      crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
-        pw.Container(height: 1, color: _inkColor),
+        _kv('Cuotas pagadas',     '${receipt.installmentsPaid}'),
+        _kv('Cuotas restantes',   '${receipt.installmentsRemaining}'),
+        _kv('Próxima cuota',       next == null ? '-' : '#$next'),
+        _kv('Monto próx. cuota',   amt  == null ? '-' : _money(amt)),
+        _kv('Fecha vencimiento',
+          due == null ? '-' : receipt.formatShortDate(due)),
+        _kv('Aplicación',         _d(receipt.paymentConcept)),
+      ],
+    );
+  }
+
+  // ─── Validation panel ─────────────────────────────────────────────────────
+  static pw.Widget _validationPanel(Receipt receipt) {
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        _kv('Recibimos de', _d(receipt.receivedFrom)),
+        _kv('Recibido por', _d(receipt.receivedBy)),
+        _kv('Entregado por', _d(receipt.deliveredBy)),
+        _kv('No. de venta', '#${receipt.sale.saleId}'),
+      ],
+    );
+  }
+
+  // ─── Footer signatures ────────────────────────────────────────────────────
+  static pw.Widget _footerSignatures(Receipt receipt) {
+    return pw.Column(
+      children: [
+        pw.Container(height: 0.8, color: _kBorder),
+        pw.SizedBox(height: 10),
+        pw.Row(children: [
+          pw.Expanded(
+            child: _signBlock('Entregado por', _d(receipt.deliveredBy))),
+          pw.SizedBox(width: 32),
+          pw.Expanded(
+            child: _signBlock('Recibido por / Firma del cliente',
+              _d(receipt.receivedBy))),
+        ]),
         pw.SizedBox(height: 7),
-        pw.Text(
-          value,
-          textAlign: pw.TextAlign.center,
-          style: pw.TextStyle(
-            fontSize: 9.2,
-            fontWeight: pw.FontWeight.bold,
-            color: _inkColor,
-          ),
-        ),
-        pw.SizedBox(height: 2),
-        pw.Text(
-          label.toUpperCase(),
-          textAlign: pw.TextAlign.center,
-          style: pw.TextStyle(
-            fontSize: 7.8,
-            fontWeight: pw.FontWeight.bold,
-            color: _mutedColor,
-          ),
+        pw.Align(
+          alignment: pw.Alignment.centerRight,
+          child: pw.Text(
+            'No se aceptan devoluciones  ·  Comprobante válido con firma y sello.',
+            style: pw.TextStyle(fontSize: 7.2, color: _kMuted)),
         ),
       ],
     );
   }
 
-  static pw.Widget _divider() {
-    return pw.Container(height: 1, color: _borderColor);
+  static pw.Widget _signBlock(String label, String name) {
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+      children: [
+        pw.Container(height: 0.8, color: _kInk),
+        pw.SizedBox(height: 5),
+        pw.Text(name, textAlign: pw.TextAlign.center,
+          style: pw.TextStyle(fontSize: 9,
+            fontWeight: pw.FontWeight.bold, color: _kInk)),
+        pw.SizedBox(height: 2),
+        pw.Text(label.toUpperCase(), textAlign: pw.TextAlign.center,
+          style: pw.TextStyle(fontSize: 7.4,
+            fontWeight: pw.FontWeight.bold, color: _kMuted)),
+      ],
+    );
   }
 
-  static String _paymentReference(Receipt receipt) {
-    final reference = (receipt.payment.reference ?? '').trim();
-    return reference.isEmpty ? '-' : reference;
-  }
-
-  static String _paymentDetailText(Receipt receipt) {
-    final reference = _paymentReference(receipt);
-    if (reference == '-') {
-      return _textOrDash(receipt.paymentMethodLabel);
+  // ─── Shared grid ─────────────────────────────────────────────────────────
+  static pw.Widget _grid(List<_F> fields, {required int columns}) {
+    final items = List<_F>.from(fields);
+    while (items.length % columns != 0) items.add(const _F('', ''));
+    final rows = <pw.TableRow>[];
+    for (var i = 0; i < items.length; i += columns) {
+      rows.add(pw.TableRow(
+        verticalAlignment: pw.TableCellVerticalAlignment.top,
+        children: [
+          for (var c = 0; c < columns; c++) _gridCell(items[i + c]),
+        ],
+      ));
     }
-    return '${_textOrDash(receipt.paymentMethodLabel)} · $reference';
+    return pw.Table(
+      border: pw.TableBorder.symmetric(
+        inside:  pw.BorderSide(color: _kSoftBorder, width: 0.6),
+        outside: pw.BorderSide(color: _kBorder,     width: 0.7),
+      ),
+      children: rows,
+    );
   }
 
-  static String _nextInstallmentLabel(Receipt receipt) {
-    final installmentNumber = receipt.nextInstallmentNumber;
-    final installmentAmount = receipt.nextInstallmentAmount;
-    if (installmentNumber == null || installmentAmount == null) {
-      return '-';
-    }
-    return '#$installmentNumber · RD\$ ${installmentAmount.toStringAsFixed(2)}';
+  static pw.Widget _gridCell(_F f) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+      child: f.label.isEmpty
+          ? pw.SizedBox()
+          : pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Text(f.label.toUpperCase(),
+                  style: pw.TextStyle(fontSize: 7.2,
+                    fontWeight: pw.FontWeight.bold, color: _kMuted)),
+                pw.SizedBox(height: 2),
+                pw.Text(f.value, maxLines: 2,
+                  style: pw.TextStyle(
+                    fontSize: f.highlight ? 10.2 : 8.9,
+                    fontWeight: pw.FontWeight.bold,
+                    color: f.highlight ? _kSuccess : _kInk,
+                    lineSpacing: 1.15)),
+              ],
+            ),
+    );
   }
 
-  static String _textOrDash(String? value) {
-    final normalized = (value ?? '').trim();
-    return normalized.isEmpty ? '-' : normalized;
+  static pw.Widget _kv(String label, String value) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.only(bottom: 5),
+      child: pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.SizedBox(width: 108,
+            child: pw.Text(label,
+              style: pw.TextStyle(fontSize: 8.4, color: _kMuted,
+                fontWeight: pw.FontWeight.bold))),
+          pw.Expanded(
+            child: pw.Text(value, textAlign: pw.TextAlign.right,
+              style: pw.TextStyle(fontSize: 8.8,
+                fontWeight: pw.FontWeight.bold, color: _kInk))),
+        ],
+      ),
+    );
+  }
+
+  // ─── Utilities ────────────────────────────────────────────────────────────
+  static Future<pw.Font> _loadFont(String path) async {
+    final data = await rootBundle.load(path);
+    return pw.Font.ttf(data);
+  }
+
+  static pw.MemoryImage? _decodeLogo(String? b64) {
+    if (b64 == null || b64.isEmpty) return null;
+    try { return pw.MemoryImage(base64Decode(b64)); } catch (_) { return null; }
+  }
+
+  static String _solarLabel(Receipt receipt) {
+    final blk = (receipt.blockNumber ?? '').trim();
+    final lot = (receipt.lotNumber   ?? '').trim();
+    return (blk.isEmpty && lot.isEmpty) ? '-' : 'M$blk-S$lot';
+  }
+
+  static String _ref(Receipt receipt) {
+    final r = (receipt.payment.reference ?? '').trim();
+    return r.isEmpty ? '-' : r;
+  }
+
+  static String _detailText(Receipt receipt) {
+    final m = _d(receipt.paymentMethodLabel);
+    final r = _ref(receipt);
+    return r == '-' ? m : '$m · $r';
+  }
+
+  static String _money(double v) => 'RD\$ ${formatRdCurrency(v)}';
+  static String _d(String? v) {
+    final s = (v ?? '').trim(); return s.isEmpty ? '-' : s;
   }
 }
 
-class _PdfField {
-  const _PdfField(this.label, this.value, {this.highlight = false});
-
+class _F {
+  const _F(this.label, this.value, {this.highlight = false});
   final String label;
   final String value;
   final bool highlight;
