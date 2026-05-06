@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'app_incident.dart';
+import 'benign_runtime_errors.dart';
 import 'friendly_error_messages.dart';
 import 'incident_logger.dart';
 
@@ -35,6 +36,10 @@ class GlobalErrorController extends ChangeNotifier {
     bool canGoHome = false,
     bool allowRepair = false,
   }) async {
+    if (BenignRuntimeErrors.shouldSuppress(error)) {
+      return;
+    }
+
     final resolved = friendlyMessage ?? FriendlyErrorMessages.unexpected(error);
     final code = await _incidentLogger.logIncident(
       category: category,

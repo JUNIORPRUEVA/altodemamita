@@ -480,9 +480,7 @@ class SalesRepository {
             ),
             'tipo_pago': draft.initialIsApartado
                 ? 'apartado'
-                : (saleStatus == 'apartado'
-                    ? 'apartado'
-                    : 'abono_inicial'),
+                : (saleStatus == 'apartado' ? 'apartado' : 'abono_inicial'),
             'referencia':
                 'SALE-INIT-$saleId-${createdAt.microsecondsSinceEpoch}',
             'ano_a_pagar': null,
@@ -929,14 +927,6 @@ class SalesRepository {
         where: 'venta_id = ? AND deleted_at IS NULL',
         whereArgs: [saleId],
       );
-      final blockingPaymentRows = paymentRows
-          .where(_shouldBlockSaleDeletion)
-          .toList(growable: false);
-      if (blockingPaymentRows.isNotEmpty) {
-        throw StateError(
-          'No se puede eliminar una venta que ya tiene pagos registrados.',
-        );
-      }
       final installmentRows = await txn.query(
         DatabaseSchema.installmentsTable,
         where: 'venta_id = ? AND deleted_at IS NULL',
@@ -1218,18 +1208,6 @@ class SalesRepository {
 
   String _newSyncId(String scope) {
     return SyncIdGenerator.next(scope);
-  }
-
-  bool _shouldBlockSaleDeletion(Map<String, Object?> paymentRow) {
-    final installmentId = paymentRow['cuota_id'] as int?;
-    final paymentType = paymentRow['tipo_pago']
-        ?.toString()
-        .trim()
-        .toLowerCase();
-    final isEditableInitialPayment =
-        installmentId == null &&
-        (paymentType == 'apartado' || paymentType == 'abono_inicial');
-    return !isEditableInitialPayment;
   }
 
   String _newLocalSaleSyncId() {

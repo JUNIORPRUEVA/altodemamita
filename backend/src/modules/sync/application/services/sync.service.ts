@@ -991,29 +991,17 @@ export class SyncService {
 
           const saleWithRelations =
             saleDeleteContext ?? (await this.loadSaleDeleteContext(tx, existing.id));
-          if ((saleWithRelations?.payments.length ?? 0) > 0) {
-            this.throwManualConflict({
-              scope: 'sales',
-              recordSyncId,
-              entity: 'sale',
-              id: existing.id,
-              saleId: existing.id,
-              reason: 'sale_has_payments',
-              localRecord: payload,
-              serverRecord: saleWithRelations
-                ? {
-                    ...this.serializeSaleRecord(saleWithRelations),
-                    reason: 'sale_has_payments',
-                    actionRequired: 'manual_review',
-                    serverUpdatedAt: saleWithRelations.updatedAt.toISOString(),
-                  }
-                : null,
-              message:
-                'Conflicto de sincronizacion: no se puede borrar la venta en la nube porque ya tiene pagos registrados. Se requiere revision manual.',
-            });
-          }
 
           const saleWasAlreadyDeleted = saleWithRelations?.deletedAt != null;
+
+          await tx.payment.updateMany({
+            where: { saleId: existing.id, deletedAt: null },
+            data: {
+              deletedAt,
+              ...(incomingUpdatedAt ? { updatedAt: incomingUpdatedAt } : {}),
+              syncStatus: SyncStatus.synced,
+            },
+          });
 
           if (!saleWasAlreadyDeleted) {
             await tx.installment.updateMany({
@@ -2278,7 +2266,7 @@ export class SyncService {
       | Awaited<ReturnType<SyncService['loadSaleDeleteContext']>>
       | null,
   ): boolean {
-    return sale != null && sale.payments.length === 0;
+    return sale != null;
   }
 
   private async loadInstallmentDeleteContext(

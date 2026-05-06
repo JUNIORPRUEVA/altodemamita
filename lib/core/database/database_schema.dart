@@ -731,9 +731,13 @@ class DatabaseSchema {
     await db.execute('DROP TABLE IF EXISTS $oldLotsTable');
 
     if (hasPayments) {
-      await db.execute('ALTER TABLE $paymentsTable RENAME TO $oldPaymentsTable');
+      await db.execute(
+        'ALTER TABLE $paymentsTable RENAME TO $oldPaymentsTable',
+      );
     }
-    await db.execute('ALTER TABLE $installmentsTable RENAME TO $oldInstallmentsTable');
+    await db.execute(
+      'ALTER TABLE $installmentsTable RENAME TO $oldInstallmentsTable',
+    );
     await db.execute('ALTER TABLE $salesTable RENAME TO $oldSalesTable');
     await db.execute('ALTER TABLE $lotsTable RENAME TO $oldLotsTable');
 
@@ -881,6 +885,7 @@ class DatabaseSchema {
         monto_inicial_pagado REAL NOT NULL DEFAULT 0,
         monto_inicial_pendiente REAL NOT NULL DEFAULT 0,
         monto_apartado_minimo REAL,
+        monto_apartado_pagado REAL NOT NULL DEFAULT 0,
         fecha_limite_inicial TEXT,
         fecha_activacion TEXT,
         saldo_financiado REAL NOT NULL DEFAULT 0,

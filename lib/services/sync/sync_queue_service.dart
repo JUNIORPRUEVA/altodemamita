@@ -894,10 +894,6 @@ class SyncQueueService {
         _log(
           'SQLite se cerro durante processQueue -> se omite ciclo y se reintentara',
         );
-        await _configRepository.saveLastRun(
-          errorMessage: null,
-          status: SyncRuntimeStatus.pending,
-        );
         await _refreshState(clearLastError: true);
         return 0;
       }

@@ -7,13 +7,11 @@ import 'package:provider/provider.dart';
 
 import '../../../features/auth/domain/permission_model.dart';
 import '../../../features/auth/presentation/auth_provider.dart';
-import '../../../core/resilience/friendly_error_messages.dart';
 import '../../../shared/sync/row_sync_badge_policy.dart';
 import '../../../shared/widgets/base_layout.dart';
 import '../../../shared/widgets/recovery_experience.dart';
 import '../../clients/data/client_repository.dart';
 import '../../lots/data/lot_repository.dart';
-import '../../lots/domain/lot.dart';
 import '../../settings/data/settings_repository.dart';
 import '../data/sales_repository.dart';
 import '../data/seller_repository.dart';
@@ -21,10 +19,7 @@ import '../domain/sale_draft.dart';
 import '../domain/sale_summary.dart';
 import 'sale_detail_dialog.dart';
 import 'sale_form_dialog.dart';
-import 'seller_form_dialog.dart';
 import 'sales_controller.dart';
-
-enum _SaleAdminAction { editSale, deleteSale, editSeller, deleteSeller }
 
 class SalesPage extends StatefulWidget {
   const SalesPage({
@@ -138,20 +133,8 @@ class _SalesPageState extends State<SalesPage> {
       PermissionCatalog.sales,
       PermissionAction.create,
     );
-    final canUpdateSales = auth.canAccess(
-      PermissionCatalog.sales,
-      PermissionAction.update,
-    );
     final canDeleteSales = auth.canAccess(
       PermissionCatalog.sales,
-      PermissionAction.delete,
-    );
-    final canUpdateSellers = auth.canAccess(
-      PermissionCatalog.sellers,
-      PermissionAction.update,
-    );
-    final canDeleteSellers = auth.canAccess(
-      PermissionCatalog.sellers,
       PermissionAction.delete,
     );
 
@@ -270,10 +253,7 @@ class _SalesPageState extends State<SalesPage> {
             Expanded(
               child: _buildBody(
                 canCreateSales: canCreateSales,
-                canUpdateSales: canUpdateSales,
                 canDeleteSales: canDeleteSales,
-                canUpdateSellers: canUpdateSellers,
-                canDeleteSellers: canDeleteSellers,
               ),
             ),
           ],
@@ -284,10 +264,7 @@ class _SalesPageState extends State<SalesPage> {
 
   Widget _buildBody({
     required bool canCreateSales,
-    required bool canUpdateSales,
     required bool canDeleteSales,
-    required bool canUpdateSellers,
-    required bool canDeleteSellers,
   }) {
     if (_controller.isLoading) {
       return const Center(child: CircularProgressIndicator());
@@ -363,37 +340,12 @@ class _SalesPageState extends State<SalesPage> {
             sale: sale,
             hasInternet: _hasInternet,
             onTap: () => _openDetail(sale),
-            onAction: (action) => _handleAdminAction(action, sale),
-            availableActions: [
-              if (canUpdateSales) _SaleAdminAction.editSale,
-              if (canDeleteSales) _SaleAdminAction.deleteSale,
-              if (canUpdateSellers) _SaleAdminAction.editSeller,
-              if (canDeleteSellers) _SaleAdminAction.deleteSeller,
-            ],
+            canDeleteSale: canDeleteSales,
+            onDelete: () => _confirmDeleteSale(sale),
           );
         },
       ),
     );
-  }
-
-  Future<void> _handleAdminAction(
-    _SaleAdminAction action,
-    SaleSummary summary,
-  ) async {
-    switch (action) {
-      case _SaleAdminAction.editSale:
-        await _editSale(summary);
-        break;
-      case _SaleAdminAction.deleteSale:
-        await _confirmDeleteSale(summary);
-        break;
-      case _SaleAdminAction.editSeller:
-        await _editSeller(summary);
-        break;
-      case _SaleAdminAction.deleteSeller:
-        await _confirmDeleteSeller(summary);
-        break;
-    }
   }
 
   Future<void> _createSale() async {
@@ -458,67 +410,6 @@ class _SalesPageState extends State<SalesPage> {
     }
   }
 
-  Future<void> _editSale(SaleSummary summary) async {
-    final detail = await _controller.fetchDetail(summary.id);
-    if (!mounted || detail == null) {
-      return;
-    }
-
-    final currentLot = await widget.lotRepository.findById(detail.sale.lotId);
-    if (!mounted || currentLot == null) {
-      _showMessage('No se pudo cargar el solar actual de la venta.');
-      return;
-    }
-
-    final editableLots = <Lot>[
-      currentLot,
-      ..._controller.availableLots.where((lot) => lot.id != currentLot.id),
-    ];
-
-    final draft = await SaleFormDialog.show(
-      context,
-      clients: _controller.clients,
-      availableLots: editableLots,
-      sellers: _controller.sellers,
-      defaults: _controller.defaults,
-      clientRepository: widget.clientRepository,
-      lotRepository: widget.lotRepository,
-      sellerRepository: widget.sellerRepository,
-      initialDraft: SaleDraft(
-        clientId: detail.sale.clientId,
-        lotId: detail.sale.lotId,
-        userId: detail.sale.userId,
-        sellerId: detail.sale.sellerId,
-        saleDate: detail.sale.saleDate,
-        salePrice: detail.sale.salePrice,
-        downPaymentPercentage: detail.sale.downPaymentPercentage,
-        requiredInitialPayment: detail.sale.requiredInitialPayment,
-        initialPaymentPaid: detail.sale.paidInitialPayment,
-        initialPaymentMethod: detail.initialPaymentMethod,
-        minimumReserveAmount: detail.sale.minimumReserveAmount,
-        initialPaymentDeadline: detail.sale.initialPaymentDeadline,
-        monthlyInterest: detail.sale.monthlyInterest,
-        installmentCount: detail.sale.installmentCount,
-        status: detail.sale.status,
-      ),
-      dialogTitle: 'Editar venta',
-      submitLabel: 'Guardar cambios',
-      onClientCreated: _reloadControllerSafely,
-      onLotCreated: _reloadControllerSafely,
-      onSellerCreated: _reloadControllerSafely,
-    );
-    if (!mounted || draft == null) {
-      return;
-    }
-
-    final error = await _controller.updateSale(summary.id, draft);
-    if (!mounted) {
-      return;
-    }
-
-    _showMessage(error ?? 'Venta actualizada correctamente.');
-  }
-
   Future<void> _confirmDeleteSale(SaleSummary summary) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -526,7 +417,8 @@ class _SalesPageState extends State<SalesPage> {
         return AlertDialog(
           title: const Text('Eliminar venta'),
           content: Text(
-            'Se eliminara la venta de ${summary.clientName} para ${summary.lotDisplayCode}.',
+            '¿Está seguro que desea eliminar esta venta de ${summary.clientName} para ${summary.lotDisplayCode}?\n\n'
+            'Toma en cuenta que con ella se eliminará del sistema todo lo relacionado a dicha venta: cuotas, pagos e iniciales asociados.',
           ),
           actions: [
             TextButton(
@@ -534,8 +426,12 @@ class _SalesPageState extends State<SalesPage> {
               child: const Text('Cancelar'),
             ),
             FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFB42318),
+                foregroundColor: Colors.white,
+              ),
               onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Eliminar'),
+              child: const Text('Eliminar venta'),
             ),
           ],
         );
@@ -552,109 +448,6 @@ class _SalesPageState extends State<SalesPage> {
     }
 
     _showMessage(error ?? 'Venta eliminada correctamente.');
-  }
-
-  Future<void> _editSeller(SaleSummary summary) async {
-    final detail = await _controller.fetchDetail(summary.id);
-    if (!mounted || detail == null) {
-      return;
-    }
-
-    final sellerId = detail.sale.sellerId;
-    if (sellerId == null) {
-      _showMessage('Esta venta no tiene vendedor asignado.');
-      return;
-    }
-
-    final seller = await widget.sellerRepository.getById(sellerId);
-    if (!mounted || seller == null) {
-      _showMessage('No se pudo cargar el vendedor de la venta.');
-      return;
-    }
-
-    final updatedSeller = await SellerFormDialog.show(
-      context,
-      initialSeller: seller,
-    );
-    if (!mounted || updatedSeller == null) {
-      return;
-    }
-
-    try {
-      await widget.sellerRepository.update(updatedSeller);
-      await _controller.load(query: _controller.currentQuery);
-      if (!mounted) {
-        return;
-      }
-      _showMessage('Vendedor actualizado correctamente.');
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      FriendlyErrorMessages.forOperation(
-        'actualizar el vendedor',
-        error,
-        module: 'ventas',
-      );
-    }
-  }
-
-  Future<void> _confirmDeleteSeller(SaleSummary summary) async {
-    final detail = await _controller.fetchDetail(summary.id);
-    if (!mounted || detail == null) {
-      return;
-    }
-
-    final sellerId = detail.sale.sellerId;
-    final sellerName = detail.sellerName;
-    if (sellerId == null || sellerName == null || sellerName.isEmpty) {
-      _showMessage('Esta venta no tiene vendedor asignado.');
-      return;
-    }
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Eliminar vendedor'),
-          content: Text(
-            'Se eliminara el vendedor $sellerName. La venta quedara sin vendedor asignado.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Cancelar'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Eliminar'),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (confirmed != true) {
-      return;
-    }
-
-    try {
-      await widget.sellerRepository.delete(sellerId);
-      await _controller.load(query: _controller.currentQuery);
-      if (!mounted) {
-        return;
-      }
-      _showMessage('Vendedor eliminado correctamente.');
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      FriendlyErrorMessages.forOperation(
-        'eliminar el vendedor',
-        error,
-        module: 'ventas',
-      );
-    }
   }
 
   Future<void> _openDetail(SaleSummary summary) async {
@@ -689,15 +482,15 @@ class _SaleRow extends StatelessWidget {
     required this.sale,
     required this.hasInternet,
     required this.onTap,
-    required this.onAction,
-    required this.availableActions,
+    required this.canDeleteSale,
+    required this.onDelete,
   });
 
   final SaleSummary sale;
   final bool hasInternet;
   final VoidCallback onTap;
-  final void Function(_SaleAdminAction) onAction;
-  final List<_SaleAdminAction> availableActions;
+  final bool canDeleteSale;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -822,26 +615,12 @@ class _SaleRow extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 4),
-              // Admin popup menu
-              if (availableActions.isNotEmpty)
-                PopupMenuButton<_SaleAdminAction>(
-                  tooltip: '',
-                  onSelected: (action) {
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (!context.mounted) {
-                        return;
-                      }
-                      onAction(action);
-                    });
-                  },
-                  itemBuilder: (context) => availableActions
-                      .map(
-                        (action) => PopupMenuItem<_SaleAdminAction>(
-                          value: action,
-                          child: Text(_saleAdminActionLabel(action)),
-                        ),
-                      )
-                      .toList(growable: false),
+              if (canDeleteSale)
+                IconButton(
+                  tooltip: 'Eliminar venta',
+                  icon: const Icon(Icons.delete_outline),
+                  color: const Color(0xFFB42318),
+                  onPressed: onDelete,
                 ),
             ],
           ),
@@ -853,19 +632,6 @@ class _SaleRow extends StatelessWidget {
 
 String _formatShortDate(BuildContext context, DateTime date) {
   return MaterialLocalizations.of(context).formatShortDate(date);
-}
-
-String _saleAdminActionLabel(_SaleAdminAction action) {
-  switch (action) {
-    case _SaleAdminAction.editSale:
-      return 'Editar venta';
-    case _SaleAdminAction.deleteSale:
-      return 'Eliminar venta';
-    case _SaleAdminAction.editSeller:
-      return 'Editar vendedor';
-    case _SaleAdminAction.deleteSeller:
-      return 'Eliminar vendedor';
-  }
 }
 
 Color _saleRowStatusColor(String status) {

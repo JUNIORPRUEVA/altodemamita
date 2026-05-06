@@ -1138,7 +1138,7 @@ void main() {
     },
   );
 
-  test('no permite eliminar una venta con pagos registrados', () async {
+  test('elimina una venta con pagos registrados y sus pagos asociados', () async {
     final now = DateTime(2026, 3, 27);
 
     await clientRepository.save(
@@ -1213,10 +1213,7 @@ void main() {
       'sync_status': DatabaseSchema.syncStatusPending,
     });
 
-    await expectLater(
-      () => salesRepository.deleteSale(saleId),
-      throwsA(isA<StateError>()),
-    );
+    await salesRepository.deleteSale(saleId);
 
     final saleRows = await db.query(
       DatabaseSchema.salesTable,
@@ -1226,7 +1223,16 @@ void main() {
       limit: 1,
     );
     expect(saleRows, isNotEmpty);
-    expect(saleRows.single['deleted_at'], isNull);
+    expect(saleRows.single['deleted_at'], isNotNull);
+
+    final paymentRows = await db.query(
+      DatabaseSchema.paymentsTable,
+      columns: ['deleted_at'],
+      where: 'venta_id = ?',
+      whereArgs: [saleId],
+      limit: 1,
+    );
+    expect(paymentRows.single['deleted_at'], isNotNull);
   });
 
   test(

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import 'app_incident.dart';
+import 'benign_runtime_errors.dart';
 import 'friendly_error_messages.dart';
 import 'global_error_controller.dart';
 import 'incident_logger.dart';
@@ -44,6 +45,10 @@ class AppIncidentReporter {
     bool allowRepair = false,
     Map<String, Object?> extra = const {},
   }) async {
+    if (BenignRuntimeErrors.shouldSuppress(error)) {
+      return;
+    }
+
     final incidentLogger = _incidentLogger;
     if (incidentLogger == null) {
       return;
@@ -61,10 +66,7 @@ class AppIncidentReporter {
       module: module,
       action: action,
       incidentType: type.name,
-      extra: {
-        'action': action,
-        ...extra,
-      },
+      extra: {'action': action, ...extra},
     );
 
     if (!presentToUser) {

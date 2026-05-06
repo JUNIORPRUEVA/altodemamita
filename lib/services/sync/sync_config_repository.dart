@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../../core/config/backend_config.dart' as backend_config;
 import '../../core/security/sensitive_storage.dart';
@@ -181,11 +182,22 @@ class SyncConfigRepository {
       return;
     }
 
-    await _settingsRepository.saveMultiple({
-      syncLastRunAtKey: DateTime.now().toIso8601String(),
-      syncLastErrorKey: errorMessage ?? '',
-      syncLastStatusKey: status.name,
-    });
+    try {
+      await _settingsRepository.saveMultiple({
+        syncLastRunAtKey: DateTime.now().toIso8601String(),
+        syncLastErrorKey: errorMessage ?? '',
+        syncLastStatusKey: status.name,
+      });
+    } on DatabaseException catch (error) {
+      if (_isDatabaseClosedError(error)) {
+        return;
+      }
+      rethrow;
+    }
+  }
+
+  bool _isDatabaseClosedError(Object error) {
+    return error.toString().toLowerCase().contains('database_closed');
   }
 
   Future<SyncRuntimeState> loadRuntimeState({
