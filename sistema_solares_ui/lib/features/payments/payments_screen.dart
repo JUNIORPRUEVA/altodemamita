@@ -954,6 +954,14 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                 label: '${detail.installments.length} cuotas',
                 background: const Color(0xFFF1F4FA),
               ),
+              if (detail.overdueInstallmentsCount > 0) ...[
+                const SizedBox(width: 6),
+                DesktopTag(
+                  label: '${detail.overdueInstallmentsCount} en atraso',
+                  background: const Color(0xFFFBE6E0),
+                  foreground: const Color(0xFFA53F2B),
+                ),
+              ],
             ],
           ),
           const SizedBox(height: 14),
@@ -1059,6 +1067,11 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                 label: 'Cuotas pendientes',
                 value: '${detail.pendingInstallmentsCount}',
               ),
+              if (detail.overdueInstallmentsCount > 0)
+                _SummaryFactRow(
+                  label: 'Cuotas vencidas',
+                  value: '${detail.overdueInstallmentsCount}',
+                ),
               _SummaryFactRow(
                 label: 'Prioridad',
                 value: priority == null

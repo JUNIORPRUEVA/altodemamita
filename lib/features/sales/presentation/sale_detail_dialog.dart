@@ -299,6 +299,24 @@ class _DialogHeader extends StatelessWidget {
               ),
             ),
           ),
+          if (detail.overdueInstallmentCount > 0) ...[
+            const SizedBox(width: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: const Color(0xFFC62828).withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                'En atrasos (${detail.overdueInstallmentCount})',
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFFC62828),
+                ),
+              ),
+            ),
+          ],
           const SizedBox(width: 10),
           IconButton(
             tooltip: 'Exportar',

@@ -82,7 +82,12 @@ class SalesRepository {
         COALESCE(c.cedula, '') AS cliente_cedula,
         COALESCE(s.manzana_numero, '?') AS manzana_numero,
         COALESCE(s.solar_numero, '?') AS solar_numero,
-        COUNT(CASE WHEN q.estado <> 'ajustada' THEN 1 END) AS cuotas_generadas
+        COUNT(CASE WHEN q.estado <> 'ajustada' THEN 1 END) AS cuotas_generadas,
+        (SELECT COUNT(*) FROM ${DatabaseSchema.installmentsTable} q2
+           WHERE q2.venta_id = v.id AND q2.deleted_at IS NULL
+             AND q2.estado NOT IN ('pagada','ajustada','cancelada')
+             AND (q2.monto_cuota - COALESCE(q2.monto_pagado,0)) > 0.009
+             AND q2.fecha_vencimiento < date('now')) AS cuotas_vencidas
       FROM ${DatabaseSchema.salesTable} v
       LEFT JOIN ${DatabaseSchema.clientsTable} c ON c.id = v.cliente_id
       LEFT JOIN ${DatabaseSchema.lotsTable} s ON s.id = v.solar_id
@@ -148,7 +153,12 @@ class SalesRepository {
         COALESCE(c.cedula, '') AS cliente_cedula,
         COALESCE(s.manzana_numero, '?') AS manzana_numero,
         COALESCE(s.solar_numero, '?') AS solar_numero,
-        COUNT(CASE WHEN q.estado <> 'ajustada' THEN 1 END) AS cuotas_generadas
+        COUNT(CASE WHEN q.estado <> 'ajustada' THEN 1 END) AS cuotas_generadas,
+        (SELECT COUNT(*) FROM ${DatabaseSchema.installmentsTable} q2
+           WHERE q2.venta_id = v.id AND q2.deleted_at IS NULL
+             AND q2.estado NOT IN ('pagada','ajustada','cancelada')
+             AND (q2.monto_cuota - COALESCE(q2.monto_pagado,0)) > 0.009
+             AND q2.fecha_vencimiento < date('now')) AS cuotas_vencidas
       FROM ${DatabaseSchema.salesTable} v
       LEFT JOIN ${DatabaseSchema.clientsTable} c ON c.id = v.cliente_id
       LEFT JOIN ${DatabaseSchema.lotsTable} s ON s.id = v.solar_id
@@ -292,14 +302,14 @@ class SalesRepository {
         final existingSale = await txn.query(
           DatabaseSchema.salesTable,
           columns: ['id'],
-          where: 'solar_id = ?',
-          whereArgs: [draft.lotId],
+            where: 'solar_id = ? AND deleted_at IS NULL AND estado != ?',
+            whereArgs: [draft.lotId, 'cancelada'],
           limit: 1,
         );
+          if (existingSale.isNotEmpty) {
+            throw StateError('Ya existe una venta registrada para este solar.');
+          }
 
-        if (existingSale.isNotEmpty) {
-          throw StateError('Ya existe una venta registrada para este solar.');
-        }
 
         if (draft.downPaymentPercentage < 0 ||
             draft.downPaymentPercentage > 100) {

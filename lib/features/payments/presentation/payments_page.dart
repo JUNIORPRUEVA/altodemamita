@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/utils/dominican_formatters.dart';
@@ -222,7 +222,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
             SizedBox(width: 10),
             Expanded(
               child: Text(
-                'No se encontraron coincidencias con ese nombre, telefono, cédula o solar.',
+                'No se encontraron coincidencias con ese nombre, telefono, cÃ©dula o solar.',
                 style: TextStyle(fontSize: 13, color: Color(0xFF556079)),
               ),
             ),
@@ -322,7 +322,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Hay $remainingMatches coincidencias más. Sigue escribiendo para acotar la lista.',
+                      'Hay $remainingMatches coincidencias mÃ¡s. Sigue escribiendo para acotar la lista.',
                       style: const TextStyle(
                         fontSize: 12,
                         color: Color(0xFF6B7494),
@@ -350,7 +350,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
       details.add(sale.clientDocumentId);
     }
     details.add('Venta #${sale.saleId}');
-    return details.join('  ·  ');
+    return details.join('  Â·  ');
   }
 
   Widget _buildSaleSearchField() {
@@ -362,7 +362,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
         onSubmitted: _handleSearchSubmitted,
         style: const TextStyle(fontSize: 14),
         decoration: InputDecoration(
-          hintText: 'Buscar por nombre, telefono, cédula o número de solar',
+          hintText: 'Buscar por nombre, telefono, cÃ©dula o nÃºmero de solar',
           prefixIcon: const Icon(Icons.search, size: 18),
           suffixIcon: _saleSearchController.text.isEmpty
               ? null
@@ -446,7 +446,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
                 ),
                 const SizedBox(height: 10),
                 const Text(
-                  'Cuando exista una venta activa con pendiente, aparecerá aquí para cobrarla.',
+                  'Cuando exista una venta activa con pendiente, aparecerÃ¡ aquÃ­ para cobrarla.',
                   style: TextStyle(fontSize: 14, color: Color(0xFF6B7494)),
                   textAlign: TextAlign.center,
                 ),
@@ -506,7 +506,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Expanded(
-                  flex: 60,
+                    flex: 65,
                   child: _buildInstallmentsPanel(
                     contextData,
                     visibleInstallments,
@@ -517,7 +517,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  flex: 40,
+                    flex: 35,
                   child: _buildDetailsPanel(
                     contextData,
                     visibleHistory,
@@ -545,10 +545,10 @@ class _PaymentsPageState extends State<PaymentsPage> {
         ? 'Lista de cuotas'
         : contextData.sale.isFinancingActive
         ? 'Lista de cuotas'
-        : 'Activación del financiamiento';
+        : 'ActivaciÃ³n del financiamiento';
     final panelSubtitle = showAggregate
       ? 'Mostrando cuotas de todas las ventas activas'
-        : '${contextData.sale.clientName}  ·  ${contextData.sale.lotDisplayCode}';
+        : '${contextData.sale.clientName}  Â·  ${contextData.sale.lotDisplayCode}';
 
     return Container(
       decoration: BoxDecoration(
@@ -701,7 +701,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
             Text(
               hasFilters
                   ? 'No hay cuotas que coincidan con los filtros actuales.'
-                  : 'Esta venta todavía no tiene cuotas activas.',
+                  : 'Esta venta todavÃ­a no tiene cuotas activas.',
               style: const TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
@@ -712,7 +712,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
             const SizedBox(height: 8),
             Text(
               hasFilters
-                  ? 'Prueba ajustando el estado, la fecha o el orden para ver más resultados.'
+                  ? 'Prueba ajustando el estado, la fecha o el orden para ver mÃ¡s resultados.'
                   : 'El financiamiento inicia cuando el inicial queda completo.',
               style: const TextStyle(fontSize: 13, color: Color(0xFF8893AA)),
               textAlign: TextAlign.center,
@@ -739,11 +739,11 @@ class _PaymentsPageState extends State<PaymentsPage> {
     final pendingCount = contextData.installments.length - paidCount;
     final nextActionText = !isFinancingActive
         ? sale.pendingInitialPayment <= 0.009
-              ? 'El inicial ya está completo. La venta quedará lista para operar con cuotas.'
-              : 'El próximo pago se aplicará al inicial. Cuando el pendiente llegue a cero, la venta se activará y se generarán las cuotas.'
+              ? 'El inicial ya estÃ¡ completo. La venta quedarÃ¡ lista para operar con cuotas.'
+              : 'El prÃ³ximo pago se aplicarÃ¡ al inicial. Cuando el pendiente llegue a cero, la venta se activarÃ¡ y se generarÃ¡n las cuotas.'
         : actionableInstallment == null
-        ? 'No hay cuota vencida o exigible. Si registras un pago ahora, irá directo a capital.'
-        : 'El próximo pago cubrirá primero la cuota #${actionableInstallment.installmentNumber} con restante de ${_money(actionableInstallment.remainingAmount)}.';
+        ? 'No hay cuota vencida o exigible. Si registras un pago ahora, irÃ¡ directo a capital.'
+        : 'El prÃ³ximo pago cubrirÃ¡ primero la cuota #${actionableInstallment.installmentNumber} con restante de ${_money(actionableInstallment.remainingAmount)}.';
 
     final content = Padding(
       padding: const EdgeInsets.all(16),
@@ -786,7 +786,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
                 _DetailItem(
                   label: isFinancingActive
                       ? 'Saldo pendiente'
-                      : 'Inicial mínimo requerido',
+                      : 'Inicial mÃ­nimo requerido',
                   value: _money(
                     isFinancingActive
                         ? sale.pendingBalance
@@ -917,7 +917,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
             ),
             child: visibleHistory.isEmpty
                 ? const Text(
-                    'Todavía no hay pagos registrados para esta venta.',
+                    'TodavÃ­a no hay pagos registrados para esta venta.',
                     style: TextStyle(fontSize: 13, color: Color(0xFF8893AA)),
                   )
                 : SizedBox(
@@ -939,7 +939,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
                               payment.installmentNumber,
                             ),
                             subtitle:
-                                '${_formatDate(payment.paymentDate)}  ·  ${_capitalize(payment.paymentMethod)}',
+                                '${_formatDate(payment.paymentDate)}  Â·  ${_capitalize(payment.paymentMethod)}',
                             amount: _money(payment.amountPaid),
                             color: _paymentTypeColor(payment.paymentType),
                             icon: _paymentTypeIcon(payment.paymentType),
@@ -1486,7 +1486,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
     return 'pending';
   }
 
-  Future<void> _registerPayment() async {
+  Future<void> _registerPayment({String? initialPaymentType}) async {
     final contextData = _controller.selectedContext;
     if (contextData == null) {
       return;
@@ -1500,6 +1500,8 @@ class _PaymentsPageState extends State<PaymentsPage> {
       defaultPaymentMethod: _controller.defaultPaymentMethod,
       registeredByUserId: currentUserId,
       actionableInstallment: contextData.actionableInstallment,
+      overdueInstallments: contextData.overdueInstallments,
+      initialPaymentType: initialPaymentType,
     );
     if (!mounted || draft == null) {
       return;
@@ -1627,7 +1629,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          title: const Text('¿Qué deseas imprimir?'),
+          title: const Text('Â¿QuÃ© deseas imprimir?'),
           content: const SizedBox(
             width: 360,
             child: Text(

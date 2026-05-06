@@ -1,4 +1,4 @@
-class PaymentDraft {
+﻿class PaymentDraft {
   const PaymentDraft({
     required this.saleId,
     required this.paymentDate,
@@ -7,6 +7,7 @@ class PaymentDraft {
     this.registeredByUserId,
     this.yearToPay,
     this.printReceiptAutomatically = false,
+    this.paymentTypeOverride,
   });
 
   final int saleId;
@@ -18,4 +19,9 @@ class PaymentDraft {
   /// Año al que aplica el pago (opcional). Ej: "2025".
   final String? yearToPay;
   final bool printReceiptAutomatically;
+
+  /// Optional explicit payment type selected by the user.
+  /// Values: 'cuota', 'cuota_vencida', 'abono_capital', 'abono_inicial', 'apartado'.
+  /// When null, type is derived automatically from the sale state.
+  final String? paymentTypeOverride;
 }

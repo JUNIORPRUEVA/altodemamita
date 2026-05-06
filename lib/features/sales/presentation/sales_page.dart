@@ -586,6 +586,27 @@ class _SaleRow extends StatelessWidget {
                             ),
                           ),
                         ),
+                        if (sale.overdueInstallmentCount > 0) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFC62828).withValues(alpha: 0.10),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              'En atrasos (${sale.overdueInstallmentCount})',
+                              style: const TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFFC62828),
+                              ),
+                            ),
+                          ),
+                        ],
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(

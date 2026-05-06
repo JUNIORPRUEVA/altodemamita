@@ -2,6 +2,16 @@ import 'package:flutter/material.dart';
 
 import '../../../installments/domain/installment.dart';
 
+String _effectiveStatus(Installment item) {
+  if (item.status == 'pagada' || item.status == 'ajustada') return item.status;
+  if (item.remainingAmount <= 0.009) return item.status;
+  final today = DateTime.now();
+  final todayDate = DateTime(today.year, today.month, today.day);
+  final dueDate = DateTime(item.dueDate.year, item.dueDate.month, item.dueDate.day);
+  if (dueDate.isBefore(todayDate)) return 'vencida';
+  return item.status;
+}
+
 class InstallmentsFlatTable extends StatelessWidget {
   const InstallmentsFlatTable({
     super.key,
@@ -88,7 +98,8 @@ class _Row extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final statusColor = _statusColor(item.status);
+    final effective = _effectiveStatus(item);
+    final statusColor = _statusColor(effective);
     final settled = item.remainingAmount <= 0.009;
 
     return Container(
@@ -121,7 +132,7 @@ class _Row extends StatelessWidget {
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
-                  _statusLabel(item.status),
+                  _statusLabel(effective),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(

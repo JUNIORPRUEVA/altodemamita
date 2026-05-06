@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:developer' as developer;
 
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -174,7 +174,7 @@ class PaymentsRepository {
     );
 
     if (clientRows.isEmpty) {
-      throw StateError('No se encontró el cliente seleccionado.');
+      throw StateError('No se encontrÃ³ el cliente seleccionado.');
     }
 
     final client = clientRows.first;
@@ -674,6 +674,35 @@ class PaymentsRepository {
     }
 
     final timestamp = draft.paymentDate.toIso8601String();
+    // Block capital payment when conditions prevent it.
+    if (draft.paymentTypeOverride == 'abono_capital') {
+      if (pendingInitial > 0.009) {
+        throw StateError(
+          'No puedes aplicar pago a capital porque este cliente tiene un inicial pendiente. Primero debes completar el pago inicial.',
+        );
+      }
+
+      final overdueCheck = await txn.rawQuery(
+        '''
+        SELECT id
+        FROM ${DatabaseSchema.installmentsTable}
+        WHERE venta_id = ?
+          AND deleted_at IS NULL
+          AND estado NOT IN ('pagada', 'ajustada', 'cancelada')
+          AND (monto_cuota - monto_pagado) > 0.009
+          AND date(fecha_vencimiento) < date(?)
+        LIMIT 1
+      ''',
+        [draft.saleId, timestamp],
+      );
+
+      if (overdueCheck.isNotEmpty) {
+        throw StateError(
+          'No puedes aplicar pago a capital porque este cliente tiene cuotas vencidas. Primero debes saldar las cuotas atrasadas.',
+        );
+      }
+    }
+
     var remainingAmount = _roundCurrency(draft.amountPaid);
 
     if (saleStatus == 'apartado' || saleStatus == 'inicial_incompleto') {
@@ -833,18 +862,22 @@ class PaymentsRepository {
     );
     final installments = installmentRows.map(Installment.fromMap).toList();
     final outstandingPrincipal = _calculateOutstandingPrincipal(installments);
-    final actionableInstallment = _findActionableInstallment(
-      installments,
-      draft.paymentDate,
-    );
 
     var totalPrincipalReduction = 0.0;
     var currentInstallmentNumber = 0;
 
-    if (actionableInstallment != null) {
-      currentInstallmentNumber = actionableInstallment.installmentNumber;
+    // Resolve which installments to process based on the user's payment type choice.
+    final installmentsToProcess = _resolveInstallmentsToProcess(
+      installments: installments,
+      paymentDate: draft.paymentDate,
+      paymentTypeOverride: draft.paymentTypeOverride,
+    );
+
+    for (final installment in installmentsToProcess) {
+      if (remainingAmount <= 0.009) break;
+      currentInstallmentNumber = installment.installmentNumber;
       final installmentOutcome = _applyToInstallment(
-        installment: actionableInstallment,
+        installment: installment,
         amount: remainingAmount,
       );
 
@@ -860,7 +893,7 @@ class PaymentsRepository {
             'sync_status': DatabaseSchema.syncStatusPending,
           },
           where: 'id = ?',
-          whereArgs: [actionableInstallment.id],
+          whereArgs: [installment.id],
         );
 
         await txn.insert(DatabaseSchema.paymentsTable, {
@@ -868,7 +901,7 @@ class PaymentsRepository {
           'venta_id': draft.saleId,
           'cliente_id': clientId,
           'usuario_id': registeredByUserId,
-          'cuota_id': actionableInstallment.id,
+          'cuota_id': installment.id,
           'fecha_pago': timestamp,
           'monto_pagado': installmentOutcome.appliedAmount,
           'metodo_pago': draft.paymentMethod,
@@ -973,6 +1006,27 @@ class PaymentsRepository {
     return null;
   }
 
+  /// Returns the list of installments to process for a given payment type.
+  /// - 'abono_capital'        → [] (skip all, apply to capital)
+  /// - 'todas_cuotas_vencidas' → all overdue installments in order
+  /// - everything else        → [first actionable installment] or []
+  List<Installment> _resolveInstallmentsToProcess({
+    required List<Installment> installments,
+    required DateTime paymentDate,
+    required String? paymentTypeOverride,
+  }) {
+    if (paymentTypeOverride == 'abono_capital') return const [];
+    if (paymentTypeOverride == 'todas_cuotas_vencidas') {
+      return installments.where((i) {
+        if (_isClosedStatus(i.status)) return false;
+        if (i.remainingAmount <= 0.009) return false;
+        return !i.dueDate.isAfter(paymentDate);
+      }).toList();
+    }
+    final actionable = _findActionableInstallment(installments, paymentDate);
+    return actionable == null ? const [] : [actionable];
+  }
+
   _InstallmentPaymentOutcome _applyToInstallment({
     required Installment installment,
     required double amount,
@@ -1038,7 +1092,7 @@ class PaymentsRepository {
       );
     } catch (error, stackTrace) {
       _log(
-        'Sync falló -> scope=payments operation=$operationLabel error=$error stack=$stackTrace',
+        'Sync fallÃ³ -> scope=payments operation=$operationLabel error=$error stack=$stackTrace',
       );
     }
   }

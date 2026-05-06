@@ -19,6 +19,7 @@ class SaleSummary {
     required this.installmentCount,
     required this.status,
     required this.generatedInstallments,
+    this.overdueInstallmentCount = 0,
   });
 
   final int id;
@@ -40,6 +41,7 @@ class SaleSummary {
   final int installmentCount;
   final String status;
   final int generatedInstallments;
+  final int overdueInstallmentCount;
 
   factory SaleSummary.fromMap(Map<String, Object?> map) {
     return SaleSummary(
@@ -67,6 +69,7 @@ class SaleSummary {
       installmentCount: map['cantidad_cuotas'] as int? ?? 0,
       status: map['estado'] as String? ?? 'activa',
       generatedInstallments: map['cuotas_generadas'] as int? ?? 0,
+      overdueInstallmentCount: map['cuotas_vencidas'] as int? ?? 0,
     );
   }
 

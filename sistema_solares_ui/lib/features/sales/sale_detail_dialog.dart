@@ -435,9 +435,23 @@ class _DetailHeader extends StatelessWidget {
                   const SizedBox(height: 10),
                   Align(
                     alignment: Alignment.centerLeft,
-                    child: _StatusChip(
-                      label: viewModel.statusLabel,
-                      tone: viewModel.statusTone,
+                    child: Wrap(
+                      spacing: 8,
+                      children: [
+                        _StatusChip(
+                          label: viewModel.statusLabel,
+                          tone: viewModel.statusTone,
+                        ),
+                        if (viewModel.overdueInstallmentCount > 0)
+                          _StatusChip(
+                            label:
+                                'En atrasos (${viewModel.overdueInstallmentCount})',
+                            tone: const _StatusTone(
+                              Color(0xFFFBE6E0),
+                              Color(0xFFA53F2B),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                 ],
@@ -455,6 +469,17 @@ class _DetailHeader extends StatelessWidget {
                   label: viewModel.statusLabel,
                   tone: viewModel.statusTone,
                 ),
+                if (viewModel.overdueInstallmentCount > 0) ...[
+                  const SizedBox(width: 6),
+                  _StatusChip(
+                    label:
+                        'En atrasos (${viewModel.overdueInstallmentCount})',
+                    tone: const _StatusTone(
+                      Color(0xFFFBE6E0),
+                      Color(0xFFA53F2B),
+                    ),
+                  ),
+                ],
                 const SizedBox(width: 8),
               ],
               compact
@@ -535,7 +560,9 @@ class _TopInfoBand extends StatelessWidget {
                 _InfoItem('Cedula vend.', viewModel.sellerDocumentId),
                 _InfoItem('Tel. vendedor', viewModel.sellerPhone),
                 _InfoItem('Contrato', viewModel.contractNumber),
-                _InfoItem('Estado', viewModel.statusLabel),
+                _InfoItem('Estado', viewModel.overdueInstallmentCount > 0
+                    ? '${viewModel.statusLabel} · En atrasos (${viewModel.overdueInstallmentCount})'
+                    : viewModel.statusLabel),
               ],
             ),
           ];
@@ -660,6 +687,13 @@ class _SaleInstallmentsPage extends StatelessWidget {
                       label: '${viewModel.installments.length} cuotas',
                       background: const Color(0xFFF1F4FA),
                     ),
+                    if (viewModel.overdueInstallmentCount > 0)
+                      DesktopTag(
+                        label:
+                            '${viewModel.overdueInstallmentCount} en atraso',
+                        background: const Color(0xFFFBE6E0),
+                        foreground: const Color(0xFFA53F2B),
+                      ),
                   ],
                 ),
               ),
@@ -1443,6 +1477,7 @@ class _SaleDetailViewModel {
     required this.payments,
     required this.paidInstallmentsCount,
     required this.remainingInstallmentsCount,
+    this.overdueInstallmentCount = 0,
   });
 
   final String saleId;
@@ -1478,6 +1513,7 @@ class _SaleDetailViewModel {
   final List<_PaymentViewRow> payments;
   final int paidInstallmentsCount;
   final int remainingInstallmentsCount;
+  final int overdueInstallmentCount;
 
   static _SaleDetailViewModel fromMap(Map<String, dynamic> detail) {
     final currency = AppNumberFormats.currency;
@@ -1592,12 +1628,13 @@ class _SaleDetailViewModel {
           ? _number(installmentSync['ending_balance'])
           : math.max(openingBalance - principalAmount, 0.0);
       final pendingAmount = math.max(totalAmount - paidAmount, 0.0);
+      final dueDate = _date(installmentSync['due_date'] ?? installment['dueDate']);
       final statusRaw = _string(
         installmentSync['status'] ?? installment['status'],
         fallback: 'pending',
       );
-      final statusLabel = _installmentStatusLabel(statusRaw, pendingAmount);
-      final statusTone = _installmentStatusTone(statusRaw, pendingAmount);
+      final statusLabel = _installmentStatusLabel(statusRaw, pendingAmount, dueDate);
+      final statusTone = _installmentStatusTone(statusRaw, pendingAmount, dueDate);
 
       totalCapital += principalAmount;
       totalInterest += interestAmount;
@@ -1613,7 +1650,7 @@ class _SaleDetailViewModel {
             installment['installmentNumber'],
           ]),
           dueDateLabel: _formatDate(
-            _date(installmentSync['due_date'] ?? installment['dueDate']),
+            dueDate,
           ),
           openingBalanceLabel: currency.format(openingBalance),
           interestLabel: currency.format(interestAmount),
@@ -1757,6 +1794,7 @@ class _SaleDetailViewModel {
       payments: paymentRows,
       paidInstallmentsCount: paidInstallmentsCount,
       remainingInstallmentsCount: remainingInstallmentsCount,
+      overdueInstallmentCount: overdueInstallmentCount,
     );
   }
 
@@ -1870,21 +1908,32 @@ class _SaleDetailViewModel {
     return const _StatusTone(Color(0xFFEAF0F7), Color(0xFF223048));
   }
 
-  static String _installmentStatusLabel(String status, double pendingAmount) {
+  static String _installmentStatusLabel(
+    String status,
+    double pendingAmount,
+    DateTime dueDate,
+  ) {
     final normalized = status.trim().toLowerCase();
     if (normalized == 'paid' ||
         normalized == 'pagada' ||
         pendingAmount <= 0.009) {
       return 'pagada';
     }
-    if (normalized == 'partial' || normalized == 'parcial') {
-      return 'parcial';
-    }
-    if (normalized == 'overdue' || normalized == 'vencida') {
-      return 'vencida';
-    }
     if (normalized == 'cancelled' || normalized == 'cancelada') {
       return 'cancelada';
+    }
+    // Date-based overdue check — same logic as the Windows desktop
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final due = DateTime(dueDate.year, dueDate.month, dueDate.day);
+    final isOverdueByDate = due.millisecondsSinceEpoch > 0 && due.isBefore(today);
+    if (normalized == 'overdue' || normalized == 'vencida' || isOverdueByDate) {
+      return normalized == 'partial' || normalized == 'parcial'
+          ? 'vencida parcial'
+          : 'vencida';
+    }
+    if (normalized == 'partial' || normalized == 'parcial') {
+      return 'parcial';
     }
     return 'pendiente';
   }
@@ -1892,20 +1941,19 @@ class _SaleDetailViewModel {
   static _StatusTone _installmentStatusTone(
     String status,
     double pendingAmount,
+    DateTime dueDate,
   ) {
-    final normalized = status.trim().toLowerCase();
-    if (normalized == 'paid' ||
-        normalized == 'pagada' ||
-        pendingAmount <= 0.009) {
+    final label = _installmentStatusLabel(status, pendingAmount, dueDate);
+    if (label == 'pagada') {
       return const _StatusTone(Color(0xFFF1F8EE), Color(0xFF3B8F2D));
     }
-    if (normalized == 'partial' || normalized == 'parcial') {
+    if (label == 'parcial') {
       return const _StatusTone(Color(0xFFEAF0FF), Color(0xFF2E5AAC));
     }
-    if (normalized == 'overdue' || normalized == 'vencida') {
+    if (label == 'vencida' || label == 'vencida parcial') {
       return const _StatusTone(Color(0xFFFFF1E3), Color(0xFFD87A0E));
     }
-    if (normalized == 'cancelled' || normalized == 'cancelada') {
+    if (label == 'cancelada') {
       return const _StatusTone(Color(0xFFFBE6E0), Color(0xFFB05233));
     }
     return const _StatusTone(Color(0xFFFFF6E8), Color(0xFFE08A1A));
