@@ -36,9 +36,13 @@ class ReceiptDialog {
     required ReceiptRepository receiptRepository,
   }) async {
     try {
-      final receipt = await receiptRepository.fetchReceiptByPaymentId(paymentId);
+      final receipt = await receiptRepository.fetchReceiptByPaymentId(
+        paymentId,
+      );
       if (receipt == null) {
-        throw StateError('No se pudo preparar el ticket del pago seleccionado.');
+        throw StateError(
+          'No se pudo preparar el ticket del pago seleccionado.',
+        );
       }
 
       final printerRepository = PrinterRepository();
@@ -50,7 +54,8 @@ class ReceiptDialog {
         if (systemPrinter != null) {
           await Printing.directPrintPdf(
             printer: systemPrinter,
-            onLayout: (_) => ReceiptPdfBuilder.build(receipt),
+            onLayout: (format) =>
+                ReceiptPdfBuilder.build(receipt, pageFormat: format),
             name: 'Recibo-${receipt.receiptNumber}',
             usePrinterSettings: true,
           );
@@ -59,7 +64,8 @@ class ReceiptDialog {
       }
 
       await Printing.layoutPdf(
-        onLayout: (_) => ReceiptPdfBuilder.build(receipt),
+        onLayout: (format) =>
+            ReceiptPdfBuilder.build(receipt, pageFormat: format),
       );
     } catch (error) {
       FriendlyErrorMessages.forOperation(
@@ -149,7 +155,8 @@ class _ReceiptDialogContentState extends State<_ReceiptDialogContent> {
         if (systemPrinter != null) {
           await Printing.directPrintPdf(
             printer: systemPrinter,
-            onLayout: (_) => ReceiptPdfBuilder.build(receipt),
+            onLayout: (format) =>
+                ReceiptPdfBuilder.build(receipt, pageFormat: format),
             name: 'Recibo-${receipt.receiptNumber}',
             usePrinterSettings: true,
           );
@@ -158,7 +165,8 @@ class _ReceiptDialogContentState extends State<_ReceiptDialogContent> {
       }
 
       await Printing.layoutPdf(
-        onLayout: (_) => ReceiptPdfBuilder.build(receipt),
+        onLayout: (format) =>
+            ReceiptPdfBuilder.build(receipt, pageFormat: format),
       );
     } catch (error) {
       if (!mounted) {
@@ -328,7 +336,9 @@ class _ReceiptDialogContentState extends State<_ReceiptDialogContent> {
                                           child: SizedBox(
                                             width: ReceiptView.documentWidth,
                                             height: ReceiptView.documentHeight,
-                                            child: ReceiptView(receipt: receipt),
+                                            child: ReceiptView(
+                                              receipt: receipt,
+                                            ),
                                           ),
                                         ),
                                       ),
@@ -359,10 +369,7 @@ class _ReceiptDialogContentState extends State<_ReceiptDialogContent> {
 }
 
 class _DialogHeader extends StatelessWidget {
-  const _DialogHeader({
-    required this.receiptNumber,
-    required this.isWide,
-  });
+  const _DialogHeader({required this.receiptNumber, required this.isWide});
 
   final String receiptNumber;
   final bool isWide;

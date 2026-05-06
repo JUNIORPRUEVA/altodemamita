@@ -99,6 +99,18 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
     });
   }
 
+  void _openMobilePaymentsDetail(String saleId) {
+    final apiClient = context.read<ApiClient>();
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _MobilePaymentsDetailPage(
+          saleId: saleId,
+          apiClient: apiClient,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final refreshTick = context.watch<RealtimeController>().refreshTick;
@@ -332,27 +344,11 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                                 constraints.maxWidth < 1100 ||
                                 constraints.maxHeight < 720;
                             if (stacked && compact) {
-                              return ListView(
-                                children: [
-                                  _buildSalesPanel(
-                                    data,
-                                    currency,
-                                    compact,
-                                    scrollable: false,
-                                  ),
-                                  const SizedBox(height: 12),
-                                  if (activeSelectedSale != null) ...[
-                                    _buildMobileSummaryPanel(
-                                      activeSelectedSale,
-                                      currency,
-                                    ),
-                                    const SizedBox(height: 12),
-                                    _buildMobileDetailPanel(
-                                      activeSelectedSale,
-                                      currency,
-                                    ),
-                                  ],
-                                ],
+                              return _buildSalesPanel(
+                                data,
+                                currency,
+                                compact,
+                                onSaleTap: _openMobilePaymentsDetail,
                               );
                             }
 
@@ -598,9 +594,13 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
   }
 
   bool _matchesSalesFilter(PaymentSaleSummary sale) {
+    final status = sale.status.toLowerCase();
+    final hasPending =
+        sale.pendingInitialPayment > 0.009 || sale.pendingBalance > 0.009;
     return switch (_salesFilter) {
-      'pending' =>
-        sale.pendingInitialPayment > 0.009 || sale.pendingBalance > 0.009,
+      'pending' => hasPending && status != 'overdue',
+      'overdue' => status == 'overdue',
+      'paid' => !hasPending || status == 'completed',
       'completed' => sale.paymentsCount > 0,
       _ => true,
     };
@@ -611,6 +611,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
     NumberFormat currency,
     bool compact, {
     bool scrollable = true,
+    ValueChanged<String>? onSaleTap,
   }) {
     final visibleSales = _filterSales(data.sales);
     final content = visibleSales.isEmpty
@@ -624,7 +625,13 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                   children: visibleSales
                       .map((sale) {
                         final selected = sale.id == _selectedSaleId;
-                        return _buildSaleRow(sale, selected, compact, currency);
+                        return _buildSaleRow(
+                          sale,
+                          selected,
+                          compact,
+                          currency,
+                          onTap: onSaleTap,
+                        );
                       })
                       .toList(growable: false),
                 )
@@ -632,7 +639,13 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                   children: visibleSales
                       .map((sale) {
                         final selected = sale.id == _selectedSaleId;
-                        return _buildSaleRow(sale, selected, compact, currency);
+                        return _buildSaleRow(
+                          sale,
+                          selected,
+                          compact,
+                          currency,
+                          onTap: onSaleTap,
+                        );
                       })
                       .toList(growable: false),
                 ));
@@ -694,14 +707,18 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
     PaymentSaleSummary sale,
     bool selected,
     bool compact,
-    NumberFormat currency,
-  ) {
+    NumberFormat currency, {
+    ValueChanged<String>? onTap,
+  }) {
+    final tapHandler = onTap == null
+        ? () => _selectSale(sale.id)
+        : () => onTap(sale.id);
     if (compact) {
       return _MobileSaleRow(
         sale: sale,
         selected: selected,
         currency: currency,
-        onTap: () => _selectSale(sale.id),
+        onTap: tapHandler,
         statusLabel: _statusLabel(sale.status),
         statusBackground: _statusBackground(sale.status),
         statusForeground: _statusForeground(sale.status),
@@ -712,7 +729,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
     return Container(
       color: selected ? const Color(0xFFF4F7FD) : Colors.transparent,
       child: DesktopListRow(
-        onTap: () => _selectSale(sale.id),
+        onTap: tapHandler,
         height: compact ? 98 : 90,
         leading: Container(
           width: compact ? 38 : 44,
@@ -1261,7 +1278,8 @@ class _PaymentsFilterBar extends StatelessWidget {
     final chips = [
       ('all', 'Todas'),
       ('pending', 'Pendientes'),
-      ('completed', 'Realizados'),
+      ('overdue', 'Vencidas'),
+      ('paid', 'Pagadas'),
     ];
 
     return Wrap(
@@ -2111,3 +2129,339 @@ class _InlineInfoBadge extends StatelessWidget {
     );
   }
 }
+
+class _MobilePaymentsDetailPage extends StatefulWidget {
+  const _MobilePaymentsDetailPage({
+    required this.saleId,
+    required this.apiClient,
+  });
+
+  final String saleId;
+  final ApiClient apiClient;
+
+  @override
+  State<_MobilePaymentsDetailPage> createState() =>
+      _MobilePaymentsDetailPageState();
+}
+
+class _MobilePaymentsDetailPageState extends State<_MobilePaymentsDetailPage> {
+  static const int _pageSize = 6;
+  Future<PaymentSaleDetail>? _future;
+  _MobilePaymentsDetailTab _tab = _MobilePaymentsDetailTab.payments;
+  int _page = 1;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = PaymentsService(widget.apiClient).fetchSaleDetail(widget.saleId);
+  }
+
+  void _reload() {
+    setState(() {
+      _future = PaymentsService(widget.apiClient).fetchSaleDetail(widget.saleId);
+    });
+  }
+
+  void _setTab(_MobilePaymentsDetailTab tab) {
+    if (_tab == tab) return;
+    setState(() {
+      _tab = tab;
+      _page = 1;
+    });
+  }
+
+  void _setPage(int page) {
+    if (page < 1 || page == _page) return;
+    setState(() => _page = page);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final currency = AppNumberFormats.currency;
+    return Scaffold(
+      backgroundColor: const Color(0xFFF0F3F8),
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
+        elevation: 0,
+        leading: BackButton(onPressed: () => Navigator.of(context).pop()),
+        title: const Text(
+          'Detalle de pagos',
+          style: TextStyle(
+            fontWeight: FontWeight.w800,
+            color: Color(0xFF10263D),
+            fontSize: 16,
+          ),
+        ),
+        actions: [
+          IconButton(
+            tooltip: 'Recargar',
+            onPressed: _reload,
+            icon: const Icon(Icons.refresh_rounded, color: Color(0xFF173450)),
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: FutureBuilder<PaymentSaleDetail>(
+          future: _future,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasError) {
+              return DesktopPageError(
+                message: snapshot.error.toString(),
+                onRetry: _reload,
+              );
+            }
+            final detail = snapshot.data!;
+            final isPayments = _tab == _MobilePaymentsDetailTab.payments;
+            final totalItems = isPayments
+                ? detail.history.length
+                : detail.installments.length;
+            final totalPages = totalItems == 0
+                ? 1
+                : (totalItems / _pageSize).ceil();
+            final currentPage = _page.clamp(1, totalPages);
+            final startIndex = (currentPage - 1) * _pageSize;
+            final endIndex = (startIndex + _pageSize).clamp(0, totalItems);
+
+            return SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(10, 10, 10, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _MobilePaymentsDetailSummary(
+                    detail: detail,
+                    currency: currency,
+                  ),
+                  const SizedBox(height: 12),
+                  DesktopCompactSurface(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _MobileDetailSegmentedControl(
+                          currentTab: _tab,
+                          paymentsCount: detail.history.length,
+                          installmentsCount: detail.installments.length,
+                          onChanged: _setTab,
+                        ),
+                        const SizedBox(height: 12),
+                        if (totalItems == 0)
+                          DesktopEmptyState(
+                            icon: isPayments
+                                ? Icons.receipt_long_outlined
+                                : Icons.view_list_outlined,
+                            title: isPayments
+                                ? 'Sin pagos visibles'
+                                : 'Sin cuotas visibles',
+                            message: isPayments
+                                ? 'Esta venta aun no tiene pagos registrados.'
+                                : 'Esta venta no tiene cuotas visibles en este momento.',
+                          )
+                        else ...[
+                          for (
+                            final index in List<int>.generate(
+                              endIndex - startIndex,
+                              (i) => startIndex + i,
+                            )
+                          ) ...[
+                            if (isPayments)
+                              _MobilePaymentRow(
+                                payment: detail.history[index],
+                                currency: currency,
+                                formatDate: _formatDateStatic,
+                                paymentBackground: _paymentBackgroundStatic,
+                                paymentForeground: _paymentForegroundStatic,
+                                paymentIcon: _paymentIconStatic,
+                                paymentMethodLabel: _paymentMethodLabelStatic,
+                              )
+                            else
+                              _MobileInstallmentRow(
+                                installment: detail.installments[index],
+                                currency: currency,
+                                installmentBackground:
+                                    _installmentBackgroundStatic,
+                                installmentForeground:
+                                    _installmentForegroundStatic,
+                              ),
+                            if (index != endIndex - 1)
+                              const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 4),
+                                child: Divider(height: 1),
+                              ),
+                          ],
+                          const SizedBox(height: 12),
+                          _MobileMiniPagination(
+                            currentPage: currentPage,
+                            totalPages: totalPages,
+                            onPrevious: currentPage > 1
+                                ? () => _setPage(currentPage - 1)
+                                : null,
+                            onNext: currentPage < totalPages
+                                ? () => _setPage(currentPage + 1)
+                                : null,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _MobilePaymentsDetailSummary extends StatelessWidget {
+  const _MobilePaymentsDetailSummary({
+    required this.detail,
+    required this.currency,
+  });
+
+  final PaymentSaleDetail detail;
+  final NumberFormat currency;
+
+  @override
+  Widget build(BuildContext context) {
+    final summary = detail.summary;
+    return DesktopCompactSurface(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  summary.clientName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF10263D),
+                    fontSize: 15.5,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              DesktopTag(
+                label: detail.stageLabel,
+                background: const Color(0xFFF7F1E4),
+                foreground: const Color(0xFF8C5A2C),
+              ),
+            ],
+          ),
+          if (summary.contractNumber.isNotEmpty ||
+              summary.lotLabel.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              [
+                if (summary.contractNumber.isNotEmpty) summary.contractNumber,
+                if (summary.lotLabel.isNotEmpty) summary.lotLabel,
+              ].join('  •  '),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Color(0xFF6E7791),
+                fontSize: 11.6,
+                height: 1.2,
+              ),
+            ),
+          ],
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _SummaryMetricPill(
+                label: 'Pendiente',
+                value: currency.format(summary.pendingBalance),
+              ),
+              _SummaryMetricPill(
+                label: 'Pagado',
+                value: currency.format(summary.totalPaid),
+                tone: _SummaryTone.success,
+              ),
+              _SummaryMetricPill(
+                label: 'Pagos',
+                value: '${detail.history.length}',
+                tone: _SummaryTone.success,
+              ),
+              _SummaryMetricPill(
+                label: 'Cuotas',
+                value: '${detail.installments.length}',
+                tone: _SummaryTone.accent,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+String _formatDateStatic(DateTime? value) {
+  if (value == null) return '-';
+  final day = value.day.toString().padLeft(2, '0');
+  final month = value.month.toString().padLeft(2, '0');
+  return '$day/$month/${value.year}';
+}
+
+Color _installmentBackgroundStatic(String status) {
+  return switch (status) {
+    'pagada' => const Color(0xFFEAF4ED),
+    'cancelada' => const Color(0xFFF3F4F6),
+    'vencida' || 'vencida parcial' => const Color(0xFFFBE6E0),
+    'parcial' => const Color(0xFFFBEFDF),
+    _ => const Color(0xFFF1F4FA),
+  };
+}
+
+Color _installmentForegroundStatic(String status) {
+  return switch (status) {
+    'pagada' => const Color(0xFF2F6F5C),
+    'cancelada' => const Color(0xFF556079),
+    'vencida' || 'vencida parcial' => const Color(0xFFA53F2B),
+    'parcial' => const Color(0xFFB06618),
+    _ => const Color(0xFF223048),
+  };
+}
+
+Color _paymentBackgroundStatic(String type) {
+  return switch (type) {
+    'abono_capital' => const Color(0xFFE8F0FD),
+    'apartado' || 'abono_inicial' => const Color(0xFFFBEFDF),
+    _ => const Color(0xFFEAF4ED),
+  };
+}
+
+Color _paymentForegroundStatic(String type) {
+  return switch (type) {
+    'abono_capital' => const Color(0xFF2E5AAC),
+    'apartado' || 'abono_inicial' => const Color(0xFFB06618),
+    _ => const Color(0xFF2F6F5C),
+  };
+}
+
+IconData _paymentIconStatic(String type) {
+  return switch (type) {
+    'abono_capital' => Icons.trending_down_outlined,
+    'apartado' || 'abono_inicial' => Icons.flag_outlined,
+    _ => Icons.receipt_long_outlined,
+  };
+}
+
+String _paymentMethodLabelStatic(String method) {
+  return switch (method) {
+    'cash' => 'Efectivo',
+    'transfer' => 'Transferencia',
+    'card' => 'Tarjeta',
+    'check' => 'Cheque',
+    'mobile_wallet' => 'Billetera movil',
+    'mixed' => 'Mixto',
+    _ => method.isEmpty ? 'Metodo no definido' : method,
+  };
+}
+

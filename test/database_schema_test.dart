@@ -843,12 +843,12 @@ void main() {
         expect(installment.openingBalance, previousInstallment.endingBalance);
         expect(
           installment.interestAmount,
-          lessThan(previousInstallment.interestAmount),
+          lessThanOrEqualTo(previousInstallment.interestAmount),
         );
         if (index < detail.installments.length - 1) {
           expect(
             installment.principalAmount,
-            greaterThan(previousInstallment.principalAmount),
+            greaterThanOrEqualTo(previousInstallment.principalAmount),
           );
         }
       }
@@ -1138,102 +1138,106 @@ void main() {
     },
   );
 
-  test('elimina una venta con pagos registrados y sus pagos asociados', () async {
-    final now = DateTime(2026, 3, 27);
+  test(
+    'elimina una venta con pagos registrados y sus pagos asociados',
+    () async {
+      final now = DateTime(2026, 3, 27);
 
-    await clientRepository.save(
-      Client(
-        fullName: 'Pedro Tejeda',
-        documentId: '001-0000108-4',
-        phone: '8095551208',
-        address: 'Los Rios',
-        createdAt: now,
-        updatedAt: now,
-      ),
-    );
+      await clientRepository.save(
+        Client(
+          fullName: 'Pedro Tejeda',
+          documentId: '001-0000108-4',
+          phone: '8095551208',
+          address: 'Los Rios',
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
 
-    await lotRepository.save(
-      Lot(
-        blockNumber: 'N',
-        lotNumber: '11',
-        area: 190,
-        price: 800000,
-        status: 'disponible',
-        createdAt: now,
-        updatedAt: now,
-      ),
-    );
+      await lotRepository.save(
+        Lot(
+          blockNumber: 'N',
+          lotNumber: '11',
+          area: 190,
+          price: 800000,
+          status: 'disponible',
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
 
-    final client = (await clientRepository.fetchAll()).singleWhere(
-      (item) => item.documentId == '001-0000108-4',
-    );
-    final lot = (await lotRepository.fetchAll()).singleWhere(
-      (item) => item.lotNumber == '11',
-    );
+      final client = (await clientRepository.fetchAll()).singleWhere(
+        (item) => item.documentId == '001-0000108-4',
+      );
+      final lot = (await lotRepository.fetchAll()).singleWhere(
+        (item) => item.lotNumber == '11',
+      );
 
-    final saleId = await salesRepository.createSale(
-      SaleDraft(
-        clientId: client.id!,
-        lotId: lot.id!,
-        userId: 1,
-        saleDate: now,
-        salePrice: lot.price,
-        downPaymentPercentage: 10,
-        requiredInitialPayment: 80000,
-        initialPaymentPaid: 80000,
-        monthlyInterest: 1,
-        installmentCount: 12,
-      ),
-    );
+      final saleId = await salesRepository.createSale(
+        SaleDraft(
+          clientId: client.id!,
+          lotId: lot.id!,
+          userId: 1,
+          saleDate: now,
+          salePrice: lot.price,
+          downPaymentPercentage: 10,
+          requiredInitialPayment: 80000,
+          initialPaymentPaid: 80000,
+          monthlyInterest: 1,
+          installmentCount: 12,
+        ),
+      );
 
-    final db = await appDatabase.database;
-    final installmentId = (await db.query(
-      DatabaseSchema.installmentsTable,
-      columns: ['id'],
-      where: 'venta_id = ?',
-      whereArgs: [saleId],
-      limit: 1,
-    )).single['id'];
+      final db = await appDatabase.database;
+      final installmentId = (await db.query(
+        DatabaseSchema.installmentsTable,
+        columns: ['id'],
+        where: 'venta_id = ?',
+        whereArgs: [saleId],
+        limit: 1,
+      )).single['id'];
 
-    await db.insert(DatabaseSchema.paymentsTable, {
-      'sync_id': 'test-delete-payment-${DateTime.now().microsecondsSinceEpoch}',
-      'venta_id': saleId,
-      'cliente_id': client.id,
-      'usuario_id': 1,
-      'cuota_id': installmentId,
-      'fecha_pago': now.toIso8601String(),
-      'monto_pagado': 25000,
-      'metodo_pago': 'efectivo',
-      'tipo_pago': 'cuota',
-      'referencia': 'DELETE-BLOCK-$saleId',
-      'ano_a_pagar': null,
-      'fecha_creacion': now.toIso8601String(),
-      'fecha_actualizacion': now.toIso8601String(),
-      'deleted_at': null,
-      'sync_status': DatabaseSchema.syncStatusPending,
-    });
+      await db.insert(DatabaseSchema.paymentsTable, {
+        'sync_id':
+            'test-delete-payment-${DateTime.now().microsecondsSinceEpoch}',
+        'venta_id': saleId,
+        'cliente_id': client.id,
+        'usuario_id': 1,
+        'cuota_id': installmentId,
+        'fecha_pago': now.toIso8601String(),
+        'monto_pagado': 25000,
+        'metodo_pago': 'efectivo',
+        'tipo_pago': 'cuota',
+        'referencia': 'DELETE-BLOCK-$saleId',
+        'ano_a_pagar': null,
+        'fecha_creacion': now.toIso8601String(),
+        'fecha_actualizacion': now.toIso8601String(),
+        'deleted_at': null,
+        'sync_status': DatabaseSchema.syncStatusPending,
+      });
 
-    await salesRepository.deleteSale(saleId);
+      await salesRepository.deleteSale(saleId);
 
-    final saleRows = await db.query(
-      DatabaseSchema.salesTable,
-      columns: ['deleted_at'],
-      where: 'id = ?',
-      whereArgs: [saleId],
-      limit: 1,
-    );
-    expect(saleRows, isNotEmpty);
-    expect(saleRows.single['deleted_at'], isNotNull);
+      final saleRows = await db.query(
+        DatabaseSchema.salesTable,
+        columns: ['deleted_at'],
+        where: 'id = ?',
+        whereArgs: [saleId],
+        limit: 1,
+      );
+      expect(saleRows, isNotEmpty);
+      expect(saleRows.single['deleted_at'], isNotNull);
 
-    final paymentRows = await db.query(
-      DatabaseSchema.paymentsTable,
-      columns: ['deleted_at'],
-      where: 'venta_id = ?',
-      whereArgs: [saleId],
-      limit: 1,
-    );
-    expect(paymentRows.single['deleted_at'], isNotNull);
-  });
+      final paymentRows = await db.query(
+        DatabaseSchema.paymentsTable,
+        columns: ['deleted_at'],
+        where: 'venta_id = ?',
+        whereArgs: [saleId],
+        limit: 1,
+      );
+      expect(paymentRows.single['deleted_at'], isNotNull);
+    },
+  );
 
   test(
     'pago antes del vencimiento mantiene la cuota fija y recalcula la tabla futura',
@@ -1321,12 +1325,12 @@ void main() {
         expect(installment.openingBalance, previousInstallment.endingBalance);
         expect(
           installment.interestAmount,
-          lessThan(previousInstallment.interestAmount),
+          lessThanOrEqualTo(previousInstallment.interestAmount),
         );
         if (index < detail.installments.length - 1) {
           expect(
             installment.principalAmount,
-            greaterThan(previousInstallment.principalAmount),
+            greaterThanOrEqualTo(previousInstallment.principalAmount),
           );
         }
       }

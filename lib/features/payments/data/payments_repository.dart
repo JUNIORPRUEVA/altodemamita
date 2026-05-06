@@ -1191,15 +1191,7 @@ class PaymentsRepository {
     required double monthlyInterest,
     required int installmentCount,
   }) {
-    if (saleStatus != 'activa' && saleStatus != 'pagada') {
-      return _roundCurrency(financedBalance);
-    }
-
-    return SaleCalculator.calculateTotalFinancingAmount(
-      financedBalance: financedBalance,
-      monthlyInterest: monthlyInterest,
-      installmentCount: installmentCount,
-    );
+    return _roundCurrency(financedBalance);
   }
 
   double _calculateOutstandingPrincipal(List<Installment> installments) {
@@ -1224,7 +1216,7 @@ class PaymentsRepository {
     final rows = await txn.rawQuery(
       '''
       SELECT
-        COALESCE(SUM(MAX(monto_cuota - monto_pagado, 0)), 0) AS total_pendiente
+        COALESCE(SUM(MAX(capital_cuota - capital_pagado, 0)), 0) AS total_pendiente
       FROM ${DatabaseSchema.installmentsTable}
       WHERE venta_id = ?
         AND deleted_at IS NULL

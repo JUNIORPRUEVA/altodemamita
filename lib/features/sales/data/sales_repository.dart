@@ -354,13 +354,7 @@ class SalesRepository {
           minimumReserveAmount: draft.minimumReserveAmount,
           financedBalance: financedBalance,
         );
-        final pendingBalance = saleStatus == 'activa' || saleStatus == 'pagada'
-            ? SaleCalculator.calculateTotalFinancingAmount(
-                financedBalance: financedBalance,
-                monthlyInterest: draft.monthlyInterest,
-                installmentCount: draft.installmentCount,
-              )
-            : financedBalance;
+        final pendingBalance = financedBalance;
 
         if (initialPaidAmount < 0) {
           throw StateError('El inicial pagado no puede ser negativo.');
@@ -662,13 +656,7 @@ class SalesRepository {
           minimumReserveAmount: draft.minimumReserveAmount,
           financedBalance: financedBalance,
         );
-        final pendingBalance = saleStatus == 'activa' || saleStatus == 'pagada'
-            ? SaleCalculator.calculateTotalFinancingAmount(
-                financedBalance: financedBalance,
-                monthlyInterest: draft.monthlyInterest,
-                installmentCount: draft.installmentCount,
-              )
-            : financedBalance;
+        final pendingBalance = financedBalance;
 
         if (initialPaidAmount < 0) {
           throw StateError('El inicial pagado no puede ser negativo.');
