@@ -113,7 +113,7 @@ export class DeviceAuthorizationService {
         platform: device.platform,
         isPrimary: device.isPrimary,
         canWrite: device.canWrite,
-        revokedAt: device.revokedAt?.toIso8601String(),
+        revokedAt: device.revokedAt?.toISOString(),
         now,
         reason: activePrimary == null
             ? 'auto_registered_primary'
@@ -181,7 +181,7 @@ export class DeviceAuthorizationService {
         platform: device.platform,
         isPrimary: false,
         canWrite: false,
-        revokedAt: device.revokedAt.toIso8601String(),
+        revokedAt: device.revokedAt.toISOString(),
         now,
         reason: 'device_revoked',
       });
