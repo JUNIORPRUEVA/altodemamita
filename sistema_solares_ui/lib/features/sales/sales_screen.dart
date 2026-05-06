@@ -176,15 +176,12 @@ class _SalesScreenState extends State<SalesScreen> {
                               _readNested(item, ['product', 'name']) ??
                               'Sin solar';
                           final contract = item['contractNumber']?.toString();
+                          final hasReadableContract =
+                              contract != null &&
+                              contract.trim().isNotEmpty &&
+                              !_looksLikeId(contract);
                           final subtitleParts = <String>[
-                            if (compact &&
-                                contract != null &&
-                                contract.trim().isNotEmpty)
-                              contract,
-                            if (!compact &&
-                                contract != null &&
-                                contract.trim().isNotEmpty)
-                              contract,
+                            if (hasReadableContract) contract.trim(),
                             product,
                             _formatDate(item['saleDate']),
                           ];
@@ -333,6 +330,27 @@ class _SalesScreenState extends State<SalesScreen> {
       return raw;
     }
     return DateFormat('dd/MM/yyyy').format(parsed.toLocal());
+  }
+
+  // Treat UUIDs and similar internal identifiers as not human-readable so they
+  // don't pollute the sales list subtitle.
+  static final RegExp _uuidPattern = RegExp(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+    caseSensitive: false,
+  );
+
+  bool _looksLikeId(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return false;
+    if (_uuidPattern.hasMatch(trimmed)) return true;
+    // Long opaque tokens (24+ chars without spaces and mostly hex/digits) also
+    // look like internal IDs and should be hidden from the listing subtitle.
+    if (trimmed.length >= 24 &&
+        !trimmed.contains(' ') &&
+        RegExp(r'^[0-9a-f-]+$', caseSensitive: false).hasMatch(trimmed)) {
+      return true;
+    }
+    return false;
   }
 
   _SalesStatusCounts _statusCounts(List<Map<String, dynamic>> items) {
