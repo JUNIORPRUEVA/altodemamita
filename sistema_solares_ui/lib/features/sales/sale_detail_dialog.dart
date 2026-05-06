@@ -36,6 +36,39 @@ class SaleDetailDialog extends StatelessWidget {
     final fullscreen = size.width < 640 || size.height < 720;
     final viewModel = _SaleDetailViewModel.fromMap(detail);
 
+    // On desktop / wide PWA: render as a fixed right-side panel that occupies
+    // the full viewport height (mirrors the Windows app layout). On phones and
+    // narrow widths keep the original centered dialog behaviour.
+    if (!compact && !fullscreen) {
+      final panelWidth = math.min(size.width * 0.42, 560.0).clamp(440.0, 600.0);
+      final panel = Material(
+        color: Colors.white,
+        elevation: 16,
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(20),
+          bottomLeft: Radius.circular(20),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: SizedBox(
+          width: panelWidth,
+          height: double.infinity,
+          child: _SaleDetailPanelContent(
+            viewModel: viewModel,
+            compact: false,
+          ),
+        ),
+      );
+
+      return Dialog(
+        insetPadding: EdgeInsets.zero,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        alignment: Alignment.centerRight,
+        shape: const RoundedRectangleBorder(),
+        child: panel,
+      );
+    }
+
     return Dialog(
       insetPadding: fullscreen
           ? const EdgeInsets.all(0)
@@ -71,74 +104,94 @@ class SaleDetailDialog extends StatelessWidget {
                     ),
                   ],
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _DetailHeader(viewModel: viewModel, compact: compact),
-              const Divider(height: 1),
-              Expanded(
-                child: Stack(
-                  children: [
-                    Positioned.fill(
-                      child: Scrollbar(
-                        thumbVisibility: !compact,
-                        child: SingleChildScrollView(
-                          padding: EdgeInsets.fromLTRB(
-                            compact ? 12 : 18,
-                            compact ? 12 : 16,
-                            compact ? 12 : 18,
-                            compact ? 14 : 18,
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              _TopInfoBand(viewModel: viewModel),
-                              const SizedBox(height: 12),
-                              _PrimaryMetricStrip(viewModel: viewModel),
-                              const SizedBox(height: 12),
-                              _TotalsStrip(viewModel: viewModel),
-                              if (viewModel.payments.isNotEmpty) ...[
-                                const SizedBox(height: 16),
-                                _PaymentsSection(viewModel: viewModel),
-                              ],
-                              if (viewModel.notes.isNotEmpty) ...[
-                                const SizedBox(height: 16),
-                                _NotesSection(notes: viewModel.notes),
-                              ],
-                              const SizedBox(height: 70),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      right: compact ? 14 : 18,
-                      bottom: compact ? 14 : 18,
-                      child: FloatingActionButton.extended(
-                        heroTag: 'sale-detail-installments',
-                        backgroundColor: const Color(0xFF14385F),
-                        foregroundColor: Colors.white,
-                        icon: const Icon(Icons.view_list_outlined, size: 18),
-                        label: const Text('Cuotas'),
-                        onPressed: () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) =>
-                                _SaleInstallmentsPage(viewModel: viewModel),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (!compact) ...[
-                const Divider(height: 1),
-                _DialogFooter(viewModel: viewModel),
-              ],
-            ],
+          child: _SaleDetailPanelContent(
+            viewModel: viewModel,
+            compact: compact,
           ),
         ),
       ),
+    );
+  }
+}
+
+class _SaleDetailPanelContent extends StatelessWidget {
+  const _SaleDetailPanelContent({
+    required this.viewModel,
+    required this.compact,
+  });
+
+  final _SaleDetailViewModel viewModel;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _DetailHeader(viewModel: viewModel, compact: compact),
+        const Divider(height: 1),
+        Expanded(
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: Scrollbar(
+                  thumbVisibility: !compact,
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.fromLTRB(
+                      compact ? 12 : 18,
+                      compact ? 12 : 16,
+                      compact ? 12 : 18,
+                      compact ? 14 : 18,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _TopInfoBand(viewModel: viewModel),
+                        const SizedBox(height: 12),
+                        _PrimaryMetricStrip(viewModel: viewModel),
+                        const SizedBox(height: 12),
+                        _TotalsStrip(viewModel: viewModel),
+                        const SizedBox(height: 16),
+                        _InstallmentsInlineSection(viewModel: viewModel),
+                        if (viewModel.payments.isNotEmpty) ...[
+                          const SizedBox(height: 16),
+                          _PaymentsSection(viewModel: viewModel),
+                        ],
+                        if (viewModel.notes.isNotEmpty) ...[
+                          const SizedBox(height: 16),
+                          _NotesSection(notes: viewModel.notes),
+                        ],
+                        const SizedBox(height: 70),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                right: compact ? 14 : 18,
+                bottom: compact ? 14 : 18,
+                child: FloatingActionButton.extended(
+                  heroTag: 'sale-detail-installments',
+                  backgroundColor: const Color(0xFF14385F),
+                  foregroundColor: Colors.white,
+                  icon: const Icon(Icons.view_list_outlined, size: 18),
+                  label: const Text('Cuotas'),
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) =>
+                          _SaleInstallmentsPage(viewModel: viewModel),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (!compact) ...[
+          const Divider(height: 1),
+          _DialogFooter(viewModel: viewModel),
+        ],
+      ],
     );
   }
 }
@@ -762,6 +815,138 @@ class _TotalsStrip extends StatelessWidget {
           foreground: const Color(0xFF35904E),
         ),
       ],
+    );
+  }
+}
+
+class _InstallmentsInlineSection extends StatelessWidget {
+  const _InstallmentsInlineSection({required this.viewModel});
+
+  final _SaleDetailViewModel viewModel;
+
+  @override
+  Widget build(BuildContext context) {
+    final installments = viewModel.installments;
+    final compact = MediaQuery.sizeOf(context).width < 760;
+
+    return DesktopSurface(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            runSpacing: 8,
+            spacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              const Text(
+                'Cuotas amortizadas',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF0D2640),
+                ),
+              ),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  DesktopTag(
+                    label: '${installments.length} cuotas',
+                    background: const Color(0xFFF1F4FA),
+                  ),
+                  if (installments.isNotEmpty)
+                    DesktopTag(
+                      label:
+                          'Pagadas ${viewModel.paidInstallmentsCount}/${installments.length}',
+                      background: const Color(0xFFE7F5EF),
+                      foreground: const Color(0xFF2F6F5C),
+                    ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (installments.isEmpty)
+            const _InstallmentsEmptyState()
+          else
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFFE4EAF2)),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Column(
+                children: [
+                  for (var index = 0; index < installments.length; index++) ...[
+                    _InstallmentOneLineRow(
+                      row: installments[index],
+                      compact: compact,
+                    ),
+                    if (index != installments.length - 1)
+                      const Divider(height: 1, indent: 12, endIndent: 12),
+                  ],
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InstallmentsEmptyState extends StatelessWidget {
+  const _InstallmentsEmptyState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF8E5),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFF1D88A)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(
+            Icons.warning_amber_rounded,
+            color: Color(0xFF8C5A2C),
+            size: 20,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'No hay cuotas registradas para esta venta',
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF8C5A2C),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Si la venta se registró con plan de pagos en la app local, '
+                  'esperá a que finalice la próxima sincronización con el '
+                  'servidor para verlas aquí.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    height: 1.35,
+                    color: const Color(0xFF8C5A2C).withValues(alpha: 0.86),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

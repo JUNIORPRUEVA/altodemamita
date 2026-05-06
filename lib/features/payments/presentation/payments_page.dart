@@ -160,22 +160,41 @@ class _PaymentsPageState extends State<PaymentsPage> {
                 ),
               ),
               const SizedBox(width: 8),
-              FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size(0, 40),
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                ),
-                onPressed:
-                    !canCreatePayments ||
-                        _controller.selectedContext == null ||
-                        _controller.isSaving
-                    ? null
-                    : _registerPayment,
-                icon: const Icon(Icons.point_of_sale_outlined, size: 18),
-                label: Text(
-                  _controller.isSaving ? 'Guardando...' : 'Registrar pago',
-                  style: const TextStyle(fontSize: 14),
-                ),
+              Builder(
+                builder: (_) {
+                  final selected = _controller.selectedContext?.sale;
+                  final isInitialPending =
+                      selected != null &&
+                      !selected.isFinancingActive &&
+                      selected.pendingInitialPayment > 0.009;
+                  final buttonLabel = _controller.isSaving
+                      ? 'Guardando...'
+                      : isInitialPending
+                      ? (selected.paidInitialPayment <= 0.009
+                            ? 'Pagar apartado'
+                            : 'Pagar completivo del inicial')
+                      : 'Registrar pago';
+                  final buttonIcon = isInitialPending
+                      ? Icons.flag_outlined
+                      : Icons.point_of_sale_outlined;
+                  return FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(0, 40),
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                    ),
+                    onPressed:
+                        !canCreatePayments ||
+                            _controller.selectedContext == null ||
+                            _controller.isSaving
+                        ? null
+                        : _registerPayment,
+                    icon: Icon(buttonIcon, size: 18),
+                    label: Text(
+                      buttonLabel,
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                  );
+                },
               ),
             ],
           ),

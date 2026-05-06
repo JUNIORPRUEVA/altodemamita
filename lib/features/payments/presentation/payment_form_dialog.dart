@@ -1,3 +1,6 @@
+import 'dart:math' as math;
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/utils/dominican_formatters.dart';
@@ -62,7 +65,17 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
   void initState() {
     super.initState();
     _paymentDate = DateTime.now();
-    _amountController = TextEditingController();
+    // Prefill the amount with the pending initial when the sale is in
+    // apartado/inicial_incompleto so the user only has to confirm the pago de
+    // completivo del inicial.
+    final isInitialPending =
+        !widget.sale.isFinancingActive &&
+        widget.sale.pendingInitialPayment > 0.009;
+    _amountController = TextEditingController(
+      text: isInitialPending
+          ? _amountFormatter.formatValue(widget.sale.pendingInitialPayment)
+          : '',
+    );
     _yearToPayController = TextEditingController(
       text: DateTime.now().year.toString(),
     );
@@ -99,18 +112,40 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
     final projectedPendingAmount =
       (currentPendingAmount - amount).clamp(0.0, double.infinity);
 
-    return AlertDialog(
-      icon: const Icon(Icons.payments_outlined),
-      title: const Text('Registrar pago'),
-      content: SizedBox(
-        width: 560,
-        child: Form(
-          key: _formKey,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+    final dialogTitle = !isFinancingActive
+        ? (widget.sale.paidInitialPayment <= 0.009
+              ? 'Pagar apartado del inicial'
+              : 'Pagar completivo del inicial')
+        : 'Registrar pago';
+
+    final screenSize = MediaQuery.sizeOf(context);
+    final isWindows =
+        !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
+    final panelWidth = isWindows
+        ? math.min(620.0, screenSize.width - 24.0)
+        : math.min(560.0, screenSize.width - 32.0);
+    final insetPadding = isWindows
+        ? EdgeInsets.fromLTRB(
+            math.max(0, screenSize.width - panelWidth - 12),
+            12,
+            12,
+            12,
+          )
+        : const EdgeInsets.symmetric(horizontal: 16, vertical: 24);
+    final maxDialogHeight = isWindows
+        ? screenSize.height - 24.0
+        : screenSize.height - 48.0;
+
+    final theme = Theme.of(context);
+
+    final formBody = Form(
+      key: _formKey,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
                 Text(
                   'Confirma el monto, el método de pago y la fecha para generar el recibo correctamente.',
                   style: Theme.of(context).textTheme.bodyMedium,
@@ -308,19 +343,80 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
                     ],
                   ),
                 ),
-              ],
-            ),
-          ),
+          ],
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancelar'),
-        ),
-        FilledButton(onPressed: _submit, child: const Text('Guardar pago')),
-      ],
     );
+
+    final dialog = Dialog(
+      insetPadding: insetPadding,
+      clipBehavior: Clip.antiAlias,
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: panelWidth,
+          maxHeight: maxDialogHeight,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 12, 12),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.payments_outlined,
+                    color: theme.colorScheme.primary,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      dialogTitle,
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Cerrar',
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Flexible(child: formBody),
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Cancelar'),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton.icon(
+                    onPressed: _submit,
+                    icon: const Icon(Icons.save_outlined),
+                    label: const Text('Guardar pago'),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (!isWindows) {
+      return dialog;
+    }
+    return Align(alignment: Alignment.centerRight, child: dialog);
   }
 
   Future<void> _pickPaymentDate() async {

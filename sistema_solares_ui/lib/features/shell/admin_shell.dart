@@ -32,14 +32,31 @@ double shellSidebarWidthFor(double width) {
   return shellSidebarLaptopWidth;
 }
 
-class AdminShell extends StatelessWidget {
+/// Width of the desktop sidebar when collapsed (icon-only mode).
+const double shellSidebarCollapsedWidth = 76;
+
+class AdminShell extends StatefulWidget {
   const AdminShell({super.key, required this.child});
 
   final Widget child;
+
+  @override
+  State<AdminShell> createState() => _AdminShellState();
+}
+
+class _AdminShellState extends State<AdminShell> {
   static const String _companyName = 'Sistema Solares';
+
+  // Sidebar starts collapsed (icon-only) on desktop to maximise content area.
+  bool _sidebarCollapsed = true;
+
+  void _toggleSidebar() {
+    setState(() => _sidebarCollapsed = !_sidebarCollapsed);
+  }
 
   @override
   Widget build(BuildContext context) {
+    final child = widget.child;
     final authController = context.watch<AuthController>();
     final realtimeController = context.watch<RealtimeController>();
     final location = GoRouterState.of(context).uri.path;
@@ -135,7 +152,12 @@ class AdminShell extends StatelessWidget {
       builder: (context, constraints) {
         final wide = isDesktopShellWidth(constraints.maxWidth);
         final compact = isCompactShellWidth(constraints.maxWidth);
-        final desktopSidebarWidth = shellSidebarWidthFor(constraints.maxWidth);
+        final sidebarCollapsed = wide && _sidebarCollapsed;
+        final desktopSidebarWidth = wide
+            ? (sidebarCollapsed
+                ? shellSidebarCollapsedWidth
+                : shellSidebarWidthFor(constraints.maxWidth))
+            : 0.0;
         if (compact && location == '/payments') {
           final redirectRoute = authController.canAccessSales
               ? '/sales'
@@ -170,6 +192,7 @@ class AdminShell extends StatelessWidget {
           adminItems: adminItems,
           currentRoute: location,
           compact: !wide,
+          collapsed: sidebarCollapsed,
         );
 
         if (compact) {
@@ -204,7 +227,13 @@ class AdminShell extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                if (wide) SizedBox(width: desktopSidebarWidth, child: sidebar),
+                if (wide)
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeInOut,
+                    width: desktopSidebarWidth,
+                    child: sidebar,
+                  ),
                 Expanded(
                   child: Padding(
                     padding: EdgeInsets.fromLTRB(
@@ -224,7 +253,12 @@ class AdminShell extends StatelessWidget {
                           _TopBar(
                             title: currentItem?.label ?? _companyName,
                             realtimeController: realtimeController,
-                            onOpenMenu: null,
+                            onOpenMenu: wide ? _toggleSidebar : null,
+                            menuTooltip: wide
+                                ? (sidebarCollapsed
+                                    ? 'Expandir menu'
+                                    : 'Contraer menu')
+                                : null,
                           ),
                           Expanded(
                             child: Padding(
@@ -512,11 +546,13 @@ class _TopBar extends StatelessWidget {
     required this.title,
     required this.realtimeController,
     required this.onOpenMenu,
+    this.menuTooltip,
   });
 
   final String title;
   final RealtimeController realtimeController;
   final VoidCallback? onOpenMenu;
+  final String? menuTooltip;
 
   @override
   Widget build(BuildContext context) {
@@ -656,7 +692,7 @@ class _TopBar extends StatelessWidget {
               padding: const EdgeInsets.only(right: 8),
               child: _TopBarActionButton(
                 icon: Icons.menu_rounded,
-                tooltip: 'Abrir menu',
+                tooltip: menuTooltip ?? 'Abrir menu',
                 onPressed: onOpenMenu,
               ),
             ),
@@ -672,8 +708,6 @@ class _TopBar extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(width: 12),
-          _DesktopConnectionBadge(isConnected: realtimeController.isConnected),
           const SizedBox(width: 12),
           sessionMenu,
         ],
@@ -777,43 +811,6 @@ class _DesktopProfileMenuButton extends StatelessWidget {
   }
 }
 
-class _DesktopConnectionBadge extends StatelessWidget {
-  const _DesktopConnectionBadge({required this.isConnected});
-
-  final bool isConnected;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = isConnected
-        ? const Color(0xFF2BB673)
-        : const Color(0xFF6B7682);
-    final label = isConnected ? 'Realtime activo' : 'Realtime desconectado';
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.24)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.circle, size: 10, color: color),
-          const SizedBox(width: 7),
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF0D2640),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 class _TopBarActionButton extends StatelessWidget {
   const _TopBarActionButton({
@@ -857,16 +854,19 @@ class _Sidebar extends StatelessWidget {
     required this.adminItems,
     required this.currentRoute,
     required this.compact,
+    this.collapsed = false,
   });
 
   final List<_NavItem> summaryItems;
   final List<_NavItem> adminItems;
   final String currentRoute;
   final bool compact;
+  final bool collapsed;
 
   @override
   Widget build(BuildContext context) {
     final drawerMode = MediaQuery.sizeOf(context).width < 760;
+    final iconOnly = collapsed && !drawerMode;
     return Container(
       decoration: BoxDecoration(
         gradient: const LinearGradient(
@@ -879,20 +879,23 @@ class _Sidebar extends StatelessWidget {
         builder: (context, constraints) {
           return Padding(
             padding: EdgeInsets.fromLTRB(
-              drawerMode ? 16 : 18,
+              drawerMode ? 16 : (iconOnly ? 10 : 18),
               drawerMode ? 18 : 18,
-              drawerMode ? 16 : 18,
+              drawerMode ? 16 : (iconOnly ? 10 : 18),
               drawerMode ? 18 : 18,
             ),
             child: CustomScrollView(
               slivers: [
                 SliverToBoxAdapter(
-                  child: _SidebarBrandHeader(drawerMode: drawerMode),
+                  child: _SidebarBrandHeader(
+                    drawerMode: drawerMode,
+                    iconOnly: iconOnly,
+                  ),
                 ),
                 SliverToBoxAdapter(
                   child: SizedBox(height: drawerMode ? 20 : 24),
                 ),
-                if (!drawerMode)
+                if (!drawerMode && !iconOnly)
                   const SliverToBoxAdapter(
                     child: _SidebarSectionLabel(label: 'NAVEGACION'),
                   ),
@@ -903,6 +906,7 @@ class _Sidebar extends StatelessWidget {
                         item: item,
                         selected: item.matches(currentRoute),
                         compact: compact,
+                        iconOnly: iconOnly,
                       ),
                     ),
                   ],
@@ -914,7 +918,7 @@ class _Sidebar extends StatelessWidget {
                     children: [
                       const Spacer(),
                       if (adminItems.isNotEmpty) ...[
-                        if (!drawerMode)
+                        if (!drawerMode && !iconOnly)
                           const Padding(
                             padding: EdgeInsets.only(left: 8, bottom: 10),
                             child: _SidebarSectionLabel(label: 'CONFIGURACION'),
@@ -924,12 +928,12 @@ class _Sidebar extends StatelessWidget {
                             item: item,
                             selected: item.matches(currentRoute),
                             compact: compact,
+                            iconOnly: iconOnly,
                           ),
                         ),
                       ],
-                      _SidebarLogoutTile(compact: compact),
-                      const SizedBox(height: 8),
-                      const _SidebarFooterNote(),
+                      if (!iconOnly) const SizedBox(height: 8),
+                      if (!iconOnly) const _SidebarFooterNote(),
                     ],
                   ),
                 ),
@@ -947,15 +951,49 @@ class _NavTile extends StatelessWidget {
     required this.item,
     required this.selected,
     required this.compact,
+    this.iconOnly = false,
   });
 
   final _NavItem item;
   final bool selected;
   final bool compact;
+  final bool iconOnly;
 
   @override
   Widget build(BuildContext context) {
     final drawerMode = MediaQuery.sizeOf(context).width < 760;
+
+    if (iconOnly) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Tooltip(
+          message: item.label,
+          waitDuration: const Duration(milliseconds: 250),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: () => context.go(item.route),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              height: 48,
+              decoration: BoxDecoration(
+                color: selected
+                    ? Colors.white.withValues(alpha: 0.14)
+                    : Colors.white.withValues(alpha: 0.04),
+                border: Border.all(
+                  color: selected
+                      ? Colors.white.withValues(alpha: 0.22)
+                      : Colors.white.withValues(alpha: 0.05),
+                ),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              alignment: Alignment.center,
+              child: Icon(item.icon, color: Colors.white, size: 22),
+            ),
+          ),
+        ),
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: InkWell(
@@ -1023,87 +1061,6 @@ class _NavTile extends StatelessWidget {
                   ),
                 ),
               ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SidebarLogoutTile extends StatelessWidget {
-  const _SidebarLogoutTile({required this.compact});
-
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context) {
-    final drawerMode = MediaQuery.sizeOf(context).width < 760;
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(18),
-        onTap: () async {
-          await context.read<AuthController>().signOut();
-          if (!context.mounted) {
-            return;
-          }
-          if (drawerMode && Navigator.of(context).canPop()) {
-            Navigator.of(context).pop();
-          }
-          context.go('/login');
-        },
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          padding: EdgeInsets.symmetric(
-            horizontal: drawerMode ? 13 : 10,
-            vertical: drawerMode ? 11 : 10,
-          ),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.025),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
-            borderRadius: BorderRadius.circular(18),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: drawerMode ? 44 : 36,
-                height: drawerMode ? 44 : 36,
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.05),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  Icons.logout_rounded,
-                  color: Colors.white,
-                  size: drawerMode ? 24 : 20,
-                ),
-              ),
-              SizedBox(width: drawerMode ? 12 : 10),
-              Expanded(
-                child: Text(
-                  'Cerrar sesion',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    fontSize: drawerMode ? 15 : 13.5,
-                  ),
-                ),
-              ),
-              if (!compact)
-                AnimatedOpacity(
-                  opacity: 0.24,
-                  duration: const Duration(milliseconds: 180),
-                  child: Container(
-                    width: 7,
-                    height: 7,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF8FCFFF),
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ),
             ],
           ),
         ),
@@ -1282,12 +1239,45 @@ class _NavItem {
 }
 
 class _SidebarBrandHeader extends StatelessWidget {
-  const _SidebarBrandHeader({required this.drawerMode});
+  const _SidebarBrandHeader({
+    required this.drawerMode,
+    this.iconOnly = false,
+  });
 
   final bool drawerMode;
+  final bool iconOnly;
 
   @override
   Widget build(BuildContext context) {
+    if (iconOnly) {
+      return Center(
+        child: Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFF59B6FF), Color(0xFF1B5BA8)],
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF4B9EE8).withValues(alpha: 0.24),
+                blurRadius: 14,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: const Icon(
+            Icons.wb_sunny_rounded,
+            size: 22,
+            color: Colors.white,
+          ),
+        ),
+      );
+    }
+
     return Container(
       padding: EdgeInsets.fromLTRB(
         drawerMode ? 14 : 12,
