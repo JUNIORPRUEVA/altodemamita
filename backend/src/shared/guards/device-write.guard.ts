@@ -52,7 +52,7 @@ export class DeviceWriteGuard implements CanActivate {
 
     if (user.type === 'panel' || isPanelActor(user)) {
       throw new ForbiddenException({
-        message: 'DEVICE_WRITE_BLOCKED',
+        message: 'DEVICE_NOT_AUTHORIZED_FOR_WRITE',
         detail: 'Las mutaciones no estan disponibles para clientes panel/PWA.',
       });
     }
@@ -72,7 +72,7 @@ export class DeviceWriteGuard implements CanActivate {
     }
 
     throw new ForbiddenException({
-      message: 'DEVICE_WRITE_BLOCKED',
+      message: 'DEVICE_NOT_AUTHORIZED_FOR_WRITE',
       detail: 'Este dispositivo no esta autorizado para escribir.',
       reason: deviceState.reason,
       device_id: deviceState.deviceId,
