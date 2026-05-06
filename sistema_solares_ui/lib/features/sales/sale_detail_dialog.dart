@@ -186,17 +186,11 @@ class _SaleDetailPanelContent extends StatelessWidget {
                         _PrimaryMetricStrip(viewModel: viewModel),
                         const SizedBox(height: 12),
                         _TotalsStrip(viewModel: viewModel),
-                        const SizedBox(height: 16),
-                        _InstallmentsInlineSection(viewModel: viewModel),
-                        if (viewModel.payments.isNotEmpty) ...[
-                          const SizedBox(height: 16),
-                          _PaymentsSection(viewModel: viewModel),
-                        ],
                         if (viewModel.notes.isNotEmpty) ...[
                           const SizedBox(height: 16),
                           _NotesSection(notes: viewModel.notes),
                         ],
-                        const SizedBox(height: 70),
+                        const SizedBox(height: 90),
                       ],
                     ),
                   ),
@@ -205,27 +199,52 @@ class _SaleDetailPanelContent extends StatelessWidget {
               Positioned(
                 right: compact ? 14 : 18,
                 bottom: compact ? 14 : 18,
-                child: FloatingActionButton.extended(
-                  heroTag: 'sale-detail-installments',
-                  backgroundColor: const Color(0xFF14385F),
-                  foregroundColor: Colors.white,
-                  icon: const Icon(Icons.view_list_outlined, size: 18),
-                  label: const Text('Cuotas'),
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) =>
-                          _SaleInstallmentsPage(viewModel: viewModel),
+                child: Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  alignment: WrapAlignment.end,
+                  children: [
+                    FloatingActionButton.extended(
+                      heroTag: 'sale-detail-payments',
+                      backgroundColor: Colors.white,
+                      foregroundColor: const Color(0xFF14385F),
+                      elevation: 4,
+                      icon: const Icon(Icons.payments_outlined, size: 18),
+                      label: Text(
+                        viewModel.payments.isEmpty
+                            ? 'Ver pagos'
+                            : 'Ver pagos (${viewModel.payments.length})',
+                      ),
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) =>
+                              _SalePaymentsPage(viewModel: viewModel),
+                        ),
+                      ),
                     ),
-                  ),
+                    FloatingActionButton.extended(
+                      heroTag: 'sale-detail-installments',
+                      backgroundColor: const Color(0xFF14385F),
+                      foregroundColor: Colors.white,
+                      icon: const Icon(Icons.view_list_outlined, size: 18),
+                      label: Text(
+                        viewModel.installments.isEmpty
+                            ? 'Ver cuotas'
+                            : 'Ver cuotas (${viewModel.installments.length})',
+                      ),
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) =>
+                              _SaleInstallmentsPage(viewModel: viewModel),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
         ),
-        if (!compact) ...[
-          const Divider(height: 1),
-          _DialogFooter(viewModel: viewModel),
-        ],
       ],
     );
   }
@@ -677,6 +696,87 @@ class _SaleInstallmentsPage extends StatelessWidget {
   }
 }
 
+class _SalePaymentsPage extends StatelessWidget {
+  const _SalePaymentsPage({required this.viewModel});
+
+  final _SaleDetailViewModel viewModel;
+
+  @override
+  Widget build(BuildContext context) {
+    final compact = MediaQuery.sizeOf(context).width < 760;
+    final payments = viewModel.payments;
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF6F8FC),
+      appBar: AppBar(
+        leading: BackButton(onPressed: () => Navigator.of(context).pop()),
+        title: const Text('Historial de pagos'),
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
+      ),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              DesktopSurface(
+                child: Wrap(
+                  spacing: 12,
+                  runSpacing: 10,
+                  alignment: WrapAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      viewModel.clientName,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF0D2640),
+                      ),
+                    ),
+                    DesktopTag(
+                      label: '${payments.length} registros',
+                      background: const Color(0xFFF1F4FA),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+                child: DesktopSurface(
+                  padding: const EdgeInsets.all(0),
+                  child: payments.isEmpty
+                      ? const DesktopEmptyState(
+                          icon: Icons.payments_outlined,
+                          title: 'Sin pagos registrados',
+                          message:
+                              'Esta venta aún no tiene pagos visibles en el backend.',
+                        )
+                      : ListView.separated(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          itemCount: payments.length,
+                          separatorBuilder: (_, _) => const Divider(
+                            height: 1,
+                            indent: 16,
+                            endIndent: 16,
+                          ),
+                          itemBuilder: (context, index) {
+                            return _PaymentRowCard(
+                              payment: payments[index],
+                              embedded: true,
+                            );
+                          },
+                        ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _InstallmentOneLineRow extends StatelessWidget {
   const _InstallmentOneLineRow({required this.row, required this.compact});
 
@@ -844,222 +944,6 @@ class _TotalsStrip extends StatelessWidget {
   }
 }
 
-class _InstallmentsInlineSection extends StatelessWidget {
-  const _InstallmentsInlineSection({required this.viewModel});
-
-  final _SaleDetailViewModel viewModel;
-
-  @override
-  Widget build(BuildContext context) {
-    final installments = viewModel.installments;
-    final compact = MediaQuery.sizeOf(context).width < 760;
-
-    return DesktopSurface(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Wrap(
-            alignment: WrapAlignment.spaceBetween,
-            runSpacing: 8,
-            spacing: 8,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              const Text(
-                'Cuotas amortizadas',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF0D2640),
-                ),
-              ),
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  DesktopTag(
-                    label: '${installments.length} cuotas',
-                    background: const Color(0xFFF1F4FA),
-                  ),
-                  if (installments.isNotEmpty)
-                    DesktopTag(
-                      label:
-                          'Pagadas ${viewModel.paidInstallmentsCount}/${installments.length}',
-                      background: const Color(0xFFE7F5EF),
-                      foreground: const Color(0xFF2F6F5C),
-                    ),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          if (installments.isEmpty)
-            const _InstallmentsEmptyState()
-          else
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: const Color(0xFFE4EAF2)),
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: Column(
-                children: [
-                  for (var index = 0; index < installments.length; index++) ...[
-                    _InstallmentOneLineRow(
-                      row: installments[index],
-                      compact: compact,
-                    ),
-                    if (index != installments.length - 1)
-                      const Divider(height: 1, indent: 12, endIndent: 12),
-                  ],
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _InstallmentsEmptyState extends StatelessWidget {
-  const _InstallmentsEmptyState();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFFF8E5),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFF1D88A)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Icon(
-            Icons.warning_amber_rounded,
-            color: Color(0xFF8C5A2C),
-            size: 20,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'No hay cuotas registradas para esta venta',
-                  style: TextStyle(
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF8C5A2C),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Si la venta se registró con plan de pagos en la app local, '
-                  'esperá a que finalice la próxima sincronización con el '
-                  'servidor para verlas aquí.',
-                  style: TextStyle(
-                    fontSize: 12,
-                    height: 1.35,
-                    color: const Color(0xFF8C5A2C).withValues(alpha: 0.86),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PaymentsSection extends StatelessWidget {
-  const _PaymentsSection({required this.viewModel});
-
-  final _SaleDetailViewModel viewModel;
-
-  @override
-  Widget build(BuildContext context) {
-    return DesktopSurface(
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final compactList = constraints.maxWidth < 760;
-
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Wrap(
-                alignment: WrapAlignment.spaceBetween,
-                runSpacing: 8,
-                spacing: 8,
-                children: [
-                  const Text(
-                    'Historial de pagos',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF0D2640),
-                    ),
-                  ),
-                  DesktopTag(
-                    label: '${viewModel.payments.length} registros',
-                    background: const Color(0xFFF1F4FA),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              compactList
-                  ? Column(
-                      children: [
-                        for (
-                          var index = 0;
-                          index < viewModel.payments.length;
-                          index++
-                        ) ...[
-                          _PaymentRowCard(payment: viewModel.payments[index]),
-                          if (index != viewModel.payments.length - 1)
-                            const SizedBox(height: 10),
-                        ],
-                      ],
-                    )
-                  : Container(
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: const Color(0xFFE4EAF2)),
-                      ),
-                      child: Column(
-                        children: [
-                          for (
-                            var index = 0;
-                            index < viewModel.payments.length;
-                            index++
-                          ) ...[
-                            _PaymentRowCard(
-                              payment: viewModel.payments[index],
-                              embedded: true,
-                            ),
-                            if (index != viewModel.payments.length - 1)
-                              const Divider(
-                                height: 1,
-                                indent: 16,
-                                endIndent: 16,
-                              ),
-                          ],
-                        ],
-                      ),
-                    ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-}
-
 class _NotesSection extends StatelessWidget {
   const _NotesSection({required this.notes});
 
@@ -1090,115 +974,6 @@ class _NotesSection extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _DialogFooter extends StatelessWidget {
-  const _DialogFooter({required this.viewModel});
-
-  final _SaleDetailViewModel viewModel;
-
-  @override
-  Widget build(BuildContext context) {
-    final compact = MediaQuery.sizeOf(context).width < 860;
-
-    final exportButton = OutlinedButton.icon(
-      onPressed: () => _showPrintHint(context, 'Exportar PDF'),
-      icon: Icon(Icons.file_download_outlined, size: compact ? 15 : 18),
-      label: Text(
-        'Exportar',
-        style: TextStyle(fontSize: compact ? 11.5 : null),
-      ),
-      style: compact
-          ? OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              minimumSize: const Size(0, 34),
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            )
-          : null,
-    );
-    final printButton = FilledButton.tonalIcon(
-      onPressed: () => _showPrintHint(context, 'Imprimir'),
-      icon: Icon(Icons.print_outlined, size: compact ? 15 : 18),
-      label: Text(
-        'Imprimir',
-        style: TextStyle(fontSize: compact ? 11.5 : null),
-      ),
-      style: compact
-          ? FilledButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              minimumSize: const Size(0, 34),
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            )
-          : null,
-    );
-    final closeButton = FilledButton(
-      style: FilledButton.styleFrom(
-        backgroundColor: const Color(0xFF14385F),
-        foregroundColor: Colors.white,
-        padding: compact
-            ? const EdgeInsets.symmetric(horizontal: 10, vertical: 8)
-            : null,
-        minimumSize: compact ? const Size(0, 34) : null,
-        tapTargetSize: compact ? MaterialTapTargetSize.shrinkWrap : null,
-      ),
-      onPressed: () => Navigator.of(context).pop(),
-      child: Text('Cerrar', style: TextStyle(fontSize: compact ? 11.5 : null)),
-    );
-
-    return Padding(
-      padding: EdgeInsets.fromLTRB(
-        compact ? 12 : 18,
-        12,
-        compact ? 12 : 18,
-        compact ? 12 : 14,
-      ),
-      child: compact
-          ? Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                if (viewModel.statusLabel.isNotEmpty) ...[
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: _StatusChip(
-                      label: viewModel.statusLabel,
-                      tone: viewModel.statusTone,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                ],
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      exportButton,
-                      const SizedBox(width: 8),
-                      printButton,
-                      const SizedBox(width: 8),
-                      closeButton,
-                    ],
-                  ),
-                ),
-              ],
-            )
-          : Wrap(
-              alignment: WrapAlignment.spaceBetween,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              runSpacing: 10,
-              spacing: 10,
-              children: [
-                _StatusChip(
-                  label: viewModel.statusLabel,
-                  tone: viewModel.statusTone,
-                ),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: [exportButton, printButton, closeButton],
-                ),
-              ],
-            ),
     );
   }
 }
