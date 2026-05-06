@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/foundation.dart';
 import 'package:sistema_solares/core/resilience/benign_runtime_errors.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -24,6 +25,15 @@ void main() {
         _TestDatabaseException('UNIQUE constraint failed: clientes.cedula'),
       ),
       isFalse,
+    );
+  });
+
+  test('suprime diagnosticos RenderFlex overflow de Flutter', () {
+    expect(
+      BenignRuntimeErrors.shouldSuppress(
+        FlutterError('A RenderFlex overflowed by 4.0 pixels on the bottom.'),
+      ),
+      isTrue,
     );
   });
 }

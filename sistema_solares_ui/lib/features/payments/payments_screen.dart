@@ -26,6 +26,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
   int _page = 1;
   String? _selectedSaleId;
   String _salesFilter = 'all';
+  bool _mobileSearchOpen = false;
   _MobilePaymentsDetailTab _mobileDetailTab = _MobilePaymentsDetailTab.payments;
   int _mobileDetailPage = 1;
 
@@ -109,6 +110,46 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
         ),
       ),
     );
+  }
+
+  void _toggleMobileSearch() {
+    setState(() {
+      _mobileSearchOpen = !_mobileSearchOpen;
+      if (!_mobileSearchOpen && _searchController.text.isNotEmpty) {
+        _searchController.clear();
+        _page = 1;
+        _future = null;
+      }
+    });
+  }
+
+  Future<void> _showMobileFilterSheet() async {
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: false,
+      showDragHandle: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (sheetContext) {
+        return _MobilePaymentsFilterSheet(currentFilter: _salesFilter);
+      },
+    );
+    if (selected == null) return;
+    if (selected == '__clear__') {
+      _searchController.clear();
+      setState(() {
+        _mobileSearchOpen = false;
+        _salesFilter = 'all';
+        _mobileDetailPage = 1;
+        _page = 1;
+        _future = null;
+      });
+      return;
+    }
+    _setSalesFilter(selected);
+    _reloadFromStart();
   }
 
   @override
@@ -205,16 +246,13 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
             showMobileTitle: false,
             toolbar: DesktopFieldToolbar(
               child: compact
-                  ? _MobilePaymentsToolbar(
+                  ? _MobilePaymentsCompactToolbar(
                       searchController: _searchController,
+                      searchOpen: _mobileSearchOpen,
                       currentFilter: _salesFilter,
-                      onSearch: _reloadFromStart,
-                      onClear: () {
-                        _searchController.clear();
-                        _setSalesFilter('all');
-                        _reloadFromStart();
-                      },
-                      onFilterChanged: _setSalesFilter,
+                      onToggleSearch: _toggleMobileSearch,
+                      onOpenFilters: _showMobileFilterSheet,
+                      onSubmitSearch: _reloadFromStart,
                     )
                   : Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -270,12 +308,15 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 if (compact)
-                  _MobilePaymentsOverviewStrip(
+                  _MobileFilterIndicator(
+                    currentFilter: _salesFilter,
                     salesCount: sales.length,
-                    visiblePayments: visiblePayments,
-                    visibleInstallments: visibleInstallments,
-                    visibleOutstanding: currency.format(visibleOutstanding),
-                    stageLabel: activeSelectedSale?.stageLabel,
+                    onClear: _salesFilter == 'all'
+                        ? null
+                        : () {
+                            _setSalesFilter('all');
+                            _reloadFromStart();
+                          },
                   )
                 else
                   DesktopInfoStrip(
@@ -344,11 +385,10 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                                 constraints.maxWidth < 1100 ||
                                 constraints.maxHeight < 720;
                             if (stacked && compact) {
-                              return _buildSalesPanel(
+                              return _buildCompactSalesList(
                                 data,
+                                sales,
                                 currency,
-                                compact,
-                                onSaleTap: _openMobilePaymentsDetail,
                               );
                             }
 
@@ -604,6 +644,70 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
       'completed' => sale.paymentsCount > 0,
       _ => true,
     };
+  }
+
+  Widget _buildCompactSalesList(
+    PaymentsReadOnlyData data,
+    List<PaymentSaleSummary> visibleSales,
+    NumberFormat currency,
+  ) {
+    if (visibleSales.isEmpty) {
+      return const DesktopEmptyState(
+        icon: Icons.payments_outlined,
+        title: 'Sin ventas visibles',
+        message: 'No hay ventas para la consulta o filtro actual.',
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFFE4EAF2)),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: ListView.separated(
+              padding: EdgeInsets.zero,
+              itemCount: visibleSales.length,
+              separatorBuilder: (_, _) => const Divider(
+                height: 1,
+                thickness: 1,
+                indent: 22,
+                endIndent: 12,
+                color: Color(0xFFEEF1F6),
+              ),
+              itemBuilder: (context, index) {
+                final sale = visibleSales[index];
+                return _MobileSaleRow(
+                  sale: sale,
+                  selected: false,
+                  currency: currency,
+                  onTap: () => _openMobilePaymentsDetail(sale.id),
+                  statusLabel: _statusLabel(sale.status),
+                  statusBackground: _statusBackground(sale.status),
+                  statusForeground: _statusForeground(sale.status),
+                  formatDate: _formatDate,
+                );
+              },
+            ),
+          ),
+        ),
+        if (data.totalPages > 1) ...[
+          const SizedBox(height: 8),
+          _MobileMiniPagination(
+            currentPage: data.page,
+            totalPages: data.totalPages,
+            onPrevious: data.page > 1 ? () => _goToPage(data.page - 1) : null,
+            onNext: data.page < data.totalPages
+                ? () => _goToPage(data.page + 1)
+                : null,
+          ),
+        ],
+      ],
+    );
   }
 
   Widget _buildSalesPanel(
@@ -1318,123 +1422,105 @@ class _PaymentsFilterBar extends StatelessWidget {
 
 enum _MobilePaymentsDetailTab { payments, installments }
 
-class _MobilePaymentsToolbar extends StatelessWidget {
-  const _MobilePaymentsToolbar({
+class _MobilePaymentsCompactToolbar extends StatelessWidget {
+  const _MobilePaymentsCompactToolbar({
     required this.searchController,
+    required this.searchOpen,
     required this.currentFilter,
-    required this.onSearch,
-    required this.onClear,
-    required this.onFilterChanged,
+    required this.onToggleSearch,
+    required this.onOpenFilters,
+    required this.onSubmitSearch,
   });
 
   final TextEditingController searchController;
+  final bool searchOpen;
   final String currentFilter;
-  final VoidCallback onSearch;
-  final VoidCallback onClear;
-  final ValueChanged<String> onFilterChanged;
+  final VoidCallback onToggleSearch;
+  final VoidCallback onOpenFilters;
+  final VoidCallback onSubmitSearch;
 
   @override
   Widget build(BuildContext context) {
+    final filterActive = currentFilter != 'all';
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Row(
+          mainAxisAlignment: MainAxisAlignment.end,
           children: [
-            Expanded(
-              child: DesktopSearchField(
-                controller: searchController,
-                hintText: 'Buscar cliente, contrato o solar',
-                onSubmitted: (_) => onSearch(),
-              ),
+            _AppBarIconButton(
+              icon: searchOpen
+                  ? Icons.close_rounded
+                  : Icons.search_rounded,
+              tooltip: searchOpen ? 'Cerrar buscador' : 'Buscar',
+              onPressed: onToggleSearch,
+              active: searchOpen,
             ),
             const SizedBox(width: 6),
-            _ToolbarSquareButton(
-              icon: Icons.cleaning_services_outlined,
-              tooltip: 'Limpiar',
-              onPressed: onClear,
-            ),
-            const SizedBox(width: 6),
-            _ToolbarSquareButton(
-              icon: Icons.search_rounded,
-              tooltip: 'Buscar',
-              filled: true,
-              onPressed: onSearch,
+            _AppBarIconButton(
+              icon: Icons.tune_rounded,
+              tooltip: 'Filtros',
+              onPressed: onOpenFilters,
+              active: filterActive,
             ),
           ],
         ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: const Color(0xFFF3F6FA),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFD8E2EE)),
-              ),
-              child: const Icon(
-                Icons.tune_rounded,
-                size: 18,
-                color: Color(0xFF173450),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: _PaymentsFilterBar(
-                  currentFilter: currentFilter,
-                  onChanged: onFilterChanged,
-                  compact: true,
-                ),
-              ),
-            ),
-          ],
+        AnimatedSize(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          alignment: Alignment.topCenter,
+          child: searchOpen
+              ? Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: DesktopSearchField(
+                    controller: searchController,
+                    hintText: 'Buscar cliente, contrato o solar',
+                    onSubmitted: (_) => onSubmitSearch(),
+                  ),
+                )
+              : const SizedBox.shrink(),
         ),
       ],
     );
   }
 }
 
-class _ToolbarSquareButton extends StatelessWidget {
-  const _ToolbarSquareButton({
+class _AppBarIconButton extends StatelessWidget {
+  const _AppBarIconButton({
     required this.icon,
     required this.tooltip,
     required this.onPressed,
-    this.filled = false,
+    this.active = false,
   });
 
   final IconData icon;
   final String tooltip;
   final VoidCallback onPressed;
-  final bool filled;
+  final bool active;
 
   @override
   Widget build(BuildContext context) {
+    final fg = active ? const Color(0xFF14385F) : const Color(0xFF173450);
+    final bg = active ? const Color(0xFFE6EEF9) : const Color(0xFFF3F6FA);
+    final border = active
+        ? const Color(0xFF14385F).withValues(alpha: 0.18)
+        : const Color(0xFFD8E2EE);
     return Tooltip(
       message: tooltip,
       child: Material(
-        color: filled ? const Color(0xFF16324F) : const Color(0xFFF8FAFD),
+        color: bg,
         borderRadius: BorderRadius.circular(12),
         child: InkWell(
           borderRadius: BorderRadius.circular(12),
           onTap: onPressed,
           child: Container(
-            width: 36,
-            height: 36,
+            width: 38,
+            height: 38,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: filled
-                    ? const Color(0xFF16324F)
-                    : const Color(0xFFD8E2EE),
-              ),
+              border: Border.all(color: border),
             ),
-            child: Icon(
-              icon,
-              size: 18,
-              color: filled ? Colors.white : const Color(0xFF173450),
-            ),
+            child: Icon(icon, size: 19, color: fg),
           ),
         ),
       ),
@@ -1442,51 +1528,168 @@ class _ToolbarSquareButton extends StatelessWidget {
   }
 }
 
-class _MobilePaymentsOverviewStrip extends StatelessWidget {
-  const _MobilePaymentsOverviewStrip({
+class _MobileFilterIndicator extends StatelessWidget {
+  const _MobileFilterIndicator({
+    required this.currentFilter,
     required this.salesCount,
-    required this.visiblePayments,
-    required this.visibleInstallments,
-    required this.visibleOutstanding,
-    this.stageLabel,
+    this.onClear,
   });
 
+  final String currentFilter;
   final int salesCount;
-  final int visiblePayments;
-  final int visibleInstallments;
-  final String visibleOutstanding;
-  final String? stageLabel;
+  final VoidCallback? onClear;
+
+  String get _filterLabel => switch (currentFilter) {
+        'pending' => 'Pendientes',
+        'overdue' => 'Vencidas',
+        'paid' => 'Pagadas',
+        'completed' => 'Realizados',
+        _ => 'Todas',
+      };
 
   @override
   Widget build(BuildContext context) {
-    return DesktopCompactSurface(
-      child: Wrap(
-        spacing: 8,
-        runSpacing: 8,
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(2, 0, 2, 8),
+      child: Row(
         children: [
-          DesktopTag(label: '$salesCount ventas', background: const Color(0xFFF1F4FA)),
-          DesktopTag(
-            label: '$visiblePayments pagos',
-            background: const Color(0xFFEAF4ED),
-            foreground: const Color(0xFF2F6F5C),
+          Text(
+            '$_filterLabel · $salesCount',
+            style: const TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF6E7791),
+              letterSpacing: 0.2,
+            ),
           ),
-          DesktopTag(
-            label: '$visibleInstallments cuotas',
-            background: const Color(0xFFF5EEF8),
-            foreground: const Color(0xFF7A4A97),
-          ),
-          DesktopTag(
-            label: visibleOutstanding,
-            background: const Color(0xFFF6EFE3),
-            foreground: const Color(0xFF8C5A2C),
-          ),
-          if (stageLabel != null)
-            DesktopTag(
-              label: stageLabel!,
-              background: const Color(0xFFF7F1E4),
-              foreground: const Color(0xFF8C5A2C),
+          const Spacer(),
+          if (onClear != null)
+            InkWell(
+              onTap: onClear,
+              borderRadius: BorderRadius.circular(8),
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                child: Text(
+                  'Limpiar filtro',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF14385F),
+                  ),
+                ),
+              ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+class _MobilePaymentsFilterSheet extends StatelessWidget {
+  const _MobilePaymentsFilterSheet({required this.currentFilter});
+
+  final String currentFilter;
+
+  @override
+  Widget build(BuildContext context) {
+    final options = <(String, String, IconData)>[
+      ('all', 'Todas', Icons.list_alt_rounded),
+      ('pending', 'Pendientes', Icons.hourglass_bottom_rounded),
+      ('overdue', 'Vencidas', Icons.error_outline_rounded),
+      ('paid', 'Pagadas', Icons.check_circle_outline_rounded),
+      ('completed', 'Con pagos realizados', Icons.receipt_long_outlined),
+    ];
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(12, 4, 12, 8),
+              child: Text(
+                'Filtrar pagos',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF10263D),
+                ),
+              ),
+            ),
+            for (final option in options)
+              _FilterSheetOption(
+                label: option.$2,
+                icon: option.$3,
+                selected: currentFilter == option.$1,
+                onTap: () => Navigator.of(context).pop(option.$1),
+              ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(12, 8, 12, 0),
+              child: Divider(height: 1),
+            ),
+            _FilterSheetOption(
+              label: 'Limpiar filtros y busqueda',
+              icon: Icons.cleaning_services_outlined,
+              selected: false,
+              destructive: true,
+              onTap: () => Navigator.of(context).pop('__clear__'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FilterSheetOption extends StatelessWidget {
+  const _FilterSheetOption({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+    this.destructive = false,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+  final bool destructive;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = destructive
+        ? const Color(0xFFA53F2B)
+        : (selected ? const Color(0xFF14385F) : const Color(0xFF223048));
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        child: Row(
+          children: [
+            Icon(icon, size: 19, color: color),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                  color: color,
+                ),
+              ),
+            ),
+            if (selected)
+              const Icon(
+                Icons.check_rounded,
+                size: 18,
+                color: Color(0xFF14385F),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -1515,37 +1718,32 @@ class _MobileSaleRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final subtitleParts = <String>[
+      if (sale.contractNumber.isNotEmpty) sale.contractNumber,
+      if (sale.lotLabel.isNotEmpty) sale.lotLabel,
+    ];
     return Material(
       color: selected ? const Color(0xFFF4F7FD) : Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(10, 10, 10, 9),
+          padding: const EdgeInsets.fromLTRB(12, 9, 10, 9),
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Container(
-                width: 38,
+                width: 6,
                 height: 38,
                 decoration: BoxDecoration(
-                  color: selected
-                      ? const Color(0xFFE1EAFE)
-                      : const Color(0xFFF1F4FA),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  Icons.payments_outlined,
-                  size: 18,
-                  color: selected
-                      ? const Color(0xFF2E5AAC)
-                      : const Color(0xFF223048),
+                  color: statusForeground,
+                  borderRadius: BorderRadius.circular(3),
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
                       sale.clientName,
@@ -1553,49 +1751,60 @@ class _MobileSaleRow extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         fontWeight: FontWeight.w800,
-                        fontSize: 13.4,
+                        fontSize: 13,
+                        height: 1.2,
                         color: Color(0xFF10263D),
                       ),
                     ),
-                    const SizedBox(height: 3),
-                    Text(
-                      [
-                        if (sale.contractNumber.isNotEmpty) sale.contractNumber,
-                        sale.lotLabel,
-                        formatDate(sale.saleDate),
-                      ].join('  •  '),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(0xFF6E7791),
-                        fontSize: 11.5,
-                        height: 1.2,
+                    if (subtitleParts.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitleParts.join(' · '),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFF8995AB),
+                          fontSize: 10.8,
+                          height: 1.15,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 7),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: [
-                        DesktopTag(
-                          label: '${sale.paymentsCount} pagos',
-                          background: const Color(0xFFEAF4ED),
-                          foreground: const Color(0xFF2F6F5C),
-                        ),
-                        DesktopTag(
-                          label: currency.format(sale.pendingBalance),
-                          background: const Color(0xFFF6EFE3),
-                          foreground: const Color(0xFF8C5A2C),
-                        ),
-                        DesktopTag(
-                          label: statusLabel,
-                          background: statusBackground,
-                          foreground: statusForeground,
-                        ),
-                      ],
-                    ),
+                    ],
                   ],
                 ),
+              ),
+              const SizedBox(width: 8),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    currency.format(sale.pendingBalance),
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12.4,
+                      height: 1.2,
+                      color: sale.pendingBalance > 0.009
+                          ? const Color(0xFF8C5A2C)
+                          : const Color(0xFF2F6F5C),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    statusLabel,
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w700,
+                      color: statusForeground,
+                      height: 1.1,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(width: 4),
+              const Icon(
+                Icons.chevron_right_rounded,
+                size: 18,
+                color: Color(0xFFB6BFD0),
               ),
             ],
           ),

@@ -4,7 +4,14 @@ class BenignRuntimeErrors {
   const BenignRuntimeErrors._();
 
   static bool shouldSuppress(Object error) {
-    return isDatabaseClosedDuringShutdown(error);
+    return isDatabaseClosedDuringShutdown(error) ||
+        isFlutterLayoutOverflowDiagnostic(error);
+  }
+
+  static bool isFlutterLayoutOverflowDiagnostic(Object error) {
+    final message = error.toString().toLowerCase();
+    return message.contains('renderflex overflowed') ||
+        message.contains('a renderflex overflowed');
   }
 
   static bool isDatabaseClosedDuringShutdown(Object error) {

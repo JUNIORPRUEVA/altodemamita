@@ -481,15 +481,20 @@ class CompactGlobalErrorDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.sizeOf(context).width;
+    final screenHeight = MediaQuery.sizeOf(context).height;
     final isMobile = screenWidth < 700;
     final dialogWidth = isMobile
         ? screenWidth * 0.85
         : screenWidth.clamp(360.0, 420.0);
+    final maxDialogHeight = (screenHeight - 24).clamp(180.0, 520.0).toDouble();
 
     return Align(
       alignment: Alignment.center,
       child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: dialogWidth.toDouble()),
+        constraints: BoxConstraints(
+          maxWidth: dialogWidth.toDouble(),
+          maxHeight: maxDialogHeight,
+        ),
         child: DecoratedBox(
           key: const Key('compact_error_card'),
           decoration: BoxDecoration(
@@ -503,7 +508,7 @@ class CompactGlobalErrorDialog extends StatelessWidget {
               ),
             ],
           ),
-          child: Padding(
+          child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
             child: Column(
               mainAxisSize: MainAxisSize.min,

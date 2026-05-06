@@ -15,7 +15,6 @@ import '../../lots/data/lot_repository.dart';
 import '../../settings/data/settings_repository.dart';
 import '../data/sales_repository.dart';
 import '../data/seller_repository.dart';
-import '../domain/sale_draft.dart';
 import '../domain/sale_summary.dart';
 import 'sale_detail_dialog.dart';
 import 'sale_form_dialog.dart';
@@ -349,7 +348,7 @@ class _SalesPageState extends State<SalesPage> {
   }
 
   Future<void> _createSale() async {
-    print('[SALES][UI] _createSale pressed');
+    debugPrint('[SALES][UI] _createSale pressed');
     final draft = await SaleFormDialog.show(
       context,
       clients: _controller.clients,
@@ -364,18 +363,18 @@ class _SalesPageState extends State<SalesPage> {
       onSellerCreated: _reloadControllerSafely,
     );
     if (!mounted || draft == null) {
-      print(
+      debugPrint(
         '[SALES][UI] dialog closed or not mounted (mounted=$mounted, draft=${draft != null})',
       );
       return;
     }
 
-    print(
+    debugPrint(
       '[SALES][UI] draft ready -> calling controller.createSale clientId=${draft.clientId} lotId=${draft.lotId} sellerId=${draft.sellerId} price=${draft.salePrice}',
     );
     final saleId = await _controller.createSale(draft);
     if (!mounted) {
-      print('[SALES][UI] not mounted after createSale');
+      debugPrint('[SALES][UI] not mounted after createSale');
       return;
     }
 
@@ -383,17 +382,17 @@ class _SalesPageState extends State<SalesPage> {
       final message =
           _controller.lastSaveErrorMessage ??
           'No se pudo guardar la venta. Revise los datos e intente nuevamente.';
-      print('[SALES][UI] createSale returned null -> $message');
+      debugPrint('[SALES][UI] createSale returned null -> $message');
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         SnackBar(content: Text(message), backgroundColor: Colors.red),
       );
       return;
     }
 
-    print('[SALES][UI] saleId=$saleId -> fetching detail');
+    debugPrint('[SALES][UI] saleId=$saleId -> fetching detail');
     final detail = await _controller.fetchDetail(saleId);
     if (!mounted) {
-      print('[SALES][UI] not mounted after fetchDetail');
+      debugPrint('[SALES][UI] not mounted after fetchDetail');
       return;
     }
 
@@ -512,10 +511,10 @@ class _SaleRow extends StatelessWidget {
 
     return InkWell(
       onTap: onTap,
-      child: SizedBox(
-        height: 64,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 64),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Row(
             children: [
               // Avatar
