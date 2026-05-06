@@ -47,10 +47,10 @@ class SaleCalculator {
     }
 
     return calculateTotalFinancingAmount(
-      financedBalance: financedBalance,
-      monthlyInterest: monthlyInterest,
-      installmentCount: installmentCount,
-    ) /
+          financedBalance: financedBalance,
+          monthlyInterest: monthlyInterest,
+          installmentCount: installmentCount,
+        ) /
         installmentCount;
   }
 
@@ -136,6 +136,7 @@ class SaleCalculator {
     required double monthlyInterest,
     required int installmentCount,
     required DateTime createdAt,
+    DateTime? statusAsOf,
   }) {
     if (installmentCount <= 0 || financedBalance <= 0) {
       return const [];
@@ -152,6 +153,7 @@ class SaleCalculator {
       financedBalance: financedBalance,
       monthlyInterest: monthlyInterest,
       createdAt: createdAt,
+      statusAsOf: statusAsOf,
     );
   }
 
@@ -164,6 +166,7 @@ class SaleCalculator {
     int startingInstallmentNumber = 1,
     DateTime? updatedAt,
     List<int?>? installmentIds,
+    DateTime? statusAsOf,
   }) {
     if (dueDates.isEmpty || financedBalance <= 0) {
       return const [];
@@ -194,6 +197,7 @@ class SaleCalculator {
     var remainingPlanCents = totalPlanCents;
     final installments = <Installment>[];
     final resolvedUpdatedAt = updatedAt ?? createdAt;
+    final resolvedStatusAsOf = statusAsOf ?? DateTime.now();
 
     for (var index = 0; index < dueDates.length; index++) {
       final openingBalanceCents = remainingPrincipalCents;
@@ -249,7 +253,12 @@ class SaleCalculator {
           paidPrincipalAmount: 0,
           paidInterestAmount: 0,
           endingBalance: _fromCents(endingBalanceCents),
-          status: 'pendiente',
+          status: resolveInstallmentStatus(
+            dueDate: dueDates[index],
+            paidAmount: 0,
+            totalAmount: _fromCents(totalAmountCents),
+            asOf: resolvedStatusAsOf,
+          ),
           createdAt: createdAt,
           updatedAt: resolvedUpdatedAt,
         ),
@@ -275,6 +284,7 @@ class SaleCalculator {
     int startingInstallmentNumber = 1,
     DateTime? updatedAt,
     List<int?>? installmentIds,
+    DateTime? statusAsOf,
   }) {
     if (dueDates.isEmpty || financedBalance <= 0 || fixedPaymentAmount <= 0) {
       return const [];
@@ -283,13 +293,14 @@ class SaleCalculator {
     final fixedInterestCents = _toCents(
       calculateFixedMonthlyInterestAmount(
         financedBalance: financedBalance,
-      monthlyInterest: monthlyInterest,
+        monthlyInterest: monthlyInterest,
       ),
     );
     final fixedPaymentCents = _toCents(fixedPaymentAmount);
     var balanceCents = _toCents(financedBalance);
     final installments = <Installment>[];
     final resolvedUpdatedAt = updatedAt ?? createdAt;
+    final resolvedStatusAsOf = statusAsOf ?? DateTime.now();
 
     for (var index = 0; index < dueDates.length; index++) {
       final openingBalanceCents = balanceCents;
@@ -334,7 +345,12 @@ class SaleCalculator {
           paidPrincipalAmount: 0,
           paidInterestAmount: 0,
           endingBalance: _fromCents(endingBalanceCents),
-          status: 'pendiente',
+          status: resolveInstallmentStatus(
+            dueDate: dueDates[index],
+            paidAmount: 0,
+            totalAmount: _fromCents(totalAmountCents),
+            asOf: resolvedStatusAsOf,
+          ),
           createdAt: createdAt,
           updatedAt: resolvedUpdatedAt,
         ),
@@ -362,6 +378,27 @@ class SaleCalculator {
       date.millisecond,
       date.microsecond,
     );
+  }
+
+  static String resolveInstallmentStatus({
+    required DateTime dueDate,
+    required double paidAmount,
+    required double totalAmount,
+    required DateTime asOf,
+  }) {
+    if (paidAmount >= totalAmount - 0.009) {
+      return 'pagada';
+    }
+    if (paidAmount > 0.009) {
+      return 'parcial';
+    }
+    return isPastDue(dueDate: dueDate, asOf: asOf) ? 'vencida' : 'pendiente';
+  }
+
+  static bool isPastDue({required DateTime dueDate, required DateTime asOf}) {
+    final dueDay = DateTime(dueDate.year, dueDate.month, dueDate.day);
+    final today = DateTime(asOf.year, asOf.month, asOf.day);
+    return dueDay.isBefore(today);
   }
 
   static double _roundCurrency(double value) {

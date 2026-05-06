@@ -1043,40 +1043,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
             ),
           ),
         ),
-        SizedBox(
-          width: 260,
-          child: InputDecorator(
-            decoration: const InputDecoration(
-              labelText: 'Tipo de pago inicial',
-              border: OutlineInputBorder(),
-              isDense: true,
-              contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            ),
-            child: SegmentedButton<bool>(
-              showSelectedIcon: false,
-              segments: const [
-                ButtonSegment<bool>(
-                  value: false,
-                  label: Text(
-                    'Pago de inicial',
-                    style: TextStyle(fontSize: 12),
-                  ),
-                ),
-                ButtonSegment<bool>(
-                  value: true,
-                  label: Text('Apartado', style: TextStyle(fontSize: 12)),
-                ),
-              ],
-              selected: {_initialIsApartado},
-              onSelectionChanged: (selection) {
-                setState(() {
-                  _initialIsApartado = selection.first;
-                  _syncInitialDeadline();
-                });
-              },
-            ),
-          ),
-        ),
+        _buildInitialPaymentTypeSelector(),
         SizedBox(
           width: 190,
           child: DropdownButtonFormField<String>(
@@ -1145,6 +1112,105 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
         ),
       ],
     );
+  }
+
+  Widget _buildInitialPaymentTypeSelector() {
+    final theme = Theme.of(context);
+
+    return SizedBox(
+      width: 250,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 10, bottom: 4),
+            child: Text(
+              'Tipo de pago inicial',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          Container(
+            height: 42,
+            padding: const EdgeInsets.all(3),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surface,
+              borderRadius: BorderRadius.circular(15),
+              border: Border.all(color: theme.colorScheme.outlineVariant),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _buildInitialTypeOption(
+                    label: 'Pago de inicial',
+                    selected: !_initialIsApartado,
+                    onTap: () => _setInitialPaymentType(isApartado: false),
+                  ),
+                ),
+                const SizedBox(width: 3),
+                Expanded(
+                  child: _buildInitialTypeOption(
+                    label: 'Apartado',
+                    selected: _initialIsApartado,
+                    onTap: () => _setInitialPaymentType(isApartado: true),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInitialTypeOption({
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    final theme = Theme.of(context);
+    final selectedColor = theme.colorScheme.primaryContainer.withValues(
+      alpha: 0.72,
+    );
+
+    return Material(
+      color: selected ? selectedColor : Colors.transparent,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Center(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: selected
+                  ? theme.colorScheme.onPrimaryContainer
+                  : theme.colorScheme.onSurface,
+              fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _setInitialPaymentType({required bool isApartado}) {
+    if (_initialIsApartado == isApartado) {
+      return;
+    }
+
+    setState(() {
+      _initialIsApartado = isApartado;
+      _syncInitialDeadline();
+    });
   }
 
   Widget _buildLiveSummary() {

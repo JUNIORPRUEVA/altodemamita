@@ -1,5 +1,11 @@
-import { Injectable } from '@nestjs/common';
-import { InstallmentStatus, Prisma, PrismaClient, SaleStatus, SyncStatus } from '@prisma/client';
+import { Injectable } from "@nestjs/common";
+import {
+  InstallmentStatus,
+  Prisma,
+  PrismaClient,
+  SaleStatus,
+  SyncStatus,
+} from "@prisma/client";
 
 type PrismaExecutor = PrismaClient | Prisma.TransactionClient;
 
@@ -17,6 +23,7 @@ interface InstallmentDraft {
   amount: number;
   principalAmount: number;
   interestAmount: number;
+  status: InstallmentStatus;
 }
 
 @Injectable()
@@ -27,7 +34,9 @@ export class LoanAccountingService {
     outstandingBalance: number;
     installments: InstallmentDraft[];
   } {
-    const financedAmount = this.roundCurrency(input.principalAmount - input.downPayment);
+    const financedAmount = this.roundCurrency(
+      input.principalAmount - input.downPayment,
+    );
     if (financedAmount <= 0 || input.termMonths <= 0) {
       return {
         financedAmount: Math.max(financedAmount, 0),
@@ -64,7 +73,9 @@ export class LoanAccountingService {
       }
 
       const isLastInstallment = index === input.termMonths;
-      let totalAmountCents = isLastInstallment ? remainingPlanCents : paymentCents;
+      let totalAmountCents = isLastInstallment
+        ? remainingPlanCents
+        : paymentCents;
       if (totalAmountCents > remainingPlanCents) {
         totalAmountCents = remainingPlanCents;
       }
@@ -86,16 +97,25 @@ export class LoanAccountingService {
         }
       }
 
-      const endingBalanceCents = (principalCents >= openingBalanceCents || isLastInstallment)
-        ? 0
-        : openingBalanceCents - principalCents;
+      const endingBalanceCents =
+        principalCents >= openingBalanceCents || isLastInstallment
+          ? 0
+          : openingBalanceCents - principalCents;
+
+      const dueDate = this.addMonths(input.saleDate, index);
 
       installments.push({
         installmentNumber: index,
-        dueDate: this.addMonths(input.saleDate, index),
+        dueDate,
         amount: this.fromCents(totalAmountCents),
         principalAmount: this.fromCents(principalCents),
         interestAmount: this.fromCents(interestCents),
+        status: this.resolveInstallmentStatus({
+          dueDate,
+          paidAmount: 0,
+          amount: this.fromCents(totalAmountCents),
+          asOf: new Date(),
+        }),
       });
 
       balanceCents = endingBalanceCents;
@@ -114,13 +134,16 @@ export class LoanAccountingService {
     };
   }
 
-  async syncSaleAggregates(prisma: PrismaExecutor, saleId: string): Promise<void> {
+  async syncSaleAggregates(
+    prisma: PrismaExecutor,
+    saleId: string,
+  ): Promise<void> {
     const sale = await prisma.sale.findFirst({
       where: { id: saleId, deletedAt: null },
       include: {
         installments: {
           where: { deletedAt: null },
-          orderBy: { installmentNumber: 'asc' },
+          orderBy: { installmentNumber: "asc" },
         },
         payments: {
           where: { deletedAt: null },
@@ -137,13 +160,18 @@ export class LoanAccountingService {
       if (payment.installmentId) {
         paymentTotalsByInstallment.set(
           payment.installmentId,
-          this.roundCurrency((paymentTotalsByInstallment.get(payment.installmentId) ?? 0) + Number(payment.amount)),
+          this.roundCurrency(
+            (paymentTotalsByInstallment.get(payment.installmentId) ?? 0) +
+              Number(payment.amount),
+          ),
         );
       }
     }
 
     for (const installment of sale.installments) {
-      const paidAmount = this.roundCurrency(paymentTotalsByInstallment.get(installment.id) ?? 0);
+      const paidAmount = this.roundCurrency(
+        paymentTotalsByInstallment.get(installment.id) ?? 0,
+      );
       const amount = Number(installment.amount);
       let status: InstallmentStatus = InstallmentStatus.pending;
 
@@ -151,7 +179,7 @@ export class LoanAccountingService {
         status = InstallmentStatus.paid;
       } else if (paidAmount > 0) {
         status = InstallmentStatus.partial;
-      } else if (installment.dueDate < new Date()) {
+      } else if (this.isPastDue(installment.dueDate, new Date())) {
         status = InstallmentStatus.overdue;
       }
 
@@ -169,21 +197,34 @@ export class LoanAccountingService {
       where: { saleId, deletedAt: null },
     });
     const scheduledAmount = this.roundCurrency(
-      refreshedInstallments.reduce((sum, installment) => sum + Number(installment.amount), 0),
+      refreshedInstallments.reduce(
+        (sum, installment) => sum + Number(installment.amount),
+        0,
+      ),
     );
     const paymentAmount = this.roundCurrency(
       sale.payments.reduce((sum, payment) => sum + Number(payment.amount), 0),
     );
-    const totalAmount = this.roundCurrency(Number(sale.downPayment) + scheduledAmount);
-    const paidAmount = this.roundCurrency(Number(sale.downPayment) + paymentAmount);
-    const outstandingBalance = this.roundCurrency(Math.max(totalAmount - paidAmount, 0));
+    const totalAmount = this.roundCurrency(
+      Number(sale.downPayment) + scheduledAmount,
+    );
+    const paidAmount = this.roundCurrency(
+      Number(sale.downPayment) + paymentAmount,
+    );
+    const outstandingBalance = this.roundCurrency(
+      Math.max(totalAmount - paidAmount, 0),
+    );
 
     let status: SaleStatus = SaleStatus.active;
     if (sale.deletedAt) {
       status = SaleStatus.cancelled;
     } else if (outstandingBalance <= 0) {
       status = SaleStatus.completed;
-    } else if (refreshedInstallments.some((installment) => installment.status === InstallmentStatus.overdue)) {
+    } else if (
+      refreshedInstallments.some(
+        (installment) => installment.status === InstallmentStatus.overdue,
+      )
+    ) {
       status = SaleStatus.overdue;
     }
 
@@ -225,7 +266,9 @@ export class LoanAccountingService {
       return 0;
     }
 
-    return this.roundCurrency(input.financedAmount * (input.interestRate / 100));
+    return this.roundCurrency(
+      input.financedAmount * (input.interestRate / 100),
+    );
   }
 
   private calculateTotalFinancingAmount(input: {
@@ -258,6 +301,37 @@ export class LoanAccountingService {
       date.getSeconds(),
       date.getMilliseconds(),
     );
+  }
+
+  private resolveInstallmentStatus(input: {
+    dueDate: Date;
+    paidAmount: number;
+    amount: number;
+    asOf: Date;
+  }): InstallmentStatus {
+    if (input.paidAmount >= input.amount) {
+      return InstallmentStatus.paid;
+    }
+    if (input.paidAmount > 0) {
+      return InstallmentStatus.partial;
+    }
+    return this.isPastDue(input.dueDate, input.asOf)
+      ? InstallmentStatus.overdue
+      : InstallmentStatus.pending;
+  }
+
+  private isPastDue(dueDate: Date, asOf: Date): boolean {
+    const dueDay = new Date(
+      dueDate.getFullYear(),
+      dueDate.getMonth(),
+      dueDate.getDate(),
+    ).getTime();
+    const today = new Date(
+      asOf.getFullYear(),
+      asOf.getMonth(),
+      asOf.getDate(),
+    ).getTime();
+    return dueDay < today;
   }
 
   private toCents(value: number): number {

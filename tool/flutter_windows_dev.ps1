@@ -195,6 +195,13 @@ if ($wrapperFallbackDir -and (Test-Path $wrapperFallbackDir)) {
       Copy-Item (Join-Path $wrapperFallbackDir 'include') (Join-Path $wrapperDir 'include') -Recurse -Force
     }
   }
+
+  # Flutter 3.41 regenerates windows/flutter/ephemeral during `flutter run` and
+  # can remove these copied .cc files after CMake configured against them. Keep
+  # the local include folder, but force CMake to use the SDK wrapper fallback.
+  foreach ($wrapperFile in $requiredWrapperFiles) {
+    Remove-Item (Join-Path $wrapperDir $wrapperFile) -Force -ErrorAction SilentlyContinue
+  }
 }
 
 $effectiveArgs = @()

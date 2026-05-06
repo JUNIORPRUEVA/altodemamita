@@ -1,12 +1,22 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { InstallmentStatus, Prisma, SaleStatus, SyncStatus } from '@prisma/client';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from "@nestjs/common";
+import {
+  InstallmentStatus,
+  Prisma,
+  SaleStatus,
+  SyncStatus,
+} from "@prisma/client";
 
-import { PrismaService } from 'src/infrastructure/prisma/prisma.service';
-import { RealtimeEventsService } from 'src/modules/realtime/realtime-events.service';
-import { LoanAccountingService } from 'src/shared/services/loan-accounting.service';
-import { CreateSaleDto } from '../dto/create-sale.dto';
-import { SalesQueryDto } from '../dto/sales-query.dto';
-import { UpdateSaleDto } from '../dto/update-sale.dto';
+import { PrismaService } from "src/infrastructure/prisma/prisma.service";
+import { RealtimeEventsService } from "src/modules/realtime/realtime-events.service";
+import { LoanAccountingService } from "src/shared/services/loan-accounting.service";
+import { CreateSaleDto } from "../dto/create-sale.dto";
+import { SalesQueryDto } from "../dto/sales-query.dto";
+import { UpdateSaleDto } from "../dto/update-sale.dto";
 
 @Injectable()
 export class SalesService {
@@ -19,36 +29,49 @@ export class SalesService {
   ) {}
 
   async create(dto: CreateSaleDto, actorUserId: string) {
-    this.logger.log(`CREATE sale actorUserId=${actorUserId} dto=${this.serialize(dto)}`);
-    console.log('DATA RECIBIDA:', dto);
-    const client = await this.prisma.client.findFirst({ where: { id: dto.clientId, deletedAt: null } });
+    this.logger.log(
+      `CREATE sale actorUserId=${actorUserId} dto=${this.serialize(dto)}`,
+    );
+    console.log("DATA RECIBIDA:", dto);
+    const client = await this.prisma.client.findFirst({
+      where: { id: dto.clientId, deletedAt: null },
+    });
     if (!client) {
-      throw new BadRequestException('Cliente no encontrado.');
+      throw new BadRequestException("Cliente no encontrado.");
     }
 
-    const product = await this.prisma.product.findFirst({ where: { id: dto.productId, deletedAt: null } });
+    const product = await this.prisma.product.findFirst({
+      where: { id: dto.productId, deletedAt: null },
+    });
     if (!product || !product.isActive) {
-      throw new BadRequestException('Producto no disponible.');
+      throw new BadRequestException("Producto no disponible.");
     }
     if (product.stock <= 0) {
-      throw new BadRequestException('El producto no tiene stock disponible.');
+      throw new BadRequestException("El producto no tiene stock disponible.");
     }
 
     const resolvedUserId = dto.userId ?? actorUserId;
-    const user = await this.prisma.user.findFirst({ where: { id: resolvedUserId, deletedAt: null, isActive: true } });
+    const user = await this.prisma.user.findFirst({
+      where: { id: resolvedUserId, deletedAt: null, isActive: true },
+    });
     if (!user) {
-      throw new BadRequestException('Usuario responsable no válido.');
+      throw new BadRequestException("Usuario responsable no válido.");
     }
 
-    const principalAmount = dto.principalAmount ?? Number(product.financingPrice ?? product.price);
+    const principalAmount =
+      dto.principalAmount ?? Number(product.financingPrice ?? product.price);
     if (principalAmount <= 0) {
-      throw new BadRequestException('El monto principal debe ser mayor que cero.');
+      throw new BadRequestException(
+        "El monto principal debe ser mayor que cero.",
+      );
     }
     if (dto.downPayment > principalAmount) {
-      throw new BadRequestException('La inicial no puede ser mayor que el monto principal.');
+      throw new BadRequestException(
+        "La inicial no puede ser mayor que el monto principal.",
+      );
     }
     if (dto.termMonths < 0) {
-      throw new BadRequestException('El plazo no puede ser negativo.');
+      throw new BadRequestException("El plazo no puede ser negativo.");
     }
 
     const saleDate = new Date(dto.saleDate);
@@ -77,7 +100,11 @@ export class SalesService {
           termMonths: dto.termMonths,
           paidAmount: dto.downPayment,
           outstandingBalance: schedule.outstandingBalance,
-          status: dto.status ?? (schedule.outstandingBalance <= 0 ? SaleStatus.completed : SaleStatus.active),
+          status:
+            dto.status ??
+            (schedule.outstandingBalance <= 0
+              ? SaleStatus.completed
+              : SaleStatus.active),
           notes: dto.notes,
           syncStatus: SyncStatus.pending,
         },
@@ -93,6 +120,7 @@ export class SalesService {
             principalAmount: installment.principalAmount,
             interestAmount: installment.interestAmount,
             paidAmount: 0,
+            status: installment.status,
             syncStatus: SyncStatus.pending,
           })),
         });
@@ -122,10 +150,10 @@ export class SalesService {
         productId: created.productId,
         status: created.status,
       },
-      'api',
+      "api",
       created.updatedAt.toISOString(),
     );
-    console.log('DATA GUARDADA:', created);
+    console.log("DATA GUARDADA:", created);
     return created;
   }
 
@@ -147,7 +175,7 @@ export class SalesService {
           product: true,
           seller: true,
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: { createdAt: "desc" },
         skip: (query.page - 1) * query.limit,
         take: query.limit,
       }),
@@ -174,11 +202,11 @@ export class SalesService {
         seller: true,
         installments: {
           where: { deletedAt: null },
-          orderBy: { installmentNumber: 'asc' },
+          orderBy: { installmentNumber: "asc" },
         },
         payments: {
           where: { deletedAt: null },
-          orderBy: { paymentDate: 'desc' },
+          orderBy: { paymentDate: "desc" },
           include: {
             installment: true,
           },
@@ -187,7 +215,7 @@ export class SalesService {
     });
 
     if (!sale) {
-      throw new NotFoundException('Venta no encontrada.');
+      throw new NotFoundException("Venta no encontrada.");
     }
 
     return sale;
@@ -197,22 +225,30 @@ export class SalesService {
     this.logger.log(`UPDATE sale id=${id} dto=${this.serialize(dto)}`);
     const sale = await this.findOne(id);
     const hasPayments = sale.payments.length > 0;
-    const modifiesFinancials = [
-      dto.principalAmount,
-      dto.downPayment,
-      dto.interestRate,
-      dto.termMonths,
-      dto.productId,
-    ].some((value) => value !== undefined);
+    const changesSaleDate =
+      dto.saleDate !== undefined &&
+      new Date(dto.saleDate).getTime() !== sale.saleDate.getTime();
+    const modifiesFinancials =
+      [
+        dto.principalAmount,
+        dto.downPayment,
+        dto.interestRate,
+        dto.termMonths,
+        dto.productId,
+      ].some((value) => value !== undefined) || changesSaleDate;
 
     if (hasPayments && modifiesFinancials) {
-      throw new BadRequestException('No se puede modificar la estructura financiera de una venta con pagos registrados.');
+      throw new BadRequestException(
+        "No se puede modificar la estructura financiera de una venta con pagos registrados.",
+      );
     }
 
     const productId = dto.productId ?? sale.productId;
-    const product = await this.prisma.product.findFirst({ where: { id: productId, deletedAt: null } });
+    const product = await this.prisma.product.findFirst({
+      where: { id: productId, deletedAt: null },
+    });
     if (!product) {
-      throw new BadRequestException('Producto no encontrado.');
+      throw new BadRequestException("Producto no encontrado.");
     }
 
     const principalAmount = dto.principalAmount ?? Number(sale.principalAmount);
@@ -220,7 +256,9 @@ export class SalesService {
     const interestRate = dto.interestRate ?? Number(sale.interestRate);
     const termMonths = dto.termMonths ?? sale.termMonths;
     if (downPayment > principalAmount) {
-      throw new BadRequestException('La inicial no puede ser mayor que el monto principal.');
+      throw new BadRequestException(
+        "La inicial no puede ser mayor que el monto principal.",
+      );
     }
 
     const schedule = this.accountingService.calculateSchedule({
@@ -238,7 +276,9 @@ export class SalesService {
           data: { stock: { increment: 1 }, syncStatus: SyncStatus.pending },
         });
         if (product.stock <= 0) {
-          throw new BadRequestException('El nuevo producto no tiene stock disponible.');
+          throw new BadRequestException(
+            "El nuevo producto no tiene stock disponible.",
+          );
         }
         await tx.product.update({
           where: { id: product.id },
@@ -263,7 +303,11 @@ export class SalesService {
           termMonths,
           paidAmount: downPayment,
           outstandingBalance: schedule.outstandingBalance,
-          status: dto.status ?? (schedule.outstandingBalance <= 0 ? SaleStatus.completed : sale.status),
+          status:
+            dto.status ??
+            (schedule.outstandingBalance <= 0
+              ? SaleStatus.completed
+              : sale.status),
           notes: dto.notes,
           syncStatus: SyncStatus.pending,
         },
@@ -285,6 +329,7 @@ export class SalesService {
               principalAmount: installment.principalAmount,
               interestAmount: installment.interestAmount,
               paidAmount: 0,
+              status: installment.status,
               syncStatus: SyncStatus.pending,
             })),
           });
@@ -294,8 +339,8 @@ export class SalesService {
 
     const updated = await this.findOne(id);
     this.realtimeEvents.publishEntityUpdated({
-      entity: 'sale',
-      action: 'updated',
+      entity: "sale",
+      action: "updated",
       id,
       recordSyncId: updated.syncId,
       data: {
@@ -307,7 +352,7 @@ export class SalesService {
         clientId: updated.clientId,
         productId: updated.productId,
       },
-      source: 'api',
+      source: "api",
       updatedAt: updated.updatedAt.toISOString(),
     });
     return updated;
@@ -349,8 +394,8 @@ export class SalesService {
       });
     });
     this.realtimeEvents.publishEntityUpdated({
-      entity: 'sale',
-      action: 'deleted',
+      entity: "sale",
+      action: "deleted",
       id,
       recordSyncId: sale.syncId,
       data: {
@@ -359,7 +404,7 @@ export class SalesService {
         sync_id: sale.syncId,
         status: SaleStatus.cancelled,
       },
-      source: 'api',
+      source: "api",
       updatedAt: deletedAt.toISOString(),
     });
     return { id, removed: true };
@@ -376,19 +421,57 @@ export class SalesService {
     return {
       deletedAt: null,
       OR: [
-        { contractNumber: { contains: normalizedSearch, mode: 'insensitive' } },
-        { notes: { contains: normalizedSearch, mode: 'insensitive' } },
+        { contractNumber: { contains: normalizedSearch, mode: "insensitive" } },
+        { notes: { contains: normalizedSearch, mode: "insensitive" } },
         ...(normalizedStatus ? [{ status: { equals: normalizedStatus } }] : []),
-        { client: { firstName: { contains: normalizedSearch, mode: 'insensitive' } } },
-        { client: { lastName: { contains: normalizedSearch, mode: 'insensitive' } } },
-        { client: { documentId: { contains: normalizedSearch, mode: 'insensitive' } } },
-        { client: { phone: { contains: normalizedSearch, mode: 'insensitive' } } },
-        { product: { code: { contains: normalizedSearch, mode: 'insensitive' } } },
-        { product: { name: { contains: normalizedSearch, mode: 'insensitive' } } },
-        { product: { description: { contains: normalizedSearch, mode: 'insensitive' } } },
-        { seller: { name: { contains: normalizedSearch, mode: 'insensitive' } } },
-        { seller: { documentId: { contains: normalizedSearch, mode: 'insensitive' } } },
-        { seller: { phone: { contains: normalizedSearch, mode: 'insensitive' } } },
+        {
+          client: {
+            firstName: { contains: normalizedSearch, mode: "insensitive" },
+          },
+        },
+        {
+          client: {
+            lastName: { contains: normalizedSearch, mode: "insensitive" },
+          },
+        },
+        {
+          client: {
+            documentId: { contains: normalizedSearch, mode: "insensitive" },
+          },
+        },
+        {
+          client: {
+            phone: { contains: normalizedSearch, mode: "insensitive" },
+          },
+        },
+        {
+          product: {
+            code: { contains: normalizedSearch, mode: "insensitive" },
+          },
+        },
+        {
+          product: {
+            name: { contains: normalizedSearch, mode: "insensitive" },
+          },
+        },
+        {
+          product: {
+            description: { contains: normalizedSearch, mode: "insensitive" },
+          },
+        },
+        {
+          seller: { name: { contains: normalizedSearch, mode: "insensitive" } },
+        },
+        {
+          seller: {
+            documentId: { contains: normalizedSearch, mode: "insensitive" },
+          },
+        },
+        {
+          seller: {
+            phone: { contains: normalizedSearch, mode: "insensitive" },
+          },
+        },
       ],
     };
   }
@@ -396,24 +479,24 @@ export class SalesService {
   private parseSaleStatus(search: string): SaleStatus | null {
     const normalized = search.trim().toLowerCase();
     switch (normalized) {
-      case 'draft':
-      case 'borrador':
-      case 'apartado':
+      case "draft":
+      case "borrador":
+      case "apartado":
         return SaleStatus.draft;
-      case 'active':
-      case 'activa':
-      case 'activo':
+      case "active":
+      case "activa":
+      case "activo":
         return SaleStatus.active;
-      case 'completed':
-      case 'completada':
-      case 'pagada':
-      case 'vendida':
+      case "completed":
+      case "completada":
+      case "pagada":
+      case "vendida":
         return SaleStatus.completed;
-      case 'cancelled':
-      case 'cancelada':
+      case "cancelled":
+      case "cancelada":
         return SaleStatus.cancelled;
-      case 'overdue':
-      case 'vencida':
+      case "overdue":
+      case "vencida":
         return SaleStatus.overdue;
       default:
         return null;

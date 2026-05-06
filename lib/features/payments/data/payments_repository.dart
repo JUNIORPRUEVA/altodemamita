@@ -426,6 +426,7 @@ class PaymentsRepository {
                   monthlyInterest: monthlyInterest,
                   installmentCount: installmentCount,
                   createdAt: DateTime.parse(updatedAt),
+                  statusAsOf: DateTime.parse(updatedAt),
                 );
             final batch = txn.batch();
             for (final installment in generatedInstallments) {
@@ -499,7 +500,12 @@ class PaymentsRepository {
             ),
           );
           final updatedStatus = updatedPaidAmount <= 0.009
-              ? 'pendiente'
+              ? SaleCalculator.resolveInstallmentStatus(
+                  dueDate: installment.dueDate,
+                  paidAmount: updatedPaidAmount,
+                  totalAmount: installment.totalAmount,
+                  asOf: paymentDate ?? DateTime.parse(updatedAt),
+                )
               : updatedPaidAmount >= installment.totalAmount - 0.009
               ? 'pagada'
               : 'parcial';
@@ -780,6 +786,7 @@ class PaymentsRepository {
             monthlyInterest: monthlyInterest,
             installmentCount: installmentCount,
             createdAt: draft.paymentDate,
+            statusAsOf: draft.paymentDate,
           );
           final batch = txn.batch();
           for (final installment in generatedInstallments) {
@@ -1001,6 +1008,8 @@ class PaymentsRepository {
           ? 'pagada'
           : newPaidAmount > 0
           ? 'parcial'
+          : installment.status == 'vencida'
+          ? 'vencida'
           : 'pendiente',
     );
   }

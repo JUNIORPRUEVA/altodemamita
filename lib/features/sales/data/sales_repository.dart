@@ -427,6 +427,7 @@ class SalesRepository {
             monthlyInterest: draft.monthlyInterest,
             installmentCount: draft.installmentCount,
             createdAt: createdAt,
+            statusAsOf: createdAt,
           );
           _validateInstallmentSequence(installments, saleId: saleId);
           final deletedInstallments = await txn.delete(
@@ -772,6 +773,7 @@ class SalesRepository {
             monthlyInterest: draft.monthlyInterest,
             installmentCount: draft.installmentCount,
             createdAt: updatedAt,
+            statusAsOf: updatedAt,
           );
           _validateInstallmentSequence(installments, saleId: saleId);
           for (final installment in installments) {
