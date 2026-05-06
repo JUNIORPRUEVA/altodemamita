@@ -26,7 +26,6 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
   int _page = 1;
   String? _selectedSaleId;
   String _salesFilter = 'all';
-  bool _mobileSearchOpen = false;
   _MobilePaymentsDetailTab _mobileDetailTab = _MobilePaymentsDetailTab.payments;
   int _mobileDetailPage = 1;
 
@@ -112,17 +111,6 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
     );
   }
 
-  void _toggleMobileSearch() {
-    setState(() {
-      _mobileSearchOpen = !_mobileSearchOpen;
-      if (!_mobileSearchOpen && _searchController.text.isNotEmpty) {
-        _searchController.clear();
-        _page = 1;
-        _future = null;
-      }
-    });
-  }
-
   Future<void> _showMobileFilterSheet() async {
     final selected = await showModalBottomSheet<String>(
       context: context,
@@ -140,7 +128,6 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
     if (selected == '__clear__') {
       _searchController.clear();
       setState(() {
-        _mobileSearchOpen = false;
         _salesFilter = 'all';
         _mobileDetailPage = 1;
         _page = 1;
@@ -248,9 +235,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
               child: compact
                   ? _MobilePaymentsCompactToolbar(
                       searchController: _searchController,
-                      searchOpen: _mobileSearchOpen,
                       currentFilter: _salesFilter,
-                      onToggleSearch: _toggleMobileSearch,
                       onOpenFilters: _showMobileFilterSheet,
                       onSubmitSearch: _reloadFromStart,
                     )
@@ -1425,60 +1410,38 @@ enum _MobilePaymentsDetailTab { payments, installments }
 class _MobilePaymentsCompactToolbar extends StatelessWidget {
   const _MobilePaymentsCompactToolbar({
     required this.searchController,
-    required this.searchOpen,
     required this.currentFilter,
-    required this.onToggleSearch,
     required this.onOpenFilters,
     required this.onSubmitSearch,
   });
 
   final TextEditingController searchController;
-  final bool searchOpen;
   final String currentFilter;
-  final VoidCallback onToggleSearch;
   final VoidCallback onOpenFilters;
   final VoidCallback onSubmitSearch;
 
   @override
   Widget build(BuildContext context) {
     final filterActive = currentFilter != 'all';
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.end,
-          children: [
-            _AppBarIconButton(
-              icon: searchOpen
-                  ? Icons.close_rounded
-                  : Icons.search_rounded,
-              tooltip: searchOpen ? 'Cerrar buscador' : 'Buscar',
-              onPressed: onToggleSearch,
-              active: searchOpen,
+        Expanded(
+          child: SizedBox(
+            height: 38,
+            child: DesktopSearchField(
+              controller: searchController,
+              hintText: 'Buscar cliente, contrato o solar',
+              onSubmitted: (_) => onSubmitSearch(),
             ),
-            const SizedBox(width: 6),
-            _AppBarIconButton(
-              icon: Icons.tune_rounded,
-              tooltip: 'Filtros',
-              onPressed: onOpenFilters,
-              active: filterActive,
-            ),
-          ],
+          ),
         ),
-        AnimatedSize(
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOut,
-          alignment: Alignment.topCenter,
-          child: searchOpen
-              ? Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: DesktopSearchField(
-                    controller: searchController,
-                    hintText: 'Buscar cliente, contrato o solar',
-                    onSubmitted: (_) => onSubmitSearch(),
-                  ),
-                )
-              : const SizedBox.shrink(),
+        const SizedBox(width: 8),
+        _AppBarIconButton(
+          icon: Icons.tune_rounded,
+          tooltip: 'Filtros',
+          onPressed: onOpenFilters,
+          active: filterActive,
         ),
       ],
     );
@@ -1719,8 +1682,8 @@ class _MobileSaleRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final subtitleParts = <String>[
-      if (sale.contractNumber.isNotEmpty) sale.contractNumber,
       if (sale.lotLabel.isNotEmpty) sale.lotLabel,
+      if (sale.clientDocumentId.isNotEmpty) sale.clientDocumentId,
     ];
     return Material(
       color: selected ? const Color(0xFFF4F7FD) : Colors.transparent,

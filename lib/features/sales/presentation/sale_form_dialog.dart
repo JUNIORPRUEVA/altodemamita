@@ -477,7 +477,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.sizeOf(context);
     final dialogWidth = math.min(screenSize.width - 20, 1220.0);
-    final dialogHeight = math.min(screenSize.height - 20, 736.0);
+    final dialogHeight = math.min(screenSize.height - 16, 820.0);
 
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
@@ -565,7 +565,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
       key: _formKey,
       child: LayoutBuilder(
         builder: (context, constraints) {
-          Widget buildContent({required bool allowFlexibleSpacing}) {
+          Widget buildContent() {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -579,10 +579,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
                 _buildSaleTermsBand(),
                 const SizedBox(height: 10),
                 _buildInitialPaymentBand(),
-                if (allowFlexibleSpacing)
-                  const Spacer()
-                else
-                  const SizedBox(height: 16),
+                const SizedBox(height: 16),
                 Divider(
                   height: 1,
                   color: Theme.of(context).colorScheme.outlineVariant,
@@ -593,16 +590,16 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
             );
           }
 
-          final needsScroll =
-              constraints.maxWidth < 1024 || constraints.maxHeight < 560;
-
-          if (needsScroll) {
-            return SingleChildScrollView(
-              child: buildContent(allowFlexibleSpacing: false),
-            );
-          }
-
-          return buildContent(allowFlexibleSpacing: true);
+          return Scrollbar(
+            thumbVisibility: constraints.maxHeight < 680,
+            child: SingleChildScrollView(
+              padding: EdgeInsets.zero,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: buildContent(),
+              ),
+            ),
+          );
         },
       ),
     );
