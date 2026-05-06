@@ -5,7 +5,17 @@ class BenignRuntimeErrors {
 
   static bool shouldSuppress(Object error) {
     return isDatabaseClosedDuringShutdown(error) ||
-        isFlutterLayoutOverflowDiagnostic(error);
+        isFlutterLayoutOverflowDiagnostic(error) ||
+        isFlutterScrollbarControllerDiagnostic(error);
+  }
+
+  static bool isFlutterScrollbarControllerDiagnostic(Object error) {
+    final message = error.toString().toLowerCase();
+    return message.contains("scrollbar's scrollcontroller") ||
+        message.contains(
+          'a scrollbar cannot be painted without a scrollposition',
+        ) ||
+        message.contains('primaryscrollcontroller');
   }
 
   static bool isFlutterLayoutOverflowDiagnostic(Object error) {

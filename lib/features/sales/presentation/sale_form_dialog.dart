@@ -122,6 +122,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
   late final TextEditingController _monthlyInterestController;
   late final TextEditingController _installmentCountController;
   late final TextEditingController _lotPriceController;
+  late final ScrollController _formScrollController;
 
   late List<Client> _clients;
   late List<Lot> _availableLots;
@@ -138,6 +139,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
   bool _useDirectInstallmentCount = true;
   int _durationYears = 5;
   String _selectedInitialPaymentMethod = _initialPaymentMethods.first;
+
   /// Cuando es `true`, el monto que el usuario tipea en "Inicial real pagado"
   /// se interpreta como APARTADO (reserva del solar) y NO se aplica al inicial
   /// requerido. La venta queda en estado `apartado` con el inicial pendiente al
@@ -397,6 +399,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
     _clientSearchController = TextEditingController();
     _sellerSearchController = TextEditingController();
     _lotSearchController = TextEditingController();
+    _formScrollController = ScrollController();
     final initialDraft = widget.initialDraft;
     _selectedClientId = initialDraft?.clientId;
     _selectedLotId = initialDraft?.lotId;
@@ -470,6 +473,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
     _monthlyInterestController.dispose();
     _installmentCountController.dispose();
     _lotPriceController.dispose();
+    _formScrollController.dispose();
     super.dispose();
   }
 
@@ -591,8 +595,11 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
           }
 
           return Scrollbar(
+            controller: _formScrollController,
             thumbVisibility: constraints.maxHeight < 680,
             child: SingleChildScrollView(
+              controller: _formScrollController,
+              primary: false,
               padding: EdgeInsets.zero,
               child: ConstrainedBox(
                 constraints: BoxConstraints(minHeight: constraints.maxHeight),
@@ -837,8 +844,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
                 tooltip: 'Agregar otro solar',
                 onPressed: _showAddLotDialog,
               ),
-            if (selectedLot != null &&
-                _canUpdateLots)
+            if (selectedLot != null && _canUpdateLots)
               _buildCompactIconButton(
                 icon: Icons.edit_outlined,
                 tooltip: 'Editar solar',
@@ -1051,7 +1057,10 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
               segments: const [
                 ButtonSegment<bool>(
                   value: false,
-                  label: Text('Pago de inicial', style: TextStyle(fontSize: 12)),
+                  label: Text(
+                    'Pago de inicial',
+                    style: TextStyle(fontSize: 12),
+                  ),
                 ),
                 ButtonSegment<bool>(
                   value: true,
@@ -2505,7 +2514,8 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
       final updatedLots = await widget.lotRepository.fetchAvailable();
       final selectedLotId = _selectedLotId;
       final selectedLotExists =
-          selectedLotId != null && updatedLots.any((lot) => lot.id == selectedLotId);
+          selectedLotId != null &&
+          updatedLots.any((lot) => lot.id == selectedLotId);
 
       if (!mounted) {
         return;

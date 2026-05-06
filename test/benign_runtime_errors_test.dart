@@ -36,6 +36,18 @@ void main() {
       isTrue,
     );
   });
+
+  test('suprime diagnosticos Scrollbar sin ScrollPosition de Flutter', () {
+    expect(
+      BenignRuntimeErrors.shouldSuppress(
+        FlutterError(
+          "The Scrollbar's ScrollController has no ScrollPosition attached. "
+          'A Scrollbar cannot be painted without a ScrollPosition.',
+        ),
+      ),
+      isTrue,
+    );
+  });
 }
 
 class _TestDatabaseException extends DatabaseException {
