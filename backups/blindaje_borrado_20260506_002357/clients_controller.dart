@@ -1,7 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import '../../../core/errors/active_sales_block_delete_exception.dart';
 import '../../../core/resilience/friendly_error_messages.dart';
 import '../data/client_repository.dart';
 import '../domain/client.dart';
@@ -67,8 +66,6 @@ class ClientsController extends ChangeNotifier {
       await _repository.delete(id);
       await load();
       return null;
-    } on ActiveSalesBlockDeleteException catch (error) {
-      return error.message;
     } catch (error) {
       debugPrint('ERROR REAL (eliminar cliente): $error');
 

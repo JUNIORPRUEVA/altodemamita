@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 
 import '../../../features/auth/domain/permission_model.dart';
 import '../../../features/auth/presentation/auth_provider.dart';
-import '../../../core/errors/active_sales_block_delete_exception.dart';
 import '../../../core/resilience/friendly_error_messages.dart';
 import '../../../shared/widgets/base_layout.dart';
 import '../../../shared/widgets/recovery_experience.dart';
@@ -178,17 +177,6 @@ class _SellersPageState extends State<SellersPage> {
       }
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         const SnackBar(content: Text('Vendedor eliminado correctamente.')),
-      );
-    } on ActiveSalesBlockDeleteException catch (error) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(
-          content: Text(error.message),
-          backgroundColor: Theme.of(context).colorScheme.error,
-          duration: const Duration(seconds: 6),
-        ),
       );
     } catch (error) {
       if (!mounted) {

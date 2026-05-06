@@ -355,44 +355,6 @@ export class SyncService {
             continue;
           }
 
-          // Blindaje: no aplicar borrado si el cliente tiene ventas activas
-          {
-            const activeSaleCount = await tx.sale.count({
-              where: {
-                clientId: existing.id,
-                deletedAt: null,
-                status: { not: SaleStatus.cancelled },
-              },
-            });
-            if (activeSaleCount > 0) {
-              const server = await tx.client.findUnique({
-                where: { id: existing.id },
-                select: {
-                  id: true,
-                  syncId: true,
-                  firstName: true,
-                  lastName: true,
-                  documentId: true,
-                  phone: true,
-                  address: true,
-                  createdAt: true,
-                  updatedAt: true,
-                  deletedAt: true,
-                  syncStatus: true,
-                },
-              });
-              this.throwManualConflict({
-                scope: 'clients',
-                recordSyncId,
-                localRecord: payload,
-                serverRecord: server ? this.serializeClientRecord(server) : null,
-                message:
-                  'ENTITY_HAS_ACTIVE_SALES: No puedes eliminar este cliente porque tiene una venta activa relacionada. ' +
-                  'Primero debes ir a Ventas y anular o eliminar esa venta.',
-              });
-            }
-          }
-
           const persisted = await tx.client.update({
             where: { id: existing.id },
             data: {
@@ -609,46 +571,6 @@ export class SyncService {
             continue;
           }
 
-          // Blindaje: no aplicar borrado si el solar tiene ventas activas
-          {
-            const activeSaleCount = await tx.sale.count({
-              where: {
-                productId: existing.id,
-                deletedAt: null,
-                status: { not: SaleStatus.cancelled },
-              },
-            });
-            if (activeSaleCount > 0) {
-              const server = await tx.product.findUnique({
-                where: { id: existing.id },
-                select: {
-                  id: true,
-                  syncId: true,
-                  code: true,
-                  name: true,
-                  price: true,
-                  financingPrice: true,
-                  stock: true,
-                  isActive: true,
-                  createdAt: true,
-                  updatedAt: true,
-                  deletedAt: true,
-                  syncStatus: true,
-                  syncPayload: true,
-                },
-              });
-              this.throwManualConflict({
-                scope: 'products',
-                recordSyncId,
-                localRecord: payload,
-                serverRecord: server ? this.serializeProductRecord(server) : null,
-                message:
-                  'ENTITY_HAS_ACTIVE_SALES: No puedes eliminar este solar porque tiene una venta activa relacionada. ' +
-                  'Primero debes ir a Ventas y anular o eliminar esa venta.',
-              });
-            }
-          }
-
           const persisted = await tx.product.update({
             where: { id: existing.id },
             data: {
@@ -818,42 +740,6 @@ export class SyncService {
         if (deletedAt != null) {
           if (!existing) {
             continue;
-          }
-
-          // Blindaje: no aplicar borrado si el vendedor tiene ventas activas
-          {
-            const activeSaleCount = await tx.sale.count({
-              where: {
-                sellerId: existing.id,
-                deletedAt: null,
-                status: { not: SaleStatus.cancelled },
-              },
-            });
-            if (activeSaleCount > 0) {
-              const server = await tx.seller.findUnique({
-                where: { id: existing.id },
-                select: {
-                  id: true,
-                  syncId: true,
-                  name: true,
-                  documentId: true,
-                  phone: true,
-                  createdAt: true,
-                  updatedAt: true,
-                  deletedAt: true,
-                  syncStatus: true,
-                },
-              });
-              this.throwManualConflict({
-                scope: 'sellers',
-                recordSyncId,
-                localRecord: payload,
-                serverRecord: server ? this.serializeSellerRecord(server) : null,
-                message:
-                  'ENTITY_HAS_ACTIVE_SALES: No puedes eliminar este vendedor porque tiene una venta activa relacionada. ' +
-                  'Primero debes ir a Ventas y anular o eliminar esa venta.',
-              });
-            }
           }
 
           const persisted = await tx.seller.update({

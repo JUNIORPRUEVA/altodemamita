@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { Prisma, SaleStatus, SyncStatus } from '@prisma/client';
+import { Prisma, SyncStatus } from '@prisma/client';
 
 import { PrismaService } from 'src/infrastructure/prisma/prisma.service';
 import { PaginationQueryDto } from 'src/shared/dto/pagination-query.dto';
@@ -91,23 +91,6 @@ export class ClientsService {
 
   async remove(id: string) {
     await this.findOne(id);
-
-    const activeSaleCount = await this.prisma.sale.count({
-      where: {
-        clientId: id,
-        deletedAt: null,
-        status: { not: SaleStatus.cancelled },
-      },
-    });
-    if (activeSaleCount > 0) {
-      throw new BadRequestException({
-        message:
-          'No puedes eliminar este cliente porque tiene una venta activa relacionada. ' +
-          'Primero debes ir a Ventas y anular o eliminar esa venta.',
-        errorCode: 'ENTITY_HAS_ACTIVE_SALES',
-      });
-    }
-
     await this.prisma.client.update({
       where: { id },
       data: {

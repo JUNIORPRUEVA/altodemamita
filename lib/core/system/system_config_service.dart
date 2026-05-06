@@ -44,6 +44,17 @@ class SystemConfigService extends ChangeNotifier {
     _httpClient.idleTimeout = const Duration(seconds: 10);
   }
 
+  @visibleForTesting
+  factory SystemConfigService.test({
+    SyncConfigRepository? syncConfigRepository,
+    HttpClient? httpClient,
+  }) {
+    return SystemConfigService._(
+      syncConfigRepository: syncConfigRepository,
+      httpClient: httpClient,
+    );
+  }
+
   static final SystemConfigService instance = SystemConfigService._();
 
   final SyncConfigRepository _syncConfigRepository;
@@ -95,40 +106,17 @@ class SystemConfigService extends ChangeNotifier {
         return;
       }
 
-      final uri = Uri.parse('${settings.normalizedBaseUrl}/system/config');
-      if (uri.host.trim().isEmpty) {
-        _updateState(readOnly: false);
-        return;
+      await _refreshReadOnlyState(settings.normalizedBaseUrl);
+
+      if (settings.jwtToken.trim().isNotEmpty) {
+        final deviceState = await _resolveDeviceState(
+          baseUrl: settings.normalizedBaseUrl,
+          jwtToken: settings.jwtToken,
+          deviceId: settings.deviceId,
+        );
+        _applyDeviceState(deviceState);
+        await _syncConfigRepository.saveDeviceWriteState(deviceState);
       }
-
-      final request = await _httpClient.getUrl(uri);
-      request.headers.set(HttpHeaders.acceptHeader, ContentType.json.mimeType);
-      final response = await request.close();
-      final body = await utf8.decoder.bind(response).join();
-      final decoded = body.trim().isEmpty
-          ? const <String, dynamic>{}
-          : jsonDecode(body);
-      final payload = decoded is Map<String, dynamic>
-          ? _unwrapEnvelope(decoded)
-          : (decoded is Map
-                ? _unwrapEnvelope(
-                    decoded.map(
-                      (key, value) => MapEntry(key.toString(), value),
-                    ),
-                  )
-                : const <String, dynamic>{});
-
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        _updateState(readOnly: payload['readOnly'] == true);
-      }
-
-      final deviceState = await _fetchDeviceState(
-        baseUrl: settings.normalizedBaseUrl,
-        jwtToken: settings.jwtToken,
-        deviceId: settings.deviceId,
-      );
-      _applyDeviceState(deviceState);
-      await _syncConfigRepository.saveDeviceWriteState(deviceState);
     } catch (_) {
       // Preserve the last known state if the backend is temporarily unreachable.
     } finally {
@@ -156,20 +144,99 @@ class SystemConfigService extends ChangeNotifier {
       return;
     }
 
+    final state = await _requestDeviceRegistration(
+      baseUrl: settings.normalizedBaseUrl,
+      jwtToken: settings.jwtToken,
+      deviceId: settings.deviceId,
+      claimPrimary: claimPrimary,
+    );
+    if (state == null) {
+      return;
+    }
+
+    _applyDeviceState(state);
+    await _syncConfigRepository.saveDeviceWriteState(state);
+    notifyListeners();
+  }
+
+  Future<void> _refreshReadOnlyState(String baseUrl) async {
+    final uri = Uri.parse('$baseUrl/system/config');
+    if (uri.host.trim().isEmpty) {
+      _updateState(readOnly: false);
+      return;
+    }
+
+    final request = await _httpClient.getUrl(uri);
+    request.headers.set(HttpHeaders.acceptHeader, ContentType.json.mimeType);
+    final response = await request.close();
+    final body = await utf8.decoder.bind(response).join();
+    final decoded = body.trim().isEmpty
+        ? const <String, dynamic>{}
+        : jsonDecode(body);
+    final payload = decoded is Map<String, dynamic>
+        ? _unwrapEnvelope(decoded)
+        : (decoded is Map
+              ? _unwrapEnvelope(
+                  decoded.map(
+                    (key, value) => MapEntry(key.toString(), value),
+                  ),
+                )
+              : const <String, dynamic>{});
+
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      _updateState(readOnly: payload['readOnly'] == true);
+    }
+  }
+
+  Future<DeviceWriteState> _resolveDeviceState({
+    required String baseUrl,
+    required String jwtToken,
+    required String deviceId,
+  }) async {
+    try {
+      return await _fetchDeviceState(
+        baseUrl: baseUrl,
+        jwtToken: jwtToken,
+        deviceId: deviceId,
+      );
+    } catch (_) {
+      final recoveredState = await _requestDeviceRegistration(
+        baseUrl: baseUrl,
+        jwtToken: jwtToken,
+        deviceId: deviceId,
+        claimPrimary: false,
+      );
+      if (recoveredState != null) {
+        return recoveredState;
+      }
+      rethrow;
+    }
+  }
+
+  Future<DeviceWriteState?> _requestDeviceRegistration({
+    required String baseUrl,
+    required String jwtToken,
+    required String deviceId,
+    required bool claimPrimary,
+  }) async {
+    if (deviceId.trim().isEmpty) {
+      return null;
+    }
+
     final uri = Uri.parse(
-      '${settings.normalizedBaseUrl}/devices/${claimPrimary ? 'claim-primary' : 'register'}',
+      '$baseUrl/devices/${claimPrimary ? 'claim-primary' : 'register'}',
     );
     final request = await _httpClient.postUrl(uri);
     request.headers.set(HttpHeaders.acceptHeader, ContentType.json.mimeType);
     request.headers.contentType = ContentType.json;
     request.headers.set(
       HttpHeaders.authorizationHeader,
-      'Bearer ${settings.jwtToken.trim()}',
+      'Bearer ${jwtToken.trim()}',
     );
-    request.headers.set('x-device-id', settings.deviceId);
+    request.headers.set('x-device-id', deviceId);
     request.write(
       jsonEncode({
-        'device_id': settings.deviceId,
+        'device_id': deviceId,
         'device_name': _deviceName(),
         'platform': Platform.operatingSystem,
       }),
@@ -178,7 +245,7 @@ class SystemConfigService extends ChangeNotifier {
     final response = await request.close();
     final body = await utf8.decoder.bind(response).join();
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      return;
+      return null;
     }
 
     final decoded = body.trim().isEmpty
@@ -187,10 +254,7 @@ class SystemConfigService extends ChangeNotifier {
     final payload = decoded is Map<String, dynamic>
         ? _unwrapEnvelope(decoded)
         : const <String, dynamic>{};
-    final state = _deviceStateFromPayload(payload);
-    _applyDeviceState(state);
-    await _syncConfigRepository.saveDeviceWriteState(state);
-    notifyListeners();
+    return _deviceStateFromPayload(payload);
   }
 
   Map<String, dynamic> _unwrapEnvelope(Map<String, dynamic> payload) {

@@ -524,7 +524,10 @@ class CompactGlobalErrorDialog extends StatelessWidget {
                       visualDensity: VisualDensity.compact,
                       onPressed: onClose,
                       icon: const Icon(Icons.close, size: 18),
-                      tooltip: 'Cerrar',
+                      tooltip:
+                          Overlay.maybeOf(context, rootOverlay: true) != null
+                          ? 'Cerrar'
+                          : null,
                     ),
                   ],
                 ),
@@ -602,9 +605,9 @@ class CompactGlobalErrorDialog extends StatelessWidget {
     if (!context.mounted) {
       return;
     }
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      const SnackBar(content: Text('Detalle copiado.')),
-    );
+    ScaffoldMessenger.maybeOf(
+      context,
+    )?.showSnackBar(const SnackBar(content: Text('Detalle copiado.')));
   }
 
   String _sanitizeTechnical(String? value) {

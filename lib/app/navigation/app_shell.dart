@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/database/app_database.dart';
+import '../../core/system/system_config_service.dart';
 import '../../features/auth/domain/user_model.dart';
 import '../../features/auth/presentation/auth_provider.dart';
 import '../../features/auth/presentation/profile_screen.dart';
@@ -64,6 +65,21 @@ const double _sidebarExpandedWidth = 288;
 const double _sidebarSafeExpandedContentWidth = 240;
 
 bool _shellTooltipsEnabled() => !Platform.isWindows;
+
+bool _hasOverlay(BuildContext context) =>
+    Overlay.maybeOf(context, rootOverlay: true) != null;
+
+Widget _safeTooltip({
+  required BuildContext context,
+  required Widget child,
+  required String message,
+}) {
+  if (!_shellTooltipsEnabled() || !_hasOverlay(context)) {
+    return child;
+  }
+
+  return Tooltip(message: message, child: child);
+}
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
@@ -387,6 +403,43 @@ class _AppShellState extends State<AppShell> {
     await context.read<AuthProvider>().refreshCurrentUser();
   }
 
+  Future<void> _refreshDeviceAccess({bool claimPrimary = false}) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+
+    try {
+      if (claimPrimary) {
+        await SystemConfigService.instance.registerCurrentDevice(
+          claimPrimary: true,
+        );
+      }
+      await SystemConfigService.instance.refresh();
+
+      if (!mounted) {
+        return;
+      }
+
+      final systemConfig = SystemConfigService.instance;
+      final message = systemConfig.canWrite
+          ? (claimPrimary
+                ? 'Esta PC quedo autorizada para escribir.'
+                : 'Estado del dispositivo actualizado.')
+          : (systemConfig.deviceWriteReason.isEmpty
+                ? 'Esta PC sigue sin permiso de escritura.'
+                : systemConfig.deviceWriteReason);
+
+      messenger?.showSnackBar(SnackBar(content: Text(message)));
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      messenger?.showSnackBar(
+        const SnackBar(
+          content: Text('No se pudo actualizar el estado de esta PC.'),
+        ),
+      );
+    }
+  }
+
   Future<void> _signOut() async {
     final authProvider = context.read<AuthProvider>();
     await _syncManager.stop(reason: 'Sesion cerrada.');
@@ -606,6 +659,7 @@ class _AppShellState extends State<AppShell> {
                               currentUser: user,
                               hasInternet: _hasInternet,
                               onOpenProfile: _openProfile,
+                              onRefreshDeviceAccess: _refreshDeviceAccess,
                             ),
                             Expanded(child: currentPage),
                             _ShellFooter(companyName: _companyDisplayName),
@@ -630,16 +684,20 @@ class _ShellHeader extends StatelessWidget {
     required this.currentUser,
     required this.hasInternet,
     required this.onOpenProfile,
+    required this.onRefreshDeviceAccess,
   });
 
   final AppModule selectedModule;
   final UserModel? currentUser;
   final bool hasInternet;
   final Future<void> Function() onOpenProfile;
+  final Future<void> Function({bool claimPrimary}) onRefreshDeviceAccess;
 
   @override
   Widget build(BuildContext context) {
     final user = currentUser;
+    final systemConfig = context.watch<SystemConfigService>();
+    final canClaimPrimary = user?.isAdmin == true && !systemConfig.canWrite;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
@@ -713,7 +771,111 @@ class _ShellHeader extends StatelessWidget {
               ],
             ],
           ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              _DeviceStatusBadge(
+                label: 'PC principal',
+                value: systemConfig.isPrimaryDevice ? 'Sí' : 'No',
+                highlighted: systemConfig.isPrimaryDevice,
+              ),
+              const SizedBox(width: 8),
+              _DeviceStatusBadge(
+                label: 'Permiso de escritura',
+                value: systemConfig.canWrite ? 'Sí' : 'No',
+                highlighted: systemConfig.canWrite,
+                critical: !systemConfig.canWrite,
+              ),
+              const Spacer(),
+              TextButton.icon(
+                onPressed: () => onRefreshDeviceAccess(),
+                icon: const Icon(Icons.sync_rounded, size: 16),
+                label: const Text('Actualizar estado'),
+              ),
+              if (canClaimPrimary) ...[
+                const SizedBox(width: 8),
+                FilledButton.tonalIcon(
+                  onPressed: () => onRefreshDeviceAccess(claimPrimary: true),
+                  icon: const Icon(Icons.computer_rounded, size: 16),
+                  label: const Text('Reclamar esta PC'),
+                ),
+              ],
+            ],
+          ),
+          if (!systemConfig.canWrite &&
+              systemConfig.deviceWriteReason.trim().isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                systemConfig.deviceWriteReason,
+                style: const TextStyle(
+                  color: Color(0xFF8F2436),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
         ],
+      ),
+    );
+  }
+}
+
+class _DeviceStatusBadge extends StatelessWidget {
+  const _DeviceStatusBadge({
+    required this.label,
+    required this.value,
+    this.highlighted = false,
+    this.critical = false,
+  });
+
+  final String label;
+  final String value;
+  final bool highlighted;
+  final bool critical;
+
+  @override
+  Widget build(BuildContext context) {
+    final backgroundColor = critical
+        ? const Color(0xFFFDECEC)
+        : highlighted
+        ? const Color(0xFFEAF7EE)
+        : const Color(0xFFF5F7FA);
+    final borderColor = critical
+        ? const Color(0xFFF2C6CC)
+        : highlighted
+        ? const Color(0xFFBEDFC8)
+        : const Color(0xFFDCE3EA);
+    final valueColor = critical
+        ? const Color(0xFF8F2436)
+        : highlighted
+        ? const Color(0xFF246B3D)
+        : const Color(0xFF415365);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: borderColor),
+      ),
+      child: RichText(
+        text: TextSpan(
+          style: const TextStyle(
+            fontSize: 11,
+            color: Color(0xFF5C6C7D),
+            fontWeight: FontWeight.w600,
+          ),
+          children: [
+            TextSpan(text: '$label: '),
+            TextSpan(
+              text: value,
+              style: TextStyle(color: valueColor, fontWeight: FontWeight.w800),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1147,10 +1309,50 @@ class _AdministrationMenu extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isSelected = modules.contains(selectedModule);
+    final menuChild = _PremiumTooltip(
+      message: 'Administración',
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Material(
+          color: isSelected
+              ? const Color(0xFF143B61)
+              : Colors.white.withValues(alpha: 0.03),
+          child: SizedBox(
+            height: 58,
+            child: Center(
+              child: Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  color: isSelected
+                      ? const Color(0xFF5BAEE8).withValues(alpha: 0.18)
+                      : Colors.white.withValues(alpha: 0.08),
+                  border: Border.all(
+                    color: isSelected
+                        ? const Color(0xFF83CAFF).withValues(alpha: 0.55)
+                        : Colors.white.withValues(alpha: 0.08),
+                  ),
+                ),
+                child: const Icon(
+                  Icons.admin_panel_settings_outlined,
+                  size: 20,
+                  color: Color(0xFF9AD6FF),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
 
     if (isCollapsed) {
+      if (!_hasOverlay(context)) {
+        return menuChild;
+      }
+
       return PopupMenuButton<AppModule>(
-        tooltip: _shellTooltipsEnabled() ? 'Administración' : null,
+        tooltip: _shellTooltipsEnabled() ? 'Administración' : '',
         onSelected: onSelectModule,
         color: const Color(0xFF102C47),
         elevation: 10,
@@ -1185,42 +1387,7 @@ class _AdministrationMenu extends StatelessWidget {
               ),
             ),
         ],
-        child: _PremiumTooltip(
-          message: 'Administración',
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: Material(
-              color: isSelected
-                  ? const Color(0xFF143B61)
-                  : Colors.white.withValues(alpha: 0.03),
-              child: SizedBox(
-                height: 58,
-                child: Center(
-                  child: Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(14),
-                      color: isSelected
-                          ? const Color(0xFF5BAEE8).withValues(alpha: 0.18)
-                          : Colors.white.withValues(alpha: 0.08),
-                      border: Border.all(
-                        color: isSelected
-                            ? const Color(0xFF83CAFF).withValues(alpha: 0.55)
-                            : Colors.white.withValues(alpha: 0.08),
-                      ),
-                    ),
-                    child: const Icon(
-                      Icons.admin_panel_settings_outlined,
-                      size: 20,
-                      color: Color(0xFF9AD6FF),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
+        child: menuChild,
       );
     }
 
@@ -1510,7 +1677,7 @@ class _PremiumTooltip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (!_shellTooltipsEnabled()) {
+    if (!_shellTooltipsEnabled() || !_hasOverlay(context)) {
       return child;
     }
 
@@ -1554,7 +1721,7 @@ class _SidebarCompactAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (!_shellTooltipsEnabled()) {
+    if (!_shellTooltipsEnabled() || !_hasOverlay(context)) {
       return Material(
         color: Colors.transparent,
         child: InkWell(
@@ -1583,35 +1750,34 @@ class _SidebarCompactAction extends StatelessWidget {
       );
     }
 
-    return Tooltip(
-      message: tooltip,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(12),
-          hoverColor: Colors.white.withValues(alpha: 0.05),
-          splashColor: Colors.white.withValues(alpha: 0.07),
-          child: Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.06),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.08),
-                width: 1,
-              ),
+    final action = Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        hoverColor: Colors.white.withValues(alpha: 0.05),
+        splashColor: Colors.white.withValues(alpha: 0.07),
+        child: Container(
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.08),
+              width: 1,
             ),
-            child: Icon(
-              icon,
-              size: 19,
-              color: Colors.white.withValues(alpha: 0.72),
-            ),
+          ),
+          child: Icon(
+            icon,
+            size: 19,
+            color: Colors.white.withValues(alpha: 0.72),
           ),
         ),
       ),
     );
+
+    return _safeTooltip(context: context, message: tooltip, child: action);
   }
 }
 
@@ -1648,11 +1814,7 @@ class _SidebarFooterActionButton extends StatelessWidget {
           ),
           child: Row(
             children: [
-              Icon(
-                icon,
-                size: 18,
-                color: Colors.white.withValues(alpha: 0.74),
-              ),
+              Icon(icon, size: 18, color: Colors.white.withValues(alpha: 0.74)),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -1681,7 +1843,7 @@ class _HeaderProfileButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (!_shellTooltipsEnabled()) {
+    if (!_shellTooltipsEnabled() || !_hasOverlay(context)) {
       return Material(
         color: Colors.transparent,
         child: InkWell(
@@ -1716,40 +1878,43 @@ class _HeaderProfileButton extends StatelessWidget {
       );
     }
 
-    return Tooltip(
-      message: 'Mi perfil',
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(16),
-          child: Ink(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFF12385F), Color(0xFF0A2037)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
+    final profileButton = Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Ink(
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFF12385F), Color(0xFF0A2037)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE4EAF2)),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x12000000),
+                blurRadius: 16,
+                offset: Offset(0, 8),
               ),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFFE4EAF2)),
-              boxShadow: const [
-                BoxShadow(
-                  color: Color(0x12000000),
-                  blurRadius: 16,
-                  offset: Offset(0, 8),
-                ),
-              ],
-            ),
-            child: const Icon(
-              Icons.person_rounded,
-              size: 20,
-              color: Colors.white,
-            ),
+            ],
+          ),
+          child: const Icon(
+            Icons.person_rounded,
+            size: 20,
+            color: Colors.white,
           ),
         ),
       ),
+    );
+
+    return _safeTooltip(
+      context: context,
+      message: 'Mi perfil',
+      child: profileButton,
     );
   }
 }

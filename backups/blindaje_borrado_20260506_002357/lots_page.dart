@@ -422,17 +422,7 @@ class _LotsPageState extends State<LotsPage> {
     }
 
     final error = await _controller.delete(lot.id!);
-    if (!mounted) {
-      return;
-    }
-    if (error != null) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(
-          content: Text(error),
-          backgroundColor: Theme.of(context).colorScheme.error,
-          duration: const Duration(seconds: 6),
-        ),
-      );
+    if (!mounted || error != null) {
       return;
     }
 

@@ -4,7 +4,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, SaleStatus, SyncStatus } from '@prisma/client';
+import { Prisma, SyncStatus } from '@prisma/client';
 
 import { PrismaService } from 'src/infrastructure/prisma/prisma.service';
 import { CreateProductDto } from '../dto/create-product.dto';
@@ -101,23 +101,6 @@ export class ProductsService {
 
   async remove(id: string) {
     await this.findOne(id);
-
-    const activeSaleCount = await this.prisma.sale.count({
-      where: {
-        productId: id,
-        deletedAt: null,
-        status: { not: SaleStatus.cancelled },
-      },
-    });
-    if (activeSaleCount > 0) {
-      throw new BadRequestException({
-        message:
-          'No puedes eliminar este solar porque tiene una venta activa relacionada. ' +
-          'Primero debes ir a Ventas y anular o eliminar esa venta.',
-        errorCode: 'ENTITY_HAS_ACTIVE_SALES',
-      });
-    }
-
     await this.prisma.product.update({
       where: { id },
       data: {

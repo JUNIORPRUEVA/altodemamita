@@ -38,6 +38,18 @@ class FriendlyErrorMessages {
   static FriendlyErrorMessage unexpected([Object? error]) {
     final raw = (error?.toString() ?? '').trim().toLowerCase();
 
+    if (error is DeviceWriteBlockedException) {
+      return FriendlyErrorMessage(
+        title: 'Esta PC no puede escribir',
+        message: 'Esta PC no tiene permiso de escritura.',
+        details: error.message,
+        suggestions: const [
+          'Verifique si esta PC figura como principal.',
+          'Si eres administrador, actualiza o reclama esta PC.',
+        ],
+      );
+    }
+
     if (isReadOnlyModeError(error)) {
       return const FriendlyErrorMessage(
         title: 'Sistema en modo solo lectura',
@@ -183,7 +195,10 @@ class FriendlyErrorMessages {
         raw.contains('unauthorized') ||
         raw.contains('permission') ||
         raw.contains('permiso') ||
-        raw.contains('access denied');
+      raw.contains('access denied') ||
+      raw.contains('authorized for write') ||
+      raw.contains('no esta autorizado para escribir') ||
+      raw.contains('no esta registrado para escribir');
   }
 
   static bool _looksLikeValidationIssue(String raw) {
@@ -201,6 +216,19 @@ class FriendlyErrorMessages {
     Object? error,
   }) {
     final location = _locationLabel(module);
+
+    if (error is DeviceWriteBlockedException) {
+      return FriendlyErrorMessage(
+        title: 'Esta PC no puede escribir',
+        message:
+            'La accion "$action" no se ejecuto porque esta PC no tiene permiso de escritura.',
+        details: error.message,
+        suggestions: const [
+          'Puede seguir consultando informacion y listados.',
+          'Si eres administrador, actualiza o reclama esta PC.',
+        ],
+      );
+    }
 
     if (isReadOnlyModeError(error)) {
       return FriendlyErrorMessage(

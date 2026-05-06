@@ -7,7 +7,6 @@ import '../../../core/network/backend_api_client.dart';
 import '../../../core/network/backend_entity_id_registry.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_schema.dart';
-import '../../../core/errors/active_sales_block_delete_exception.dart';
 import '../../../models/sync/sync_status.dart';
 import '../../../repositories/sync_repository.dart';
 import '../../../services/sync/sync_queue_service.dart';
@@ -183,24 +182,6 @@ class SellerRepository implements SyncRepository {
       }
 
       final db = await _appDatabase.database;
-
-      // Blindaje: no borrar vendedor con ventas activas
-      final activeSaleRows = await db.rawQuery(
-        'SELECT COUNT(*) AS cnt FROM ${DatabaseSchema.salesTable} '
-        'WHERE vendedor_id = ? AND deleted_at IS NULL '
-        "AND LOWER(estado) NOT IN "
-        "('cancelada','cancelado','anulada','anulado','eliminada','eliminado')",
-        [id],
-      );
-      final activeSaleCount =
-          (activeSaleRows.first['cnt'] as num?)?.toInt() ?? 0;
-      if (activeSaleCount > 0) {
-        throw const ActiveSalesBlockDeleteException(
-          'No puedes eliminar este vendedor porque tiene una venta activa '
-          'relacionada. Primero debes ir a Ventas y anular o eliminar esa venta.',
-        );
-      }
-
       await db.update(
         DatabaseSchema.sellersTable,
         {

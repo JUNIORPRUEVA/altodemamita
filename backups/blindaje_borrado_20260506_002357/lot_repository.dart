@@ -5,7 +5,6 @@ import '../../../core/network/backend_api_client.dart';
 import '../../../core/network/backend_entity_id_registry.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_schema.dart';
-import '../../../core/errors/active_sales_block_delete_exception.dart';
 import '../../../core/system/system_config_service.dart';
 import '../../../services/sync/sync_queue_service.dart';
 import '../domain/lot.dart';
@@ -294,24 +293,6 @@ class LotRepository {
       }
 
       final db = await _appDatabase.database;
-
-      // Blindaje: no borrar solar con ventas activas
-      final activeSaleRows = await db.rawQuery(
-        'SELECT COUNT(*) AS cnt FROM ${DatabaseSchema.salesTable} '
-        'WHERE solar_id = ? AND deleted_at IS NULL '
-        "AND LOWER(estado) NOT IN "
-        "('cancelada','cancelado','anulada','anulado','eliminada','eliminado')",
-        [id],
-      );
-      final activeSaleCount =
-          (activeSaleRows.first['cnt'] as num?)?.toInt() ?? 0;
-      if (activeSaleCount > 0) {
-        throw const ActiveSalesBlockDeleteException(
-          'No puedes eliminar este solar porque tiene una venta activa '
-          'relacionada. Primero debes ir a Ventas y anular o eliminar esa venta.',
-        );
-      }
-
       final rows = await db.query(
         DatabaseSchema.lotsTable,
         where: 'id = ?',

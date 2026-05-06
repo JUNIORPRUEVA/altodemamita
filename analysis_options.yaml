@@ -12,6 +12,7 @@ include: package:flutter_lints/flutter.yaml
 analyzer:
   exclude:
     - sistema_solares_ui/**
+    - backups/**
 
 linter:
   # The lint rules applied to this project can be customized in the
