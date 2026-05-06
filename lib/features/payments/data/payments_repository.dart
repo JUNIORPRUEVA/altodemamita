@@ -871,7 +871,13 @@ class PaymentsRepository {
       installments: installments,
       paymentDate: draft.paymentDate,
       paymentTypeOverride: draft.paymentTypeOverride,
+      targetInstallmentId: draft.targetInstallmentId,
     );
+    final requiresInstallmentImpact =
+        draft.paymentTypeOverride == 'cuota' ||
+        draft.paymentTypeOverride == 'cuota_vencida' ||
+        draft.paymentTypeOverride == 'todas_cuotas_vencidas';
+    var installmentAppliedTotal = 0.0;
 
     for (final installment in installmentsToProcess) {
       if (remainingAmount <= 0.009) break;
@@ -915,8 +921,17 @@ class PaymentsRepository {
         });
 
         remainingAmount = installmentOutcome.remainingAmount;
+        installmentAppliedTotal = _roundCurrency(
+          installmentAppliedTotal + installmentOutcome.appliedAmount,
+        );
         totalPrincipalReduction += installmentOutcome.principalPaidNow;
       }
+    }
+
+    if (requiresInstallmentImpact && installmentAppliedTotal <= 0.009) {
+      throw StateError(
+        'El pago no impactó ninguna cuota elegible. Ajuste la cuota o el monto e intente nuevamente.',
+      );
     }
 
     var capitalPrepayment = 0.0;
@@ -999,6 +1014,9 @@ class PaymentsRepository {
       if (_isClosedStatus(installment.status)) {
         continue;
       }
+      if (installment.remainingAmount <= 0.009) {
+        continue;
+      }
       if (!installment.dueDate.isAfter(paymentDate)) {
         return installment;
       }
@@ -1014,8 +1032,21 @@ class PaymentsRepository {
     required List<Installment> installments,
     required DateTime paymentDate,
     required String? paymentTypeOverride,
+    required int? targetInstallmentId,
   }) {
     if (paymentTypeOverride == 'abono_capital') return const [];
+
+    if (targetInstallmentId != null) {
+      final target = installments.where((i) {
+        if (i.id != targetInstallmentId) return false;
+        if (_isClosedStatus(i.status)) return false;
+        return i.remainingAmount > 0.009;
+      }).toList();
+      if (target.isNotEmpty) {
+        return target;
+      }
+    }
+
     if (paymentTypeOverride == 'todas_cuotas_vencidas') {
       return installments.where((i) {
         if (_isClosedStatus(i.status)) return false;
@@ -1263,16 +1294,13 @@ class PaymentsRepository {
           .where(
             (item) => item.status != 'ajustada' && item.status != 'cancelada',
           )
-          .fold<double>(0, (
-        sum,
-        item,
-      ) {
-        return sum +
-            (item.principalAmount - item.paidPrincipalAmount).clamp(
-              0,
-              item.principalAmount,
-            );
-      }),
+          .fold<double>(0, (sum, item) {
+            return sum +
+                (item.principalAmount - item.paidPrincipalAmount).clamp(
+                  0,
+                  item.principalAmount,
+                );
+          }),
     );
   }
 
@@ -1297,6 +1325,123 @@ class PaymentsRepository {
     }
 
     return _roundCurrency(_toDouble(rows.first['total_pendiente']));
+  }
+
+  Future<PaymentRepairReport> repairExistingPaymentApplicationInconsistencies({
+    DateTime? statusAsOf,
+  }) async {
+    final repairAsOf = statusAsOf ?? DateTime.now();
+    var scannedInstallments = 0;
+    var fixedInstallments = 0;
+    final touchedSaleIds = <int>{};
+    final nowIso = DateTime.now().toIso8601String();
+
+    await _runWithDatabaseRetry(() async {
+      final db = await _appDatabase.database;
+      await db.transaction<void>((txn) async {
+        final rows = await txn.query(
+          DatabaseSchema.installmentsTable,
+          where: 'deleted_at IS NULL AND estado <> ?',
+          whereArgs: ['ajustada'],
+          orderBy: 'venta_id ASC, numero_cuota ASC',
+        );
+
+        for (final row in rows) {
+          scannedInstallments += 1;
+          final installmentId = _toInt(row['id']);
+          final saleId = _toInt(row['venta_id']);
+          final totalAmount = _toDouble(row['monto_cuota']);
+          final dueDate = DateTime.parse(row['fecha_vencimiento'] as String);
+
+          final paymentRows = await txn.rawQuery(
+            '''
+            SELECT
+              COALESCE(SUM(monto_pagado), 0) AS paid_total
+            FROM ${DatabaseSchema.paymentsTable}
+            WHERE cuota_id = ?
+              AND deleted_at IS NULL
+          ''',
+            [installmentId],
+          );
+
+          final paidAmount = _roundCurrency(
+            _toDouble(paymentRows.first['paid_total']),
+          );
+          final interestAmount = _toDouble(row['interes_cuota']);
+          final principalAmount = _toDouble(row['capital_cuota']);
+          final repairedInterestPaid = _roundCurrency(
+            paidAmount > interestAmount ? interestAmount : paidAmount,
+          );
+          final repairedPrincipalPaid = _roundCurrency(
+            (paidAmount - repairedInterestPaid).clamp(0, principalAmount),
+          );
+          final repairedStatus = SaleCalculator.resolveInstallmentStatus(
+            totalAmount: totalAmount,
+            paidAmount: paidAmount,
+            dueDate: dueDate,
+            asOf: repairAsOf,
+          );
+
+          final statusChanged =
+              (row['estado'] as String? ?? '') != repairedStatus;
+          final paidChanged =
+              (_toDouble(row['monto_pagado']) - paidAmount).abs() > 0.009;
+          final principalChanged =
+              (_toDouble(row['capital_pagado']) - repairedPrincipalPaid).abs() >
+              0.009;
+          final interestChanged =
+              (_toDouble(row['interes_pagado']) - repairedInterestPaid).abs() >
+              0.009;
+
+          if (!statusChanged &&
+              !paidChanged &&
+              !principalChanged &&
+              !interestChanged) {
+            continue;
+          }
+
+          await txn.update(
+            DatabaseSchema.installmentsTable,
+            {
+              'monto_pagado': paidAmount,
+              'capital_pagado': repairedPrincipalPaid,
+              'interes_pagado': repairedInterestPaid,
+              'estado': repairedStatus,
+              'fecha_actualizacion': nowIso,
+              'sync_status': DatabaseSchema.syncStatusPending,
+            },
+            where: 'id = ?',
+            whereArgs: [installmentId],
+          );
+          fixedInstallments += 1;
+          touchedSaleIds.add(saleId);
+        }
+
+        for (final saleId in touchedSaleIds) {
+          final newPendingBalance = await _loadOutstandingContractBalance(
+            txn,
+            saleId,
+          );
+          await txn.update(
+            DatabaseSchema.salesTable,
+            {
+              'saldo_pendiente': newPendingBalance,
+              'estado': newPendingBalance <= 0.009 ? 'pagada' : 'activa',
+              'fecha_actualizacion': nowIso,
+              'sync_status': DatabaseSchema.syncStatusPending,
+            },
+            where: 'id = ? AND deleted_at IS NULL',
+            whereArgs: [saleId],
+          );
+        }
+      });
+    });
+
+    return PaymentRepairReport(
+      scannedInstallments: scannedInstallments,
+      fixedInstallments: fixedInstallments,
+      touchedSales: touchedSaleIds.length,
+    );
   }
 
   double _roundCurrency(double value) {
@@ -1384,4 +1529,16 @@ class _InstallmentPaymentOutcome {
   final double newPrincipalPaid;
   final double remainingAmount;
   final String newStatus;
+}
+
+class PaymentRepairReport {
+  const PaymentRepairReport({
+    required this.scannedInstallments,
+    required this.fixedInstallments,
+    required this.touchedSales,
+  });
+
+  final int scannedInstallments;
+  final int fixedInstallments;
+  final int touchedSales;
 }

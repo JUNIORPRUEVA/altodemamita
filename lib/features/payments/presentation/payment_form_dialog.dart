@@ -187,8 +187,9 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
       // Prefill amount when switching types
       if (newType == 'cuota_vencida' && widget.overdueInstallments.isNotEmpty) {
         _selectedOverdueInstallmentId ??= widget.overdueInstallments.first.id;
-        _amountController.text = _amountFormatter
-            .formatValue(_effectiveInstallment!.remainingAmount);
+        _amountController.text = _amountFormatter.formatValue(
+          _effectiveInstallment!.remainingAmount,
+        );
       } else if (newType == 'todas_cuotas_vencidas' &&
           widget.overdueInstallments.isNotEmpty) {
         final total = widget.overdueInstallments.fold(
@@ -196,8 +197,7 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
           (sum, i) => sum + i.remainingAmount,
         );
         _amountController.text = _amountFormatter.formatValue(total);
-      } else if (newType == 'cuota' &&
-          widget.actionableInstallment != null) {
+      } else if (newType == 'cuota' && widget.actionableInstallment != null) {
         // Don't auto-fill cuota to avoid overwriting user input
       } else if (newType == 'abono_capital') {
         // Clear only if previous was prefilled
@@ -209,8 +209,9 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
     setState(() {
       _selectedPaymentType = 'cuota_vencida';
       _selectedOverdueInstallmentId = installment.id;
-      _amountController.text =
-          _amountFormatter.formatValue(installment.remainingAmount);
+      _amountController.text = _amountFormatter.formatValue(
+        installment.remainingAmount,
+      );
     });
   }
 
@@ -232,7 +233,8 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
     final amount = _parseDouble(_amountController.text) ?? 0;
     final hasAmount = amount > 0.009;
 
-    final installmentApplied = !isFinancingActive || effectiveInstallment == null
+    final installmentApplied =
+        !isFinancingActive || effectiveInstallment == null
         ? 0.0
         : amount.clamp(0.0, effectiveInstallment.remainingAmount);
     final capitalApplied = isFinancingActive
@@ -241,8 +243,10 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
     final currentPendingAmount = isFinancingActive
         ? widget.sale.pendingBalance
         : widget.sale.pendingInitialPayment;
-    final projectedPendingAmount =
-        (currentPendingAmount - amount).clamp(0.0, double.infinity);
+    final projectedPendingAmount = (currentPendingAmount - amount).clamp(
+      0.0,
+      double.infinity,
+    );
 
     final dialogTitle = !isFinancingActive
         ? (widget.sale.paidInitialPayment <= 0.009
@@ -255,19 +259,19 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
         !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
     final useCompactTwoColumnLayout = isWindows || screenSize.width >= 860;
     final panelWidth = isWindows
-      ? math.min(960.0, screenSize.width - 16.0)
-      : math.min(700.0, screenSize.width - 24.0);
+        ? math.min(960.0, screenSize.width - 16.0)
+        : math.min(700.0, screenSize.width - 24.0);
     final insetPadding = isWindows
-      ? EdgeInsets.fromLTRB(
-          math.max(8.0, screenSize.width - panelWidth - 8.0),
-          8,
-          8,
-          8,
-        )
-      : const EdgeInsets.symmetric(horizontal: 12, vertical: 16);
+        ? EdgeInsets.fromLTRB(
+            math.max(8.0, screenSize.width - panelWidth - 8.0),
+            8,
+            8,
+            8,
+          )
+        : const EdgeInsets.symmetric(horizontal: 12, vertical: 16);
     final maxDialogHeight = isWindows
-      ? screenSize.height - 16.0
-      : screenSize.height - 24.0;
+        ? screenSize.height - 16.0
+        : screenSize.height - 24.0;
 
     final theme = Theme.of(context);
     final availableTypes = _availablePaymentTypes();
@@ -354,7 +358,9 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
                 style: const TextStyle(fontSize: 13, color: Color(0xFF556079)),
               ),
             ],
-            if (isFinancingActive && effectiveInstallment == null && !_isCapitalBlocked) ...[
+            if (isFinancingActive &&
+                effectiveInstallment == null &&
+                !_isCapitalBlocked) ...[
               const SizedBox(height: 8),
               Text(
                 _selectedPaymentType == 'abono_capital'
@@ -539,7 +545,9 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
                             return null;
                           }
                           final parsed = int.tryParse(value.trim());
-                          if (parsed == null || parsed < 2000 || parsed > 2100) {
+                          if (parsed == null ||
+                              parsed < 2000 ||
+                              parsed > 2100) {
                             return 'Año inválido';
                           }
                           return null;
@@ -802,7 +810,8 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
                   spacing: 8,
                   runSpacing: 8,
                   children: overdueInstallments.map((installment) {
-                    final selected = installment.id == _selectedOverdueInstallmentId;
+                    final selected =
+                        installment.id == _selectedOverdueInstallmentId;
                     return SizedBox(
                       width: itemWidth,
                       child: Container(
@@ -844,7 +853,8 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
                                     horizontal: 10,
                                   ),
                                 ),
-                                onPressed: () => _applyOverdueInstallment(installment),
+                                onPressed: () =>
+                                    _applyOverdueInstallment(installment),
                                 child: const Text(
                                   'Aplicar',
                                   style: TextStyle(fontSize: 12),
@@ -889,6 +899,7 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
     if (!_formKey.currentState!.validate()) return;
 
     final isFinancingActive = widget.sale.isFinancingActive;
+    final targetedInstallment = _effectiveInstallment;
     Navigator.of(context).pop(
       PaymentDraft(
         saleId: widget.sale.saleId,
@@ -896,12 +907,13 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
         amountPaid: _parseDouble(_amountController.text)!,
         paymentMethod: _selectedPaymentMethod,
         registeredByUserId: widget.registeredByUserId,
-        yearToPay: !isFinancingActive ||
-                _yearToPayController.text.trim().isEmpty
+        yearToPay:
+            !isFinancingActive || _yearToPayController.text.trim().isEmpty
             ? null
             : _yearToPayController.text.trim(),
         printReceiptAutomatically: _printReceiptAutomatically,
         paymentTypeOverride: isFinancingActive ? _selectedPaymentType : null,
+        targetInstallmentId: isFinancingActive ? targetedInstallment?.id : null,
       ),
     );
   }

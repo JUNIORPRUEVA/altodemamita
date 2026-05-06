@@ -8,6 +8,7 @@
     this.yearToPay,
     this.printReceiptAutomatically = false,
     this.paymentTypeOverride,
+    this.targetInstallmentId,
   });
 
   final int saleId;
@@ -24,4 +25,8 @@
   /// Values: 'cuota', 'cuota_vencida', 'abono_capital', 'abono_inicial', 'apartado'.
   /// When null, type is derived automatically from the sale state.
   final String? paymentTypeOverride;
+
+  /// Optional explicit installment selected by the user.
+  /// Used to guarantee that a payment targets the intended overdue installment.
+  final int? targetInstallmentId;
 }

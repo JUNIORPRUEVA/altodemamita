@@ -31,7 +31,11 @@ class InstallmentsRepository {
       INNER JOIN ${DatabaseSchema.salesTable} v ON v.id = q.venta_id
       LEFT JOIN ${DatabaseSchema.clientsTable} c ON c.id = v.cliente_id
       LEFT JOIN ${DatabaseSchema.lotsTable} s ON s.id = v.solar_id
-      WHERE q.estado <> 'ajustada'
+      WHERE q.deleted_at IS NULL
+        AND v.deleted_at IS NULL
+        AND (c.id IS NULL OR c.deleted_at IS NULL)
+        AND (s.id IS NULL OR s.deleted_at IS NULL)
+        AND q.estado <> 'ajustada'
       ORDER BY q.venta_id ASC, q.numero_cuota ASC, q.fecha_vencimiento ASC
     ''');
 
@@ -41,7 +45,8 @@ class InstallmentsRepository {
   /// Get installments for a specific sale
   Future<List<InstallmentDetail>> getBySaleId(int saleId) async {
     final db = await _appDatabase.database;
-    final rows = await db.rawQuery('''
+    final rows = await db.rawQuery(
+      '''
       SELECT 
         q.id,
         q.numero_cuota,
@@ -61,9 +66,16 @@ class InstallmentsRepository {
       INNER JOIN ${DatabaseSchema.salesTable} v ON v.id = q.venta_id
       LEFT JOIN ${DatabaseSchema.clientsTable} c ON c.id = v.cliente_id
       LEFT JOIN ${DatabaseSchema.lotsTable} s ON s.id = v.solar_id
-      WHERE q.venta_id = ? AND q.estado <> 'ajustada'
+      WHERE q.venta_id = ?
+        AND q.deleted_at IS NULL
+        AND v.deleted_at IS NULL
+        AND (c.id IS NULL OR c.deleted_at IS NULL)
+        AND (s.id IS NULL OR s.deleted_at IS NULL)
+        AND q.estado <> 'ajustada'
       ORDER BY q.numero_cuota ASC
-    ''', [saleId]);
+    ''',
+      [saleId],
+    );
 
     return rows.map((row) => InstallmentDetail.fromMap(row)).toList();
   }
@@ -73,7 +85,8 @@ class InstallmentsRepository {
     final db = await _appDatabase.database;
     final searchPattern = '%${query.toLowerCase()}%';
 
-    final rows = await db.rawQuery('''
+    final rows = await db.rawQuery(
+      '''
       SELECT 
         q.id,
         q.numero_cuota,
@@ -93,7 +106,11 @@ class InstallmentsRepository {
       INNER JOIN ${DatabaseSchema.salesTable} v ON v.id = q.venta_id
       LEFT JOIN ${DatabaseSchema.clientsTable} c ON c.id = v.cliente_id
       LEFT JOIN ${DatabaseSchema.lotsTable} s ON s.id = v.solar_id
-      WHERE q.estado <> 'ajustada'
+      WHERE q.deleted_at IS NULL
+        AND v.deleted_at IS NULL
+        AND (c.id IS NULL OR c.deleted_at IS NULL)
+        AND (s.id IS NULL OR s.deleted_at IS NULL)
+        AND q.estado <> 'ajustada'
         AND (
          LOWER(COALESCE(c.nombre, '')) LIKE ?
          OR LOWER(COALESCE(c.cedula, '')) LIKE ?
@@ -102,7 +119,15 @@ class InstallmentsRepository {
          OR CAST(q.venta_id AS TEXT) LIKE ?
         )
       ORDER BY q.venta_id ASC, q.numero_cuota ASC, q.fecha_vencimiento ASC
-    ''', [searchPattern, searchPattern, searchPattern, searchPattern, searchPattern]);
+    ''',
+      [
+        searchPattern,
+        searchPattern,
+        searchPattern,
+        searchPattern,
+        searchPattern,
+      ],
+    );
 
     return rows.map((row) => InstallmentDetail.fromMap(row)).toList();
   }
@@ -110,7 +135,8 @@ class InstallmentsRepository {
   /// Get summary information for a specific sale
   Future<SaleInstallmentsSummary?> getSaleSummary(int saleId) async {
     final db = await _appDatabase.database;
-    final rows = await db.rawQuery('''
+    final rows = await db.rawQuery(
+      '''
       SELECT 
         v.id as venta_id,
         c.nombre as nombre_cliente,
@@ -119,17 +145,19 @@ class InstallmentsRepository {
         v.saldo_financiado as monto_total,
         (v.saldo_financiado - v.saldo_pendiente) as total_pagado,
         v.saldo_pendiente as total_pendiente,
-        COUNT(CASE WHEN q.estado <> 'ajustada' THEN 1 END) as total_cuotas,
-        SUM(CASE WHEN q.estado <> 'ajustada' AND q.monto_pagado >= q.monto_cuota THEN 1 ELSE 0 END) as cuotas_pagadas,
-        SUM(CASE WHEN q.estado <> 'ajustada' AND q.monto_pagado < q.monto_cuota AND q.monto_pagado > 0 THEN 1 ELSE 0 END) as cuotas_parciales,
-        SUM(CASE WHEN q.estado <> 'ajustada' AND q.monto_pagado = 0 THEN 1 ELSE 0 END) as cuotas_pendientes
+        COUNT(CASE WHEN q.deleted_at IS NULL AND q.estado <> 'ajustada' THEN 1 END) as total_cuotas,
+        SUM(CASE WHEN q.deleted_at IS NULL AND q.estado <> 'ajustada' AND q.monto_pagado >= q.monto_cuota THEN 1 ELSE 0 END) as cuotas_pagadas,
+        SUM(CASE WHEN q.deleted_at IS NULL AND q.estado <> 'ajustada' AND q.monto_pagado < q.monto_cuota AND q.monto_pagado > 0 THEN 1 ELSE 0 END) as cuotas_parciales,
+        SUM(CASE WHEN q.deleted_at IS NULL AND q.estado <> 'ajustada' AND q.monto_pagado = 0 THEN 1 ELSE 0 END) as cuotas_pendientes
       FROM ${DatabaseSchema.salesTable} v
       LEFT JOIN ${DatabaseSchema.clientsTable} c ON c.id = v.cliente_id
       LEFT JOIN ${DatabaseSchema.lotsTable} s ON s.id = v.solar_id
       LEFT JOIN ${DatabaseSchema.installmentsTable} q ON q.venta_id = v.id
-      WHERE v.id = ?
+      WHERE v.id = ? AND v.deleted_at IS NULL
       GROUP BY v.id
-    ''', [saleId]);
+    ''',
+      [saleId],
+    );
 
     if (rows.isEmpty) {
       return null;
@@ -141,7 +169,8 @@ class InstallmentsRepository {
   /// Get installments by status
   Future<List<InstallmentDetail>> getByStatus(String status) async {
     final db = await _appDatabase.database;
-    final rows = await db.rawQuery('''
+    final rows = await db.rawQuery(
+      '''
       SELECT 
         q.id,
         q.numero_cuota,
@@ -161,9 +190,16 @@ class InstallmentsRepository {
       INNER JOIN ${DatabaseSchema.salesTable} v ON v.id = q.venta_id
       LEFT JOIN ${DatabaseSchema.clientsTable} c ON c.id = v.cliente_id
       LEFT JOIN ${DatabaseSchema.lotsTable} s ON s.id = v.solar_id
-      WHERE q.estado = ? AND q.estado <> 'ajustada'
+      WHERE q.deleted_at IS NULL
+        AND v.deleted_at IS NULL
+        AND (c.id IS NULL OR c.deleted_at IS NULL)
+        AND (s.id IS NULL OR s.deleted_at IS NULL)
+        AND q.estado = ?
+        AND q.estado <> 'ajustada'
       ORDER BY q.venta_id ASC, q.numero_cuota ASC, q.fecha_vencimiento ASC
-    ''', [status]);
+    ''',
+      [status],
+    );
 
     return rows.map((row) => InstallmentDetail.fromMap(row)).toList();
   }
@@ -173,7 +209,8 @@ class InstallmentsRepository {
     final db = await _appDatabase.database;
     final now = DateTime.now().toIso8601String();
 
-    final rows = await db.rawQuery('''
+    final rows = await db.rawQuery(
+      '''
       SELECT 
         q.id,
         q.numero_cuota,
@@ -193,11 +230,17 @@ class InstallmentsRepository {
       INNER JOIN ${DatabaseSchema.salesTable} v ON v.id = q.venta_id
       LEFT JOIN ${DatabaseSchema.clientsTable} c ON c.id = v.cliente_id
       LEFT JOIN ${DatabaseSchema.lotsTable} s ON s.id = v.solar_id
-      WHERE q.fecha_vencimiento < ?
+      WHERE q.deleted_at IS NULL
+        AND v.deleted_at IS NULL
+        AND (c.id IS NULL OR c.deleted_at IS NULL)
+        AND (s.id IS NULL OR s.deleted_at IS NULL)
+        AND q.fecha_vencimiento < ?
         AND q.estado <> 'ajustada'
         AND q.monto_pagado < q.monto_cuota
       ORDER BY q.venta_id ASC, q.numero_cuota ASC, q.fecha_vencimiento ASC
-    ''', [now]);
+    ''',
+      [now],
+    );
 
     return rows.map((row) => InstallmentDetail.fromMap(row)).toList();
   }
