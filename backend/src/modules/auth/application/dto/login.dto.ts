@@ -11,6 +11,6 @@ export class LoginDto {
 
   @IsOptional()
   @IsString()
-  @IsIn(['desktop', 'panel'])
-  clientType?: 'desktop' | 'panel';
+  @IsIn(['desktop', 'panel', 'pwa'])
+  clientType?: 'desktop' | 'panel' | 'pwa';
 }

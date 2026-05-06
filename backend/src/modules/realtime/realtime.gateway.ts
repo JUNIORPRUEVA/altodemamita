@@ -18,7 +18,7 @@ type RealtimeUser = {
   sub: string;
   roles: string[];
   permissions: string[];
-  type: 'desktop' | 'panel';
+  type: 'desktop' | 'panel' | 'pwa';
 };
 
 @WebSocketGateway({

@@ -208,11 +208,13 @@ class _ReadOnlyShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final systemConfig = context.watch<SystemConfigController>();
+    final auth = context.watch<AuthController>();
+    final showReadOnlyBanner = auth.isAuthenticated || systemConfig.isReadOnly;
 
     return Stack(
       children: [
         child,
-        if (systemConfig.isReadOnly)
+        if (showReadOnlyBanner)
           Positioned(
             top: 0,
             left: 0,
@@ -225,7 +227,7 @@ class _ReadOnlyShell extends StatelessWidget {
                   elevation: 4,
                   color: const Color(0xFF8F2436),
                   borderRadius: BorderRadius.circular(14),
-                  child: const Padding(
+                  child: Padding(
                     padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     child: Row(
                       children: [
@@ -233,7 +235,9 @@ class _ReadOnlyShell extends StatelessWidget {
                         SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            'Modo solo lectura activado',
+                            systemConfig.isReadOnly
+                                ? 'Modo solo lectura activado'
+                                : 'Este panel es solo de consulta.',
                             style: TextStyle(
                               color: Colors.white,
                               fontWeight: FontWeight.w700,

@@ -1,12 +1,14 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
 
+export type AuthClientType = 'desktop' | 'panel' | 'pwa';
+
 export interface AuthenticatedUser {
   sub: string;
   email: string;
   username: string;
   fullName: string;
   isActive: boolean;
-  type: 'desktop' | 'panel';
+  type: AuthClientType;
   roles: string[];
   permissions: string[];
 }

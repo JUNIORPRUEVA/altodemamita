@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 
-type PresenceClientType = 'desktop' | 'panel';
+type PresenceClientType = 'desktop' | 'panel' | 'pwa';
 
 type PresenceConnection = {
   socketId: string;

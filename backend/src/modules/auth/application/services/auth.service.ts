@@ -86,7 +86,7 @@ export class AuthService {
 
   async refreshToken(params: {
     token?: string;
-    clientType?: 'desktop' | 'panel';
+    clientType?: 'desktop' | 'panel' | 'pwa';
     authorization?: string;
   }) {
     const tokenFromHeader = (params.authorization ?? '').startsWith('Bearer ')
@@ -134,7 +134,9 @@ export class AuthService {
     const tokenClientType = decoded['type']?.toString();
     const clientType =
       params.clientType ??
-      (tokenClientType === 'panel' ? 'panel' : 'desktop');
+      (tokenClientType === 'panel' || tokenClientType === 'pwa'
+        ? tokenClientType
+        : 'desktop');
 
     const user = await this.findUserEntity(sub);
     if (!user || user.deletedAt != null || user.isActive !== true) {

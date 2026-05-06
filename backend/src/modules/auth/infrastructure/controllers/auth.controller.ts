@@ -10,7 +10,7 @@ import {
   Query,
 } from '@nestjs/common';
 
-import { CurrentUser } from 'src/shared/decorators/current-user.decorator';
+import { CurrentUser, AuthenticatedUser } from 'src/shared/decorators/current-user.decorator';
 import { AllowInReadOnly } from 'src/shared/decorators/allow-in-read-only.decorator';
 import { Public } from 'src/shared/decorators/public.decorator';
 import { RequirePermissions } from 'src/shared/decorators/permissions.decorator';
@@ -52,7 +52,7 @@ export class AuthController {
   }
 
   @Get('me')
-  me(@CurrentUser() user: { sub: string; type: 'desktop' | 'panel' }) {
+  me(@CurrentUser() user: Pick<AuthenticatedUser, 'sub' | 'type'>) {
     return this.authService.me(user.sub, user.type);
   }
 

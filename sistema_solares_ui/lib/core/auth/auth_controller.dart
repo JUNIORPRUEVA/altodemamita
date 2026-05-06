@@ -42,12 +42,17 @@ class AuthUser {
   }
 
   factory AuthUser.fromMap(Map<String, dynamic> json) {
+    final rawType = json['type']?.toString();
     return AuthUser(
       id: json['sub']?.toString() ?? '',
       email: json['email']?.toString() ?? '',
       username: json['username']?.toString() ?? '',
       fullName: json['fullName']?.toString() ?? '',
-      type: json['type']?.toString() == 'panel' ? 'panel' : 'desktop',
+        type: rawType == 'panel'
+          ? 'panel'
+          : rawType == 'pwa'
+          ? 'pwa'
+          : 'desktop',
       roles: (json['roles'] as List<dynamic>? ?? const <dynamic>[])
           .map((item) => item.toString())
           .toList(),
@@ -94,7 +99,9 @@ class AuthController extends ChangeNotifier {
   bool get initialized => _initialized;
   bool get isBusy => _busy;
   bool get isAuthenticated =>
-      _jwtToken?.isNotEmpty == true && _user != null && _user!.type == 'panel';
+      _jwtToken?.isNotEmpty == true &&
+      _user != null &&
+      (_user!.type == 'panel' || _user!.type == 'pwa');
   AuthUser? get user => _user;
   String? get errorMessage => _errorMessage;
   bool get canManageUsers => isPanelAdmin;
@@ -111,7 +118,7 @@ class AuthController extends ChangeNotifier {
       isPanelAdmin;
   bool get isPanelAdmin =>
       _user != null &&
-      _user!.type == 'panel' &&
+      (_user!.type == 'panel' || _user!.type == 'pwa') &&
       _user!.panelRole == PanelRole.admin;
 
   Future<void> initialize() async {
@@ -134,7 +141,7 @@ class AuthController extends ChangeNotifier {
       await _systemConfigController.refresh();
       final profile = await _apiClient.get('/auth/me');
       _user = AuthUser.fromMap(profile as Map<String, dynamic>);
-      if (_user!.type != 'panel') {
+      if (_user!.type != 'panel' && _user!.type != 'pwa') {
         throw ApiException('El token no corresponde a un cliente panel.');
       }
       await _storeUserBasic(_user!);
@@ -178,7 +185,7 @@ class AuthController extends ChangeNotifier {
                 body: {
                   'identifier': identifier.trim(),
                   'password': password,
-                  'clientType': 'panel',
+                  'clientType': 'pwa',
                 },
               )
               as Map<String, dynamic>;
@@ -191,7 +198,7 @@ class AuthController extends ChangeNotifier {
 
       _jwtToken = token;
       _user = AuthUser.fromMap(userMap);
-      if (_user!.type != 'panel') {
+      if (_user!.type != 'panel' && _user!.type != 'pwa') {
         throw ApiException('El backend no emitio un token de panel valido.');
       }
       _apiClient.setJwtToken(token);
@@ -353,7 +360,7 @@ class AuthController extends ChangeNotifier {
           await _apiClient.post(
                 '/auth/refresh',
                 authorized: false,
-                body: {'token': currentToken, 'clientType': 'panel'},
+                body: {'token': currentToken, 'clientType': 'pwa'},
               )
               as Map<String, dynamic>;
 
@@ -368,7 +375,7 @@ class AuthController extends ChangeNotifier {
       await _tokenStorage.writeToken(_jwtStorageKey, newToken);
 
       final newUser = AuthUser.fromMap(userMap);
-      if (newUser.type == 'panel') {
+      if (newUser.type == 'panel' || newUser.type == 'pwa') {
         _user = newUser;
         await _storeUserBasic(newUser);
       }

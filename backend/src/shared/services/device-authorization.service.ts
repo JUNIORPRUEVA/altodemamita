@@ -29,6 +29,13 @@ export interface DeviceAccessState {
 export class DeviceAuthorizationService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private normalizeClientType(clientType: AuthenticatedUser['type']): AuthenticatedUser['type'] {
+    if (clientType === 'panel' || clientType === 'pwa') {
+      return clientType;
+    }
+    return 'desktop';
+  }
+
   async resolveCurrentAccess(options: {
     userId: string;
     clientType: AuthenticatedUser['type'];
@@ -38,7 +45,7 @@ export class DeviceAuthorizationService {
     roles?: string[];
     autoRegisterDesktop?: boolean;
   }): Promise<DeviceAccessState> {
-    const clientType = options.clientType === 'panel' ? 'panel' : 'desktop';
+    const clientType = this.normalizeClientType(options.clientType);
     const deviceId = this.normalizeDeviceId(options.deviceId);
     const deviceName = this.normalizeOptionalText(options.deviceName);
     const platform = this.normalizeOptionalText(options.platform);
@@ -224,7 +231,7 @@ export class DeviceAuthorizationService {
     platform?: string | null;
     roles?: string[];
   }): Promise<DeviceAccessState> {
-    const clientType = options.clientType === 'panel' ? 'panel' : 'desktop';
+    const clientType = this.normalizeClientType(options.clientType);
     const deviceId = this.normalizeDeviceId(options.deviceId);
     const deviceName = this.normalizeOptionalText(options.deviceName);
     const platform = this.normalizeOptionalText(options.platform);
