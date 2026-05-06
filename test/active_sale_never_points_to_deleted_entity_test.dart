@@ -80,8 +80,7 @@ void main() {
     final clientId = await db.insert(DatabaseSchema.clientsTable, {
       'sync_id': 'client-inv-1',
       'cedula': '00500000001',
-      'nombre': 'Inv',
-      'apellido': 'Cliente',
+      'nombre': 'Inv Cliente',
       'telefono': '8090000010',
       'fecha_creacion': now,
       'fecha_actualizacion': now,
@@ -137,8 +136,7 @@ void main() {
     final clientId = await db.insert(DatabaseSchema.clientsTable, {
       'sync_id': 'client-inv-2',
       'cedula': '00500000002',
-      'nombre': 'Inv2',
-      'apellido': 'Cliente2',
+      'nombre': 'Inv2 Cliente2',
       'telefono': '8090000011',
       'fecha_creacion': now,
       'fecha_actualizacion': now,
@@ -186,13 +184,12 @@ void main() {
   test('active_sale_never_points_to_deleted_seller_test', () async {
     final db = await appDatabase.database;
     final now = DateTime.now().toIso8601String();
-    final repo = SellerRepository(appDatabase: appDatabase);
+    final repo = SellerRepository(database: appDatabase);
 
     final clientId = await db.insert(DatabaseSchema.clientsTable, {
       'sync_id': 'client-inv-3',
       'cedula': '00500000003',
-      'nombre': 'Inv3',
-      'apellido': 'Cliente3',
+      'nombre': 'Inv3 Cliente3',
       'telefono': '8090000012',
       'fecha_creacion': now,
       'fecha_actualizacion': now,

@@ -193,65 +193,8 @@ class _AppState extends State<App> {
           Locale('en', 'US'),
         ],
         routerConfig: _router,
-        builder: (context, child) =>
-            _ReadOnlyShell(child: child ?? const SizedBox.shrink()),
+        builder: (context, child) => child ?? const SizedBox.shrink(),
       ),
-    );
-  }
-}
-
-class _ReadOnlyShell extends StatelessWidget {
-  const _ReadOnlyShell({required this.child});
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final systemConfig = context.watch<SystemConfigController>();
-    final auth = context.watch<AuthController>();
-    final showReadOnlyBanner = auth.isAuthenticated || systemConfig.isReadOnly;
-
-    return Stack(
-      children: [
-        child,
-        if (showReadOnlyBanner)
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: SafeArea(
-              bottom: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                child: Material(
-                  elevation: 4,
-                  color: const Color(0xFF8F2436),
-                  borderRadius: BorderRadius.circular(14),
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    child: Row(
-                      children: [
-                        Icon(Icons.lock_outline, color: Colors.white, size: 18),
-                        SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            systemConfig.isReadOnly
-                                ? 'Modo solo lectura activado'
-                                : 'Este panel es solo de consulta.',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-      ],
     );
   }
 }

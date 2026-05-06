@@ -356,9 +356,10 @@ class SalesRepository {
         if (initialPaidAmount < 0) {
           throw StateError('El inicial pagado no puede ser negativo.');
         }
-        if (initialPaidAmount + 0.009 < downPaymentAmount) {
+        if (initialPaidAmount + 0.009 < downPaymentAmount &&
+            draft.initialPaymentDeadline == null) {
           throw StateError(
-            'El inicial pagado no puede ser menor al inicial mínimo requerido.',
+            'El inicial pagado es menor al requerido. Debes especificar una fecha límite para el completivo del inicial.',
           );
         }
         if (initialPaidAmount - currentSalePrice > 0.009) {
@@ -659,9 +660,10 @@ class SalesRepository {
         if (initialPaidAmount < 0) {
           throw StateError('El inicial pagado no puede ser negativo.');
         }
-        if (initialPaidAmount + 0.009 < downPaymentAmount) {
+        if (initialPaidAmount + 0.009 < downPaymentAmount &&
+            draft.initialPaymentDeadline == null) {
           throw StateError(
-            'El inicial pagado no puede ser menor al inicial mínimo requerido.',
+            'El inicial pagado es menor al requerido. Debes especificar una fecha límite para el completivo del inicial.',
           );
         }
         if (initialPaidAmount - currentSalePrice > 0.009) {

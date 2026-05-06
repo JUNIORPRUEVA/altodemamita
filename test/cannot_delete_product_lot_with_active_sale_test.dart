@@ -37,8 +37,7 @@ void main() {
     final clientId = await db.insert(DatabaseSchema.clientsTable, {
       'sync_id': 'client-lot-block-1',
       'cedula': '00400000001',
-      'nombre': 'Ana',
-      'apellido': 'Gomez',
+      'nombre': 'Ana Gomez',
       'telefono': '8090000001',
       'fecha_creacion': now,
       'fecha_actualizacion': now,
@@ -124,8 +123,7 @@ void main() {
     final clientId = await db.insert(DatabaseSchema.clientsTable, {
       'sync_id': 'client-lot-cancelled-1',
       'cedula': '00400000002',
-      'nombre': 'Luis',
-      'apellido': 'Rios',
+      'nombre': 'Luis Rios',
       'telefono': '8090000002',
       'fecha_creacion': now,
       'fecha_actualizacion': now,

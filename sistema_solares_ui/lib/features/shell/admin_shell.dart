@@ -7,7 +7,9 @@ import 'package:sistema_solares_ui/core/auth/auth_controller.dart';
 import 'package:sistema_solares_ui/core/realtime/realtime_controller.dart';
 
 const double shellMobileBreakpoint = 760;
-const double shellDesktopBreakpoint = 1024;
+// Treat any non-mobile width as desktop so laptops, narrow PCs and large
+// monitors all get the sidebar layout (no dead zone between 760-1023 px).
+const double shellDesktopBreakpoint = shellMobileBreakpoint;
 const double shellSidebarLaptopWidth = 232;
 const double shellSidebarDesktopWidth = 264;
 
@@ -19,8 +21,15 @@ double shellSidebarWidthFor(double width) {
   if (!isDesktopShellWidth(width)) {
     return 0;
   }
-
-  return width >= 1280 ? shellSidebarDesktopWidth : shellSidebarLaptopWidth;
+  if (width >= 1280) {
+    return shellSidebarDesktopWidth;
+  }
+  // Slightly slimmer sidebar on small laptops / windowed views to leave more
+  // room for content.
+  if (width < 960) {
+    return 208;
+  }
+  return shellSidebarLaptopWidth;
 }
 
 class AdminShell extends StatelessWidget {

@@ -44,8 +44,7 @@ void main() {
     final clientId = await db.insert(DatabaseSchema.clientsTable, {
       'sync_id': 'client-offline-1',
       'cedula': '00700000001',
-      'nombre': 'Offline',
-      'apellido': 'Test',
+      'nombre': 'Offline Test',
       'telefono': '8091000001',
       'fecha_creacion': now,
       'fecha_actualizacion': now,
@@ -105,7 +104,7 @@ void main() {
     // All three repositories must block the delete offline.
     final clientRepo = ClientRepository(appDatabase: appDatabase);
     final lotRepo = LotRepository(appDatabase: appDatabase);
-    final sellerRepo = SellerRepository(appDatabase: appDatabase);
+    final sellerRepo = SellerRepository(database: appDatabase);
 
     expect(
       () => clientRepo.delete(clientId),

@@ -536,7 +536,7 @@ void main() {
           requiredInitialPayment: 100000,
           initialPaymentPaid: 25000,
           minimumReserveAmount: 20000,
-          initialPaymentDeadline: now.add(const Duration(days: 15)),
+          initialPaymentDeadline: null,
           monthlyInterest: 1,
           installmentCount: 12,
         ),

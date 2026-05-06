@@ -37,11 +37,8 @@ void main() {
     final clientId = await db.insert(DatabaseSchema.clientsTable, {
       'sync_id': 'client-active-1',
       'cedula': '00100000001',
-      'nombre': 'Juan',
-      'apellido': 'Perez',
+      'nombre': 'Juan Perez',
       'telefono': '8091234567',
-      'email': null,
-      'direccion': null,
       'fecha_creacion': now,
       'fecha_actualizacion': now,
       'sync_status': DatabaseSchema.syncStatusSynced,
@@ -59,14 +56,6 @@ void main() {
       'sync_status': DatabaseSchema.syncStatusSynced,
     });
 
-    await db.insert(DatabaseSchema.usersTable, {
-      'nombre_completo': 'Admin Test',
-      'usuario': 'admin_test',
-      'password_hash': 'x',
-      'rol': 'admin',
-      'activo': 1,
-      'fecha_creacion': now,
-    });
     final userId = await db.rawQuery('SELECT id FROM ${DatabaseSchema.usersTable} LIMIT 1');
     final uid = userId.first['id'] as int;
 
@@ -108,11 +97,8 @@ void main() {
     final clientId = await db.insert(DatabaseSchema.clientsTable, {
       'sync_id': 'client-no-sale-1',
       'cedula': '00100000002',
-      'nombre': 'Maria',
-      'apellido': 'Lopez',
+      'nombre': 'Maria Lopez',
       'telefono': '8097654321',
-      'email': null,
-      'direccion': null,
       'fecha_creacion': now,
       'fecha_actualizacion': now,
       'sync_status': DatabaseSchema.syncStatusSynced,

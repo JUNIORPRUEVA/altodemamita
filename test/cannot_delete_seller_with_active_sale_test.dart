@@ -20,7 +20,7 @@ void main() {
     tempDir = await Directory.systemTemp.createTemp('cannot_delete_seller_active_sale_');
     appDatabase = AppDatabase.test(path.join(tempDir.path, 'test.db'));
     await appDatabase.initialize();
-    repository = SellerRepository(appDatabase: appDatabase);
+    repository = SellerRepository(database: appDatabase);
   });
 
   tearDown(() async {
@@ -37,8 +37,7 @@ void main() {
     final clientId = await db.insert(DatabaseSchema.clientsTable, {
       'sync_id': 'client-seller-1',
       'cedula': '00200000001',
-      'nombre': 'Pedro',
-      'apellido': 'Torres',
+      'nombre': 'Pedro Torres',
       'telefono': '8091234560',
       'fecha_creacion': now,
       'fecha_actualizacion': now,
