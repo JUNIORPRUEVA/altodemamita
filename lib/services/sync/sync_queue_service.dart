@@ -1046,6 +1046,7 @@ class SyncQueueService {
     }
 
     _log('Internet detectado -> reintentando sincronizacion pendiente');
+    unawaited(SystemConfigService.instance.refresh());
     unawaited(syncPending());
   }
 
@@ -1284,9 +1285,7 @@ class SyncQueueService {
         .toSet();
     final legacyQueueIds = queueRows
         .where(
-          (row) => _hasLegacyHardDeleteError(
-            row['last_error']?.toString(),
-          ),
+          (row) => _hasLegacyHardDeleteError(row['last_error']?.toString()),
         )
         .map((row) => row['record_sync_id']?.toString().trim() ?? '')
         .where((value) => value.isNotEmpty)
@@ -1308,7 +1307,10 @@ class SyncQueueService {
     final now = DateTime.now().toIso8601String();
     await db.transaction((txn) async {
       if (failedIds.isNotEmpty) {
-        final failedPlaceholders = List.filled(failedIds.length, '?').join(', ');
+        final failedPlaceholders = List.filled(
+          failedIds.length,
+          '?',
+        ).join(', ');
         await txn.rawUpdate(
           'UPDATE $tableName '
           'SET sync_status = ?, '
@@ -1329,7 +1331,10 @@ class SyncQueueService {
 
       final resetQueueIds = {...failedIds, ...retryQueueIds};
       if (resetQueueIds.isNotEmpty) {
-        final resetPlaceholders = List.filled(resetQueueIds.length, '?').join(', ');
+        final resetPlaceholders = List.filled(
+          resetQueueIds.length,
+          '?',
+        ).join(', ');
         final sourceResetIds = resetQueueIds
             .where((id) {
               final row = sourceRowBySyncId[id];
@@ -1447,7 +1452,9 @@ class SyncQueueService {
   bool _hasLegacyHardDeleteError(String? errorMessage) {
     final normalized = errorMessage?.trim().toLowerCase() ?? '';
     return normalized.contains('foreign key constraint failed') ||
-        normalized.contains('delete from solares where deleted_at is not null') ||
+        normalized.contains(
+          'delete from solares where deleted_at is not null',
+        ) ||
         normalized.contains('hard delete');
   }
 

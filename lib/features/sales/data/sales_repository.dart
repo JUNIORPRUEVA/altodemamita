@@ -8,6 +8,7 @@ import '../../../core/network/backend_api_client.dart';
 import '../../../core/network/backend_entity_id_registry.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_schema.dart';
+import '../../../core/system/system_config_service.dart';
 import '../../../core/utils/sync_id_generator.dart';
 import '../../../services/sync/sync_queue_service.dart';
 import '../../installments/domain/installment.dart';
@@ -254,6 +255,7 @@ class SalesRepository {
   }
 
   Future<int> createSale(SaleDraft draft) async {
+    SystemConfigService.instance.ensureWritable();
     if (_useBackendMode) {
       return _createSaleInBackend(draft);
     }
@@ -399,7 +401,7 @@ class SalesRepository {
               ? draft.saleDate.toIso8601String()
               : null,
           'saldo_financiado': financedBalance,
-            'saldo_pendiente': pendingBalance,
+          'saldo_pendiente': pendingBalance,
           'interes_mensual': draft.monthlyInterest,
           'cantidad_cuotas': draft.installmentCount,
           'estado': saleStatus,
@@ -513,6 +515,7 @@ class SalesRepository {
   }
 
   Future<void> updateSale(int saleId, SaleDraft draft) async {
+    SystemConfigService.instance.ensureWritable();
     if (_useBackendMode) {
       await _updateSaleInBackend(saleId, draft);
       return;
@@ -881,6 +884,7 @@ class SalesRepository {
   }
 
   Future<void> deleteSale(int saleId) async {
+    SystemConfigService.instance.ensureWritable();
     if (_useBackendMode) {
       await _deleteSaleInBackend(saleId);
       return;
@@ -1201,8 +1205,12 @@ class SalesRepository {
 
   bool _shouldBlockSaleDeletion(Map<String, Object?> paymentRow) {
     final installmentId = paymentRow['cuota_id'] as int?;
-    final paymentType = paymentRow['tipo_pago']?.toString().trim().toLowerCase();
-    final isEditableInitialPayment = installmentId == null &&
+    final paymentType = paymentRow['tipo_pago']
+        ?.toString()
+        .trim()
+        .toLowerCase();
+    final isEditableInitialPayment =
+        installmentId == null &&
         (paymentType == 'apartado' || paymentType == 'abono_inicial');
     return !isEditableInitialPayment;
   }

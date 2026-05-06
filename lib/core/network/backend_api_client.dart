@@ -109,6 +109,9 @@ class BackendApiClient {
         );
       }
       headers['Authorization'] = 'Bearer $token';
+      if (settings.deviceId.trim().isNotEmpty) {
+        headers['x-device-id'] = settings.deviceId.trim();
+      }
     }
 
     final encodedBody = body == null ? null : jsonEncode(body);

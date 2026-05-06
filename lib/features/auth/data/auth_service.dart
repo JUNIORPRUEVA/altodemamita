@@ -89,10 +89,7 @@ class _RemoteSystemStatus {
 }
 
 class _LocalUserLookupResult {
-  const _LocalUserLookupResult({
-    required this.row,
-    required this.foundBy,
-  });
+  const _LocalUserLookupResult({required this.row, required this.foundBy});
 
   final Map<String, Object?> row;
   final String foundBy;
@@ -154,7 +151,7 @@ class AuthService {
       'Los datos visibles del administrador aun no estan disponibles en esta instalacion.';
   static const String firstConnectionRequiredMessage =
       'Este equipo necesita conexion la primera vez para descargar el usuario.';
-    static const String localCredentialsMissingMessage =
+  static const String localCredentialsMissingMessage =
       'Este usuario no tiene credenciales locales guardadas. Inicie sesion con internet una vez.';
   static const String localUserInactiveMessage =
       'Tu cuenta esta inactiva. Contacta al administrador.';
@@ -437,6 +434,8 @@ class AuthService {
       '[LoginOnline] jwt saved. Usuario: ${user.email}, '
       'rol: ${user.role.storageValue}',
     );
+    await SystemConfigService.instance.registerCurrentDevice();
+    await SystemConfigService.instance.refresh();
     return user;
   }
 
@@ -1064,9 +1063,9 @@ class AuthService {
           'rol': role.storageValue,
           'activo': active ? 1 : 0,
           'deleted_at': null,
-            'sync_status': DatabaseSchema.syncStatusPendingUpdate,
+          'sync_status': DatabaseSchema.syncStatusPendingUpdate,
           'fecha_actualizacion': now,
-            'last_modified_local': now,
+          'last_modified_local': now,
           'password_updated_at':
               (newPassword != null && newPassword.trim().isNotEmpty)
               ? now
@@ -1823,7 +1822,9 @@ class AuthService {
     final fullName = payload['fullName']?.toString().trim();
     final username = payload['username']?.toString().trim();
     final normalizedUsername = _normalizeIdentifier(
-      (username ?? '').isNotEmpty ? username! : _normalizedUsernameFromEmail(email),
+      (username ?? '').isNotEmpty
+          ? username!
+          : _normalizedUsernameFromEmail(email),
     );
     _debugAuth(
       '[CacheUser] email_normalizado=$email username_normalizado=$normalizedUsername',
@@ -1851,29 +1852,29 @@ class AuthService {
       );
       final existingByRemoteId = existingByIdRemote.isEmpty
           ? await txn.query(
-        DatabaseSchema.usersTable,
-        columns: ['id', 'fecha_creacion'],
-        where: 'remote_auth_id = ?',
-        whereArgs: [remoteAuthId],
-        limit: 1,
-      )
+              DatabaseSchema.usersTable,
+              columns: ['id', 'fecha_creacion'],
+              where: 'remote_auth_id = ?',
+              whereArgs: [remoteAuthId],
+              limit: 1,
+            )
           : const <Map<String, Object?>>[];
       final existingByEmail = existingByRemoteId.isEmpty
           ? (existingByIdRemote.isEmpty
-          ? await txn.query(
-              DatabaseSchema.usersTable,
-              columns: ['id', 'fecha_creacion'],
-              where: 'LOWER(email) = ?',
-              whereArgs: [email],
-              limit: 1,
-            )
-          : const <Map<String, Object?>>[])
+                ? await txn.query(
+                    DatabaseSchema.usersTable,
+                    columns: ['id', 'fecha_creacion'],
+                    where: 'LOWER(email) = ?',
+                    whereArgs: [email],
+                    limit: 1,
+                  )
+                : const <Map<String, Object?>>[])
           : const <Map<String, Object?>>[];
       final existing = existingByIdRemote.isNotEmpty
           ? existingByIdRemote.first
           : (existingByRemoteId.isNotEmpty
-          ? existingByRemoteId.first
-          : (existingByEmail.isNotEmpty ? existingByEmail.first : null));
+                ? existingByRemoteId.first
+                : (existingByEmail.isNotEmpty ? existingByEmail.first : null));
       final createdAt = existing == null
           ? now.toIso8601String()
           : (existing['fecha_creacion'] as String? ?? now.toIso8601String());
@@ -2328,10 +2329,7 @@ class AuthService {
       limit: 1,
     );
     if (byUsername.isNotEmpty) {
-      return _LocalUserLookupResult(
-        row: byUsername.first,
-        foundBy: 'username',
-      );
+      return _LocalUserLookupResult(row: byUsername.first, foundBy: 'username');
     }
 
     final byRemote = await db.query(
@@ -2345,7 +2343,10 @@ class AuthService {
       limit: 1,
     );
     if (byRemote.isNotEmpty) {
-      return _LocalUserLookupResult(row: byRemote.first, foundBy: 'remote_auth_id');
+      return _LocalUserLookupResult(
+        row: byRemote.first,
+        foundBy: 'remote_auth_id',
+      );
     }
 
     return null;

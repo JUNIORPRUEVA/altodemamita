@@ -16,11 +16,13 @@ import { ProductsModule } from './modules/products/products.module';
 import { SellersModule } from './modules/sellers/sellers.module';
 import { SalesModule } from './modules/sales/sales.module';
 import { PaymentsModule } from './modules/payments/payments.module';
+import { DevicesModule } from './modules/devices/devices.module';
 import { InstallmentsModule } from './modules/installments/installments.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
 import { SyncModule } from './modules/sync/sync.module';
 import { SystemModule } from './modules/system/system.module';
+import { DeviceWriteGuard } from './shared/guards/device-write.guard';
 
 @Module({
   imports: [
@@ -37,6 +39,7 @@ import { SystemModule } from './modules/system/system.module';
     SellersModule,
     SalesModule,
     PaymentsModule,
+    DevicesModule,
     InstallmentsModule,
     ReportsModule,
     RealtimeModule,
@@ -55,6 +58,10 @@ import { SystemModule } from './modules/system/system.module';
     {
       provide: APP_GUARD,
       useClass: RolesGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: DeviceWriteGuard,
     },
     {
       provide: APP_GUARD,

@@ -5,6 +5,7 @@ import '../../../core/network/backend_api_client.dart';
 import '../../../core/network/backend_entity_id_registry.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_schema.dart';
+import '../../../core/system/system_config_service.dart';
 import '../../../services/sync/sync_queue_service.dart';
 import '../domain/lot.dart';
 
@@ -213,6 +214,7 @@ class LotRepository {
 
   Future<void> save(Lot lot) async {
     try {
+      SystemConfigService.instance.ensureWritable();
       if (_useBackendMode) {
         await _saveToBackend(lot);
         return;
@@ -278,6 +280,7 @@ class LotRepository {
 
   Future<void> delete(int id) async {
     try {
+      SystemConfigService.instance.ensureWritable();
       if (_useBackendMode) {
         final remoteId = _idRegistry.resolveRemoteId('products', id);
         if (remoteId == null || remoteId.isEmpty) {

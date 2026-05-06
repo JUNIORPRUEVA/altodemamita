@@ -61,8 +61,31 @@ model User {
   deletedAt      DateTime?    @map("deleted_at")
   sales          Sale[]
   userRoles      UserRole[]
+  authorizedDevices AuthorizedDevice[]
 
   @@map("users")
+}
+
+model AuthorizedDevice {
+  id               String          @id @default(uuid()) @db.Uuid
+  userId           String          @map("user_id") @db.Uuid
+  companyProfileId String?         @map("company_profile_id") @db.Uuid
+  deviceId         String          @map("device_id")
+  deviceName       String?         @map("device_name")
+  platform         String?
+  isPrimary        Boolean         @default(false) @map("is_primary")
+  canWrite         Boolean         @default(false) @map("can_write")
+  lastSeenAt       DateTime?       @map("last_seen_at")
+  revokedAt        DateTime?       @map("revoked_at")
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+  user             User            @relation(fields: [userId], references: [id])
+  companyProfile   CompanyProfile? @relation(fields: [companyProfileId], references: [id])
+
+  @@unique([userId, deviceId])
+  @@index([userId, revokedAt, isPrimary, canWrite])
+  @@index([deviceId])
+  @@map("authorized_devices")
 }
 
 model Role {
@@ -104,6 +127,7 @@ model CompanyProfile {
   logoBase64  String?   @map("logo_base64")
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
+  authorizedDevices AuthorizedDevice[]
 
   @@map("company_profiles")
 }

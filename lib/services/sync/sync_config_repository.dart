@@ -31,6 +31,10 @@ class SyncConfigRepository {
   static const syncLastErrorKey = 'sync.last_error';
   static const syncLastRunAtKey = 'sync.last_run_at';
   static const syncLastStatusKey = 'sync.last_status';
+  static const syncDeviceIsPrimaryKey = 'sync.device_is_primary';
+  static const syncDeviceCanWriteKey = 'sync.device_can_write';
+  static const syncDeviceLastValidatedAtKey = 'sync.device_last_validated_at';
+  static const syncDeviceReasonKey = 'sync.device_reason';
 
   static const _jwtTokenPreferenceKey = 'sync.jwt_token';
   static const _deviceIdPreferenceKey = 'sync.device_id';
@@ -214,6 +218,44 @@ class SyncConfigRepository {
     );
   }
 
+  Future<DeviceWriteState> loadDeviceWriteState() async {
+    final prefs = await _tryPreferences();
+    if (prefs == null) {
+      return const DeviceWriteState(
+        isPrimary: false,
+        canWrite: true,
+        lastValidatedAt: null,
+        reason: '',
+      );
+    }
+
+    return DeviceWriteState(
+      isPrimary:
+          (prefs.getString(syncDeviceIsPrimaryKey) ?? '').trim() == 'true',
+      canWrite:
+          (prefs.getString(syncDeviceCanWriteKey) ?? '').trim() != 'false',
+      lastValidatedAt: DateTime.tryParse(
+        prefs.getString(syncDeviceLastValidatedAtKey) ?? '',
+      ),
+      reason: (prefs.getString(syncDeviceReasonKey) ?? '').trim(),
+    );
+  }
+
+  Future<void> saveDeviceWriteState(DeviceWriteState state) async {
+    final prefs = await _tryPreferences();
+    if (prefs == null) {
+      return;
+    }
+
+    await prefs.setString(syncDeviceIsPrimaryKey, state.isPrimary.toString());
+    await prefs.setString(syncDeviceCanWriteKey, state.canWrite.toString());
+    await prefs.setString(
+      syncDeviceLastValidatedAtKey,
+      state.lastValidatedAt?.toIso8601String() ?? '',
+    );
+    await prefs.setString(syncDeviceReasonKey, state.reason);
+  }
+
   Future<String> getOrCreateDeviceId() async {
     final random = Random.secure();
     final generated = List<int>.generate(
@@ -230,4 +272,18 @@ class SyncConfigRepository {
     await prefs?.setString(_deviceIdPreferenceKey, generated);
     return generated;
   }
+}
+
+class DeviceWriteState {
+  const DeviceWriteState({
+    required this.isPrimary,
+    required this.canWrite,
+    required this.lastValidatedAt,
+    required this.reason,
+  });
+
+  final bool isPrimary;
+  final bool canWrite;
+  final DateTime? lastValidatedAt;
+  final String reason;
 }

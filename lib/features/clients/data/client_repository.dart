@@ -6,6 +6,7 @@ import '../../../core/network/backend_entity_id_registry.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_schema.dart';
 import '../../../core/config/app_flags.dart';
+import '../../../core/system/system_config_service.dart';
 import '../../../core/utils/client_data_guard.dart';
 import '../../../models/sync/sync_status.dart';
 import '../../../repositories/sync_repository.dart';
@@ -127,6 +128,7 @@ class ClientRepository implements SyncRepository {
 
   Future<void> save(Client client) async {
     try {
+      SystemConfigService.instance.ensureWritable();
       final normalizedClientInput = client.copyWith(
         fullName: client.fullName.trim(),
         documentId: client.documentId.trim(),
@@ -207,6 +209,7 @@ class ClientRepository implements SyncRepository {
 
   Future<void> delete(int id) async {
     try {
+      SystemConfigService.instance.ensureWritable();
       if (_useBackendMode) {
         await _deleteFromBackend(id);
         return;
