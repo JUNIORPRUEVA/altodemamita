@@ -11,10 +11,14 @@ class FakeBackendState {
   bool offline = false;
   final Set<String> unreachableHosts = <String>{};
   bool rejectSyncDownloadUnauthorized = false;
+  bool systemReadOnly = false;
   String companyName = '';
   String adminEmail = '';
   String adminPassword = '';
   String adminFullName = '';
+  String authClientType = 'desktop';
+  List<String> authRoles = const ['SUPER_ADMIN'];
+  List<String> authPermissions = const ['sync.manage', 'users.write', 'users.read'];
   Map<String, dynamic> lastSyncUploadPayload = const {};
 
   bool forceSyncUploadConflict = false;
@@ -36,7 +40,280 @@ class FakeBackendState {
       {'sync_id': 'installment-1', 'version': 2},
     ],
   };
+
+  final Map<String, FakeAuthorizedDevice> authorizedDevices =
+      <String, FakeAuthorizedDevice>{};
+
+  void seedAuthorizedDevice({
+    required String deviceId,
+    String? deviceName,
+    String? platform,
+    String userId = 'remote-admin-1',
+    bool isPrimary = false,
+    bool canWrite = false,
+    DateTime? revokedAt,
+  }) {
+    authorizedDevices[deviceId] = FakeAuthorizedDevice(
+      deviceId: deviceId,
+      deviceName: deviceName ?? deviceId,
+      platform: platform ?? 'windows',
+      userId: userId,
+      isPrimary: isPrimary,
+      canWrite: canWrite,
+      revokedAt: revokedAt,
+      lastSeenAt: DateTime.now(),
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+  }
+
+  FakeAuthorizedDevice? device(String? deviceId) {
+    if (deviceId == null || deviceId.trim().isEmpty) {
+      return null;
+    }
+    return authorizedDevices[deviceId.trim()];
+  }
+
+  FakeAuthorizedDevice? activePrimaryDevice() {
+    for (final device in authorizedDevices.values) {
+      if (device.revokedAt == null && device.isPrimary && device.canWrite) {
+        return device;
+      }
+    }
+    return null;
+  }
+
+  bool canDeviceWrite(String? deviceId) {
+    final device = this.device(deviceId);
+    return device != null && device.revokedAt == null && device.isPrimary && device.canWrite;
+  }
+
+  Map<String, dynamic> currentDevicePayload(String? deviceId) {
+    final normalizedDeviceId = deviceId?.trim() ?? '';
+    if (normalizedDeviceId.isEmpty) {
+      return _buildDevicePayload(
+        deviceId: '',
+        canWrite: false,
+        isPrimary: false,
+        reason: 'missing_device_id',
+      );
+    }
+
+    final device = authorizedDevices[normalizedDeviceId];
+    if (device == null) {
+      return _buildDevicePayload(
+        deviceId: normalizedDeviceId,
+        canWrite: false,
+        isPrimary: false,
+        reason: 'device_not_registered',
+      );
+    }
+
+    if (device.revokedAt != null) {
+      return _buildDevicePayload(
+        deviceId: normalizedDeviceId,
+        deviceName: device.deviceName,
+        platform: device.platform,
+        canWrite: false,
+        isPrimary: false,
+        revokedAt: device.revokedAt,
+        reason: 'device_revoked',
+      );
+    }
+
+    final canWrite = device.isPrimary && device.canWrite;
+    return _buildDevicePayload(
+      deviceId: normalizedDeviceId,
+      deviceName: device.deviceName,
+      platform: device.platform,
+      canWrite: canWrite,
+      isPrimary: device.isPrimary,
+      reason: canWrite ? 'authorized' : 'device_not_primary',
+    );
+  }
+
+  Map<String, dynamic> registerDevice({
+    required String deviceId,
+    String? deviceName,
+    String? platform,
+  }) {
+    final now = DateTime.now();
+    final existing = authorizedDevices[deviceId];
+    if (existing != null) {
+      final updated = existing.copyWith(
+        deviceName: deviceName ?? existing.deviceName,
+        platform: platform ?? existing.platform,
+        lastSeenAt: now,
+        updatedAt: now,
+      );
+      authorizedDevices[deviceId] = updated;
+      return currentDevicePayload(deviceId);
+    }
+
+    final hasPrimary = activePrimaryDevice() != null;
+    final created = FakeAuthorizedDevice(
+      deviceId: deviceId,
+      deviceName: deviceName ?? deviceId,
+      platform: platform ?? 'windows',
+      userId: 'remote-admin-1',
+      isPrimary: !hasPrimary,
+      canWrite: !hasPrimary,
+      lastSeenAt: now,
+      createdAt: now,
+      updatedAt: now,
+    );
+    authorizedDevices[deviceId] = created;
+    return _buildDevicePayload(
+      deviceId: deviceId,
+      deviceName: created.deviceName,
+      platform: created.platform,
+      canWrite: created.canWrite,
+      isPrimary: created.isPrimary,
+      reason: hasPrimary ? 'registered_secondary' : 'auto_registered_primary',
+    );
+  }
+
+  Map<String, dynamic> claimPrimary({
+    required String deviceId,
+    String? deviceName,
+    String? platform,
+  }) {
+    final now = DateTime.now();
+    for (final entry in authorizedDevices.entries.toList()) {
+      final device = entry.value;
+      if (device.revokedAt != null) {
+        continue;
+      }
+      authorizedDevices[entry.key] = device.copyWith(
+        isPrimary: false,
+        canWrite: false,
+        updatedAt: now,
+      );
+    }
+
+    final existing = authorizedDevices[deviceId];
+    final claimed = (existing ??
+            FakeAuthorizedDevice(
+              deviceId: deviceId,
+              deviceName: deviceName ?? deviceId,
+              platform: platform ?? 'windows',
+              userId: 'remote-admin-1',
+              isPrimary: true,
+              canWrite: true,
+              lastSeenAt: now,
+              createdAt: now,
+              updatedAt: now,
+            ))
+        .copyWith(
+          deviceName: deviceName ?? existing?.deviceName ?? deviceId,
+          platform: platform ?? existing?.platform ?? 'windows',
+          isPrimary: true,
+          canWrite: true,
+          revokedAt: null,
+          lastSeenAt: now,
+          updatedAt: now,
+        );
+    authorizedDevices[deviceId] = claimed;
+    return _buildDevicePayload(
+      deviceId: deviceId,
+      deviceName: claimed.deviceName,
+      platform: claimed.platform,
+      canWrite: true,
+      isPrimary: true,
+      reason: 'authorized',
+    );
+  }
+
+  Map<String, dynamic> revokeDevice(String deviceId) {
+    final normalizedDeviceId = deviceId.trim();
+    final existing = authorizedDevices[normalizedDeviceId];
+    final now = DateTime.now();
+    if (existing != null) {
+      authorizedDevices[normalizedDeviceId] = existing.copyWith(
+        isPrimary: false,
+        canWrite: false,
+        revokedAt: now,
+        updatedAt: now,
+      );
+    }
+    return currentDevicePayload(normalizedDeviceId);
+  }
+
+  Map<String, dynamic> _buildDevicePayload({
+    required String deviceId,
+    String? deviceName,
+    String? platform,
+    required bool isPrimary,
+    required bool canWrite,
+    required String reason,
+    DateTime? revokedAt,
+  }) {
+    return {
+      'userId': 'remote-admin-1',
+      'clientType': authClientType,
+      'deviceId': deviceId,
+      'deviceName': deviceName,
+      'platform': platform,
+      'isPrimary': isPrimary,
+      'canWrite': canWrite,
+      'revokedAt': revokedAt?.toIso8601String(),
+      'lastValidatedAt': DateTime.now().toIso8601String(),
+      'reason': reason,
+    };
+  }
 }
+
+class FakeAuthorizedDevice {
+  const FakeAuthorizedDevice({
+    required this.deviceId,
+    required this.deviceName,
+    required this.platform,
+    required this.userId,
+    required this.isPrimary,
+    required this.canWrite,
+    this.revokedAt,
+    required this.lastSeenAt,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  final String deviceId;
+  final String deviceName;
+  final String platform;
+  final String userId;
+  final bool isPrimary;
+  final bool canWrite;
+  final DateTime? revokedAt;
+  final DateTime lastSeenAt;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  FakeAuthorizedDevice copyWith({
+    String? deviceName,
+    String? platform,
+    bool? isPrimary,
+    bool? canWrite,
+    Object? revokedAt = _sentinel,
+    DateTime? lastSeenAt,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) {
+    return FakeAuthorizedDevice(
+      deviceId: deviceId,
+      deviceName: deviceName ?? this.deviceName,
+      platform: platform ?? this.platform,
+      userId: userId,
+      isPrimary: isPrimary ?? this.isPrimary,
+      canWrite: canWrite ?? this.canWrite,
+      revokedAt: revokedAt == _sentinel ? this.revokedAt : revokedAt as DateTime?,
+      lastSeenAt: lastSeenAt ?? this.lastSeenAt,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+}
+
+const Object _sentinel = Object();
 
 class FakeBackendHttpClient implements HttpClient {
   FakeBackendHttpClient({required FakeBackendState state}) : _state = state;
@@ -152,7 +429,7 @@ class _FakeHttpClientRequest implements HttpClientRequest {
           'success': true,
           'data': {
             'initialized': _state.initialized,
-            'readOnly': false,
+            'readOnly': _state.systemReadOnly,
             'version': 'test',
           },
         },
@@ -210,8 +487,9 @@ class _FakeHttpClientRequest implements HttpClientRequest {
             'username': 'admin.general',
             'fullName': _state.adminFullName,
             'isActive': true,
-            'roles': ['SUPER_ADMIN'],
-            'permissions': ['sync.manage', 'users.write', 'users.read'],
+            'type': _state.authClientType,
+            'roles': _state.authRoles,
+            'permissions': _state.authPermissions,
           },
         },
       );
@@ -243,16 +521,88 @@ class _FakeHttpClientRequest implements HttpClientRequest {
               'username': 'admin.general',
               'fullName': _state.adminFullName,
               'isActive': true,
-              'roles': ['SUPER_ADMIN'],
-              'permissions': ['sync.manage', 'users.write', 'users.read'],
+              'type': payload['clientType']?.toString() ?? _state.authClientType,
+              'roles': _state.authRoles,
+              'permissions': _state.authPermissions,
             },
           },
         },
       );
     }
 
+    if (_method == 'GET' && path.endsWith('/devices/current')) {
+      return _jsonResponse(
+        status: HttpStatus.ok,
+        body: {
+          'success': true,
+          'data': _state.currentDevicePayload(_headers.value('x-device-id')),
+        },
+      );
+    }
+
+    if (_method == 'POST' && path.endsWith('/devices/register')) {
+      final String deviceId =
+          payload['device_id']?.toString().trim().isNotEmpty == true
+          ? payload['device_id'].toString().trim()
+          : _headers.value('x-device-id')?.trim() ?? '';
+      return _jsonResponse(
+        status: HttpStatus.ok,
+        body: {
+          'success': true,
+          'data': _state.registerDevice(
+            deviceId: deviceId,
+            deviceName: payload['device_name']?.toString(),
+            platform: payload['platform']?.toString(),
+          ),
+        },
+      );
+    }
+
+    if (_method == 'POST' && path.endsWith('/devices/claim-primary')) {
+      final String deviceId =
+          payload['device_id']?.toString().trim().isNotEmpty == true
+          ? payload['device_id'].toString().trim()
+          : _headers.value('x-device-id')?.trim() ?? '';
+      return _jsonResponse(
+        status: HttpStatus.ok,
+        body: {
+          'success': true,
+          'data': _state.claimPrimary(
+            deviceId: deviceId,
+            deviceName: payload['device_name']?.toString(),
+            platform: payload['platform']?.toString(),
+          ),
+        },
+      );
+    }
+
+    if (_method == 'POST' && path.endsWith('/devices/revoke')) {
+      final deviceId = payload['device_id']?.toString().trim() ?? '';
+      return _jsonResponse(
+        status: HttpStatus.ok,
+        body: {
+          'success': true,
+          'data': _state.revokeDevice(deviceId),
+        },
+      );
+    }
+
     if (_method == 'POST' && path.endsWith('/sync/upload')) {
       _state.lastSyncUploadPayload = payload;
+
+      final requestDeviceId =
+          payload['device_id']?.toString().trim().isNotEmpty == true
+          ? payload['device_id']?.toString().trim()
+          : _headers.value('x-device-id')?.trim();
+      if (!_state.canDeviceWrite(requestDeviceId)) {
+        return _jsonResponse(
+          status: HttpStatus.forbidden,
+          body: {
+            'success': false,
+            'message': 'DEVICE_NOT_AUTHORIZED_FOR_WRITE',
+          },
+        );
+      }
 
       if (_state.forceSyncUploadConflict) {
         final conflictPayload = _state.syncUploadConflictPayload;

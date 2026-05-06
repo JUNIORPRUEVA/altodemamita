@@ -108,7 +108,7 @@ void main() {
           isA<AuthException>().having(
             (error) => error.message,
             'message',
-            contains('No se puede iniciar sin conexion en una PC nueva'),
+            contains('Para iniciar por primera vez se requiere conexion a internet'),
           ),
         ),
       );

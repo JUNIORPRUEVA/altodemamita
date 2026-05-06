@@ -22,6 +22,7 @@ class ApiClient {
     '/payments',
     '/installments',
     '/cash',
+    '/sync/upload',
   ];
 
   final http.Client _client;

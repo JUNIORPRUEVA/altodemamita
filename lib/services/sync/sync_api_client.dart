@@ -286,6 +286,12 @@ class SyncApiClient {
 
     if (response.statusCode == HttpStatus.forbidden) {
       final message = decodedBody['message']?.toString().trim() ?? '';
+      if (message == 'DEVICE_NOT_AUTHORIZED_FOR_WRITE') {
+        throw HttpException(
+          'DEVICE_NOT_AUTHORIZED_FOR_WRITE',
+          uri: uri,
+        );
+      }
       if (message.contains('No tiene permisos suficientes')) {
         throw HttpException(
           'Tu usuario no tiene permisos para sincronizar (falta "sync.manage"). '

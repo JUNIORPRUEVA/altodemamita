@@ -150,7 +150,7 @@ class AuthService {
   static const String adminRecoverySnapshotUnavailableMessage =
       'Los datos visibles del administrador aun no estan disponibles en esta instalacion.';
   static const String firstConnectionRequiredMessage =
-      'Este equipo necesita conexion la primera vez para descargar el usuario.';
+      'Para iniciar por primera vez se requiere conexion a internet.';
   static const String localCredentialsMissingMessage =
       'Este usuario no tiene credenciales locales guardadas. Inicie sesion con internet una vez.';
   static const String localUserInactiveMessage =
@@ -2233,6 +2233,16 @@ class AuthService {
           break;
         case 'products.write':
           grant(PermissionCatalog.lots, [
+            PermissionAction.create,
+            PermissionAction.update,
+            PermissionAction.delete,
+          ]);
+          break;
+        case 'sellers.read':
+          grant(PermissionCatalog.sellers, [PermissionAction.read]);
+          break;
+        case 'sellers.write':
+          grant(PermissionCatalog.sellers, [
             PermissionAction.create,
             PermissionAction.update,
             PermissionAction.delete,

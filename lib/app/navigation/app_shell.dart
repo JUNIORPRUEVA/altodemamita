@@ -63,6 +63,8 @@ const double _sidebarCollapsedWidth = 96;
 const double _sidebarExpandedWidth = 288;
 const double _sidebarSafeExpandedContentWidth = 240;
 
+bool _shellTooltipsEnabled() => !Platform.isWindows;
+
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
 
@@ -1148,7 +1150,7 @@ class _AdministrationMenu extends StatelessWidget {
 
     if (isCollapsed) {
       return PopupMenuButton<AppModule>(
-        tooltip: 'Administración',
+        tooltip: _shellTooltipsEnabled() ? 'Administración' : null,
         onSelected: onSelectModule,
         color: const Color(0xFF102C47),
         elevation: 10,
@@ -1508,6 +1510,10 @@ class _PremiumTooltip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (!_shellTooltipsEnabled()) {
+      return child;
+    }
+
     return Tooltip(
       message: message,
       waitDuration: const Duration(milliseconds: 180),
@@ -1548,6 +1554,35 @@ class _SidebarCompactAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (!_shellTooltipsEnabled()) {
+      return Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          hoverColor: Colors.white.withValues(alpha: 0.05),
+          splashColor: Colors.white.withValues(alpha: 0.07),
+          child: Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.08),
+                width: 1,
+              ),
+            ),
+            child: Icon(
+              icon,
+              size: 19,
+              color: Colors.white.withValues(alpha: 0.72),
+            ),
+          ),
+        ),
+      );
+    }
+
     return Tooltip(
       message: tooltip,
       child: Material(
@@ -1646,6 +1681,41 @@ class _HeaderProfileButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (!_shellTooltipsEnabled()) {
+      return Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(16),
+          child: Ink(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF12385F), Color(0xFF0A2037)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFFE4EAF2)),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x12000000),
+                  blurRadius: 16,
+                  offset: Offset(0, 8),
+                ),
+              ],
+            ),
+            child: const Icon(
+              Icons.person_rounded,
+              size: 20,
+              color: Colors.white,
+            ),
+          ),
+        ),
+      );
+    }
+
     return Tooltip(
       message: 'Mi perfil',
       child: Material(
