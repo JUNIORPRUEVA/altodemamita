@@ -329,7 +329,16 @@ class SalesRepository {
         print('[SALES][DB] validations OK -> inserting sale row');
         saleSyncId = _newLocalSaleSyncId();
         final downPaymentAmount = _roundCurrency(draft.requiredInitialPayment);
-        final initialPaidAmount = _roundCurrency(draft.initialPaymentPaid);
+        final providedAmount = _roundCurrency(draft.initialPaymentPaid);
+        // Si el monto entregado al crear la venta es APARTADO (reserva del
+        // solar), NO debe contabilizarse como inicial pagado: el inicial sigue
+        // pendiente al 100% y las cuotas no se generan.
+        final apartadoPaidAmount = draft.initialIsApartado
+            ? providedAmount
+            : 0.0;
+        final initialPaidAmount = draft.initialIsApartado
+            ? 0.0
+            : providedAmount;
         final financedBalance = SaleCalculator.calculateFinancedBalance(
           salePrice: currentSalePrice,
           downPaymentAmount: initialPaidAmount,
@@ -396,6 +405,7 @@ class SalesRepository {
           'monto_inicial_pagado': initialPaidAmount,
           'monto_inicial_pendiente': initialPendingAmount,
           'monto_apartado_minimo': draft.minimumReserveAmount,
+          'monto_apartado_pagado': apartadoPaidAmount,
           'fecha_limite_inicial': draft.initialPaymentDeadline
               ?.toIso8601String(),
           'fecha_activacion': saleStatus == 'activa' || saleStatus == 'pagada'
@@ -453,7 +463,10 @@ class SalesRepository {
           );
         }
 
-        if (initialPaidAmount > 0) {
+        if (initialPaidAmount > 0 || apartadoPaidAmount > 0) {
+          final paymentAmount = draft.initialIsApartado
+              ? apartadoPaidAmount
+              : initialPaidAmount;
           batch.insert(DatabaseSchema.paymentsTable, {
             'sync_id': _newSyncId('payment'),
             'venta_id': saleId,
@@ -461,13 +474,15 @@ class SalesRepository {
             'usuario_id': draft.userId,
             'cuota_id': null,
             'fecha_pago': draft.saleDate.toIso8601String(),
-            'monto_pagado': initialPaidAmount,
+            'monto_pagado': paymentAmount,
             'metodo_pago': _normalizeInitialPaymentMethod(
               draft.initialPaymentMethod,
             ),
-            'tipo_pago': saleStatus == 'apartado'
+            'tipo_pago': draft.initialIsApartado
                 ? 'apartado'
-                : 'abono_inicial',
+                : (saleStatus == 'apartado'
+                    ? 'apartado'
+                    : 'abono_inicial'),
             'referencia':
                 'SALE-INIT-$saleId-${createdAt.microsecondsSinceEpoch}',
             'ano_a_pagar': null,

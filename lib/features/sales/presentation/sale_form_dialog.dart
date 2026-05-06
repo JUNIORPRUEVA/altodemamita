@@ -138,6 +138,11 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
   bool _useDirectInstallmentCount = true;
   int _durationYears = 5;
   String _selectedInitialPaymentMethod = _initialPaymentMethods.first;
+  /// Cuando es `true`, el monto que el usuario tipea en "Inicial real pagado"
+  /// se interpreta como APARTADO (reserva del solar) y NO se aplica al inicial
+  /// requerido. La venta queda en estado `apartado` con el inicial pendiente al
+  /// 100% y sin generar cuotas.
+  bool _initialIsApartado = false;
 
   bool get _canCreateClients => context.read<AuthProvider>().canAccess(
     PermissionCatalog.clients,
@@ -327,7 +332,18 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
     if (parsed <= 0) {
       return 0;
     }
+    // Si el monto se marca como APARTADO no debe contabilizarse al inicial.
+    if (_initialIsApartado) {
+      return 0;
+    }
 
+    return parsed > _salePrice ? _salePrice : parsed;
+  }
+
+  /// Monto bruto que el usuario tecleó (sin importar si es apartado o inicial).
+  double get _enteredDepositAmount {
+    final parsed = _parseDouble(_initialPaidController.text, 0);
+    if (parsed <= 0) return 0;
     return parsed > _salePrice ? _salePrice : parsed;
   }
 
@@ -1021,6 +1037,37 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
             decoration: const InputDecoration(
               labelText: 'Inicial pendiente',
               prefixText: 'RD\$ ',
+            ),
+          ),
+        ),
+        SizedBox(
+          width: 260,
+          child: InputDecorator(
+            decoration: const InputDecoration(
+              labelText: 'Tipo de pago inicial',
+              border: OutlineInputBorder(),
+              isDense: true,
+              contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            ),
+            child: SegmentedButton<bool>(
+              showSelectedIcon: false,
+              segments: const [
+                ButtonSegment<bool>(
+                  value: false,
+                  label: Text('Pago de inicial', style: TextStyle(fontSize: 12)),
+                ),
+                ButtonSegment<bool>(
+                  value: true,
+                  label: Text('Apartado', style: TextStyle(fontSize: 12)),
+                ),
+              ],
+              selected: {_initialIsApartado},
+              onSelectionChanged: (selection) {
+                setState(() {
+                  _initialIsApartado = selection.first;
+                  _syncInitialDeadline();
+                });
+              },
             ),
           ),
         ),
@@ -2082,10 +2129,11 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
         salePrice: salePrice,
         downPaymentPercentage: _downPaymentPercentage,
         requiredInitialPayment: _requiredInitialPayment,
-        initialPaymentPaid: _appliedInitialPayment,
+        initialPaymentPaid: _enteredDepositAmount,
         initialPaymentMethod: _selectedInitialPaymentMethod,
         minimumReserveAmount: null,
         initialPaymentDeadline: _initialPaymentDeadline,
+        initialIsApartado: _initialIsApartado && _enteredDepositAmount > 0,
         monthlyInterest: _monthlyInterest,
         installmentCount: _installmentCount,
         status: _saleLifecycleStatus,

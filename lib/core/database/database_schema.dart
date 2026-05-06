@@ -7,7 +7,7 @@ import '../security/password_hasher.dart';
 
 class DatabaseSchema {
   static const String databaseName = 'sistema_solares.db';
-  static const int databaseVersion = 21;
+  static const int databaseVersion = 22;
   static const String defaultSyncBaseUrl = BASE_URL;
 
   static const String clientsTable = 'clientes';
@@ -125,6 +125,7 @@ class DatabaseSchema {
     await _migrateToVersion19(db);
     await _migrateToVersion20(db);
     await _migrateToVersion21(db);
+    await _migrateToVersion22(db);
   }
 
   static Future<void> ensureCoreStructures(DatabaseExecutor db) async {
@@ -147,6 +148,7 @@ class DatabaseSchema {
     await _migrateToVersion19(db);
     await _migrateToVersion20(db);
     await _migrateToVersion21(db);
+    await _migrateToVersion22(db);
     await seedDefaults(db);
   }
 
@@ -369,6 +371,10 @@ class DatabaseSchema {
 
     if (oldVersion < 21 && newVersion >= 21) {
       await _migrateToVersion21(db);
+    }
+
+    if (oldVersion < 22 && newVersion >= 22) {
+      await _migrateToVersion22(db);
     }
 
     await seedDefaults(db);
@@ -686,6 +692,21 @@ class DatabaseSchema {
         FROM $companyInfoTable
         WHERE NOT EXISTS (SELECT 1 FROM $companyProfilesTable)
       ''');
+    }
+  }
+
+  /// v22: separa el dinero del apartado del dinero del inicial.
+  /// Agrega `monto_apartado_pagado` a la tabla de ventas. Para datos legados
+  /// el valor por defecto es 0; las ventas previas siguen contabilizando
+  /// `monto_inicial_pagado` como antes.
+  static Future<void> _migrateToVersion22(DatabaseExecutor db) async {
+    if (!await _tableExists(db, salesTable)) {
+      return;
+    }
+    if (!await _columnExists(db, salesTable, 'monto_apartado_pagado')) {
+      await db.execute(
+        'ALTER TABLE $salesTable ADD COLUMN monto_apartado_pagado REAL NOT NULL DEFAULT 0',
+      );
     }
   }
 
@@ -2017,6 +2038,7 @@ class DatabaseSchema {
         monto_inicial_pagado REAL NOT NULL DEFAULT 0,
         monto_inicial_pendiente REAL NOT NULL DEFAULT 0,
         monto_apartado_minimo REAL,
+        monto_apartado_pagado REAL NOT NULL DEFAULT 0,
         fecha_limite_inicial TEXT,
         fecha_activacion TEXT,
         saldo_financiado REAL NOT NULL DEFAULT 0,

@@ -506,7 +506,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Expanded(
-                  flex: 68,
+                  flex: 60,
                   child: _buildInstallmentsPanel(
                     contextData,
                     visibleInstallments,
@@ -517,7 +517,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  flex: 32,
+                  flex: 40,
                   child: _buildDetailsPanel(
                     contextData,
                     visibleHistory,
@@ -802,6 +802,11 @@ class _PaymentsPageState extends State<PaymentsPage> {
                   label: 'Inicial pendiente',
                   value: _money(sale.pendingInitialPayment),
                 ),
+                if (sale.paidApartadoPayment > 0.009)
+                  _DetailItem(
+                    label: 'Apartado pagado',
+                    value: _money(sale.paidApartadoPayment),
+                  ),
                 _DetailItem(
                   label: 'Interes mensual',
                   value: '${contextData.monthlyInterest.toStringAsFixed(2)}%',

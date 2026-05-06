@@ -12,6 +12,7 @@ class SaleDraft {
     this.initialPaymentMethod = 'efectivo',
     this.minimumReserveAmount,
     this.initialPaymentDeadline,
+    this.initialIsApartado = false,
     required this.monthlyInterest,
     required this.installmentCount,
     this.status = 'apartado',
@@ -30,6 +31,13 @@ class SaleDraft {
   final String initialPaymentMethod;
   final double? minimumReserveAmount;
   final DateTime? initialPaymentDeadline;
+
+  /// Cuando es `true`, el monto entregado al crear la venta se trata como
+  /// dinero de APARTADO (reserva del solar), no como pago del inicial. La
+  /// venta queda en estado `apartado` o `inicial_incompleto` y el inicial
+  /// requerido sigue pendiente; las cuotas no se generan hasta que el inicial
+  /// se complete desde el módulo de Pagos.
+  final bool initialIsApartado;
   final double monthlyInterest;
   final int installmentCount;
   final String status;
@@ -57,6 +65,7 @@ class SaleDraft {
     String? initialPaymentMethod,
     double? minimumReserveAmount,
     DateTime? initialPaymentDeadline,
+    bool? initialIsApartado,
     double? monthlyInterest,
     int? installmentCount,
     String? status,
@@ -75,6 +84,7 @@ class SaleDraft {
       initialPaymentMethod: initialPaymentMethod ?? this.initialPaymentMethod,
       minimumReserveAmount: minimumReserveAmount ?? this.minimumReserveAmount,
       initialPaymentDeadline: initialPaymentDeadline ?? this.initialPaymentDeadline,
+      initialIsApartado: initialIsApartado ?? this.initialIsApartado,
       monthlyInterest: monthlyInterest ?? this.monthlyInterest,
       installmentCount: installmentCount ?? this.installmentCount,
       status: status ?? this.status,

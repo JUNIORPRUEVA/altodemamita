@@ -43,6 +43,7 @@ import '../../services/sync/sync_manager.dart';
 import '../../services/sync/sync_queue_service.dart';
 import '../../services/sync/sync_service.dart';
 import '../../shared/widgets/base_layout.dart';
+import '../../shared/widgets/dangerous_action_confirm_dialog.dart';
 import 'app_module.dart';
 import 'sync_visual_state.dart';
 
@@ -253,9 +254,9 @@ class _AppShellState extends State<AppShell> {
       return;
     }
 
-    // On Windows desktop, starting expanded avoids first-frame tooltip/menu
-    // overlay assertions while the shell stabilizes.
-    final nextSidebarExpanded = true;
+    // Default to collapsed sidebar so the workspace is maximised. The user can
+    // manually expand it via the toggle, but it auto-collapses on navigation.
+    final nextSidebarExpanded = false;
     final nextAdministrationExpanded =
         preferences.getBool(_sidebarAdministrationPreferenceKey) ?? false;
 
@@ -339,6 +340,11 @@ class _AppShellState extends State<AppShell> {
       if (module != AppModule.payments) {
         _selectedPaymentsSaleId = null;
       }
+      // Auto-collapse the sidebar on navigation to keep the layout clean.
+      if (_isSidebarExpanded) {
+        _isSidebarExpanded = false;
+        unawaited(_persistNavigationPreferences());
+      }
     });
   }
 
@@ -346,6 +352,10 @@ class _AppShellState extends State<AppShell> {
     setState(() {
       _selectedModule = AppModule.installments;
       _selectedInstallmentsSaleId = saleId;
+      if (_isSidebarExpanded) {
+        _isSidebarExpanded = false;
+        unawaited(_persistNavigationPreferences());
+      }
     });
   }
 
@@ -353,6 +363,10 @@ class _AppShellState extends State<AppShell> {
     setState(() {
       _selectedModule = AppModule.payments;
       _selectedPaymentsSaleId = saleId;
+      if (_isSidebarExpanded) {
+        _isSidebarExpanded = false;
+        unawaited(_persistNavigationPreferences());
+      }
     });
   }
 
@@ -405,6 +419,29 @@ class _AppShellState extends State<AppShell> {
 
   Future<void> _refreshDeviceAccess({bool claimPrimary = false}) async {
     final messenger = ScaffoldMessenger.maybeOf(context);
+
+    if (claimPrimary) {
+      // Acción peligrosa: requiere confirmación expresa + contraseña.
+      final confirmed = await DangerousActionConfirmDialog.show(
+        context,
+        title: 'Reclamar esta PC como principal',
+        warning:
+            'Esta acción es PELIGROSA y puede dañar el sistema si se ejecuta '
+            'sin preparación. Antes de continuar:\n\n'
+            '• Debes haber contactado al desarrollador para coordinar el '
+            'traslado de la PC principal y entender los pasos a seguir.\n'
+            '• La otra PC dejará de tener permiso de escritura.\n'
+            '• Para que el traslado funcione correctamente, primero hay que '
+            'restablecer (reset completo) la app local en la otra PC, de lo '
+            'contrario podrías generar conflictos de sincronización y '
+            'pérdida de datos.\n'
+            '• Si no estás seguro de lo que haces, cancela y consulta antes.',
+        confirmLabel: 'Sí, reclamar esta PC',
+      );
+      if (!mounted || !confirmed) {
+        return;
+      }
+    }
 
     try {
       if (claimPrimary) {
@@ -696,8 +733,8 @@ class _ShellHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final user = currentUser;
-    final systemConfig = context.watch<SystemConfigService>();
-    final canClaimPrimary = user?.isAdmin == true && !systemConfig.canWrite;
+    // Note: System config badges and "Reclamar esta PC" moved to the
+    // Configuración module to keep the global header clean.
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
@@ -772,110 +809,10 @@ class _ShellHeader extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          Row(
-            children: [
-              _DeviceStatusBadge(
-                label: 'PC principal',
-                value: systemConfig.isPrimaryDevice ? 'Sí' : 'No',
-                highlighted: systemConfig.isPrimaryDevice,
-              ),
-              const SizedBox(width: 8),
-              _DeviceStatusBadge(
-                label: 'Permiso de escritura',
-                value: systemConfig.canWrite ? 'Sí' : 'No',
-                highlighted: systemConfig.canWrite,
-                critical: !systemConfig.canWrite,
-              ),
-              const Spacer(),
-              TextButton.icon(
-                onPressed: () => onRefreshDeviceAccess(),
-                icon: const Icon(Icons.sync_rounded, size: 16),
-                label: const Text('Actualizar estado'),
-              ),
-              if (canClaimPrimary) ...[
-                const SizedBox(width: 8),
-                FilledButton.tonalIcon(
-                  onPressed: () => onRefreshDeviceAccess(claimPrimary: true),
-                  icon: const Icon(Icons.computer_rounded, size: 16),
-                  label: const Text('Reclamar esta PC'),
-                ),
-              ],
-            ],
-          ),
-          if (!systemConfig.canWrite &&
-              systemConfig.deviceWriteReason.trim().isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                systemConfig.deviceWriteReason,
-                style: const TextStyle(
-                  color: Color(0xFF8F2436),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ],
+          // (Antes aquí se mostraban los badges de PC principal / permiso de
+          // escritura. Se movieron al módulo de Configuración para reducir
+          // ruido en el header global.)
         ],
-      ),
-    );
-  }
-}
-
-class _DeviceStatusBadge extends StatelessWidget {
-  const _DeviceStatusBadge({
-    required this.label,
-    required this.value,
-    this.highlighted = false,
-    this.critical = false,
-  });
-
-  final String label;
-  final String value;
-  final bool highlighted;
-  final bool critical;
-
-  @override
-  Widget build(BuildContext context) {
-    final backgroundColor = critical
-        ? const Color(0xFFFDECEC)
-        : highlighted
-        ? const Color(0xFFEAF7EE)
-        : const Color(0xFFF5F7FA);
-    final borderColor = critical
-        ? const Color(0xFFF2C6CC)
-        : highlighted
-        ? const Color(0xFFBEDFC8)
-        : const Color(0xFFDCE3EA);
-    final valueColor = critical
-        ? const Color(0xFF8F2436)
-        : highlighted
-        ? const Color(0xFF246B3D)
-        : const Color(0xFF415365);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: backgroundColor,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: borderColor),
-      ),
-      child: RichText(
-        text: TextSpan(
-          style: const TextStyle(
-            fontSize: 11,
-            color: Color(0xFF5C6C7D),
-            fontWeight: FontWeight.w600,
-          ),
-          children: [
-            TextSpan(text: '$label: '),
-            TextSpan(
-              text: value,
-              style: TextStyle(color: valueColor, fontWeight: FontWeight.w800),
-            ),
-          ],
-        ),
       ),
     );
   }

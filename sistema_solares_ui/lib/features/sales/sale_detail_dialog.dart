@@ -7,6 +7,37 @@ import 'package:sistema_solares_ui/shared/desktop_ui.dart';
 
 enum _SaleDetailMenuAction { export, print, close }
 
+const List<String> _spanishMonths = <String>[
+  'enero',
+  'febrero',
+  'marzo',
+  'abril',
+  'mayo',
+  'junio',
+  'julio',
+  'agosto',
+  'septiembre',
+  'octubre',
+  'noviembre',
+  'diciembre',
+];
+
+const List<String> _spanishWeekdays = <String>[
+  'Lunes',
+  'Martes',
+  'Miércoles',
+  'Jueves',
+  'Viernes',
+  'Sábado',
+  'Domingo',
+];
+
+String _formatTodayInSpanish(DateTime date) {
+  final weekday = _spanishWeekdays[(date.weekday - 1).clamp(0, 6)];
+  final month = _spanishMonths[(date.month - 1).clamp(0, 11)];
+  return '$weekday ${date.day} de $month de ${date.year}';
+}
+
 bool _isMeaningfulText(String value) {
   final normalized = value.trim();
   if (normalized.isEmpty) return false;
@@ -40,7 +71,11 @@ class SaleDetailDialog extends StatelessWidget {
     // the full viewport height (mirrors the Windows app layout). On phones and
     // narrow widths keep the original centered dialog behaviour.
     if (!compact && !fullscreen) {
-      final panelWidth = math.min(size.width * 0.42, 560.0).clamp(440.0, 600.0);
+      // Wider, responsive right-side panel that adapts to the available space.
+      // Goes from a minimum of 520 px on small laptops up to 820 px on large
+      // monitors, keeping a comfortable 52% of the viewport on average.
+      final rawWidth = size.width * 0.52;
+      final panelWidth = rawWidth.clamp(520.0, 820.0).toDouble();
       final panel = Material(
         color: Colors.white,
         elevation: 16,
@@ -325,42 +360,32 @@ class _DetailHeader extends StatelessWidget {
                   ),
           );
 
+          final todayLabel = _formatTodayInSpanish(DateTime.now());
+
           final titleBlock = Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (!compact)
-                Text(
-                  viewModel.saleId.trim().isEmpty
-                      ? viewModel.clientName
-                      : 'Venta #${viewModel.saleId}  ·  ${viewModel.clientName}',
-                  maxLines: stacked ? 2 : 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: compact ? 18 : 21,
-                    fontWeight: FontWeight.w800,
-                    color: const Color(0xFF14273F),
-                  ),
+              Text(
+                'Venta',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: compact ? 18 : 22,
+                  fontWeight: FontWeight.w800,
+                  color: const Color(0xFF14273F),
+                  letterSpacing: -0.2,
                 ),
-              if (compact)
-                Text(
-                  viewModel.clientName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF14273F),
-                  ),
-                ),
+              ),
               const SizedBox(height: 3),
               Text(
-                viewModel.headerSubtitle,
-                maxLines: compact ? 1 : (stacked ? 2 : 1),
+                todayLabel,
+                maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: compact ? 11.5 : 13,
-                  color: Color(0xFF7E8BA0),
+                  color: const Color(0xFF7E8BA0),
                   height: compact ? 1.2 : 1.35,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
             ],

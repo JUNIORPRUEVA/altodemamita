@@ -1225,6 +1225,27 @@ class AuthService {
     return (await getUserById(userId))!;
   }
 
+  /// Verifica que la contraseña entregada coincide con la almacenada para el
+  /// usuario indicado. Útil para confirmar acciones sensibles (por ejemplo,
+  /// reclamar la PC primaria) sin invalidar la sesión actual.
+  Future<bool> verifyPasswordForUser({
+    required int userId,
+    required String password,
+  }) async {
+    final normalizedPassword = password.trim();
+    if (normalizedPassword.isEmpty) {
+      return false;
+    }
+    final user = await getUserById(userId);
+    if (user == null || !user.activo) {
+      return false;
+    }
+    if (user.passwordHash.trim().isEmpty) {
+      return false;
+    }
+    return _verifyStoredPassword(normalizedPassword, user.passwordHash);
+  }
+
   Future<void> _persistSession(DatabaseExecutor db, int userId) async {
     final now = DateTime.now();
     final selector = PasswordHasher.generateRandomToken(18);

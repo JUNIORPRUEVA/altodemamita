@@ -10,6 +10,8 @@ import '../../../features/auth/domain/permission_model.dart';
 import '../../../features/auth/presentation/admin_override_prompt.dart';
 import '../../../features/auth/presentation/auth_provider.dart';
 import '../../../shared/widgets/base_layout.dart';
+import '../../../shared/widgets/dangerous_action_confirm_dialog.dart';
+import '../../../shared/widgets/device_status_panel.dart';
 import '../../backup/data/backup_config_repository.dart';
 import '../../backup/presentation/backup_controller.dart';
 import '../../backup/presentation/backup_page.dart' as backup_feature;
@@ -120,7 +122,15 @@ class _SettingsPageState extends State<SettingsPage> {
       child: SingleChildScrollView(
         child: Column(
           children: [
-            const SizedBox(height: 24),
+            const SizedBox(height: 16),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: DeviceStatusPanel(
+                onRefresh: _refreshDeviceStatus,
+                onClaimPrimary: _claimPrimaryDevice,
+              ),
+            ),
+            const SizedBox(height: 8),
             LayoutBuilder(
               builder: (context, constraints) {
                 final compact = constraints.maxWidth < 720;
@@ -235,6 +245,72 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
       ),
     );
+  }
+
+  Future<void> _refreshDeviceStatus() async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    try {
+      await SystemConfigService.instance.refresh();
+      if (!mounted) return;
+      final systemConfig = SystemConfigService.instance;
+      final message = systemConfig.canWrite
+          ? 'Estado del dispositivo actualizado.'
+          : (systemConfig.deviceWriteReason.isEmpty
+                ? 'Esta PC sigue sin permiso de escritura.'
+                : systemConfig.deviceWriteReason);
+      messenger?.showSnackBar(SnackBar(content: Text(message)));
+    } catch (_) {
+      if (!mounted) return;
+      messenger?.showSnackBar(
+        const SnackBar(
+          content: Text('No se pudo actualizar el estado de esta PC.'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _claimPrimaryDevice() async {
+    final confirmed = await DangerousActionConfirmDialog.show(
+      context,
+      title: 'Reclamar esta PC como principal',
+      warning:
+          'Esta acción es PELIGROSA y puede dañar el sistema si se ejecuta '
+          'sin preparación. Antes de continuar:\n\n'
+          '• Debes haber contactado al desarrollador para coordinar el '
+          'traslado de la PC principal y entender los pasos a seguir.\n'
+          '• La otra PC dejará de tener permiso de escritura.\n'
+          '• Para que el traslado funcione correctamente, primero hay que '
+          'restablecer (reset completo) la app local en la otra PC, de lo '
+          'contrario podrías generar conflictos de sincronización y '
+          'pérdida de datos.\n'
+          '• Si no estás seguro de lo que haces, cancela y consulta antes.',
+      confirmLabel: 'Sí, reclamar esta PC',
+    );
+    if (!mounted || !confirmed) {
+      return;
+    }
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    try {
+      await SystemConfigService.instance.registerCurrentDevice(
+        claimPrimary: true,
+      );
+      await SystemConfigService.instance.refresh();
+      if (!mounted) return;
+      final systemConfig = SystemConfigService.instance;
+      final message = systemConfig.canWrite
+          ? 'Esta PC quedó autorizada para escribir.'
+          : (systemConfig.deviceWriteReason.isEmpty
+                ? 'Esta PC sigue sin permiso de escritura.'
+                : systemConfig.deviceWriteReason);
+      messenger?.showSnackBar(SnackBar(content: Text(message)));
+    } catch (_) {
+      if (!mounted) return;
+      messenger?.showSnackBar(
+        const SnackBar(
+          content: Text('No se pudo reclamar esta PC.'),
+        ),
+      );
+    }
   }
 }
 

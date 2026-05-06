@@ -10,6 +10,7 @@ class PaymentSaleOption {
     required this.requiredInitialPayment,
     required this.paidInitialPayment,
     required this.pendingInitialPayment,
+    this.paidApartadoPayment = 0,
     required this.status,
   });
 
@@ -23,6 +24,8 @@ class PaymentSaleOption {
   final double requiredInitialPayment;
   final double paidInitialPayment;
   final double pendingInitialPayment;
+  /// Monto entregado como APARTADO (no aplica al inicial requerido).
+  final double paidApartadoPayment;
   final String status;
 
   bool get isFinancingActive => status == 'activa' || status == 'pagada';
@@ -40,6 +43,7 @@ class PaymentSaleOption {
       requiredInitialPayment: _toDouble(map['monto_inicial_requerido']),
       paidInitialPayment: _toDouble(map['monto_inicial_pagado']),
       pendingInitialPayment: _toDouble(map['monto_inicial_pendiente']),
+      paidApartadoPayment: _toDouble(map['monto_apartado_pagado']),
       status: map['estado'] as String? ?? 'activa',
     );
   }
