@@ -133,6 +133,10 @@ class ProductsSyncRepository implements SyncRepository {
           ? matchingSlotRows
           : existingRows;
         if (_isDeleted(record['deleted_at'])) {
+          if (_hasProtectedPendingLocal(resolvedExistingRows)) {
+            _log('product_remote_tombstone_skipped_pending_local sync_id=$syncId');
+            continue;
+          }
           final tombstoneValues = {
             'sync_id': syncId,
             'id_remote': record['id']?.toString().trim(),
@@ -291,6 +295,18 @@ bool _shouldKeepLocal(
   return localUpdated != null &&
       remoteUpdated != null &&
       localUpdated.isAfter(remoteUpdated);
+}
+
+bool _hasProtectedPendingLocal(List<Map<String, Object?>> existingRows) {
+  if (existingRows.isEmpty) {
+    return false;
+  }
+  final localSyncStatus = (existingRows.first['sync_status'] as String? ?? '')
+      .trim()
+      .toLowerCase();
+  return localSyncStatus == DatabaseSchema.syncStatusPendingCreate ||
+      localSyncStatus == DatabaseSchema.syncStatusPendingUpdate ||
+      localSyncStatus == DatabaseSchema.syncStatusPendingDelete;
 }
 
 DateTime? _parseDate(String? value) {

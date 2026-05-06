@@ -115,6 +115,12 @@ class InstallmentsSyncRepository implements SyncRepository {
           limit: 1,
         );
         if (_isDeleted(record['deleted_at'])) {
+          if (_hasProtectedPendingLocal(existingRows)) {
+            _log(
+              'installments_remote_tombstone_skipped_pending_local sync_id=$syncId',
+            );
+            continue;
+          }
           final saleSyncId = _readRequiredString(record['sale_sync_id']);
           final resolvedSaleId = existingRows.isEmpty
               ? await _resolveIdBySyncId(
@@ -362,6 +368,18 @@ bool _shouldKeepLocal(
   return localUpdated != null &&
       remoteUpdated != null &&
       localUpdated.isAfter(remoteUpdated);
+}
+
+bool _hasProtectedPendingLocal(List<Map<String, Object?>> existingRows) {
+  if (existingRows.isEmpty) {
+    return false;
+  }
+  final localSyncStatus = (existingRows.first['sync_status'] as String? ?? '')
+      .trim()
+      .toLowerCase();
+  return localSyncStatus == DatabaseSchema.syncStatusPendingCreate ||
+      localSyncStatus == DatabaseSchema.syncStatusPendingUpdate ||
+      localSyncStatus == DatabaseSchema.syncStatusPendingDelete;
 }
 
 Future<void> _upsertInstallment(

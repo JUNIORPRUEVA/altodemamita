@@ -96,6 +96,10 @@ class SalesSyncRepository implements SyncRepository {
           limit: 1,
         );
         if (_isDeleted(record['deleted_at'])) {
+          if (_hasProtectedPendingLocal(existingRows)) {
+            _log('sales_remote_tombstone_skipped_pending_local sync_id=$syncId');
+            continue;
+          }
           final clientSyncId = _readRequiredString(record['client_sync_id']);
           final productSyncId = _readRequiredString(record['product_sync_id']);
           final sellerSyncId = _readRequiredString(record['seller_sync_id']);
@@ -469,6 +473,18 @@ bool _shouldKeepLocal(
   return localUpdated != null &&
       remoteUpdated != null &&
       localUpdated.isAfter(remoteUpdated);
+}
+
+bool _hasProtectedPendingLocal(List<Map<String, Object?>> existingRows) {
+  if (existingRows.isEmpty) {
+    return false;
+  }
+  final localSyncStatus = (existingRows.first['sync_status'] as String? ?? '')
+      .trim()
+      .toLowerCase();
+  return localSyncStatus == DatabaseSchema.syncStatusPendingCreate ||
+      localSyncStatus == DatabaseSchema.syncStatusPendingUpdate ||
+      localSyncStatus == DatabaseSchema.syncStatusPendingDelete;
 }
 
 Future<void> _upsertSale(
