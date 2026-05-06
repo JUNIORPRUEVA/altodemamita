@@ -224,7 +224,7 @@ class SaleInitialReceiptPdfBuilder {
                           crossAxisAlignment: pw.CrossAxisAlignment.start,
                           children: [
                             _initialNotice(sale),
-                            pw.Spacer(),
+                            pw.SizedBox(height: 20),
                             pw.Row(
                               children: [
                                 pw.Expanded(

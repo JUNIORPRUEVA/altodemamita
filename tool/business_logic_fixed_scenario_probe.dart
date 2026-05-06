@@ -11,7 +11,9 @@ import 'package:sistema_solares/features/sales/data/sales_repository.dart';
 import 'package:sistema_solares/features/sales/domain/sale_draft.dart';
 
 Future<void> main() async {
-  final tempDir = await Directory.systemTemp.createTemp('fixed_scenario_probe_');
+  final tempDir = await Directory.systemTemp.createTemp(
+    'fixed_scenario_probe_',
+  );
   final dbPath = p.join(tempDir.path, 'probe.db');
   final appDatabase = AppDatabase.test(dbPath);
   await appDatabase.initialize();
@@ -82,7 +84,8 @@ Future<void> main() async {
     orderBy: 'numero_cuota ASC',
   );
 
-  final firstInstallment = createdContext!.actionableInstallment ??
+  final firstInstallment =
+      createdContext!.actionableInstallment ??
       (throw StateError('No actionable installment for probe scenario'));
 
   final partialAmount = (firstInstallment.totalAmount / 2);
@@ -128,7 +131,7 @@ Future<void> main() async {
     ),
   );
 
-  final finalContext = await paymentsRepository.fetchSaleContext(saleId);
+  await paymentsRepository.fetchSaleContext(saleId);
   final finalSaleRow = (await db.query(
     DatabaseSchema.salesTable,
     where: 'id = ?',
@@ -150,10 +153,14 @@ Future<void> main() async {
     orderBy: 'id ASC',
   );
 
-  final latestPaymentId = payments.isEmpty ? null : (payments.last['id'] as int?);
+  final latestPaymentId = payments.isEmpty
+      ? null
+      : (payments.last['id'] as int?);
   Map<String, Object?>? receiptSummary;
   if (latestPaymentId != null) {
-    final receipt = await receiptRepository.fetchReceiptByPaymentId(latestPaymentId);
+    final receipt = await receiptRepository.fetchReceiptByPaymentId(
+      latestPaymentId,
+    );
     if (receipt != null) {
       receiptSummary = {
         'paymentId': receipt.paymentId,
@@ -201,7 +208,9 @@ Future<void> main() async {
     'afterPartial': {
       'pendingBalance': afterPartialContext?.sale.pendingBalance,
       'saleStatus': afterPartialContext?.sale.status,
-      'firstInstallmentPaid': _toDouble(installmentAfterPartial['monto_pagado']),
+      'firstInstallmentPaid': _toDouble(
+        installmentAfterPartial['monto_pagado'],
+      ),
       'firstInstallmentStatus': installmentAfterPartial['estado'],
     },
     'afterFullInstallment': {

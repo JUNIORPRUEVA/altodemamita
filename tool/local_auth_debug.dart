@@ -16,18 +16,20 @@ Future<void> main(List<String> args) async {
 
   if (shouldTryLogin) {
     stdout.writeln(
-      '[LocalAuthDebug] login_probe identifier=${identifier!.trim()}',
+      '[LocalAuthDebug] login_probe identifier=${identifier.trim()}',
     );
     try {
       final result = await authService.signInHybrid(
         email: identifier,
-        password: password!,
+        password: password,
       );
       stdout.writeln(
         '[LocalAuthDebug] login_probe_success mode=${result.mode.name} email=${result.user.email}',
       );
     } on AuthException catch (error) {
-      stdout.writeln('[LocalAuthDebug] login_probe_failed message=${error.message}');
+      stdout.writeln(
+        '[LocalAuthDebug] login_probe_failed message=${error.message}',
+      );
     } catch (error) {
       stdout.writeln('[LocalAuthDebug] login_probe_error error=$error');
     }

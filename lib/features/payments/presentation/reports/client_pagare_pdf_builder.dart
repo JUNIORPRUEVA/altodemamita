@@ -57,7 +57,7 @@ class ClientPagarePdfBuilder {
           pw.SizedBox(height: 10),
           _buildClientSection(report, tableData: tableData),
           pw.SizedBox(height: 10),
-          _buildPaymentsSection(tableData),
+          ..._buildPaymentsSection(tableData),
           pw.SizedBox(height: 10),
           _buildSummarySection(report, tableData),
         ],
@@ -378,23 +378,47 @@ class ClientPagarePdfBuilder {
     );
   }
 
-  static pw.Widget _buildPaymentsSection(_PaymentTableData tableData) {
-    return pw.Container(
-      width: double.infinity,
-      padding: const pw.EdgeInsets.all(12),
-      decoration: pw.BoxDecoration(
-        color: PdfColors.white,
-        borderRadius: pw.BorderRadius.circular(12),
-        border: pw.Border.all(color: _borderColor),
+  static List<pw.Widget> _buildPaymentsSection(_PaymentTableData tableData) {
+    return [
+      pw.Container(
+        width: double.infinity,
+        padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        decoration: pw.BoxDecoration(
+          color: PdfColors.white,
+          borderRadius: pw.BorderRadius.circular(12),
+          border: pw.Border.all(color: _borderColor),
+        ),
+        child: pw.Text(
+          'PAGOS REGISTRADOS',
+          style: pw.TextStyle(
+            fontSize: 8.2,
+            fontWeight: pw.FontWeight.bold,
+            color: _accentColor,
+          ),
+        ),
       ),
-      child: pw.Column(
-        crossAxisAlignment: pw.CrossAxisAlignment.start,
-        children: [_buildPaymentsTable(tableData.rows)],
-      ),
-    );
+      pw.SizedBox(height: 6),
+      _buildPaymentsTable(tableData.rows),
+    ];
   }
 
   static pw.Widget _buildPaymentsTable(List<List<String>> rows) {
+    if (rows.isEmpty) {
+      return pw.Container(
+        width: double.infinity,
+        padding: const pw.EdgeInsets.all(12),
+        decoration: pw.BoxDecoration(
+          color: PdfColors.white,
+          borderRadius: pw.BorderRadius.circular(12),
+          border: pw.Border.all(color: _borderColor),
+        ),
+        child: pw.Text(
+          'No hay pagos registrados para este cliente.',
+          style: pw.TextStyle(fontSize: 8.5, color: _mutedColor),
+        ),
+      );
+    }
+
     return pw.TableHelper.fromTextArray(
       headers: const [
         '#',

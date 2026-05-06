@@ -546,7 +546,7 @@ class PaymentsRepository {
         if (paymentType == 'abono_capital') {
           final installmentRows = await txn.query(
             DatabaseSchema.installmentsTable,
-            where: 'venta_id = ?',
+            where: 'venta_id = ? AND deleted_at IS NULL',
             whereArgs: [saleId],
             orderBy: 'numero_cuota ASC',
           );
@@ -666,7 +666,7 @@ class PaymentsRepository {
       installmentCount: installmentCount,
     );
 
-    if (pendingInitial <= 0 && pendingBalance <= 0) {
+    if (pendingInitial <= 0.009 && pendingBalance <= 0.009) {
       throw StateError('La venta seleccionada ya no tiene saldo pendiente.');
     }
     if (draft.amountPaid <= 0) {
@@ -848,7 +848,7 @@ class PaymentsRepository {
         'La venta seleccionada no admite pagos en su estado actual.',
       );
     }
-    if (pendingBalance <= 0) {
+    if (pendingBalance <= 0.009) {
       throw StateError(
         'La venta seleccionada ya no tiene saldo pendiente del plan.',
       );
@@ -856,7 +856,7 @@ class PaymentsRepository {
 
     final installmentRows = await txn.query(
       DatabaseSchema.installmentsTable,
-      where: 'venta_id = ?',
+      where: 'venta_id = ? AND deleted_at IS NULL',
       whereArgs: [draft.saleId],
       orderBy: 'numero_cuota ASC',
     );
@@ -982,7 +982,7 @@ class PaymentsRepository {
       DatabaseSchema.salesTable,
       {
         'saldo_pendiente': newPendingBalance,
-        'estado': newPendingBalance <= 0 ? 'pagada' : 'activa',
+        'estado': newPendingBalance <= 0.009 ? 'pagada' : 'activa',
         'fecha_actualizacion': timestamp,
         'sync_status': DatabaseSchema.syncStatusPending,
       },
@@ -1241,7 +1241,7 @@ class PaymentsRepository {
   }
 
   bool _isClosedStatus(String status) {
-    return status == 'pagada' || status == 'ajustada';
+    return status == 'pagada' || status == 'ajustada' || status == 'cancelada';
   }
 
   bool _isDatabaseClosedError(DatabaseException error) {
@@ -1259,7 +1259,11 @@ class PaymentsRepository {
 
   double _calculateOutstandingPrincipal(List<Installment> installments) {
     return _roundCurrency(
-      installments.where((item) => item.status != 'ajustada').fold<double>(0, (
+      installments
+          .where(
+            (item) => item.status != 'ajustada' && item.status != 'cancelada',
+          )
+          .fold<double>(0, (
         sum,
         item,
       ) {

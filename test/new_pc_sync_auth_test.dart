@@ -4,7 +4,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sistema_solares/core/database/app_database.dart';
-import 'package:sistema_solares/models/sync/sync_settings.dart';
 import 'package:sistema_solares/repositories/sync_repository.dart';
 import 'package:sistema_solares/services/sync/sync_api_client.dart';
 import 'package:sistema_solares/services/sync/sync_conflict_service.dart';

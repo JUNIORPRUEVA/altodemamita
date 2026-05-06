@@ -21,6 +21,12 @@ import 'sync_queue_service.dart';
 
 class SyncService {
   static const bool _downloadFromCloudEnabled = true;
+  static const Set<String> _tombstoneRepairScopes = {
+    'products',
+    'sales',
+    'installments',
+    'payments',
+  };
   static const String cloudLoginRequiredMessage =
       'Debe iniciar sesión en la nube para sincronizar.';
 
@@ -623,6 +629,13 @@ class SyncService {
       );
     }
 
+    if (forceFullDownload) {
+      downloadedRecords += await _repairMissingRemoteTombstones(
+        settings: settings,
+        targetScopes: targetScopes,
+      );
+    }
+
     _lastScopeWarnings = scopeWarnings;
 
     await _syncLogger.log(
@@ -638,6 +651,76 @@ class SyncService {
     );
 
     return downloadedRecords;
+  }
+
+  Future<int> _repairMissingRemoteTombstones({
+    required SyncSettings settings,
+    required Set<String> targetScopes,
+  }) async {
+    final repairScopes = targetScopes.intersection(_tombstoneRepairScopes);
+    if (repairScopes.isEmpty) {
+      return 0;
+    }
+
+    final epochCursor = DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+    final epochByScope = <String, DateTime?>{
+      for (final scope in repairScopes) scope: epochCursor,
+    };
+
+    final response = await _apiClient.downloadChanges(
+      settings: settings,
+      updatedSinceByScope: epochByScope,
+    );
+
+    var repairedRecords = 0;
+    for (final repository in _repositories) {
+      if (!repairScopes.contains(repository.scope)) {
+        continue;
+      }
+      if (!response.supportsScope(repository.scope)) {
+        continue;
+      }
+
+      final tombstones = response
+          .recordsForScope(repository.scope)
+          .where(_isRemoteDeleteRecord)
+          .toList(growable: false);
+      if (tombstones.isEmpty) {
+        continue;
+      }
+
+      final prepared = _prepareScopeRecordsForApply(repository.scope, tombstones);
+      await repository.mergeRemoteRecords(prepared);
+      repairedRecords += prepared.length;
+
+      final repairCursor =
+          response.cursorForScope(repository.scope) ??
+          _findLatestTimestamp(tombstones);
+      if (repairCursor != null) {
+        final currentCursor = await _configRepository.loadCursor(repository.scope);
+        if (currentCursor == null || repairCursor.isAfter(currentCursor)) {
+          await _configRepository.saveCursor(repository.scope, repairCursor);
+        }
+      }
+
+      await _syncLogger.log(
+        action: 'download-scope-tombstone-repair',
+        entity: repository.scope,
+        result: 'ok',
+        extra: {'records': prepared.length},
+      );
+    }
+
+    if (repairedRecords > 0) {
+      await _syncLogger.log(
+        action: 'download-tombstone-repair-complete',
+        entity: repairScopes.join(','),
+        result: 'ok',
+        extra: {'repairedRecords': repairedRecords},
+      );
+    }
+
+    return repairedRecords;
   }
 
   Future<int> applyRemoteScopeRecords({

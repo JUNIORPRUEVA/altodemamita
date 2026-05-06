@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
 import '../../../../core/database/app_database.dart';
@@ -125,20 +127,41 @@ class _ClientPagareDialogContentState
 
   Future<Uint8List> _buildBytes() {
     const cacheKey = 'client-pagare-a4';
-    return _documentCache.putIfAbsent(
-      cacheKey,
-      () => ClientPagarePdfBuilder.build(
-        report: widget.report,
-        company: _company,
-      ),
+    final cachedFuture = _documentCache[cacheKey];
+    if (cachedFuture != null) {
+      return cachedFuture;
+    }
+
+    final generatedFuture = ClientPagarePdfBuilder.build(
+      report: widget.report,
+      company: _company,
     );
+    final guardedFuture = generatedFuture.catchError((Object error) {
+      _documentCache.remove(cacheKey);
+      throw error;
+    });
+
+    _documentCache[cacheKey] = guardedFuture;
+    return guardedFuture;
+  }
+
+  Future<Uint8List> _buildPreviewBytes(PdfPageFormat format) async {
+    try {
+      return await _buildBytes();
+    } catch (error) {
+      return _buildPdfPreviewError(
+        pageFormat: format,
+        title: 'No se pudo renderizar la lista de pagos',
+        detail: error,
+      );
+    }
   }
 
   void _warmUpDocument() {
     if (_loading) {
       return;
     }
-    _buildBytes();
+    unawaited(_buildBytes().catchError((Object _) => Uint8List(0)));
   }
 
   Future<void> _printNow() async {
@@ -310,7 +333,7 @@ class _ClientPagareDialogContentState
                                         allowSharing: false,
                                         pdfFileName:
                                             'Pagares-Cliente-${widget.report.clientId}.pdf',
-                                        build: (_) => _buildBytes(),
+                                        build: _buildPreviewBytes,
                                       ),
                               ),
                             ),
@@ -333,6 +356,65 @@ class _ClientPagareDialogContentState
       ),
     );
   }
+}
+
+Future<Uint8List> _buildPdfPreviewError({
+  required PdfPageFormat pageFormat,
+  required String title,
+  required Object detail,
+}) async {
+  final doc = pw.Document();
+  final cleanDetail = detail.toString().replaceAll(RegExp(r'\s+'), ' ');
+
+  doc.addPage(
+    pw.Page(
+      pageFormat: pageFormat,
+      margin: const pw.EdgeInsets.all(32),
+      build: (_) => pw.Container(
+        width: double.infinity,
+        padding: const pw.EdgeInsets.all(22),
+        decoration: pw.BoxDecoration(
+          color: PdfColor.fromHex('#FFF8E8'),
+          border: pw.Border.all(color: PdfColor.fromHex('#D69E2E'), width: 1),
+          borderRadius: pw.BorderRadius.circular(12),
+        ),
+        child: pw.Column(
+          mainAxisSize: pw.MainAxisSize.min,
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Text(
+              title,
+              style: pw.TextStyle(
+                fontSize: 18,
+                fontWeight: pw.FontWeight.bold,
+                color: PdfColor.fromHex('#744210'),
+              ),
+            ),
+            pw.SizedBox(height: 10),
+            pw.Text(
+              'El visor evito mostrar una pantalla roja. Revisa los datos del documento o intenta exportarlo nuevamente.',
+              style: pw.TextStyle(
+                fontSize: 10.5,
+                color: PdfColor.fromHex('#3A2A12'),
+              ),
+            ),
+            pw.SizedBox(height: 14),
+            pw.Text(
+              cleanDetail.length > 260
+                  ? '${cleanDetail.substring(0, 260)}...'
+                  : cleanDetail,
+              style: pw.TextStyle(
+                fontSize: 8.5,
+                color: PdfColor.fromHex('#6B4E16'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+
+  return doc.save();
 }
 
 class _DialogHeader extends StatelessWidget {

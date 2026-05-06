@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -11,12 +10,10 @@ import 'package:sistema_solares/features/auth/data/auth_service.dart';
 import 'package:sistema_solares/features/clients/data/client_repository.dart';
 import 'package:sistema_solares/features/clients/domain/client.dart';
 import 'package:sistema_solares/features/payments/data/payments_repository.dart';
-import 'package:sistema_solares/models/sync/sync_conflict_strategy.dart';
 import 'package:sistema_solares/models/sync/sync_settings.dart';
 import 'package:sistema_solares/models/sync/sync_status.dart';
 import 'package:sistema_solares/repositories/users_sync_repository.dart';
 import 'package:sistema_solares/services/sync/sync_api_client.dart';
-import 'package:sistema_solares/services/sync/sync_config_repository.dart';
 import 'package:sistema_solares/services/sync/sync_conflict_service.dart';
 import 'package:sistema_solares/services/sync/sync_queue_service.dart';
 
@@ -43,7 +40,9 @@ void main() {
         ..adminEmail = 'admin@gmail.com'
         ..adminPassword = 'Ayleen10'
         ..adminFullName = 'Admin Remoto';
-      configRepository = FakeSyncConfigRepository(settings: buildFakeSettings());
+      configRepository = FakeSyncConfigRepository(
+        settings: buildFakeSettings(),
+      );
     });
 
     tearDown(() async {
@@ -62,7 +61,10 @@ void main() {
       );
 
       await expectLater(
-        authService.signInHybrid(email: 'admin@gmail.com', password: 'Ayleen10'),
+        authService.signInHybrid(
+          email: 'admin@gmail.com',
+          password: 'Ayleen10',
+        ),
         throwsA(
           isA<AuthException>().having(
             (e) => e.message,
@@ -73,32 +75,35 @@ void main() {
       );
     });
 
-    test('new_pc_with_internet_downloads_user_and_caches_locally_test', () async {
-      final authService = AuthService(
-        appDatabase: appDatabase,
-        syncConfigRepository: configRepository,
-        httpClient: FakeBackendHttpClient(state: backendState),
-      );
+    test(
+      'new_pc_with_internet_downloads_user_and_caches_locally_test',
+      () async {
+        final authService = AuthService(
+          appDatabase: appDatabase,
+          syncConfigRepository: configRepository,
+          httpClient: FakeBackendHttpClient(state: backendState),
+        );
 
-      final result = await authService.signInHybrid(
-        email: 'Admin@gmail.com',
-        password: 'Ayleen10',
-      );
+        final result = await authService.signInHybrid(
+          email: 'Admin@gmail.com',
+          password: 'Ayleen10',
+        );
 
-      expect(result.mode, AuthSignInMode.online);
-      final db = await appDatabase.database;
-      final rows = await db.query(
-        DatabaseSchema.usersTable,
-        columns: ['email', 'id_remote', 'remote_auth_id', 'password_hash'],
-        where: 'LOWER(email)=?',
-        whereArgs: ['admin@gmail.com'],
-        limit: 1,
-      );
-      expect(rows, hasLength(1));
-      expect(rows.first['id_remote'], isNotNull);
-      expect(rows.first['remote_auth_id'], isNotNull);
-      expect((rows.first['password_hash'] as String).trim(), isNotEmpty);
-    });
+        expect(result.mode, AuthSignInMode.online);
+        final db = await appDatabase.database;
+        final rows = await db.query(
+          DatabaseSchema.usersTable,
+          columns: ['email', 'id_remote', 'remote_auth_id', 'password_hash'],
+          where: 'LOWER(email)=?',
+          whereArgs: ['admin@gmail.com'],
+          limit: 1,
+        );
+        expect(rows, hasLength(1));
+        expect(rows.first['id_remote'], isNotNull);
+        expect(rows.first['remote_auth_id'], isNotNull);
+        expect((rows.first['password_hash'] as String).trim(), isNotEmpty);
+      },
+    );
 
     test('online_login_updates_local_user_hash_and_permissions_test', () async {
       final authService = AuthService(
@@ -107,7 +112,10 @@ void main() {
         httpClient: FakeBackendHttpClient(state: backendState),
       );
 
-      await authService.signInHybrid(email: 'admin@gmail.com', password: 'Ayleen10');
+      await authService.signInHybrid(
+        email: 'admin@gmail.com',
+        password: 'Ayleen10',
+      );
       final db = await appDatabase.database;
       final first = (await db.query(
         DatabaseSchema.usersTable,
@@ -151,7 +159,10 @@ void main() {
         httpClient: FakeBackendHttpClient(state: backendState),
       );
 
-      await authService.signInHybrid(email: 'admin@gmail.com', password: 'Ayleen10');
+      await authService.signInHybrid(
+        email: 'admin@gmail.com',
+        password: 'Ayleen10',
+      );
       await authService.signOut();
       backendState.offline = true;
 
@@ -170,7 +181,10 @@ void main() {
         syncConfigRepository: configRepository,
         httpClient: FakeBackendHttpClient(state: backendState),
       );
-      await onlineAuth.signInHybrid(email: 'admin@gmail.com', password: 'Ayleen10');
+      await onlineAuth.signInHybrid(
+        email: 'admin@gmail.com',
+        password: 'Ayleen10',
+      );
       await onlineAuth.signOut();
 
       final timeoutAuth = AuthService(
@@ -188,28 +202,37 @@ void main() {
       expect(result.user.email, 'admin@gmail.com');
     });
 
-    test('backend_invalid_credentials_does_not_use_local_fallback_test', () async {
-      final authService = AuthService(
-        appDatabase: appDatabase,
-        syncConfigRepository: configRepository,
-        httpClient: FakeBackendHttpClient(state: backendState),
-      );
-      await authService.signInHybrid(email: 'admin@gmail.com', password: 'Ayleen10');
-      await authService.signOut();
+    test(
+      'backend_invalid_credentials_does_not_use_local_fallback_test',
+      () async {
+        final authService = AuthService(
+          appDatabase: appDatabase,
+          syncConfigRepository: configRepository,
+          httpClient: FakeBackendHttpClient(state: backendState),
+        );
+        await authService.signInHybrid(
+          email: 'admin@gmail.com',
+          password: 'Ayleen10',
+        );
+        await authService.signOut();
 
-      backendState.adminPassword = 'clave-remota-diferente';
+        backendState.adminPassword = 'clave-remota-diferente';
 
-      await expectLater(
-        authService.signInHybrid(email: 'admin@gmail.com', password: 'Ayleen10'),
-        throwsA(
-          isA<AuthException>().having(
-            (e) => e.message,
-            'message',
-            AuthService.invalidLocalCredentialsMessage,
+        await expectLater(
+          authService.signInHybrid(
+            email: 'admin@gmail.com',
+            password: 'Ayleen10',
           ),
-        ),
-      );
-    });
+          throwsA(
+            isA<AuthException>().having(
+              (e) => e.message,
+              'message',
+              AuthService.invalidLocalCredentialsMessage,
+            ),
+          ),
+        );
+      },
+    );
 
     test('user_sync_dedup_by_email_and_remote_id_test', () async {
       final repository = UsersSyncRepository(appDatabase: appDatabase);
@@ -345,45 +368,50 @@ void main() {
       expect(queueRows.first['scope'], 'clients');
     });
 
-    test('reconnect_syncs_pending_operations_without_duplicates_test', () async {
-      var online = false;
-      final apiClient = _MemorySyncApiClient();
-      final queue = SyncQueueService.test(
-        appDatabase: appDatabase,
-        configRepository: configRepository,
-        apiClient: apiClient,
-        conflictService: SyncConflictService(appDatabase: appDatabase),
-        connectivityProbe: (_) async => online,
-      );
-      addTearDown(queue.dispose);
-      await configRepository.saveJwtToken('token-test');
-      final clients = ClientRepository(
-        appDatabase: appDatabase,
-        syncQueueService: queue,
-      );
-      queue.registerRepository(clients);
+    test(
+      'reconnect_syncs_pending_operations_without_duplicates_test',
+      () async {
+        var online = false;
+        final apiClient = _MemorySyncApiClient();
+        final queue = SyncQueueService.test(
+          appDatabase: appDatabase,
+          configRepository: configRepository,
+          apiClient: apiClient,
+          conflictService: SyncConflictService(appDatabase: appDatabase),
+          connectivityProbe: (_) async => online,
+        );
+        addTearDown(queue.dispose);
+        await configRepository.saveJwtToken('token-test');
+        final clients = ClientRepository(
+          appDatabase: appDatabase,
+          syncQueueService: queue,
+        );
+        queue.registerRepository(clients);
 
-      final now = DateTime.now();
-      await clients.save(
-        Client(
-          fullName: 'Cliente Reconexion',
-          documentId: '001-0002222-2',
-          createdAt: now,
-          updatedAt: now,
-          syncStatus: SyncStatus.pending,
-        ),
-      );
-      await queue.refreshScope('clients');
+        final now = DateTime.now();
+        await clients.save(
+          Client(
+            fullName: 'Cliente Reconexion',
+            documentId: '001-0002222-2',
+            createdAt: now,
+            updatedAt: now,
+            syncStatus: SyncStatus.pending,
+          ),
+        );
+        await queue.refreshScope('clients');
 
-      final offlineProcessed = await queue.processQueue(includeDeferred: true);
-      expect(offlineProcessed, 0);
+        final offlineProcessed = await queue.processQueue(
+          includeDeferred: true,
+        );
+        expect(offlineProcessed, 0);
 
-      online = true;
-      await queue.refreshScope('clients');
-      await queue.processQueue(includeDeferred: true);
+        online = true;
+        await queue.refreshScope('clients');
+        await queue.processQueue(includeDeferred: true);
 
-      expect(apiClient.uploadedSyncIds.length, 1);
-    });
+        expect(apiClient.uploadedSyncIds.length, 1);
+      },
+    );
 
     test('reports_work_from_local_sqlite_test', () async {
       final db = await appDatabase.database;
@@ -462,7 +490,10 @@ void main() {
         syncConfigRepository: configRepository,
         httpClient: FakeBackendHttpClient(state: backendState),
       );
-      await authService.signInHybrid(email: 'admin@gmail.com', password: 'Ayleen10');
+      await authService.signInHybrid(
+        email: 'admin@gmail.com',
+        password: 'Ayleen10',
+      );
       await authService.signOut();
       backendState.offline = true;
 
@@ -492,9 +523,7 @@ class _MemorySyncApiClient extends SyncApiClient {
     for (final entry in recordsByScope.entries) {
       final records = <Map<String, dynamic>>[];
       for (final record in entry.value) {
-        final normalized = record.map(
-          (key, value) => MapEntry(key, value),
-        );
+        final normalized = record.map((key, value) => MapEntry(key, value));
         final syncId = normalized['sync_id']?.toString().trim() ?? '';
         if (syncId.isNotEmpty) {
           uploadedSyncIds.add(syncId);

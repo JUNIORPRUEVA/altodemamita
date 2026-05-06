@@ -462,24 +462,6 @@ class AuthService {
     }
   }
 
-  /// Retorna true si el JWT guardado en el repositorio de sync sigue
-  /// siendo válido contra el backend (sin cambiar nada).
-  Future<bool> _isStoredJwtStillValid() async {
-    final settings = await _syncConfigRepository.loadSettings();
-    final jwt = settings.jwtToken.trim();
-    if (jwt.isEmpty) return false;
-    try {
-      await _sendJsonRequest(
-        method: 'GET',
-        uri: Uri.parse('${settings.normalizedBaseUrl}/auth/me'),
-        headers: {'Authorization': 'Bearer $jwt'},
-      );
-      return true;
-    } catch (_) {
-      return false;
-    }
-  }
-
   Future<UserModel> loginOffline({
     required String email,
     required String password,

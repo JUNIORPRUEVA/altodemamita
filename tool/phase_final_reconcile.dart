@@ -5,11 +5,9 @@ import 'package:flutter/widgets.dart';
 import 'package:path/path.dart' as path;
 import 'package:sistema_solares/core/database/app_database.dart';
 import 'package:sistema_solares/core/database/database_schema.dart';
-import 'package:sistema_solares/core/resilience/app_paths.dart';
 import 'package:sistema_solares/features/clients/data/client_repository.dart';
 import 'package:sistema_solares/features/sales/data/seller_repository.dart';
 import 'package:sistema_solares/repositories/installments_sync_repository.dart';
-import 'package:sistema_solares/repositories/payments_sync_repository.dart';
 import 'package:sistema_solares/repositories/payments_sync_repository.dart';
 import 'package:sistema_solares/repositories/permissions_sync_repository.dart';
 import 'package:sistema_solares/repositories/products_sync_repository.dart';
@@ -30,7 +28,9 @@ Future<void> main() async {
   final startedAt = DateTime.now();
   final workspaceRoot = Directory.current.path;
   final timestamp = _timestamp(startedAt);
-  final reportDir = Directory(path.join(workspaceRoot, 'backups', 'phase_final'));
+  final reportDir = Directory(
+    path.join(workspaceRoot, 'backups', 'phase_final'),
+  );
   await reportDir.create(recursive: true);
 
   final appDatabase = AppDatabase.instance;
@@ -134,23 +134,17 @@ Future<void> main() async {
       'error_message': syncReport.errorMessage,
       'warnings': syncReport.warnings,
     },
-    'before': {
-      'local_summary': beforeSummary,
-      'comparison': beforeComparison,
-    },
-    'after': {
-      'local_summary': afterSummary,
-      'comparison': afterComparison,
-    },
+    'before': {'local_summary': beforeSummary, 'comparison': beforeComparison},
+    'after': {'local_summary': afterSummary, 'comparison': afterComparison},
   };
 
   final reportPath = path.join(
     reportDir.path,
     'phase_final_reconcile_report_$timestamp.json',
   );
-  await File(reportPath).writeAsString(
-    const JsonEncoder.withIndent('  ').convert(finalReport),
-  );
+  await File(
+    reportPath,
+  ).writeAsString(const JsonEncoder.withIndent('  ').convert(finalReport));
   stdout.writeln('[PhaseFinal] report=$reportPath');
 
   await appDatabase.close();
@@ -293,10 +287,18 @@ Map<String, Object?> _compareScope({
   }
 
   return {
-    'local_active': localRows.where((row) => _readString(row['deleted_at']) == null).length,
-    'local_deleted': localRows.where((row) => _readString(row['deleted_at']) != null).length,
-    'backend_active': remoteRows.where((row) => _readString(row['deleted_at']) == null).length,
-    'backend_deleted': remoteRows.where((row) => _readString(row['deleted_at']) != null).length,
+    'local_active': localRows
+        .where((row) => _readString(row['deleted_at']) == null)
+        .length,
+    'local_deleted': localRows
+        .where((row) => _readString(row['deleted_at']) != null)
+        .length,
+    'backend_active': remoteRows
+        .where((row) => _readString(row['deleted_at']) == null)
+        .length,
+    'backend_deleted': remoteRows
+        .where((row) => _readString(row['deleted_at']) != null)
+        .length,
     'backend_active_not_in_local': backendActiveNotInLocal,
     'local_active_not_in_backend': localActiveNotInBackend,
     'backend_deleted_not_in_local': backendDeletedNotInLocal,
@@ -354,18 +356,17 @@ Future<List<Map<String, Object?>>> _loadLocalRows(
   );
 }
 
-Future<Map<String, int>> _activeDeletedCounts(Database db, String tableName) async {
+Future<Map<String, int>> _activeDeletedCounts(
+  Database db,
+  String tableName,
+) async {
   return {
     'active': await _count(db, tableName, where: 'deleted_at IS NULL'),
     'deleted': await _count(db, tableName, where: 'deleted_at IS NOT NULL'),
   };
 }
 
-Future<int> _count(
-  Database db,
-  String tableName, {
-  String? where,
-}) async {
+Future<int> _count(Database db, String tableName, {String? where}) async {
   final rows = await db.query(
     tableName,
     columns: const ['COUNT(*) AS total'],
@@ -404,5 +405,8 @@ const List<_ScopeConfig> _scopeConfigs = [
     remoteScope: 'installments',
     tableName: DatabaseSchema.installmentsTable,
   ),
-  _ScopeConfig(remoteScope: 'payments', tableName: DatabaseSchema.paymentsTable),
+  _ScopeConfig(
+    remoteScope: 'payments',
+    tableName: DatabaseSchema.paymentsTable,
+  ),
 ];

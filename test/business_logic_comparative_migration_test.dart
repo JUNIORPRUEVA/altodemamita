@@ -160,7 +160,9 @@ void main() {
       for (var i = 1; i <= rows.length; i++) {
         expect(rows[i - 1]['numero_cuota'], i);
       }
-      final firstDue = DateTime.parse(rows.first['fecha_vencimiento'] as String);
+      final firstDue = DateTime.parse(
+        rows.first['fecha_vencimiento'] as String,
+      );
       final secondDue = DateTime.parse(rows[1]['fecha_vencimiento'] as String);
       expect(secondDue.isAfter(firstDue), isTrue);
     });
@@ -192,7 +194,10 @@ void main() {
       );
       final updated = updatedInstallmentRows.single;
       expect(updated['estado'], 'pagada');
-      expect(_toDouble(updated['monto_pagado']), closeTo(installment.totalAmount, 0.01));
+      expect(
+        _toDouble(updated['monto_pagado']),
+        closeTo(installment.totalAmount, 0.01),
+      );
     });
 
     test('partial_payment_updates_balance_correctly_test', () async {
@@ -227,7 +232,10 @@ void main() {
 
       expect(installmentRow['estado'], 'parcial');
       expect(_toDouble(installmentRow['monto_pagado']), greaterThan(0));
-      expect(_toDouble(saleRow['saldo_pendiente']), lessThan(before.sale.pendingBalance));
+      expect(
+        _toDouble(saleRow['saldo_pendiente']),
+        lessThan(before.sale.pendingBalance),
+      );
     });
 
     test('full_payment_marks_installment_paid_test', () async {
@@ -253,7 +261,10 @@ void main() {
         limit: 1,
       )).single;
       expect(installmentRow['estado'], 'pagada');
-      expect(_toDouble(installmentRow['monto_pagado']), closeTo(target.totalAmount, 0.01));
+      expect(
+        _toDouble(installmentRow['monto_pagado']),
+        closeTo(target.totalAmount, 0.01),
+      );
     });
 
     test('sale_paid_full_marks_sale_completed_test', () async {
@@ -275,8 +286,7 @@ void main() {
 
       var safeguard = 0;
       var latest = await paymentsRepository.fetchSaleContext(saleId);
-      while (
-          latest != null &&
+      while (latest != null &&
           latest.sale.pendingBalance > 0.009 &&
           safeguard < 6) {
         safeguard += 1;
@@ -303,8 +313,16 @@ void main() {
 
     test('dashboard_totals_match_local_sales_payments_test', () async {
       final db = await appDatabase.database;
-      final ids1 = await _seedBaseEntities(db, now: DateTime(2026, 2, 1), suffix: 'A');
-      final ids2 = await _seedBaseEntities(db, now: DateTime(2026, 2, 1), suffix: 'B');
+      final ids1 = await _seedBaseEntities(
+        db,
+        now: DateTime(2026, 2, 1),
+        suffix: 'A',
+      );
+      final ids2 = await _seedBaseEntities(
+        db,
+        now: DateTime(2026, 2, 1),
+        suffix: 'B',
+      );
       final saleId1 = await _createActiveSale(
         salesRepository,
         ids1,
@@ -408,7 +426,10 @@ void main() {
 
         final after = await paymentsRepository.fetchSaleContext(saleId);
         expect(after, isNotNull);
-        expect(after!.sale.pendingBalance, lessThan(before.sale.pendingBalance));
+        expect(
+          after!.sale.pendingBalance,
+          lessThan(before.sale.pendingBalance),
+        );
         expect(after.sale.pendingBalance, greaterThanOrEqualTo(0));
 
         final recentPayments = await db.query(
@@ -422,7 +443,10 @@ void main() {
         final types = recentPayments
             .map((row) => row['tipo_pago']?.toString() ?? '')
             .toSet();
-        expect(types.contains('cuota') || types.contains('abono_capital'), isTrue);
+        expect(
+          types.contains('cuota') || types.contains('abono_capital'),
+          isTrue,
+        );
       } on StateError {
         // También es válido bloquear sobrepago explícitamente.
         expect(true, isTrue);
@@ -438,8 +462,6 @@ void main() {
     late PaymentsRepository paymentsRepository;
     late StreamController<List<ConnectivityResult>> connectivityController;
     late _MemorySyncApiClient apiClient;
-    late ClientRepository clientRepository;
-    late SellerRepository sellerRepository;
     late bool online;
 
     setUp(() async {
@@ -463,11 +485,11 @@ void main() {
         connectivityProbe: (_) async => online,
         connectivityChanges: connectivityController.stream,
       );
-      clientRepository = ClientRepository(
+      ClientRepository(
         appDatabase: appDatabase,
         syncQueueService: syncQueueService,
       );
-      sellerRepository = SellerRepository(
+      SellerRepository(
         database: appDatabase,
         syncQueueService: syncQueueService,
       );

@@ -6,7 +6,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sistema_solares/core/database/app_database.dart';
 import 'package:sistema_solares/core/database/database_schema.dart';
 import 'package:sistema_solares/features/clients/data/client_repository.dart';
-import 'package:sistema_solares/models/sync/sync_conflict_strategy.dart';
 import 'package:sistema_solares/models/sync/sync_settings.dart';
 import 'package:sistema_solares/repositories/products_sync_repository.dart';
 import 'package:sistema_solares/repositories/sales_sync_repository.dart';

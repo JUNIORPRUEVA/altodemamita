@@ -9,7 +9,6 @@ import 'package:sistema_solares/features/auth/domain/permission_model.dart';
 import 'package:sistema_solares/features/auth/presentation/auth_provider.dart';
 import 'package:sistema_solares/features/clients/data/client_repository.dart';
 import 'package:sistema_solares/features/lots/data/lot_repository.dart';
-import 'package:sistema_solares/features/lots/domain/lot.dart';
 import 'package:sistema_solares/features/sales/data/seller_repository.dart';
 import 'package:sistema_solares/features/sales/domain/sale_defaults.dart';
 import 'package:sistema_solares/features/sales/presentation/sale_form_dialog.dart';
@@ -76,8 +75,14 @@ void main() {
     await tester.tap(find.byKey(saleFormCreateLotButtonKey));
     await _settle(tester);
 
-    await tester.enterText(find.widgetWithText(TextFormField, 'Manzana').last, 'B');
-    await tester.enterText(find.widgetWithText(TextFormField, 'Número').last, '22');
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Manzana').last,
+      'B',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Número').last,
+      '22',
+    );
     await tester.enterText(
       find.widgetWithText(TextFormField, 'Metros cuadrados').last,
       '210',

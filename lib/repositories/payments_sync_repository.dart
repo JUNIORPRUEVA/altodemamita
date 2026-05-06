@@ -116,8 +116,15 @@ class PaymentsSyncRepository implements SyncRepository {
           limit: 1,
         );
         if (_isDeleted(record['deleted_at'])) {
-          if (_hasProtectedPendingLocal(existingRows)) {
-            _log('payments_remote_tombstone_skipped_pending_local sync_id=$syncId');
+          if (_hasConflictProtectedPendingLocal(existingRows)) {
+            await _markFirstExistingRowAsConflict(
+              txn,
+              tableName: DatabaseSchema.paymentsTable,
+              existingRows: existingRows,
+            );
+            _log(
+              'payments_remote_tombstone_conflict_pending_local sync_id=$syncId',
+            );
             continue;
           }
           final saleSyncId = _readRequiredString(record['sale_sync_id']);
@@ -374,7 +381,7 @@ bool _shouldKeepLocal(
       localUpdated.isAfter(remoteUpdated);
 }
 
-bool _hasProtectedPendingLocal(List<Map<String, Object?>> existingRows) {
+bool _hasConflictProtectedPendingLocal(List<Map<String, Object?>> existingRows) {
   if (existingRows.isEmpty) {
     return false;
   }
@@ -382,8 +389,27 @@ bool _hasProtectedPendingLocal(List<Map<String, Object?>> existingRows) {
       .trim()
       .toLowerCase();
   return localSyncStatus == DatabaseSchema.syncStatusPendingCreate ||
-      localSyncStatus == DatabaseSchema.syncStatusPendingUpdate ||
-      localSyncStatus == DatabaseSchema.syncStatusPendingDelete;
+      localSyncStatus == DatabaseSchema.syncStatusPendingUpdate;
+}
+
+Future<void> _markFirstExistingRowAsConflict(
+  dynamic txn, {
+  required String tableName,
+  required List<Map<String, Object?>> existingRows,
+}) async {
+  if (existingRows.isEmpty) {
+    return;
+  }
+  final rowId = existingRows.first['id'];
+  if (rowId == null) {
+    return;
+  }
+  await txn.update(
+    tableName,
+    {'sync_status': DatabaseSchema.syncStatusConflict},
+    where: 'id = ?',
+    whereArgs: [rowId],
+  );
 }
 
 Future<void> _upsertPayment(

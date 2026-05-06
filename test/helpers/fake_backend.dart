@@ -18,7 +18,11 @@ class FakeBackendState {
   String adminFullName = '';
   String authClientType = 'desktop';
   List<String> authRoles = const ['SUPER_ADMIN'];
-  List<String> authPermissions = const ['sync.manage', 'users.write', 'users.read'];
+  List<String> authPermissions = const [
+    'sync.manage',
+    'users.write',
+    'users.read',
+  ];
   Map<String, dynamic> lastSyncUploadPayload = const {};
 
   bool forceSyncUploadConflict = false;
@@ -85,7 +89,10 @@ class FakeBackendState {
 
   bool canDeviceWrite(String? deviceId) {
     final device = this.device(deviceId);
-    return device != null && device.revokedAt == null && device.isPrimary && device.canWrite;
+    return device != null &&
+        device.revokedAt == null &&
+        device.isPrimary &&
+        device.canWrite;
   }
 
   Map<String, dynamic> currentDevicePayload(String? deviceId) {
@@ -192,27 +199,28 @@ class FakeBackendState {
     }
 
     final existing = authorizedDevices[deviceId];
-    final claimed = (existing ??
-            FakeAuthorizedDevice(
-              deviceId: deviceId,
-              deviceName: deviceName ?? deviceId,
-              platform: platform ?? 'windows',
-              userId: 'remote-admin-1',
+    final claimed =
+        (existing ??
+                FakeAuthorizedDevice(
+                  deviceId: deviceId,
+                  deviceName: deviceName ?? deviceId,
+                  platform: platform ?? 'windows',
+                  userId: 'remote-admin-1',
+                  isPrimary: true,
+                  canWrite: true,
+                  lastSeenAt: now,
+                  createdAt: now,
+                  updatedAt: now,
+                ))
+            .copyWith(
+              deviceName: deviceName ?? existing?.deviceName ?? deviceId,
+              platform: platform ?? existing?.platform ?? 'windows',
               isPrimary: true,
               canWrite: true,
+              revokedAt: null,
               lastSeenAt: now,
-              createdAt: now,
               updatedAt: now,
-            ))
-        .copyWith(
-          deviceName: deviceName ?? existing?.deviceName ?? deviceId,
-          platform: platform ?? existing?.platform ?? 'windows',
-          isPrimary: true,
-          canWrite: true,
-          revokedAt: null,
-          lastSeenAt: now,
-          updatedAt: now,
-        );
+            );
     authorizedDevices[deviceId] = claimed;
     return _buildDevicePayload(
       deviceId: deviceId,
@@ -305,7 +313,9 @@ class FakeAuthorizedDevice {
       userId: userId,
       isPrimary: isPrimary ?? this.isPrimary,
       canWrite: canWrite ?? this.canWrite,
-      revokedAt: revokedAt == _sentinel ? this.revokedAt : revokedAt as DateTime?,
+      revokedAt: revokedAt == _sentinel
+          ? this.revokedAt
+          : revokedAt as DateTime?,
       lastSeenAt: lastSeenAt ?? this.lastSeenAt,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -335,7 +345,6 @@ class FakeBackendHttpClient implements HttpClient {
   @override
   set idleTimeout(Duration value) => _idleTimeout = value;
 
-  @override
   bool Function(X509Certificate, String, int)? get badCertificateCallback =>
       _badCertificateCallback;
 
@@ -521,7 +530,8 @@ class _FakeHttpClientRequest implements HttpClientRequest {
               'username': 'admin.general',
               'fullName': _state.adminFullName,
               'isActive': true,
-              'type': payload['clientType']?.toString() ?? _state.authClientType,
+              'type':
+                  payload['clientType']?.toString() ?? _state.authClientType,
               'roles': _state.authRoles,
               'permissions': _state.authPermissions,
             },
@@ -580,10 +590,7 @@ class _FakeHttpClientRequest implements HttpClientRequest {
       final deviceId = payload['device_id']?.toString().trim() ?? '';
       return _jsonResponse(
         status: HttpStatus.ok,
-        body: {
-          'success': true,
-          'data': _state.revokeDevice(deviceId),
-        },
+        body: {'success': true, 'data': _state.revokeDevice(deviceId)},
       );
     }
 

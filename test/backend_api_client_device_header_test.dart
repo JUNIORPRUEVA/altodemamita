@@ -43,7 +43,7 @@ class _FakeSyncConfigRepository extends SyncConfigRepository {
       jwtToken: 'jwt-token',
       queueRetryInterval: Duration(seconds: 10),
       realtimePollingInterval: Duration(seconds: 5),
-      conflictStrategy: SyncConflictStrategy.serverWins,
+      conflictStrategy: SyncConflictStrategy.lastWriteWins,
       deviceId: 'device-123',
     );
   }

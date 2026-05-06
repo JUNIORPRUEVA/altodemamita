@@ -170,7 +170,7 @@ class ReceiptPdfBuilder {
                                       receipt.nextInstallmentAmount!,
                                     ),
                             ),
-                            pw.Spacer(),
+                            pw.SizedBox(height: 14),
                             pw.Row(
                               children: [
                                 pw.Expanded(
