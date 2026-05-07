@@ -84,7 +84,7 @@ export class DevicesController {
       actorType: user.type,
       roles: user.roles,
       deviceId: resolvedDeviceId,
-      deviceName: dto.device_name,
+      deviceName: dto.resolvedDeviceName,
       platform: dto.platform,
     });
   }

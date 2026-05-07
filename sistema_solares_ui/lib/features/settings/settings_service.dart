@@ -57,14 +57,30 @@ class SettingsService {
 
   final ApiClient _apiClient;
 
+  Map<String, String> _cacheBustQuery() => {
+    't': DateTime.now().millisecondsSinceEpoch.toString(),
+  };
+
   Future<SettingsOverview> fetchOverview() async {
     final systemStatus =
-        await _apiClient.get('/system/status', authorized: false)
+        await _apiClient.get(
+              '/system/status',
+              authorized: false,
+              queryParameters: _cacheBustQuery(),
+            )
             as Map<String, dynamic>;
-    final rolesResponse = await _apiClient.get('/auth/roles') as List<dynamic>;
+    final rolesResponse =
+        await _apiClient.get('/auth/roles', queryParameters: _cacheBustQuery())
+            as List<dynamic>;
     final permissionsResponse =
-        await _apiClient.get('/auth/permissions') as List<dynamic>;
-    final devicesResponse = await _apiClient.get('/devices') as List<dynamic>;
+        await _apiClient.get(
+              '/auth/permissions',
+              queryParameters: _cacheBustQuery(),
+            )
+            as List<dynamic>;
+    final devicesResponse =
+        await _apiClient.get('/devices', queryParameters: _cacheBustQuery())
+            as List<dynamic>;
 
     final roles = rolesResponse
         .map(
@@ -113,9 +129,40 @@ class SettingsService {
       '/devices/activate',
       body: {
         'device_id': normalizedDeviceId,
+        'deviceId': normalizedDeviceId,
+        if (deviceName != null && deviceName.trim().isNotEmpty)
+          'name': deviceName.trim(),
         if (deviceName != null && deviceName.trim().isNotEmpty)
           'device_name': deviceName.trim(),
       },
     );
+
+    // Verify against fresh backend data before showing success in UI.
+    final devicesResponse =
+        await _apiClient.get('/devices', queryParameters: _cacheBustQuery())
+            as List<dynamic>;
+    final devices = devicesResponse
+        .map(
+          (item) => AuthorizedDeviceRecord.fromMap(
+            (item as Map<dynamic, dynamic>).map(
+              (key, value) => MapEntry(key.toString(), value),
+            ),
+          ),
+        )
+        .toList();
+
+    final isActivated = devices.any(
+      (device) =>
+          device.deviceId == normalizedDeviceId &&
+          device.revokedAt == null &&
+          device.isPrimary &&
+          device.canWrite,
+    );
+
+    if (!isActivated) {
+      throw ApiException(
+        'El backend respondio OK, pero el deviceId no quedo activo. Revisa permisos y logs del backend.',
+      );
+    }
   }
 }

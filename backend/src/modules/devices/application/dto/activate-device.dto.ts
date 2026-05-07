@@ -18,6 +18,15 @@ export class ActivateDeviceDto {
   @IsString()
   device_name?: string;
 
+  /** Optional aliases accepted from clients */
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  deviceName?: string;
+
   @IsOptional()
   @IsString()
   platform?: string;
@@ -25,5 +34,11 @@ export class ActivateDeviceDto {
   /** Returns the resolved device ID, preferring device_id over deviceId. */
   get resolvedDeviceId(): string {
     return (this.device_id ?? this.deviceId ?? '').trim();
+  }
+
+  /** Returns normalized device name from any accepted key. */
+  get resolvedDeviceName(): string | undefined {
+    const value = (this.device_name ?? this.name ?? this.deviceName ?? '').trim();
+    return value.length > 0 ? value : undefined;
   }
 }
