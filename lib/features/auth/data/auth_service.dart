@@ -438,7 +438,6 @@ class AuthService {
       '[LoginOnline] jwt saved. Usuario: ${user.email}, '
       'rol: ${user.role.storageValue}',
     );
-    await SystemConfigService.instance.registerCurrentDevice();
     await SystemConfigService.instance.refresh();
     return user;
   }

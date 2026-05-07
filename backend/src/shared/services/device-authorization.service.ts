@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 
 import { PrismaService } from 'src/infrastructure/prisma/prisma.service';
 import { AuthenticatedUser } from '../decorators/current-user.decorator';
@@ -25,9 +25,22 @@ export interface DeviceAccessState {
     | 'device_not_primary';
 }
 
+export interface AuthorizedDeviceSummary {
+  deviceId: string;
+  deviceName: string | null;
+  platform: string | null;
+  isPrimary: boolean;
+  canWrite: boolean;
+  revokedAt: string | null;
+  lastSeenAt: string | null;
+  updatedAt: string;
+}
+
 @Injectable()
 export class DeviceAuthorizationService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private static readonly manualDeviceRegistrationEnabled = true;
 
   private normalizeClientType(clientType: AuthenticatedUser['type']): AuthenticatedUser['type'] {
     if (clientType === 'panel' || clientType === 'pwa') {
@@ -98,7 +111,11 @@ export class DeviceAuthorizationService {
       },
     });
 
-    if (!device && options.autoRegisterDesktop == true) {
+    const canAutoRegister =
+      options.autoRegisterDesktop == true &&
+      !DeviceAuthorizationService.manualDeviceRegistrationEnabled;
+
+    if (!device && canAutoRegister) {
       device = await this.prisma.authorizedDevice.create({
         data: {
           userId: options.userId,
@@ -219,7 +236,113 @@ export class DeviceAuthorizationService {
   }): Promise<DeviceAccessState> {
     return this.resolveCurrentAccess({
       ...options,
-      autoRegisterDesktop: true,
+      autoRegisterDesktop: false,
+    });
+  }
+
+  async listAuthorizedDevices(userId: string): Promise<AuthorizedDeviceSummary[]> {
+    const devices = await this.prisma.authorizedDevice.findMany({
+      where: { userId },
+      orderBy: [{ isPrimary: 'desc' }, { updatedAt: 'desc' }],
+      select: {
+        deviceId: true,
+        deviceName: true,
+        platform: true,
+        isPrimary: true,
+        canWrite: true,
+        revokedAt: true,
+        lastSeenAt: true,
+        updatedAt: true,
+      },
+    });
+
+    return devices.map((device) => ({
+      deviceId: device.deviceId,
+      deviceName: device.deviceName,
+      platform: device.platform,
+      isPrimary: device.isPrimary,
+      canWrite: device.canWrite,
+      revokedAt: device.revokedAt?.toISOString() ?? null,
+      lastSeenAt: device.lastSeenAt?.toISOString() ?? null,
+      updatedAt: device.updatedAt.toISOString(),
+    }));
+  }
+
+  async activateSingleDevice(options: {
+    userId: string;
+    actorType: AuthenticatedUser['type'];
+    roles?: string[];
+    deviceId: string;
+    deviceName?: string | null;
+    platform?: string | null;
+  }): Promise<DeviceAccessState> {
+    const normalizedDeviceId = this.normalizeDeviceId(options.deviceId);
+    if (!normalizedDeviceId) {
+      throw new BadRequestException('Debe especificar un device_id valido.');
+    }
+
+    const now = new Date();
+    const companyProfileId = await this.resolveCompanyProfileId();
+    const deviceName = this.normalizeOptionalText(options.deviceName);
+    const platform = this.normalizeOptionalText(options.platform);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.authorizedDevice.deleteMany({
+        where: {
+          userId: options.userId,
+          deviceId: { not: normalizedDeviceId },
+        },
+      });
+
+      const existing = await tx.authorizedDevice.findFirst({
+        where: {
+          userId: options.userId,
+          deviceId: normalizedDeviceId,
+        },
+      });
+
+      if (existing == null) {
+        await tx.authorizedDevice.create({
+          data: {
+            userId: options.userId,
+            companyProfileId,
+            deviceId: normalizedDeviceId,
+            deviceName,
+            platform,
+            isPrimary: true,
+            canWrite: true,
+            revokedAt: null,
+            lastSeenAt: now,
+          },
+        });
+        return;
+      }
+
+      await tx.authorizedDevice.update({
+        where: { id: existing.id },
+        data: {
+          companyProfileId: existing.companyProfileId ?? companyProfileId,
+          deviceName,
+          platform,
+          isPrimary: true,
+          canWrite: true,
+          revokedAt: null,
+          lastSeenAt: now,
+        },
+      });
+    });
+
+    return this.buildState({
+      userId: options.userId,
+      clientType: 'desktop',
+      deviceId: normalizedDeviceId,
+      deviceName,
+      platform,
+      isPrimary: true,
+      canWrite: true,
+      revokedAt: null,
+      now,
+      reason: 'authorized',
     });
   }
 

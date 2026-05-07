@@ -2,7 +2,10 @@ import { Body, Controller, Get, Headers, HttpCode, HttpStatus, Post } from '@nes
 
 import { CurrentUser, AuthenticatedUser } from 'src/shared/decorators/current-user.decorator';
 import { AllowDeviceWriteBypass } from 'src/shared/decorators/allow-device-write-bypass.decorator';
+import { RequirePermissions } from 'src/shared/decorators/permissions.decorator';
+import { PERMISSIONS } from 'src/shared/constants/permissions.constants';
 import { DeviceAuthorizationService } from 'src/shared/services/device-authorization.service';
+import { ActivateDeviceDto } from '../../application/dto/activate-device.dto';
 import { ClaimPrimaryDeviceDto } from '../../application/dto/claim-primary-device.dto';
 import { RegisterDeviceDto } from '../../application/dto/register-device.dto';
 import { RevokeDeviceDto } from '../../application/dto/revoke-device.dto';
@@ -12,6 +15,12 @@ export class DevicesController {
   constructor(
     private readonly deviceAuthorizationService: DeviceAuthorizationService,
   ) {}
+
+  @Get()
+  @RequirePermissions(PERMISSIONS.systemConfig)
+  list(@CurrentUser() user: AuthenticatedUser) {
+    return this.deviceAuthorizationService.listAuthorizedDevices(user.sub);
+  }
 
   @Post('register')
   @AllowDeviceWriteBypass()
@@ -47,17 +56,32 @@ export class DevicesController {
 
   @Post('claim-primary')
   @AllowDeviceWriteBypass()
+  @RequirePermissions(PERMISSIONS.systemConfig)
   @HttpCode(HttpStatus.OK)
   claimPrimary(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: ClaimPrimaryDeviceDto,
     @Headers('x-device-id') headerDeviceId?: string,
   ) {
-    return this.deviceAuthorizationService.claimPrimary({
+    return this.deviceAuthorizationService.activateSingleDevice({
       userId: user.sub,
-      clientType: user.type,
+      actorType: user.type,
+      deviceId: (dto.device_id ?? headerDeviceId) ?? '',
+      deviceName: dto.device_name,
+      platform: dto.platform,
+    });
+  }
+
+  @Post('activate')
+  @AllowDeviceWriteBypass()
+  @RequirePermissions(PERMISSIONS.systemConfig)
+  @HttpCode(HttpStatus.OK)
+  activate(@CurrentUser() user: AuthenticatedUser, @Body() dto: ActivateDeviceDto) {
+    return this.deviceAuthorizationService.activateSingleDevice({
+      userId: user.sub,
+      actorType: user.type,
       roles: user.roles,
-      deviceId: dto.device_id ?? headerDeviceId,
+      deviceId: dto.device_id,
       deviceName: dto.device_name,
       platform: dto.platform,
     });
@@ -65,6 +89,7 @@ export class DevicesController {
 
   @Post('revoke')
   @AllowDeviceWriteBypass()
+  @RequirePermissions(PERMISSIONS.systemConfig)
   @HttpCode(HttpStatus.OK)
   revoke(@CurrentUser() user: AuthenticatedUser, @Body() dto: RevokeDeviceDto) {
     return this.deviceAuthorizationService.revokeDevice(user.sub, dto.device_id);

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/system/system_config_service.dart';
-import '../../features/auth/presentation/auth_provider.dart';
 
 /// Panel reusable que muestra el estado de la PC respecto al sistema:
 /// si es la PC principal, si tiene permiso de escritura y permite refrescar
@@ -14,23 +13,18 @@ class DeviceStatusPanel extends StatelessWidget {
   const DeviceStatusPanel({
     super.key,
     required this.onRefresh,
-    required this.onClaimPrimary,
+    required this.onCopyDeviceId,
   });
 
   /// Refresca el estado del dispositivo (sin reclamar primario).
   final Future<void> Function() onRefresh;
 
-  /// Solicita a la nube convertir esta PC en la PC principal con permiso de
-  /// escritura. Es una operación delicada: el caller normalmente debe pedir
-  /// confirmación + contraseña antes de invocarlo.
-  final Future<void> Function() onClaimPrimary;
+  /// Copia el ID de esta PC para pegarlo en el panel administrativo.
+  final Future<void> Function() onCopyDeviceId;
 
   @override
   Widget build(BuildContext context) {
     final systemConfig = context.watch<SystemConfigService>();
-    final auth = context.watch<AuthProvider>();
-    final canClaimPrimary =
-        auth.currentUser != null && !systemConfig.canWrite;
 
     return Container(
       width: double.infinity,
@@ -69,17 +63,22 @@ class DeviceStatusPanel extends StatelessWidget {
                 highlighted: systemConfig.canWrite,
                 critical: !systemConfig.canWrite,
               ),
+              _DeviceStatusBadge(
+                label: 'ID de esta PC',
+                value: systemConfig.currentDeviceId.isEmpty
+                    ? 'No disponible'
+                    : _compactId(systemConfig.currentDeviceId),
+              ),
               TextButton.icon(
                 onPressed: onRefresh,
                 icon: const Icon(Icons.sync_rounded, size: 16),
                 label: const Text('Actualizar estado'),
               ),
-              if (canClaimPrimary)
-                FilledButton.tonalIcon(
-                  onPressed: onClaimPrimary,
-                  icon: const Icon(Icons.computer_rounded, size: 16),
-                  label: const Text('Reclamar esta PC'),
-                ),
+              FilledButton.tonalIcon(
+                onPressed: onCopyDeviceId,
+                icon: const Icon(Icons.copy_rounded, size: 16),
+                label: const Text('Copiar ID de PC'),
+              ),
             ],
           ),
           if (!systemConfig.canWrite &&
@@ -93,10 +92,27 @@ class DeviceStatusPanel extends StatelessWidget {
                 fontWeight: FontWeight.w600,
               ),
             ),
+            const SizedBox(height: 8),
+            const Text(
+              'Usa "Copiar ID de PC" y pegalo en el panel web para autorizar esta computadora.',
+              style: TextStyle(
+                color: Color(0xFF8F2436),
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
           ],
         ],
       ),
     );
+  }
+
+  String _compactId(String value) {
+    final normalized = value.trim();
+    if (normalized.length <= 12) {
+      return normalized;
+    }
+    return '${normalized.substring(0, 6)}...${normalized.substring(normalized.length - 6)}';
   }
 }
 

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/database/app_database.dart';
@@ -133,7 +134,7 @@ class _SettingsPageState extends State<SettingsPage> {
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: DeviceStatusPanel(
                 onRefresh: _refreshDeviceStatus,
-                onClaimPrimary: _claimPrimaryDevice,
+                onCopyDeviceId: _copyDeviceId,
               ),
             ),
             const SizedBox(height: 8),
@@ -282,72 +283,27 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  Future<void> _claimPrimaryDevice() async {
-    final confirmed = await DangerousActionConfirmDialog.show(
-      context,
-      title: 'Reclamar esta PC como principal',
-      warning:
-          'Esta acción es PELIGROSA y puede dañar el sistema si se ejecuta '
-          'sin preparación. Antes de continuar:\n\n'
-          '• Debes haber contactado al desarrollador para coordinar el '
-          'traslado de la PC principal y entender los pasos a seguir.\n'
-          '• La otra PC dejará de tener permiso de escritura.\n'
-          '• Para que el traslado funcione correctamente, primero hay que '
-          'restablecer (reset completo) la app local en la otra PC, de lo '
-          'contrario podrías generar conflictos de sincronización y '
-          'pérdida de datos.\n'
-          '• Si no estás seguro de lo que haces, cancela y consulta antes.',
-      confirmLabel: 'Sí, reclamar esta PC',
-    );
-    if (!mounted || !confirmed) {
+  Future<void> _copyDeviceId() async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final deviceId = SystemConfigService.instance.currentDeviceId.trim();
+    if (deviceId.isEmpty) {
+      messenger?.showSnackBar(
+        const SnackBar(content: Text('No se encontro el ID de esta PC.')),
+      );
       return;
     }
 
-    final password = await showDialog<String>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const _PrimaryEditorPasswordDialog(),
-    );
-    if (!mounted || password == null) {
-      return;
-    }
-
-    final authService = context.read<AuthProvider>().authService;
-    final isValid = await authService.verifyAdminPassword(password: password);
+    await Clipboard.setData(ClipboardData(text: deviceId));
     if (!mounted) {
       return;
     }
-    if (!isValid) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Contrasena invalida. Solo un editor principal puede autorizar esta accion.',
-          ),
+    messenger?.showSnackBar(
+      const SnackBar(
+        content: Text(
+          'ID de esta PC copiado. Pegalo en el panel web para autorizarla.',
         ),
-      );
-      return;
-    }
-
-    final messenger = ScaffoldMessenger.maybeOf(context);
-    try {
-      await SystemConfigService.instance.registerCurrentDevice(
-        claimPrimary: true,
-      );
-      await SystemConfigService.instance.refresh();
-      if (!mounted) return;
-      final systemConfig = SystemConfigService.instance;
-      final message = systemConfig.canWrite
-          ? 'Esta PC quedó autorizada para escribir.'
-          : (systemConfig.deviceWriteReason.isEmpty
-                ? 'Esta PC sigue sin permiso de escritura.'
-                : systemConfig.deviceWriteReason);
-      messenger?.showSnackBar(SnackBar(content: Text(message)));
-    } catch (_) {
-      if (!mounted) return;
-      messenger?.showSnackBar(
-        const SnackBar(content: Text('No se pudo reclamar esta PC.')),
-      );
-    }
+      ),
+    );
   }
 
   Future<void> _runSyncRecoveryFromSettings() async {
@@ -423,90 +379,6 @@ class _SettingsPageState extends State<SettingsPage> {
         });
       }
     }
-  }
-}
-
-class _PrimaryEditorPasswordDialog extends StatefulWidget {
-  const _PrimaryEditorPasswordDialog();
-
-  @override
-  State<_PrimaryEditorPasswordDialog> createState() =>
-      _PrimaryEditorPasswordDialogState();
-}
-
-class _PrimaryEditorPasswordDialogState
-    extends State<_PrimaryEditorPasswordDialog> {
-  final TextEditingController _passwordController = TextEditingController();
-  bool _obscurePassword = true;
-  String? _error;
-
-  @override
-  void dispose() {
-    _passwordController.dispose();
-    super.dispose();
-  }
-
-  void _submit() {
-    final value = _passwordController.text.trim();
-    if (value.isEmpty) {
-      setState(() {
-        _error = 'Ingresa la contrasena del editor principal.';
-      });
-      return;
-    }
-    Navigator.of(context).pop(value);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      icon: const Icon(Icons.lock_open_rounded),
-      title: const Text('Autorizar editor principal'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Para habilitar escritura en esta PC, confirma con la contrasena del editor principal.',
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _passwordController,
-            autofocus: true,
-            obscureText: _obscurePassword,
-            onSubmitted: (_) => _submit(),
-            decoration: InputDecoration(
-              labelText: 'Contrasena',
-              errorText: _error,
-              suffixIcon: IconButton(
-                tooltip: _obscurePassword ? 'Mostrar' : 'Ocultar',
-                onPressed: () {
-                  setState(() {
-                    _obscurePassword = !_obscurePassword;
-                  });
-                },
-                icon: Icon(
-                  _obscurePassword
-                      ? Icons.visibility_off_outlined
-                      : Icons.visibility_outlined,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancelar'),
-        ),
-        FilledButton.icon(
-          onPressed: _submit,
-          icon: const Icon(Icons.check_circle_outline),
-          label: const Text('Validar y reclamar'),
-        ),
-      ],
-    );
   }
 }
 

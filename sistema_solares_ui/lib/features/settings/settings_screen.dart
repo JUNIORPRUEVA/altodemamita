@@ -15,11 +15,100 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  late final SettingsService _settingsService;
+  final TextEditingController _deviceIdController = TextEditingController();
+  final TextEditingController _deviceNameController = TextEditingController();
   Future<SettingsOverview>? _future;
   int _lastTick = -1;
+  bool _isActivatingDevice = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _settingsService = SettingsService(context.read<ApiClient>());
+  }
+
+  @override
+  void dispose() {
+    _deviceIdController.dispose();
+    _deviceNameController.dispose();
+    super.dispose();
+  }
 
   void _reload() {
     setState(() => _future = null);
+  }
+
+  Future<void> _activateDevice() async {
+    if (_isActivatingDevice) {
+      return;
+    }
+
+    final normalizedId = _deviceIdController.text.trim();
+    if (normalizedId.isEmpty) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          content: Text('Pega el ID de la PC que deseas autorizar.'),
+        ),
+      );
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Activar nueva PC'),
+        content: const Text(
+          'Esta accion revocara automaticamente la PC activa anterior y dejara solo este ID autorizado para escritura.\n\n¿Deseas continuar?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Activar esta PC'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _isActivatingDevice = true;
+    });
+
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    try {
+      await _settingsService.activateDeviceById(
+        deviceId: normalizedId,
+        deviceName: _deviceNameController.text,
+      );
+      if (!mounted) {
+        return;
+      }
+      messenger?.showSnackBar(
+        const SnackBar(content: Text('PC autorizada correctamente.')),
+      );
+      _reload();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      messenger?.showSnackBar(
+        SnackBar(content: Text('No se pudo activar el dispositivo: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isActivatingDevice = false;
+        });
+      }
+    }
   }
 
   Future<void> _openMobileSection({
@@ -38,7 +127,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final refreshTick = context.watch<RealtimeController>().refreshTick;
     if (_future == null || refreshTick != _lastTick) {
       _lastTick = refreshTick;
-      _future = SettingsService(context.read<ApiClient>()).fetchOverview();
+      _future = _settingsService.fetchOverview();
     }
 
     return FutureBuilder<SettingsOverview>(
@@ -259,6 +348,69 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         );
 
+        AuthorizedDeviceRecord? activeDevice;
+        for (final device in data.devices) {
+          if (device.isActive) {
+            activeDevice = device;
+            break;
+          }
+        }
+
+        final deviceControlCard = _SettingsCard(
+          title: 'PC autorizada para sincronizacion',
+          icon: Icons.computer_rounded,
+          accentColor: const Color(0xFF6E4B21),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _InfoTile(
+                title: 'PC activa',
+                value: activeDevice?.deviceName?.trim().isNotEmpty == true
+                    ? activeDevice!.deviceName!
+                    : (activeDevice?.deviceId ?? 'Ninguna'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _deviceIdController,
+                decoration: const InputDecoration(
+                  labelText: 'Pegar ID de la nueva PC',
+                  hintText: 'Ej: 8f7c... (32 caracteres hex)',
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _deviceNameController,
+                decoration: const InputDecoration(
+                  labelText: 'Nombre de PC (opcional)',
+                ),
+              ),
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                onPressed: _isActivatingDevice ? null : _activateDevice,
+                icon: _isActivatingDevice
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.verified_rounded),
+                label: Text(
+                  _isActivatingDevice ? 'Activando...' : 'Activar esta PC',
+                ),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'Al activar una nueva PC, el backend elimina cualquier otra PC autorizada y deja solo una activa.',
+                style: TextStyle(
+                  fontSize: 12.5,
+                  height: 1.45,
+                  color: Color(0xFF687487),
+                ),
+              ),
+            ],
+          ),
+        );
+
         final rolesCard = _SettingsCard(
           title: 'Roles disponibles',
           icon: Icons.badge_outlined,
@@ -444,6 +596,62 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
                 _MobileSettingsNavTile(
+                  icon: Icons.computer_rounded,
+                  title: 'PC autorizada',
+                  subtitle: activeDevice == null
+                      ? 'No hay PC activa'
+                      : (activeDevice.deviceName?.isNotEmpty == true
+                            ? activeDevice.deviceName!
+                            : activeDevice.deviceId),
+                  trailingLabel: 'Gestionar',
+                  onTap: () => _openMobileSection(
+                    title: 'PC autorizada',
+                    child: _MobileSettingsDetailSection(
+                      children: [
+                        _MobileSettingsFactRow(
+                          label: 'PC activa',
+                          value: activeDevice == null
+                              ? 'Ninguna'
+                              : (activeDevice.deviceName?.isNotEmpty == true
+                                    ? activeDevice.deviceName!
+                                    : activeDevice.deviceId),
+                        ),
+                        TextField(
+                          controller: _deviceIdController,
+                          decoration: const InputDecoration(
+                            labelText: 'Pegar ID de nueva PC',
+                          ),
+                        ),
+                        TextField(
+                          controller: _deviceNameController,
+                          decoration: const InputDecoration(
+                            labelText: 'Nombre de PC (opcional)',
+                          ),
+                        ),
+                        FilledButton.icon(
+                          onPressed: _isActivatingDevice
+                              ? null
+                              : _activateDevice,
+                          icon: _isActivatingDevice
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.verified_rounded),
+                          label: Text(
+                            _isActivatingDevice
+                                ? 'Activando...'
+                                : 'Activar esta PC',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                _MobileSettingsNavTile(
                   icon: Icons.badge_outlined,
                   title: 'Roles disponibles',
                   subtitle: '${data.roles.length} roles cargados',
@@ -544,6 +752,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               const SizedBox(height: 16),
                               usersCard,
                               const SizedBox(height: 16),
+                              deviceControlCard,
+                              const SizedBox(height: 16),
                               rolesCard,
                             ],
                           ),
@@ -559,6 +769,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       controlCard,
                       const SizedBox(height: 16),
                       usersCard,
+                      const SizedBox(height: 16),
+                      deviceControlCard,
                       const SizedBox(height: 16),
                       rolesCard,
                       const SizedBox(height: 16),

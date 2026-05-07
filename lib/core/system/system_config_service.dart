@@ -67,6 +67,7 @@ class SystemConfigService extends ChangeNotifier {
   bool _canWrite = true;
   DateTime? _lastDeviceValidatedAt;
   String _deviceWriteReason = '';
+  String _currentDeviceId = '';
 
   bool get isReadOnly => _isReadOnly;
   bool get isLoading => _isLoading;
@@ -75,6 +76,7 @@ class SystemConfigService extends ChangeNotifier {
   bool get canWrite => _canWrite;
   DateTime? get lastDeviceValidatedAt => _lastDeviceValidatedAt;
   String get deviceWriteReason => _deviceWriteReason;
+  String get currentDeviceId => _currentDeviceId;
 
   Future<void> initialize() async {
     _applyDeviceState(await _syncConfigRepository.loadDeviceWriteState());
@@ -91,6 +93,7 @@ class SystemConfigService extends ChangeNotifier {
 
     try {
       final settings = await _syncConfigRepository.loadSettings();
+      _currentDeviceId = settings.deviceId;
       if (!settings.isConfigured) {
         _updateState(readOnly: false);
         if (_lastDeviceValidatedAt == null) {
@@ -139,24 +142,12 @@ class SystemConfigService extends ChangeNotifier {
   }
 
   Future<void> registerCurrentDevice({bool claimPrimary = false}) async {
-    final settings = await _syncConfigRepository.loadSettings();
-    if (!settings.isConfigured || settings.jwtToken.trim().isEmpty) {
-      return;
+    // Manual device policy enabled: backend admin activates device IDs explicitly.
+    // Keep method for backward compatibility with existing call sites.
+    if (claimPrimary) {
+      // Intentionally ignored. Local claim is disabled.
     }
-
-    final state = await _requestDeviceRegistration(
-      baseUrl: settings.normalizedBaseUrl,
-      jwtToken: settings.jwtToken,
-      deviceId: settings.deviceId,
-      claimPrimary: claimPrimary,
-    );
-    if (state == null) {
-      return;
-    }
-
-    _applyDeviceState(state);
-    await _syncConfigRepository.saveDeviceWriteState(state);
-    notifyListeners();
+    await refresh();
   }
 
   Future<void> _refreshReadOnlyState(String baseUrl) async {
@@ -177,9 +168,7 @@ class SystemConfigService extends ChangeNotifier {
         ? _unwrapEnvelope(decoded)
         : (decoded is Map
               ? _unwrapEnvelope(
-                  decoded.map(
-                    (key, value) => MapEntry(key.toString(), value),
-                  ),
+                  decoded.map((key, value) => MapEntry(key.toString(), value)),
                 )
               : const <String, dynamic>{});
 
@@ -193,68 +182,11 @@ class SystemConfigService extends ChangeNotifier {
     required String jwtToken,
     required String deviceId,
   }) async {
-    try {
-      return await _fetchDeviceState(
-        baseUrl: baseUrl,
-        jwtToken: jwtToken,
-        deviceId: deviceId,
-      );
-    } catch (_) {
-      final recoveredState = await _requestDeviceRegistration(
-        baseUrl: baseUrl,
-        jwtToken: jwtToken,
-        deviceId: deviceId,
-        claimPrimary: false,
-      );
-      if (recoveredState != null) {
-        return recoveredState;
-      }
-      rethrow;
-    }
-  }
-
-  Future<DeviceWriteState?> _requestDeviceRegistration({
-    required String baseUrl,
-    required String jwtToken,
-    required String deviceId,
-    required bool claimPrimary,
-  }) async {
-    if (deviceId.trim().isEmpty) {
-      return null;
-    }
-
-    final uri = Uri.parse(
-      '$baseUrl/devices/${claimPrimary ? 'claim-primary' : 'register'}',
+    return _fetchDeviceState(
+      baseUrl: baseUrl,
+      jwtToken: jwtToken,
+      deviceId: deviceId,
     );
-    final request = await _httpClient.postUrl(uri);
-    request.headers.set(HttpHeaders.acceptHeader, ContentType.json.mimeType);
-    request.headers.contentType = ContentType.json;
-    request.headers.set(
-      HttpHeaders.authorizationHeader,
-      'Bearer ${jwtToken.trim()}',
-    );
-    request.headers.set('x-device-id', deviceId);
-    request.write(
-      jsonEncode({
-        'device_id': deviceId,
-        'device_name': _deviceName(),
-        'platform': Platform.operatingSystem,
-      }),
-    );
-
-    final response = await request.close();
-    final body = await utf8.decoder.bind(response).join();
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      return null;
-    }
-
-    final decoded = body.trim().isEmpty
-        ? const <String, dynamic>{}
-        : jsonDecode(body);
-    final payload = decoded is Map<String, dynamic>
-        ? _unwrapEnvelope(decoded)
-        : const <String, dynamic>{};
-    return _deviceStateFromPayload(payload);
   }
 
   Map<String, dynamic> _unwrapEnvelope(Map<String, dynamic> payload) {
@@ -336,17 +268,9 @@ class SystemConfigService extends ChangeNotifier {
         return 'Este equipo no es la PC principal autorizada para escribir.';
       case 'device_not_registered':
       case 'missing_device_id':
-        return 'Este equipo aun no esta registrado para escribir.';
+        return 'Este equipo aun no esta autorizado. Copia el ID de esta PC y activalo en el panel web.';
       default:
         return 'Este dispositivo no esta autorizado para escribir.';
     }
-  }
-
-  String _deviceName() {
-    final computerName = Platform.environment['COMPUTERNAME']?.trim();
-    if (computerName != null && computerName.isNotEmpty) {
-      return computerName;
-    }
-    return Platform.localHostname;
   }
 }

@@ -63,7 +63,7 @@ export class DeviceWriteGuard implements CanActivate {
       clientType: user.type,
       deviceId,
       roles: user.roles,
-      autoRegisterDesktop: true,
+      autoRegisterDesktop: false,
     });
     request.deviceAuthState = deviceState;
 

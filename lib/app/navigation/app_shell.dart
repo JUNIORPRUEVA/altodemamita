@@ -494,6 +494,12 @@ class _AppShellState extends State<AppShell> {
                 : systemConfig.deviceWriteReason);
 
       messenger?.showSnackBar(SnackBar(content: Text(message)));
+
+      // Si se acaba de ganar permiso de escritura, forzar sync inmediato
+      // para vaciar la cola de items que estaban bloqueados por WRITE_BLOCKED.
+      if (systemConfig.canWrite && claimPrimary) {
+        unawaited(_syncService.syncNow());
+      }
     } catch (_) {
       if (!mounted) {
         return;
@@ -668,6 +674,11 @@ class _AppShellState extends State<AppShell> {
             ),
             body: Column(
               children: [
+                _DeviceWriteBlockedBanner(
+                  onGoToSettings: canAccessSettings
+                      ? () => _openModule(AppModule.settings)
+                      : null,
+                ),
                 Expanded(child: currentPage),
                 _ShellFooter(companyName: _companyDisplayName),
               ],
@@ -739,6 +750,11 @@ class _AppShellState extends State<AppShell> {
                               hasInternet: _hasInternet,
                               onOpenProfile: _openProfile,
                               onRefreshDeviceAccess: _refreshDeviceAccess,
+                            ),
+                            _DeviceWriteBlockedBanner(
+                              onGoToSettings: canAccessSettings
+                                  ? () => _openModule(AppModule.settings)
+                                  : null,
                             ),
                             Expanded(child: currentPage),
                             _ShellFooter(companyName: _companyDisplayName),
@@ -1978,6 +1994,84 @@ class _HeaderProfileButton extends StatelessWidget {
       context: context,
       message: 'Mi perfil',
       child: profileButton,
+    );
+  }
+}
+
+/// Banner visible que aparece cuando el dispositivo actual no tiene permiso de
+/// escritura en la nube (PC secundaria). Guía al usuario hacia Configuración
+/// para que pueda reclamar la PC como principal.
+class _DeviceWriteBlockedBanner extends StatelessWidget {
+  const _DeviceWriteBlockedBanner({this.onGoToSettings});
+
+  final VoidCallback? onGoToSettings;
+
+  @override
+  Widget build(BuildContext context) {
+    final systemConfig = context.watch<SystemConfigService>();
+    final auth = context.watch<AuthProvider>();
+
+    final shouldShow =
+        auth.currentUser != null &&
+        !systemConfig.isReadOnly &&
+        !systemConfig.canWrite &&
+        systemConfig.lastDeviceValidatedAt != null;
+
+    if (!shouldShow) {
+      return const SizedBox.shrink();
+    }
+
+    final reason = systemConfig.deviceWriteReason.trim();
+    final message = reason.isNotEmpty
+        ? reason
+        : 'Esta PC no está autorizada para subir datos a la nube.';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: const BoxDecoration(
+        color: Color(0xFFFFF3CD),
+        border: Border(
+          bottom: BorderSide(color: Color(0xFFFFCF66), width: 1),
+        ),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.lock_outlined,
+            size: 16,
+            color: Color(0xFF92600A),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(
+                color: Color(0xFF7D4E00),
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          if (onGoToSettings != null) ...[
+            const SizedBox(width: 8),
+            TextButton(
+              onPressed: onGoToSettings,
+              style: TextButton.styleFrom(
+                foregroundColor: const Color(0xFF92600A),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                textStyle: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              child: const Text('Ir a Configuración →'),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }
