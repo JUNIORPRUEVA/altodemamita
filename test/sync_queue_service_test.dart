@@ -201,6 +201,47 @@ void main() {
     expect(queueRows.containsKey('sellers'), isFalse);
   });
 
+  test('elimina deletes huerfanos antes de sincronizar la cola', () async {
+    apiClient = _RecordingSyncApiClient();
+    service = SyncQueueService.test(
+      appDatabase: appDatabase,
+      configRepository: configRepository,
+      apiClient: apiClient,
+      conflictService: SyncConflictService(appDatabase: appDatabase),
+    );
+
+    service.registerRepository(
+      _FakeSyncRepository('sales', pendingSyncIds: const {}),
+    );
+
+    await _insertQueuedRecord(
+      appDatabase,
+      scope: 'sales',
+      syncId: 'sale-delete-orphan',
+      operation: 'delete',
+      payloadJson:
+          '{"sync_id":"sale-delete-orphan","deleted_at":"2026-05-07T00:00:00.000Z"}',
+    );
+    final db = await appDatabase.database;
+    await db.update(
+      DatabaseSchema.syncQueueTable,
+      {
+        'last_error':
+            'Conflicto de sincronizacion: el servidor tiene una version mas reciente',
+        'attempt_count': 3,
+      },
+      where: 'scope = ? AND record_sync_id = ?',
+      whereArgs: ['sales', 'sale-delete-orphan'],
+    );
+
+    final processed = await service.processQueue();
+    final queueRows = await _readQueueRows(appDatabase);
+
+    expect(processed, 0);
+    expect(apiClient.uploadedScopes, isEmpty);
+    expect(queueRows.containsKey('sales'), isFalse);
+  });
+
   test('elimina scopes no soportados de la cola', () async {
     apiClient = _RecordingSyncApiClient();
     service = SyncQueueService.test(

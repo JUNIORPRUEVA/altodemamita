@@ -1247,7 +1247,7 @@ class SyncQueueService {
     final db = await _appDatabase.database;
     final placeholders = List.filled(deleteIds.length, '?').join(', ');
     final queueRows = await db.rawQuery(
-      'SELECT record_sync_id, last_error '
+      'SELECT record_sync_id, last_error, attempt_count '
       'FROM ${DatabaseSchema.syncQueueTable} '
       'WHERE scope = ? AND operation = ? '
       'AND record_sync_id IN ($placeholders)',
@@ -1267,6 +1267,22 @@ class SyncQueueService {
       for (final row in sourceRows)
         row['sync_id']?.toString().trim() ?? '': row,
     };
+    final orphanQueueIds = queueRows
+        .where((row) {
+          final lastError = row['last_error']?.toString().trim() ?? '';
+          final attempts = switch (row['attempt_count']) {
+            final int value => value,
+            final num value => value.toInt(),
+            _ => int.tryParse(row['attempt_count']?.toString() ?? '0') ?? 0,
+          };
+          // Only prune orphan deletes that have already failed/retried.
+          // Fresh deletes without source row still get one upload attempt.
+          return lastError.isNotEmpty || attempts > 0;
+        })
+        .map((row) => row['record_sync_id']?.toString().trim() ?? '')
+        .where((value) => value.isNotEmpty)
+        .where((value) => !sourceRowBySyncId.containsKey(value))
+        .toSet();
     final failedIds = sourceRows
         .where(
           (row) =>
@@ -1304,7 +1320,8 @@ class SyncQueueService {
           );
     final acknowledgedQueueIds = legacyQueueIds
         .where((id) => remoteDeletedIds.contains(id))
-        .toSet();
+        .toSet()
+      ..addAll(orphanQueueIds);
     final retryQueueIds = legacyQueueIds.difference(acknowledgedQueueIds);
     final now = DateTime.now().toIso8601String();
     await db.transaction((txn) async {
@@ -1409,6 +1426,14 @@ class SyncQueueService {
         entity: scope,
         result: 'ok',
         extra: {'count': acknowledgedQueueIds.length},
+      );
+    }
+    if (orphanQueueIds.isNotEmpty) {
+      await _syncLogger.log(
+        action: 'delete_queue_orphan_pruned',
+        entity: scope,
+        result: 'ok',
+        extra: {'count': orphanQueueIds.length},
       );
     }
     if (failedIds.isNotEmpty ||
