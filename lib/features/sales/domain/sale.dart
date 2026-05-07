@@ -1,6 +1,7 @@
 class Sale {
   const Sale({
     this.id,
+    this.syncId,
     required this.clientId,
     required this.lotId,
     required this.userId,
@@ -25,6 +26,7 @@ class Sale {
   });
 
   final int? id;
+  final String? syncId;
   final int clientId;
   final int lotId;
   final int userId;
@@ -50,6 +52,7 @@ class Sale {
   factory Sale.fromMap(Map<String, Object?> map) {
     return Sale(
       id: map['id'] as int?,
+      syncId: (map['sync_id'] as String?)?.trim(),
       clientId: map['cliente_id'] as int? ?? 0,
       lotId: map['solar_id'] as int? ?? 0,
       userId: map['usuario_id'] as int? ?? 0,
@@ -58,16 +61,16 @@ class Sale {
       salePrice: _toDouble(map['precio_venta']),
       downPaymentPercentage: _toDouble(map['inicial_porcentaje']),
       downPaymentAmount: _toDouble(map['inicial_monto']),
-        requiredInitialPayment: _toDouble(map['monto_inicial_requerido']),
-        paidInitialPayment: _toDouble(map['monto_inicial_pagado']),
-        pendingInitialPayment: _toDouble(map['monto_inicial_pendiente']),
-        minimumReserveAmount: map['monto_apartado_minimo'] == null
+      requiredInitialPayment: _toDouble(map['monto_inicial_requerido']),
+      paidInitialPayment: _toDouble(map['monto_inicial_pagado']),
+      pendingInitialPayment: _toDouble(map['monto_inicial_pendiente']),
+      minimumReserveAmount: map['monto_apartado_minimo'] == null
           ? null
           : _toDouble(map['monto_apartado_minimo']),
-        initialPaymentDeadline: (map['fecha_limite_inicial'] as String?) == null
+      initialPaymentDeadline: (map['fecha_limite_inicial'] as String?) == null
           ? null
           : DateTime.parse(map['fecha_limite_inicial'] as String),
-        activationDate: (map['fecha_activacion'] as String?) == null
+      activationDate: (map['fecha_activacion'] as String?) == null
           ? null
           : DateTime.parse(map['fecha_activacion'] as String),
       financedBalance: _toDouble(map['saldo_financiado']),
@@ -83,6 +86,7 @@ class Sale {
   Map<String, Object?> toMap() {
     return {
       'id': id,
+      'sync_id': syncId,
       'cliente_id': clientId,
       'solar_id': lotId,
       'usuario_id': userId,

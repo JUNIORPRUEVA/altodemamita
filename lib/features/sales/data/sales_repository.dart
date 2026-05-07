@@ -306,14 +306,13 @@ class SalesRepository {
         final existingSale = await txn.query(
           DatabaseSchema.salesTable,
           columns: ['id'],
-            where: 'solar_id = ? AND deleted_at IS NULL AND estado != ?',
-            whereArgs: [draft.lotId, 'cancelada'],
+          where: 'solar_id = ? AND deleted_at IS NULL AND estado != ?',
+          whereArgs: [draft.lotId, 'cancelada'],
           limit: 1,
         );
-          if (existingSale.isNotEmpty) {
-            throw StateError('Ya existe una venta registrada para este solar.');
-          }
-
+        if (existingSale.isNotEmpty) {
+          throw StateError('Ya existe una venta registrada para este solar.');
+        }
 
         if (draft.downPaymentPercentage < 0 ||
             draft.downPaymentPercentage > 100) {
@@ -1465,6 +1464,11 @@ class SalesRepository {
     return SaleDetail(
       sale: Sale(
         id: localSaleId,
+        syncId: item['syncId']?.toString().trim().isNotEmpty == true
+            ? item['syncId']?.toString().trim()
+            : (item['sync_id']?.toString().trim().isNotEmpty == true
+                  ? item['sync_id']?.toString().trim()
+                  : remoteSaleId),
         clientId: _registerNestedId('clients', client),
         lotId: _registerNestedId('products', product),
         userId: _registerNestedId('users', user),

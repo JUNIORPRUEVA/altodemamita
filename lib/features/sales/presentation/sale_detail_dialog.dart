@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../payments/data/payments_repository.dart';
 import '../../payments/presentation/payment_history_fullscreen.dart';
@@ -418,6 +419,7 @@ class _TopDetailsBand extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final sale = detail.sale;
+    final syncId = sale.syncId?.trim();
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -447,6 +449,16 @@ class _TopDetailsBand extends StatelessWidget {
                   'Inicial',
                   '${_money(sale.paidInitialPayment)} / ${_money(sale.requiredInitialPayment)}'
                       '${sale.initialPaymentDeadline == null ? '' : ' · Límite ${_formatDate(sale.initialPaymentDeadline!)}'}',
+                ),
+                _CompactInfoItem(
+                  'ID local',
+                  sale.id?.toString() ?? 'No disponible',
+                  copyValue: sale.id?.toString(),
+                ),
+                _CompactInfoItem(
+                  'Sync ID',
+                  (syncId?.isNotEmpty ?? false) ? syncId! : 'No disponible',
+                  copyValue: (syncId?.isNotEmpty ?? false) ? syncId : null,
                 ),
               ],
             ),
@@ -1139,11 +1151,7 @@ class _MetricDivider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 1,
-      height: 32,
-      color: const Color(0xFFE4EAF2),
-    );
+    return Container(width: 1, height: 32, color: const Color(0xFFE4EAF2));
   }
 }
 
@@ -1169,7 +1177,11 @@ class _TopInfoColumn extends StatelessWidget {
         ),
         const SizedBox(height: 10),
         for (var index = 0; index < items.length; index++) ...[
-          _CompactInfoRow(label: items[index].label, value: items[index].value),
+          _CompactInfoRow(
+            label: items[index].label,
+            value: items[index].value,
+            copyValue: items[index].copyValue,
+          ),
           if (index != items.length - 1) const SizedBox(height: 8),
         ],
       ],
@@ -1178,20 +1190,41 @@ class _TopInfoColumn extends StatelessWidget {
 }
 
 class _CompactInfoItem {
-  const _CompactInfoItem(this.label, this.value);
+  const _CompactInfoItem(this.label, this.value, {this.copyValue});
 
   final String label;
   final String value;
+  final String? copyValue;
 }
 
 class _CompactInfoRow extends StatelessWidget {
-  const _CompactInfoRow({required this.label, required this.value});
+  const _CompactInfoRow({
+    required this.label,
+    required this.value,
+    this.copyValue,
+  });
 
   final String label;
   final String value;
+  final String? copyValue;
+
+  Future<void> _copyValue(BuildContext context) async {
+    final valueToCopy = copyValue?.trim();
+    if (valueToCopy == null || valueToCopy.isEmpty) {
+      return;
+    }
+    await Clipboard.setData(ClipboardData(text: valueToCopy));
+    if (!context.mounted) {
+      return;
+    }
+    ScaffoldMessenger.maybeOf(
+      context,
+    )?.showSnackBar(SnackBar(content: Text('$label copiado')));
+  }
 
   @override
   Widget build(BuildContext context) {
+    final canCopy = (copyValue?.trim().isNotEmpty ?? false);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1219,6 +1252,21 @@ class _CompactInfoRow extends StatelessWidget {
             ),
           ),
         ),
+        if (canCopy) ...[
+          const SizedBox(width: 4),
+          IconButton(
+            onPressed: () => _copyValue(context),
+            icon: const Icon(Icons.copy_rounded, size: 14),
+            tooltip: 'Copiar $label',
+            visualDensity: VisualDensity.compact,
+            style: IconButton.styleFrom(
+              minimumSize: const Size(22, 22),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              foregroundColor: const Color(0xFF6B7494),
+              padding: const EdgeInsets.all(2),
+            ),
+          ),
+        ],
       ],
     );
   }
