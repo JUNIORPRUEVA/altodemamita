@@ -146,6 +146,13 @@ class SyncApiClient {
     }
 
     final uri = Uri.parse('${settings.normalizedBaseUrl}/sync/upload');
+    _log(
+      '[sync-upload] START '
+      'url=$uri '
+      'deviceId=${settings.deviceId.trim()} '
+      'jwtPresent=${settings.jwtToken.trim().isNotEmpty} '
+      'scopeCounts=${_scopeCountsSummary(normalizedRecords)}',
+    );
     final payload = <String, Object?>{
       'device_id': settings.deviceId,
       'records': normalizedRecords,
@@ -253,8 +260,17 @@ class SyncApiClient {
         _log('[sync-download] STATUS ${response.statusCode}');
       }
       responseBody = await utf8.decoder.bind(response).join();
+      if (uri.path.toLowerCase().contains('/sync/upload')) {
+        _log(
+          '[sync-upload] STATUS ${response.statusCode} '
+          'body=${_responsePreview(responseBody)}',
+        );
+      }
     } catch (error) {
       _log('ERROR -> request failed ${method.toUpperCase()} $uri : $error');
+      if (uri.path.toLowerCase().contains('/sync/upload')) {
+        _log('[sync-upload] ERROR request_failed message=$error');
+      }
       rethrow;
     }
 
@@ -420,6 +436,31 @@ class SyncApiClient {
             .isNotEmpty)
           scope: recordsByScope[scope] ?? const <Map<String, Object?>>[],
     };
+  }
+
+  String _scopeCountsSummary(Map<String, Object?> recordsPayload) {
+    if (recordsPayload.isEmpty) {
+      return '{}';
+    }
+
+    final parts = <String>[];
+    for (final entry in recordsPayload.entries) {
+      final value = entry.value;
+      final count = value is List ? value.length : 0;
+      parts.add('${entry.key}:$count');
+    }
+    return '{${parts.join(',')}}';
+  }
+
+  String _responsePreview(String body) {
+    final normalized = body.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (normalized.isEmpty) {
+      return '<empty>';
+    }
+    if (normalized.length <= 300) {
+      return normalized;
+    }
+    return '${normalized.substring(0, 300)}...';
   }
 
   List<SyncConflictItem> _readConflictList(Object? value) {

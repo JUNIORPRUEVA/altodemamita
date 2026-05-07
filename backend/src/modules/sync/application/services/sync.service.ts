@@ -1,4 +1,4 @@
-import { BadRequestException, HttpException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, HttpException, HttpStatus, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { InstallmentStatus, Prisma, RoleCode, SaleStatus, SyncStatus } from '@prisma/client';
 
@@ -48,6 +48,7 @@ type SyncDownloadScope =
 @Injectable()
 export class SyncService {
   private readonly jobs = new Map<string, SyncQueuedJob>();
+  private readonly logger = new Logger(SyncService.name);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -58,6 +59,10 @@ export class SyncService {
   async upload(batch: SyncUploadDto) {
     const records = this.normalizeRecords(batch.records);
     const counts = this.extractCounts(records);
+    this.logger.log(
+      `[sync-upload] service_start deviceId=${(batch.device_id ?? '').trim() || '<missing>'} ` +
+        `counts=${this.formatCountsForLog(counts)}`,
+    );
     if (Object.values(counts).every((value) => value === 0)) {
       throw new BadRequestException('El lote de sincronización está vacío.');
     }
@@ -89,6 +94,11 @@ export class SyncService {
       job.status = 'completed';
       job.finishedAt = new Date().toISOString();
       job.result = result;
+      this.logger.log(
+        `[sync-upload] service_completed jobId=${jobId} ` +
+          `uploaded=${this.formatCountsForLog(result.uploaded)} ` +
+          `affectedSales=${result.affectedSales.length}`,
+      );
       this.realtimeEvents.publishSyncCompleted(jobId, result);
 
       return {
@@ -106,9 +116,18 @@ export class SyncService {
       job.status = 'failed';
       job.finishedAt = new Date().toISOString();
       job.error = error instanceof Error ? error.message : 'Error desconocido durante la sincronización.';
+      this.logger.error(
+        `[sync-upload] service_failed jobId=${jobId} deviceId=${(batch.device_id ?? '').trim() || '<missing>'} error=${job.error}`,
+      );
       this.realtimeEvents.publishSyncFailed(jobId, job.error);
       throw error;
     }
+  }
+
+  private formatCountsForLog(counts: Record<string, number>): string {
+    return `{${Object.entries(counts)
+      .map(([scope, count]) => `${scope}:${count}`)
+      .join(', ')}}`;
   }
 
   getJob(jobId: string) {

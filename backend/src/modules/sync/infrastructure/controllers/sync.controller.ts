@@ -31,12 +31,53 @@ export class SyncController {
   @Post('upload')
   @HttpCode(HttpStatus.OK)
   @RequirePermissions(PERMISSIONS.syncManage)
-  upload(
+  async upload(
     @Body() dto: SyncUploadDto,
-    @CurrentUser() user: { type: 'desktop' | 'panel'; roles: string[] },
+    @CurrentUser() user: AuthenticatedUser,
+    @Headers('x-device-id') headerDeviceId?: string,
   ): Promise<Record<string, unknown>> {
     assertOperationalAccess(user, 'La sincronizacion operativa');
-    return this.syncService.upload(dto);
+    const headerValue = (headerDeviceId ?? '').trim();
+    const bodyValue = (dto.device_id ?? '').trim();
+    const effectiveDeviceId = headerValue || bodyValue;
+    const inputCounts = {
+      users: dto.records.users?.length ?? 0,
+      clients: dto.records.clients?.length ?? 0,
+      products: dto.records.products?.length ?? 0,
+      sellers: dto.records.sellers?.length ?? 0,
+      sales: dto.records.sales?.length ?? 0,
+      installments: dto.records.installments?.length ?? 0,
+      payments: dto.records.payments?.length ?? 0,
+    };
+    this.logger.log(
+      `[sync-upload] request userId=${user.sub} x-device-id=${headerValue || '<missing>'} bodyDeviceId=${bodyValue || '<missing>'} ` +
+        `effectiveDeviceId=${effectiveDeviceId || '<missing>'} autorizado=yes ` +
+        `counts={users:${inputCounts.users}, clients:${inputCounts.clients}, products:${inputCounts.products}, sellers:${inputCounts.sellers}, sales:${inputCounts.sales}, installments:${inputCounts.installments}, payments:${inputCounts.payments}}`,
+    );
+
+    try {
+      const result = await this.syncService.upload(dto);
+      const records =
+        result['records'] && typeof result['records'] === 'object'
+          ? (result['records'] as Partial<SyncUploadDto['records']>)
+          : {};
+      const countOf = (scope: keyof SyncUploadDto['records']): number => {
+        const value = records[scope];
+        return Array.isArray(value) ? value.length : 0;
+      };
+
+      this.logger.log(
+        `[sync-upload] response userId=${user.sub} x-device-id=${effectiveDeviceId || '<missing>'} jobId=${result['jobId'] ?? '<unknown>'} status=${result['status'] ?? '<unknown>'} ` +
+          `ackCounts={users:${countOf('users')}, clients:${countOf('clients')}, products:${countOf('products')}, sellers:${countOf('sellers')}, sales:${countOf('sales')}, installments:${countOf('installments')}, payments:${countOf('payments')}}`,
+      );
+
+      return result;
+    } catch (error) {
+      this.logger.error(
+        `[sync-upload] failed userId=${user.sub} x-device-id=${effectiveDeviceId || '<missing>'} autorizado=no error=${error}`,
+      );
+      throw error;
+    }
   }
 
   @Get('jobs/:jobId')

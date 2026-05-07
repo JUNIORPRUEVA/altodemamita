@@ -614,6 +614,14 @@ class SyncQueueService {
     try {
       final settings = await _configRepository.loadSettings();
       if (!settings.isConfigured) {
+        const message =
+            'No se ejecuto subida hacia la nube. Falta configuracion de sincronizacion (JWT/baseUrl).';
+        _log('[sync-upload] SKIPPED -> $message');
+        await _configRepository.saveLastRun(
+          errorMessage: message,
+          status: SyncRuntimeStatus.pending,
+        );
+        await _refreshState(lastError: message);
         return 0;
       }
 
@@ -712,6 +720,12 @@ class SyncQueueService {
           }
 
           try {
+            _log(
+              '[sync-upload] START '
+              'scope=$scope recordSyncId=${entryItems.single.recordSyncId} '
+              'operation=${entryItems.single.operation} pending=${_state.pendingCount} '
+              'includeDeferred=$includeDeferred',
+            );
             final response = await _apiClient.uploadQueuedRecords(
               settings: settings,
               recordsByScope: {
@@ -737,6 +751,11 @@ class SyncQueueService {
                 .toList(growable: false);
 
             if (acknowledgedSyncIds.isNotEmpty) {
+              _log(
+                '[sync-upload] ACK '
+                'scope=$scope acked=${acknowledgedSyncIds.length} '
+                'recordSyncIds=${acknowledgedSyncIds.join(',')}',
+              );
               await repository.markAsSynced(acknowledgedSyncIds);
               await _deleteQueuedRecords(scope, acknowledgedSyncIds);
               if (scope == 'products') {
@@ -768,6 +787,11 @@ class SyncQueueService {
                 .map((item) => item.recordSyncId)
                 .toList(growable: false);
             if (unconfirmedIds.isNotEmpty) {
+              _log(
+                '[sync-upload] UNCONFIRMED '
+                'scope=$scope count=${unconfirmedIds.length} '
+                'recordSyncIds=${unconfirmedIds.join(',')}',
+              );
               await _scheduleRetry(
                 scope: scope,
                 recordSyncIds: unconfirmedIds,
@@ -781,6 +805,11 @@ class SyncQueueService {
             // Cursors must only move forward from download payloads to avoid
             // skipping historical records on first sync of a new device.
           } on SyncConflictException catch (error) {
+            _log(
+              '[sync-upload] CONFLICT '
+              'scope=$scope recordSyncId=${entryItems.single.recordSyncId} '
+              'message=${error.message}',
+            );
             await _syncLogger.log(
               action: 'upload',
               entity: scope,
@@ -872,6 +901,11 @@ class SyncQueueService {
               unavailableScopes.add(scope);
             }
           } on SocketException catch (error) {
+            _log(
+              '[sync-upload] SOCKET_ERROR '
+              'scope=$scope recordSyncId=${entryItems.single.recordSyncId} '
+              'message=${error.message}',
+            );
             await _syncLogger.log(
               action: 'upload',
               entity: scope,
@@ -890,6 +924,11 @@ class SyncQueueService {
             );
             unavailableScopes.add(scope);
           } on HttpException catch (error) {
+            _log(
+              '[sync-upload] HTTP_ERROR '
+              'scope=$scope recordSyncId=${entryItems.single.recordSyncId} '
+              'message=${error.message}',
+            );
             if (_isUnauthorizedHttpError(error)) {
               await _pauseQueueForAuthRequired(
                 scope: scope,
@@ -934,6 +973,11 @@ class SyncQueueService {
             );
             unavailableScopes.add(scope);
           } catch (error) {
+            _log(
+              '[sync-upload] UNEXPECTED_ERROR '
+              'scope=$scope recordSyncId=${entryItems.single.recordSyncId} '
+              'message=$error',
+            );
             await _syncLogger.log(
               action: 'upload',
               entity: scope,

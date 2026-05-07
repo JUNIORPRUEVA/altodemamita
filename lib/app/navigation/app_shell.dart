@@ -170,6 +170,9 @@ class _AppShellState extends State<AppShell> {
   int _internetProbeFailures = 0;
   StreamSubscription<List<ConnectivityResult>>? _internetSubscription;
   Timer? _sidebarAutoCollapseTimer;
+  AuthProvider? _authProvider;
+  bool _lastAuthIsAuthenticated = false;
+  bool _lastAuthIsOnline = false;
 
   @override
   void initState() {
@@ -186,12 +189,29 @@ class _AppShellState extends State<AppShell> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final nextAuthProvider = context.read<AuthProvider>();
+    if (identical(_authProvider, nextAuthProvider)) {
+      return;
+    }
+
+    _authProvider?.removeListener(_handleAuthProviderChanged);
+    _authProvider = nextAuthProvider;
+    _lastAuthIsAuthenticated = nextAuthProvider.isAuthenticated;
+    _lastAuthIsOnline = nextAuthProvider.isOnline;
+    _authProvider?.addListener(_handleAuthProviderChanged);
+  }
+
+  @override
   void dispose() {
     _sidebarAutoCollapseTimer?.cancel();
     _sidebarAutoCollapseTimer = null;
     unawaited(_internetSubscription?.cancel());
     _internetSubscription = null;
     _syncQueueService.setCloudSessionExpiredHandler(null);
+    _authProvider?.removeListener(_handleAuthProviderChanged);
+    _authProvider = null;
     _syncManager.removeListener(_handleSyncManagerChanged);
     _syncManager.dispose();
     _syncConflictService.dispose();
@@ -199,6 +219,33 @@ class _AppShellState extends State<AppShell> {
     _syncQueueService.dispose();
     _syncService.dispose();
     super.dispose();
+  }
+
+  void _handleAuthProviderChanged() {
+    final auth = _authProvider;
+    if (auth == null || !mounted) {
+      return;
+    }
+
+    final becameAuthenticated =
+        !_lastAuthIsAuthenticated && auth.isAuthenticated;
+    final recoveredOnline = !_lastAuthIsOnline && auth.isOnline;
+    _lastAuthIsAuthenticated = auth.isAuthenticated;
+    _lastAuthIsOnline = auth.isOnline;
+
+    if (!auth.isAuthenticated) {
+      return;
+    }
+
+    if (becameAuthenticated || recoveredOnline) {
+      unawaited(_resumeSyncPipelineAfterAuth());
+    }
+  }
+
+  Future<void> _resumeSyncPipelineAfterAuth() async {
+    _syncService.resetCloudSession();
+    await _syncManager.start();
+    await _syncQueueService.syncPending();
   }
 
   void _handleSyncManagerChanged() {
