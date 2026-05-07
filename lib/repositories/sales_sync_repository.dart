@@ -422,9 +422,12 @@ class SalesSyncRepository implements SyncRepository {
           {
             'saldo_pendiente': pendingBalance,
             'estado': pendingBalance <= 0.009 ? 'pagada' : 'activa',
-            'fecha_actualizacion': nowIso,
-            // Pending so the corrected saldo_pendiente reaches the server.
-            'sync_status': DatabaseSchema.syncStatusPending,
+            // Do NOT update fecha_actualizacion or sync_status here.
+            // syncSaleAggregates on the server recalculates outstandingBalance
+            // from payments after every payment upload. Marking the sale as
+            // pending causes a permanent conflict loop because the server bumps
+            // sale.updatedAt (via syncSaleAggregates) AFTER the client reconcile
+            // timestamp, so the upload always loses the conflict check.
           },
           where: 'id = ? AND deleted_at IS NULL',
           whereArgs: [saleId],

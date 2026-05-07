@@ -220,7 +220,7 @@ class SyncQueueService {
 
     final db = await _appDatabase.database;
     final rows = await db.rawQuery(
-      'SELECT DISTINCT scope, record_sync_id '
+      'SELECT DISTINCT scope, record_sync_id, strategy '
       'FROM ${DatabaseSchema.conflictLogsTable} '
       'WHERE resolved_at IS NULL',
     );
@@ -229,6 +229,12 @@ class SyncQueueService {
     for (final row in rows) {
       final scope = row['scope']?.toString().trim() ?? '';
       if (scope.isEmpty || !normalizedScopes.contains(scope)) {
+        continue;
+      }
+      final strategy = row['strategy']?.toString().trim().toLowerCase() ?? '';
+      // Manual conflicts require explicit server-wins reconciliation and should
+      // not be auto-requeued, otherwise the same stale payload can loop in 409.
+      if (strategy == SyncConflictStrategy.manual.storageValue) {
         continue;
       }
       final recordSyncId = row['record_sync_id']?.toString().trim() ?? '';
