@@ -1602,6 +1602,7 @@ class _SaleDetailViewModel {
     var totalInterest = 0.0;
     var totalPlan = 0.0;
     var paidInstallmentsCount = 0;
+    var overdueInstallmentCount = 0;
 
     for (final installment in installmentMaps) {
       final installmentSync = _map(installment['syncPayload']);
@@ -1641,6 +1642,9 @@ class _SaleDetailViewModel {
       totalPlan += totalAmount;
       if (pendingAmount <= 0.009 || statusRaw.toLowerCase() == 'paid') {
         paidInstallmentsCount++;
+      }
+      if (statusLabel == 'vencida' || statusLabel == 'vencida parcial') {
+        overdueInstallmentCount++;
       }
 
       installments.add(
