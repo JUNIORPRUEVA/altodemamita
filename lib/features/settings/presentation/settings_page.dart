@@ -24,9 +24,14 @@ import 'printers_page.dart';
 import 'users_screen.dart';
 
 class SettingsPage extends StatefulWidget {
-  const SettingsPage({super.key, this.onCompanyInfoChanged});
+  const SettingsPage({
+    super.key,
+    this.onCompanyInfoChanged,
+    this.onRunSyncRecovery,
+  });
 
   final VoidCallback? onCompanyInfoChanged;
+  final Future<String> Function()? onRunSyncRecovery;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -36,6 +41,7 @@ class _SettingsPageState extends State<SettingsPage> {
   late final DiskDetectionService _diskDetectionService;
   late final BackupService _backupService;
   late final BackupController _backupController;
+  bool _isRunningSyncRecovery = false;
 
   @override
   void initState() {
@@ -213,6 +219,13 @@ class _SettingsPageState extends State<SettingsPage> {
                         );
                       },
                     ),
+                    _SettingCard(
+                      width: cardWidth,
+                      icon: Icons.sync_problem_rounded,
+                      title: 'Reparar sincronizacion',
+                      description: 'Forzar descarga completa de datos',
+                      onTap: _runSyncRecoveryFromSettings,
+                    ),
                     _BackupSettingCard(
                       width: compact ? constraints.maxWidth : 456,
                       controller: _backupController,
@@ -332,10 +345,83 @@ class _SettingsPageState extends State<SettingsPage> {
     } catch (_) {
       if (!mounted) return;
       messenger?.showSnackBar(
+        const SnackBar(content: Text('No se pudo reclamar esta PC.')),
+      );
+    }
+  }
+
+  Future<void> _runSyncRecoveryFromSettings() async {
+    if (_isRunningSyncRecovery) {
+      return;
+    }
+
+    final callback = widget.onRunSyncRecovery;
+    if (callback == null) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         const SnackBar(
-          content: Text('No se pudo reclamar esta PC.'),
+          content: Text('No hay servicio de sincronizacion disponible.'),
         ),
       );
+      return;
+    }
+
+    final allowed = await _ensureSettingsAccess(
+      scope: AdminOverrideScope.settingsSync,
+      title: 'Autorizacion administrativa requerida',
+      message:
+          'Necesitas la clave de un administrador para ejecutar una reparacion completa de sincronizacion.',
+    );
+    if (!allowed || !mounted) {
+      return;
+    }
+
+    final confirmed = await DangerousActionConfirmDialog.show(
+      context,
+      title: 'Reparar sincronizacion de esta PC',
+      warning:
+          'Esta accion borrara los cursores locales de descarga y forzara una descarga completa desde la nube.\n\n'
+          'Usala solo para recuperar datos faltantes en esta PC.\n'
+          'No cierra sesion ni borra registros locales, pero puede tardar varios minutos.',
+      confirmLabel: 'Si, reparar sincronizacion',
+    );
+    if (!confirmed || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _isRunningSyncRecovery = true;
+    });
+
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    messenger?.showSnackBar(
+      const SnackBar(
+        content: Text('Ejecutando reparacion de sincronizacion...'),
+      ),
+    );
+
+    try {
+      final summary = await callback();
+      if (!mounted) {
+        return;
+      }
+      messenger?.showSnackBar(SnackBar(content: Text(summary)));
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      messenger?.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'No se pudo completar la reparacion de sincronizacion.',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isRunningSyncRecovery = false;
+        });
+      }
     }
   }
 }

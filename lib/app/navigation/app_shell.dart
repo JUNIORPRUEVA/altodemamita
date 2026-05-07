@@ -452,9 +452,7 @@ class _AppShellState extends State<AppShell> {
       }
 
       final authService = context.read<AuthProvider>().authService;
-      final isValid = await authService.verifyAdminPassword(
-        password: password,
-      );
+      final isValid = await authService.verifyAdminPassword(password: password);
       if (!mounted) {
         return;
       }
@@ -576,8 +574,16 @@ class _AppShellState extends State<AppShell> {
           salesRepository: _salesRepository,
         );
       case AppModule.settings:
-        return SettingsPage(onCompanyInfoChanged: _loadCompanyDisplayName);
+        return SettingsPage(
+          onCompanyInfoChanged: _loadCompanyDisplayName,
+          onRunSyncRecovery: _runSyncRecoveryFromSettings,
+        );
     }
+  }
+
+  Future<String> _runSyncRecoveryFromSettings() async {
+    final report = await _syncService.syncNow(forceFullDownload: true);
+    return report.summary;
   }
 
   @override
