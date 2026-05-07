@@ -58,11 +58,9 @@ class ClientDataGuard {
     }
 
     final name = record['full_name']?.toString() ?? record['nombre']?.toString();
-    final doc = record['document_id']?.toString() ?? record['cedula']?.toString();
     final syncId = record['sync_id']?.toString();
 
     return isTestLikeName(name) ||
-        !hasValidDocumentId(doc) ||
         !hasValidSyncId(syncId);
   }
 }

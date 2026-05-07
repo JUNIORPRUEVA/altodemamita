@@ -743,10 +743,9 @@ class SyncQueueService {
               unavailableScopes.add(scope);
             }
 
-            final cursor = _findLatestTimestamp(returnedRecords);
-            if (cursor != null) {
-              await _configRepository.saveCursor(scope, cursor);
-            }
+            // Do not advance download cursors from upload responses.
+            // Cursors must only move forward from download payloads to avoid
+            // skipping historical records on first sync of a new device.
           } on SyncConflictException catch (error) {
             await _syncLogger.log(
               action: 'upload',
@@ -758,10 +757,8 @@ class SyncQueueService {
             if (error.returnedRecords.isNotEmpty) {
               await repository.mergeRemoteRecords(error.returnedRecords);
             }
-            final cursor = _findLatestTimestamp(error.returnedRecords);
-            if (cursor != null) {
-              await _configRepository.saveCursor(scope, cursor);
-            }
+            // Keep download cursors untouched on upload-conflict responses.
+            // The authoritative cursor must come from a download cycle.
 
             final conflictIds = error.conflicts
                 .map((item) => item.recordSyncId.trim())

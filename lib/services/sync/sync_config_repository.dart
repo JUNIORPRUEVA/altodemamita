@@ -178,7 +178,8 @@ class SyncConfigRepository {
     String? errorMessage,
     SyncRuntimeStatus status = SyncRuntimeStatus.ok,
   }) async {
-    if (SystemConfigService.instance.isReadOnly) {
+    if (SystemConfigService.instance.isReadOnly ||
+        !SystemConfigService.instance.canWrite) {
       return;
     }
 
@@ -188,6 +189,8 @@ class SyncConfigRepository {
         syncLastErrorKey: errorMessage ?? '',
         syncLastStatusKey: status.name,
       });
+    } on DeviceWriteBlockedException {
+      return;
     } on DatabaseException catch (error) {
       if (_isDatabaseClosedError(error)) {
         return;

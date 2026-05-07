@@ -221,7 +221,16 @@ class SalesSyncRepository implements SyncRepository {
           _readRequiredString(record['seller_sync_id']),
         );
         if (clientId == null || productId == null) {
-          continue;
+          throw RemoteSyncDependencyException(
+            scope: scope,
+            recordSyncId: syncId,
+            missingScopes: {
+              if (clientId == null) 'clients',
+              if (productId == null) 'products',
+            },
+            message:
+                'No se pudo aplicar sale remoto $syncId porque faltan referencias locales requeridas.',
+          );
         }
 
         final uniqueProductRows = existingRows.isEmpty
