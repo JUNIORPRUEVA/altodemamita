@@ -92,8 +92,6 @@ class SettingsRepository {
   }
 
   Future<void> upsert(String key, String value) async {
-    SystemConfigService.instance.ensureWritable();
-
     final db = await _appDatabase.database;
     await db.insert(DatabaseSchema.settingsTable, {
       'clave': key,
@@ -104,7 +102,6 @@ class SettingsRepository {
 
   Future<void> saveMultiple(Map<String, String> keyValues) async {
     if (keyValues.isEmpty) return;
-    SystemConfigService.instance.ensureWritable();
 
     final db = await _appDatabase.database;
     final batch = db.batch();

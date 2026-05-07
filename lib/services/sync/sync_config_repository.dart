@@ -282,7 +282,13 @@ class SyncConfigRepository {
     final prefs = await _tryPreferences();
     final current = prefs?.getString(_deviceIdPreferenceKey);
     if (current != null && current.trim().isNotEmpty) {
-      await _settingsRepository.upsert(_deviceIdFallbackKey, current.trim());
+      // Backup to SQLite for cross-login recovery; ignored if device not yet
+      // authorized (bootstrap state — SharedPreferences is the primary store).
+      try {
+        await _settingsRepository.upsert(_deviceIdFallbackKey, current.trim());
+      } on DeviceWriteBlockedException {
+        // Not yet authorized — silently skip SQLite backup.
+      }
       return current;
     }
 
@@ -296,7 +302,11 @@ class SyncConfigRepository {
     }
 
     await prefs?.setString(_deviceIdPreferenceKey, generated);
-    await _settingsRepository.upsert(_deviceIdFallbackKey, generated);
+    try {
+      await _settingsRepository.upsert(_deviceIdFallbackKey, generated);
+    } on DeviceWriteBlockedException {
+      // Not yet authorized — device ID is safely persisted in SharedPreferences.
+    }
     return generated;
   }
 
@@ -333,7 +343,11 @@ class SyncConfigRepository {
 
     final prefs = await _tryPreferences();
     await prefs?.setString(_deviceIdPreferenceKey, generated);
-    await _settingsRepository.upsert(_deviceIdFallbackKey, generated);
+    try {
+      await _settingsRepository.upsert(_deviceIdFallbackKey, generated);
+    } on DeviceWriteBlockedException {
+      // Device not yet authorized; SharedPreferences holds the new ID safely.
+    }
     await clearSyncRuntimeState();
     return generated;
   }
