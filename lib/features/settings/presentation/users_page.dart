@@ -184,9 +184,6 @@ class _UsersPageState extends State<UsersPage> {
     if (confirm == true) {
       final db = await AppDatabase.instance.database;
       final usersRepository = SettingsUserRepository(db);
-      final permissionsRepository = PermissionRepository(db);
-
-      await permissionsRepository.deletePermissionsForUser(userId);
       await usersRepository.deleteUser(userId);
       await _loadUsers();
     }

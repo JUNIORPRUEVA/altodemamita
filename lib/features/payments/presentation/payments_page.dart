@@ -679,6 +679,13 @@ class _PaymentsPageState extends State<PaymentsPage> {
   }
 
   Widget _buildEmptyInstallmentsState({required bool hasFilters}) {
+    final sale = _controller.selectedContext?.sale;
+    final isPendingInitial =
+        !hasFilters && sale != null && !sale.isFinancingActive && sale.pendingInitialPayment > 0.009;
+    final canCreatePayments = context
+        .read<AuthProvider>()
+        .canAccess(PermissionCatalog.payments, PermissionAction.create);
+
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -689,20 +696,28 @@ class _PaymentsPageState extends State<PaymentsPage> {
               width: 64,
               height: 64,
               decoration: BoxDecoration(
-                color: const Color(0xFFEEF2FF),
+                color: isPendingInitial
+                    ? const Color(0xFFFFF3E0)
+                    : const Color(0xFFEEF2FF),
                 borderRadius: BorderRadius.circular(18),
               ),
-              child: const Icon(
-                Icons.view_list_outlined,
+              child: Icon(
+                isPendingInitial
+                    ? Icons.flag_outlined
+                    : Icons.view_list_outlined,
                 size: 30,
-                color: Color(0xFF3B5BDB),
+                color: isPendingInitial
+                    ? const Color(0xFFE67E00)
+                    : const Color(0xFF3B5BDB),
               ),
             ),
             const SizedBox(height: 16),
             Text(
               hasFilters
                   ? 'No hay cuotas que coincidan con los filtros actuales.'
-                  : 'Esta venta todavÃ­a no tiene cuotas activas.',
+                  : isPendingInitial
+                  ? 'Inicial pendiente de completar'
+                  : 'Esta venta todavia no tiene cuotas activas.',
               style: const TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
@@ -713,11 +728,81 @@ class _PaymentsPageState extends State<PaymentsPage> {
             const SizedBox(height: 8),
             Text(
               hasFilters
-                  ? 'Prueba ajustando el estado, la fecha o el orden para ver mÃ¡s resultados.'
+                  ? 'Prueba ajustando el estado, la fecha o el orden para ver mas resultados.'
+                  : isPendingInitial
+                  ? 'Registra el pago del inicial para activar el financiamiento y generar las cuotas.'
                   : 'El financiamiento inicia cuando el inicial queda completo.',
               style: const TextStyle(fontSize: 13, color: Color(0xFF8893AA)),
               textAlign: TextAlign.center,
             ),
+            if (isPendingInitial) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF8F0),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFFFCC80)),
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          'Inicial pagado: ',
+                          style: TextStyle(fontSize: 13, color: Color(0xFF8893AA)),
+                        ),
+                        Text(
+                          _money(sale.paidInitialPayment),
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF1A2235),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          'Monto pendiente: ',
+                          style: TextStyle(fontSize: 13, color: Color(0xFF8893AA)),
+                        ),
+                        Text(
+                          _money(sale.pendingInitialPayment),
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFFE67E00),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFFE67E00),
+                  minimumSize: const Size(0, 40),
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                ),
+                onPressed: canCreatePayments && !_controller.isSaving
+                    ? () => _registerPayment()
+                    : null,
+                icon: const Icon(Icons.flag_outlined, size: 18),
+                label: Text(
+                  sale.paidInitialPayment <= 0.009
+                      ? 'Registrar pago de apartado'
+                      : 'Completar pago del inicial',
+                  style: const TextStyle(fontSize: 14),
+                ),
+              ),
+            ],
           ],
         ),
       ),

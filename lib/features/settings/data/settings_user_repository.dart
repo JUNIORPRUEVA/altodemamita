@@ -13,6 +13,7 @@ class SettingsUserRepository {
     try {
       final maps = await database.query(
         DatabaseSchema.usersTable,
+        where: 'deleted_at IS NULL',
         orderBy: 'nombre ASC',
       );
       return maps.map((map) => SettingsUser.fromMap(map)).toList();
@@ -25,7 +26,7 @@ class SettingsUserRepository {
     try {
       final maps = await database.query(
         DatabaseSchema.usersTable,
-        where: 'id = ?',
+        where: 'id = ? AND deleted_at IS NULL',
         whereArgs: [id],
       );
 
@@ -67,9 +68,17 @@ class SettingsUserRepository {
   Future<void> deleteUser(int id) async {
     SystemConfigService.instance.ensureWritable();
 
-    await database.delete(
+    final now = DateTime.now().toIso8601String();
+    await database.update(
       DatabaseSchema.usersTable,
-      where: 'id = ?',
+      {
+        'activo': 0,
+        'deleted_at': now,
+        'sync_status': DatabaseSchema.syncStatusPendingDelete,
+        'fecha_actualizacion': now,
+        'last_modified_local': now,
+      },
+      where: 'id = ? AND deleted_at IS NULL',
       whereArgs: [id],
     );
   }
@@ -85,7 +94,7 @@ class SettingsUserRepository {
     try {
       final maps = await database.query(
         DatabaseSchema.usersTable,
-        where: 'rol = ?',
+        where: 'rol = ? AND deleted_at IS NULL',
         whereArgs: [rol],
         orderBy: 'nombre ASC',
       );
@@ -99,7 +108,7 @@ class SettingsUserRepository {
     try {
       final maps = await database.query(
         DatabaseSchema.usersTable,
-        where: 'activo = ?',
+        where: 'activo = ? AND deleted_at IS NULL',
         whereArgs: [1],
         orderBy: 'nombre ASC',
       );

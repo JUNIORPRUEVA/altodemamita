@@ -768,9 +768,10 @@ class SyncQueueService {
                 .where((value) => value.isNotEmpty)
                 .toSet()
                 .toList(growable: false);
-            final affectedIds = conflictIds.isEmpty
-                ? [entryItems.single.recordSyncId]
-                : conflictIds;
+            final affectedIds = <String>{
+              entryItems.single.recordSyncId,
+              ...conflictIds,
+            }.toList(growable: false);
 
             final returnedSyncIds = error.returnedRecords
                 .map(_readReturnedRecordSyncId)
@@ -855,6 +856,12 @@ class SyncQueueService {
             unavailableScopes.add(scope);
           } on HttpException catch (error) {
             if (_isUnauthorizedHttpError(error)) {
+              await _pauseQueueForAuthRequired(
+                scope: scope,
+                recordSyncIds: entryItems.map((item) => item.recordSyncId),
+                reason:
+                    'AUTH_REQUIRED: sesion de nube vencida o rechazada por backend.',
+              );
               await _handleCloudSessionExpired(
                 'La sesion de nube vencio o fue rechazada por el backend.',
               );
@@ -1645,6 +1652,44 @@ class SyncQueueService {
     await _refreshState(lastError: errorMessage);
   }
 
+  Future<void> _pauseQueueForAuthRequired({
+    required String scope,
+    required Iterable<String> recordSyncIds,
+    required String reason,
+  }) async {
+    final ids = recordSyncIds
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toList(growable: false);
+    if (ids.isEmpty) {
+      return;
+    }
+
+    final db = await _appDatabase.database;
+    final now = DateTime.now();
+    final placeholders = List.filled(ids.length, '?').join(', ');
+    await db.rawUpdate(
+      'UPDATE ${DatabaseSchema.syncQueueTable} '
+      'SET updated_at = ?, '
+      'next_attempt_at = ?, '
+      'last_error = ? '
+      'WHERE scope = ? AND record_sync_id IN ($placeholders)',
+      [
+        now.toIso8601String(),
+        now.add(const Duration(hours: 6)).toIso8601String(),
+        reason,
+        scope,
+        ...ids,
+      ],
+    );
+
+    await _configRepository.saveLastRun(
+      errorMessage: reason,
+      status: SyncRuntimeStatus.pending,
+    );
+    await _refreshState(lastError: reason);
+  }
+
   Future<void> _markSourceRowsAsQueued({
     required String scope,
     required Iterable<String> recordSyncIds,
@@ -1954,6 +1999,14 @@ class SyncQueueService {
       if (cursor != null) {
         await _configRepository.saveCursor(scope, cursor);
       }
+    } on HttpException catch (error) {
+      if (_isUnauthorizedHttpError(error)) {
+        await _handleCloudSessionExpired(
+          'La sesion de nube vencio o fue rechazada por el backend.',
+        );
+        return;
+      }
+      _log('CONFLICT RECOVERY ERROR -> scope=$scope : $error');
     } catch (error) {
       _log('CONFLICT RECOVERY ERROR -> scope=$scope : $error');
     }
