@@ -1020,6 +1020,11 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
               if (parsed - _salePrice > 0.009) {
                 return 'No puede exceder el precio total';
               }
+              if (!_initialIsApartado &&
+                  _requiredInitialPayment > 0.009 &&
+                  parsed < _requiredInitialPayment - 0.009) {
+                return 'Debe pagar el inicial completo (RD\$ ${_formatCurrencyInput(_requiredInitialPayment)}) o usar la opción Apartado';
+              }
               return null;
             },
             onChanged: (_) {

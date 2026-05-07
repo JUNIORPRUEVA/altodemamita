@@ -578,7 +578,7 @@ class _SaleRow extends StatelessWidget {
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: Text(
-                            sale.status,
+                            _saleRowStatusLabel(sale.status),
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w700,
@@ -586,6 +586,29 @@ class _SaleRow extends StatelessWidget {
                             ),
                           ),
                         ),
+                        if ((sale.status == 'apartado' ||
+                                sale.status == 'inicial_incompleto') &&
+                            sale.paidApartadoPayment > 0.009) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFE67E00).withValues(alpha: 0.10),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              'Apartado: RD\$${sale.paidApartadoPayment.toStringAsFixed(2)}',
+                              style: const TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFFE67E00),
+                              ),
+                            ),
+                          ),
+                        ],
                         if (sale.overdueInstallmentCount > 0) ...[
                           const SizedBox(width: 6),
                           Container(
@@ -654,17 +677,27 @@ String _formatShortDate(BuildContext context, DateTime date) {
   return MaterialLocalizations.of(context).formatShortDate(date);
 }
 
+String _saleRowStatusLabel(String status) {
+  return switch (status.toLowerCase()) {
+    'apartado' => 'Apartado',
+    'inicial_incompleto' => 'Inicial incompleto',
+    'activa' => 'Activa',
+    'pagada' => 'Pagada',
+    'cancelada' => 'Cancelada',
+    'reservada' => 'Reservada',
+    'completada' => 'Completada',
+    _ => status,
+  };
+}
+
 Color _saleRowStatusColor(String status) {
-  switch (status.toLowerCase()) {
-    case 'activa':
-      return const Color(0xFF2E7D32);
-    case 'reservada':
-      return const Color(0xFFE67E00);
-    case 'cancelada':
-      return const Color(0xFFC62828);
-    case 'completada':
-      return const Color(0xFF1565C0);
-    default:
-      return const Color(0xFF455A64);
-  }
+  return switch (status.toLowerCase()) {
+    'activa' => const Color(0xFF2E7D32),
+    'pagada' => const Color(0xFF1565C0),
+    'apartado' || 'inicial_incompleto' => const Color(0xFFE67E00),
+    'cancelada' => const Color(0xFFC62828),
+    'reservada' => const Color(0xFF6A1B9A),
+    'completada' => const Color(0xFF1565C0),
+    _ => const Color(0xFF455A64),
+  };
 }

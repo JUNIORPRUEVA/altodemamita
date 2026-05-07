@@ -11,6 +11,7 @@ class SaleSummary {
     required this.requiredInitialPayment,
     required this.paidInitialPayment,
     required this.pendingInitialPayment,
+    this.paidApartadoPayment = 0,
     this.minimumReserveAmount,
     this.initialPaymentDeadline,
     required this.financedBalance,
@@ -33,6 +34,8 @@ class SaleSummary {
   final double requiredInitialPayment;
   final double paidInitialPayment;
   final double pendingInitialPayment;
+  /// Monto entregado como APARTADO (no aplica al inicial requerido).
+  final double paidApartadoPayment;
   final double? minimumReserveAmount;
   final DateTime? initialPaymentDeadline;
   final double financedBalance;
@@ -57,6 +60,7 @@ class SaleSummary {
         requiredInitialPayment: _toDouble(map['monto_inicial_requerido']),
         paidInitialPayment: _toDouble(map['monto_inicial_pagado']),
         pendingInitialPayment: _toDouble(map['monto_inicial_pendiente']),
+        paidApartadoPayment: _toDouble(map['monto_apartado_pagado']),
         minimumReserveAmount: map['monto_apartado_minimo'] == null
           ? null
           : _toDouble(map['monto_apartado_minimo']),
