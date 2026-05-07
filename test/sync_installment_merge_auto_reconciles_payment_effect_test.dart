@@ -6,7 +6,7 @@ import 'package:sistema_solares/repositories/installments_sync_repository.dart';
 import 'helpers/payment_application_test_harness.dart';
 
 void main() {
-  test('sync_payment_keeps_installment_paid_after_download_test', () async {
+  test('sync_installment_merge_auto_reconciles_payment_effect_test', () async {
     final harness = await PaymentApplicationTestHarness.create();
     addTearDown(harness.dispose);
 
@@ -21,7 +21,7 @@ void main() {
       PaymentDraft(
         saleId: saleId,
         paymentDate: DateTime(2026, 3, 1),
-        amountPaid: 200,
+        amountPaid: 250,
         paymentMethod: 'efectivo',
         paymentTypeOverride: 'cuota_vencida',
         targetInstallmentId: target.id,
@@ -29,16 +29,18 @@ void main() {
     );
 
     final db = await harness.appDatabase.database;
+    final sameTimestamp = DateTime(2026, 3, 1, 12).toIso8601String();
     await db.update(
       DatabaseSchema.installmentsTable,
       {
         'sync_status': DatabaseSchema.syncStatusSynced,
-        'fecha_actualizacion': DateTime(2026, 3, 1, 12).toIso8601String(),
-        'last_modified_local': DateTime(2026, 3, 1, 12).toIso8601String(),
+        'fecha_actualizacion': sameTimestamp,
+        'last_modified_local': null,
       },
       where: 'id = ?',
       whereArgs: [target.id],
     );
+
     final localRow = (await db.query(
       DatabaseSchema.installmentsTable,
       where: 'id = ?',
@@ -72,7 +74,7 @@ void main() {
         'ending_balance': localRow['saldo_final'],
         'status': 'vencida',
         'created_at': localRow['fecha_creacion'],
-        'updated_at': '2020-01-01T00:00:00.000Z',
+        'updated_at': sameTimestamp,
         'deleted_at': null,
       },
     ]);

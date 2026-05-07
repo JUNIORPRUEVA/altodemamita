@@ -872,6 +872,7 @@ class PaymentsRepository {
       paymentDate: draft.paymentDate,
       paymentTypeOverride: draft.paymentTypeOverride,
       targetInstallmentId: draft.targetInstallmentId,
+      targetInstallmentNumber: draft.targetInstallmentNumber,
     );
     final requiresInstallmentImpact =
         draft.paymentTypeOverride == 'cuota' ||
@@ -1033,17 +1034,34 @@ class PaymentsRepository {
     required DateTime paymentDate,
     required String? paymentTypeOverride,
     required int? targetInstallmentId,
+    required int? targetInstallmentNumber,
   }) {
     if (paymentTypeOverride == 'abono_capital') return const [];
+
+    bool isEligible(Installment installment) {
+      if (_isClosedStatus(installment.status)) {
+        return false;
+      }
+      return installment.remainingAmount > 0.009;
+    }
 
     if (targetInstallmentId != null) {
       final target = installments.where((i) {
         if (i.id != targetInstallmentId) return false;
-        if (_isClosedStatus(i.status)) return false;
-        return i.remainingAmount > 0.009;
+        return isEligible(i);
       }).toList();
       if (target.isNotEmpty) {
         return target;
+      }
+    }
+
+    if (targetInstallmentNumber != null) {
+      final byNumber = installments.where((i) {
+        if (i.installmentNumber != targetInstallmentNumber) return false;
+        return isEligible(i);
+      }).toList();
+      if (byNumber.isNotEmpty) {
+        return byNumber;
       }
     }
 

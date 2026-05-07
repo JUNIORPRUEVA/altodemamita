@@ -11,6 +11,7 @@ import '../../installments/domain/installment.dart';
 import '../data/payments_repository.dart';
 import '../data/receipt_repository.dart';
 import '../domain/client_pagare_report.dart';
+import '../domain/payment_draft.dart';
 import '../domain/payment_history_item.dart';
 import '../domain/payment_sale_context.dart';
 import '../domain/payment_sale_option.dart';
@@ -506,7 +507,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Expanded(
-                    flex: 65,
+                  flex: 65,
                   child: _buildInstallmentsPanel(
                     contextData,
                     visibleInstallments,
@@ -517,7 +518,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                    flex: 35,
+                  flex: 35,
                   child: _buildDetailsPanel(
                     contextData,
                     visibleHistory,
@@ -547,7 +548,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
         ? 'Lista de cuotas'
         : 'ActivaciÃ³n del financiamiento';
     final panelSubtitle = showAggregate
-      ? 'Mostrando cuotas de todas las ventas activas'
+        ? 'Mostrando cuotas de todas las ventas activas'
         : '${contextData.sale.clientName}  Â·  ${contextData.sale.lotDisplayCode}';
 
     return Container(
@@ -908,10 +909,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
                       ? null
                       : () => _printFromHistory(contextData, visibleHistory),
                   icon: const Icon(Icons.print_outlined, size: 16),
-                  label: const Text(
-                    'Imprimir',
-                    style: TextStyle(fontSize: 13),
-                  ),
+                  label: const Text('Imprimir', style: TextStyle(fontSize: 13)),
                 ),
               ],
             ),
@@ -1507,6 +1505,14 @@ class _PaymentsPageState extends State<PaymentsPage> {
       return;
     }
 
+    final confirmed = await _confirmApplyPayment(
+      sale: contextData.sale,
+      draft: draft,
+    );
+    if (!mounted || !confirmed) {
+      return;
+    }
+
     final error = await _controller.registerPayment(draft);
     if (!mounted) {
       return;
@@ -1527,7 +1533,84 @@ class _PaymentsPageState extends State<PaymentsPage> {
           );
         }
       }
+      return;
     }
+
+    ScaffoldMessenger.maybeOf(
+      context,
+    )?.showSnackBar(SnackBar(content: Text(error)));
+  }
+
+  Future<bool> _confirmApplyPayment({
+    required PaymentSaleOption sale,
+    required PaymentDraft draft,
+  }) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        final typeLabel = _draftPaymentTypeLabel(sale, draft);
+        return AlertDialog(
+          icon: const Icon(Icons.verified_outlined),
+          title: const Text('Confirmar pago'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Estas seguro de aplicar este pago?'),
+              const SizedBox(height: 14),
+              _PaymentConfirmationRow(
+                label: 'Monto',
+                value: _money(draft.amountPaid),
+                emphasized: true,
+              ),
+              _PaymentConfirmationRow(
+                label: 'Cliente',
+                value: sale.clientName.trim().isEmpty
+                    ? '-'
+                    : sale.clientName.trim(),
+              ),
+              _PaymentConfirmationRow(
+                label: 'Solar',
+                value: sale.lotDisplayCode.trim().isEmpty
+                    ? '-'
+                    : sale.lotDisplayCode.trim(),
+              ),
+              _PaymentConfirmationRow(label: 'Tipo', value: typeLabel),
+              _PaymentConfirmationRow(
+                label: 'Metodo',
+                value: _capitalize(draft.paymentMethod),
+              ),
+              if (draft.yearToPay != null && draft.yearToPay!.trim().isNotEmpty)
+                _PaymentConfirmationRow(
+                  label: 'Ano aplicado',
+                  value: draft.yearToPay!.trim(),
+                ),
+              if (draft.printReceiptAutomatically)
+                const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Text(
+                    'Se imprimira el recibo automaticamente despues de guardar.',
+                  ),
+                ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton.icon(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              icon: const Icon(Icons.check_circle_outline),
+              label: const Text('Aplicar pago'),
+            ),
+          ],
+        );
+      },
+    );
+
+    return confirmed == true;
   }
 
   Future<void> _showReceiptDialog(
@@ -1642,15 +1725,13 @@ class _PaymentsPageState extends State<PaymentsPage> {
               child: const Text('Cancelar'),
             ),
             OutlinedButton(
-              onPressed: () => Navigator.of(
-                dialogContext,
-              ).pop(_PaymentPrintChoice.ticket),
+              onPressed: () =>
+                  Navigator.of(dialogContext).pop(_PaymentPrintChoice.ticket),
               child: const Text('Ticket'),
             ),
             FilledButton(
-              onPressed: () => Navigator.of(
-                dialogContext,
-              ).pop(_PaymentPrintChoice.list),
+              onPressed: () =>
+                  Navigator.of(dialogContext).pop(_PaymentPrintChoice.list),
               child: const Text('Lista de pagos'),
             ),
           ],
@@ -1773,6 +1854,74 @@ class _PaymentsPageState extends State<PaymentsPage> {
       'abono_capital' => 'Abono a capital',
       _ => 'Pago de cuota #${installmentNumber ?? '-'}',
     };
+  }
+
+  String _draftPaymentTypeLabel(PaymentSaleOption sale, PaymentDraft draft) {
+    final override = draft.paymentTypeOverride;
+    if (override != null && override.trim().isNotEmpty) {
+      return switch (override) {
+        'apartado' => 'Pago de apartado',
+        'abono_inicial' => 'Abono a inicial',
+        'abono_capital' => 'Abono a capital',
+        'cuota_vencida' => 'Pago de cuota vencida',
+        _ => 'Pago de cuota',
+      };
+    }
+
+    if (!sale.isFinancingActive) {
+      return sale.paidInitialPayment <= 0.009
+          ? 'Pago de apartado'
+          : 'Abono a inicial';
+    }
+
+    return 'Pago de cuota';
+  }
+}
+
+class _PaymentConfirmationRow extends StatelessWidget {
+  const _PaymentConfirmationRow({
+    required this.label,
+    required this.value,
+    this.emphasized = false,
+  });
+
+  final String label;
+  final String value;
+  final bool emphasized;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 96,
+            child: Text(
+              label,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: emphasized
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.onSurface,
+                fontWeight: emphasized ? FontWeight.w800 : FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -1936,9 +2085,7 @@ class _DetailSection extends StatelessWidget {
                 ),
               ),
             ),
-            ...(trailing != null
-                ? <Widget>[trailing!]
-                : const <Widget>[]),
+            ...(trailing != null ? <Widget>[trailing!] : const <Widget>[]),
           ],
         ),
         const SizedBox(height: 12),

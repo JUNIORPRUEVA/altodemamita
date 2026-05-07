@@ -100,6 +100,7 @@ class InstallmentsSyncRepository implements SyncRepository {
       return;
     }
 
+    final affectedSaleIds = <int>{};
     final db = await _appDatabase.database;
     await db.transaction((txn) async {
       for (final record in records) {
@@ -144,13 +145,12 @@ class InstallmentsSyncRepository implements SyncRepository {
             throw RemoteSyncDependencyException(
               scope: scope,
               recordSyncId: syncId,
-              missingScopes: {
-                if (saleSyncId != null) 'sales',
-              },
+              missingScopes: {if (saleSyncId != null) 'sales'},
               message:
                   'No se pudo aplicar tombstone remoto de installments $syncId porque falta la venta local requerida.',
             );
           }
+          affectedSaleIds.add(saleId);
 
           final tombstoneValues = {
             'sync_id': syncId,
@@ -159,7 +159,9 @@ class InstallmentsSyncRepository implements SyncRepository {
             'version': _readVersion(record),
             'venta_id': saleId,
             'numero_cuota': installmentNumber,
-            'fecha_vencimiento': _readDate(record['due_date'] ?? record['created_at']),
+            'fecha_vencimiento': _readDate(
+              record['due_date'] ?? record['created_at'],
+            ),
             'saldo_inicial': _readDouble(record['opening_balance']),
             'capital_cuota': _readDouble(record['principal_amount']),
             'interes_cuota': _readDouble(record['interest_amount']),
@@ -188,6 +190,7 @@ class InstallmentsSyncRepository implements SyncRepository {
         if (saleId == null) {
           continue;
         }
+        affectedSaleIds.add(saleId);
 
         final installmentNumber = _readInt(record['installment_number']);
         final matchingSlotRows = existingRows.isEmpty
@@ -237,10 +240,14 @@ class InstallmentsSyncRepository implements SyncRepository {
         };
 
         if (resolvedExistingRows.isEmpty) {
-          _log('[SYNC] Insert new record: table=installments id=$syncId remote_delete=false');
+          _log(
+            '[SYNC] Insert new record: table=installments id=$syncId remote_delete=false',
+          );
           await txn.insert(DatabaseSchema.installmentsTable, values);
         } else {
-          _log('[SYNC] Updating local record: table=installments id=$syncId remote_delete=false');
+          _log(
+            '[SYNC] Updating local record: table=installments id=$syncId remote_delete=false',
+          );
           await txn.update(
             DatabaseSchema.installmentsTable,
             values,
@@ -248,6 +255,136 @@ class InstallmentsSyncRepository implements SyncRepository {
             whereArgs: [resolvedExistingRows.first['id']],
           );
         }
+      }
+    });
+
+    if (affectedSaleIds.isNotEmpty) {
+      await _reconcileSalesFromPayments(affectedSaleIds);
+    }
+  }
+
+  Future<void> _reconcileSalesFromPayments(Set<int> saleIds) async {
+    final db = await _appDatabase.database;
+    final now = DateTime.now();
+    final nowIso = now.toIso8601String();
+
+    await db.transaction((txn) async {
+      for (final saleId in saleIds) {
+        final installmentRows = await txn.query(
+          DatabaseSchema.installmentsTable,
+          columns: [
+            'id',
+            'monto_cuota',
+            'monto_pagado',
+            'capital_cuota',
+            'interes_cuota',
+            'capital_pagado',
+            'interes_pagado',
+            'fecha_vencimiento',
+            'estado',
+          ],
+          where: 'venta_id = ? AND deleted_at IS NULL AND estado <> ?',
+          whereArgs: [saleId, 'ajustada'],
+        );
+
+        for (final installment in installmentRows) {
+          final currentStatus = (installment['estado'] as String? ?? '').trim();
+          if (currentStatus == 'cancelada') {
+            continue;
+          }
+
+          final installmentId = _readInt(installment['id']);
+          final paidRows = await txn.rawQuery(
+            '''
+            SELECT COALESCE(SUM(monto_pagado), 0) AS paid_total
+            FROM ${DatabaseSchema.paymentsTable}
+            WHERE cuota_id = ?
+              AND deleted_at IS NULL
+          ''',
+            [installmentId],
+          );
+
+          final paidAmount = _roundCurrency(
+            _readDouble(paidRows.first['paid_total']),
+          );
+          final totalAmount = _readDouble(installment['monto_cuota']);
+          final interestAmount = _readDouble(installment['interes_cuota']);
+          final principalAmount = _readDouble(installment['capital_cuota']);
+          final interestPaid = _roundCurrency(
+            paidAmount > interestAmount ? interestAmount : paidAmount,
+          );
+          final principalPaid = _roundCurrency(
+            (paidAmount - interestPaid).clamp(0, principalAmount),
+          );
+          final dueDate =
+              _parseDate(installment['fecha_vencimiento']?.toString()) ?? now;
+          final newStatus = _resolveInstallmentStatusForReconcile(
+            dueDate: dueDate,
+            paidAmount: paidAmount,
+            totalAmount: totalAmount,
+            asOf: now,
+          );
+
+          final statusChanged = currentStatus != newStatus;
+          final paidChanged =
+              (_readDouble(installment['monto_pagado']) - paidAmount).abs() >
+              0.009;
+          final principalChanged =
+              (_readDouble(installment['capital_pagado']) - principalPaid)
+                  .abs() >
+              0.009;
+          final interestChanged =
+              (_readDouble(installment['interes_pagado']) - interestPaid)
+                  .abs() >
+              0.009;
+
+          if (!statusChanged &&
+              !paidChanged &&
+              !principalChanged &&
+              !interestChanged) {
+            continue;
+          }
+
+          await txn.update(
+            DatabaseSchema.installmentsTable,
+            {
+              'monto_pagado': paidAmount,
+              'capital_pagado': principalPaid,
+              'interes_pagado': interestPaid,
+              'estado': newStatus,
+              'fecha_actualizacion': nowIso,
+              'sync_status': DatabaseSchema.syncStatusSynced,
+            },
+            where: 'id = ?',
+            whereArgs: [installmentId],
+          );
+        }
+
+        final pendingRows = await txn.rawQuery(
+          '''
+          SELECT COALESCE(SUM(MAX(capital_cuota - capital_pagado, 0)), 0) AS total_pendiente
+          FROM ${DatabaseSchema.installmentsTable}
+          WHERE venta_id = ?
+            AND deleted_at IS NULL
+            AND estado <> ?
+        ''',
+          [saleId, 'ajustada'],
+        );
+
+        final pendingBalance = _roundCurrency(
+          _readDouble(pendingRows.first['total_pendiente']),
+        );
+        await txn.update(
+          DatabaseSchema.salesTable,
+          {
+            'saldo_pendiente': pendingBalance,
+            'estado': pendingBalance <= 0.009 ? 'pagada' : 'activa',
+            'fecha_actualizacion': nowIso,
+            'sync_status': DatabaseSchema.syncStatusSynced,
+          },
+          where: 'id = ? AND deleted_at IS NULL',
+          whereArgs: [saleId],
+        );
       }
     });
   }
@@ -346,12 +483,6 @@ bool _shouldKeepLocal(
   if (localSyncStatus == DatabaseSchema.syncStatusConflict) {
     return false;
   }
-  final localPending = DatabaseSchema.writableSyncStatuses.contains(
-    localSyncStatus,
-  );
-  if (!localPending) {
-    return false;
-  }
 
   final localVersion = _readVersion(local);
   final remoteVersion = _readVersion(remoteRecord);
@@ -375,7 +506,9 @@ bool _shouldKeepLocal(
       localUpdated.isAfter(remoteUpdated);
 }
 
-bool _hasConflictProtectedPendingLocal(List<Map<String, Object?>> existingRows) {
+bool _hasConflictProtectedPendingLocal(
+  List<Map<String, Object?>> existingRows,
+) {
   if (existingRows.isEmpty) {
     return false;
   }
@@ -427,6 +560,27 @@ DateTime? _parseDate(String? value) {
     return null;
   }
   return DateTime.tryParse(normalized);
+}
+
+String _resolveInstallmentStatusForReconcile({
+  required DateTime dueDate,
+  required double paidAmount,
+  required double totalAmount,
+  required DateTime asOf,
+}) {
+  if (paidAmount >= totalAmount - 0.009) {
+    return 'pagada';
+  }
+  if (paidAmount > 0.009) {
+    return 'parcial';
+  }
+  final dueDay = DateTime(dueDate.year, dueDate.month, dueDate.day);
+  final asOfDay = DateTime(asOf.year, asOf.month, asOf.day);
+  return dueDay.isBefore(asOfDay) ? 'vencida' : 'pendiente';
+}
+
+double _roundCurrency(double value) {
+  return (value * 100).roundToDouble() / 100;
 }
 
 int _readVersion(Map<Object?, Object?> map) {

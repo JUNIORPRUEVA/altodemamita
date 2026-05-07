@@ -26,6 +26,21 @@ void main() {
       ),
     );
 
+    final secondContext = await harness.paymentsRepository.fetchSaleContext(
+      saleId,
+    );
+    final secondInstallment = secondContext!.overdueInstallments.first;
+    await harness.paymentsRepository.registerPayment(
+      PaymentDraft(
+        saleId: saleId,
+        paymentDate: DateTime(2026, 3, 1),
+        amountPaid: secondInstallment.remainingAmount,
+        paymentMethod: 'efectivo',
+        paymentTypeOverride: 'cuota_vencida',
+        targetInstallmentId: secondInstallment.id,
+      ),
+    );
+
     expect(
       () => harness.paymentsRepository.registerPayment(
         PaymentDraft(

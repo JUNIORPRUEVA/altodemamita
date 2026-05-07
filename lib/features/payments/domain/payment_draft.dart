@@ -9,6 +9,7 @@
     this.printReceiptAutomatically = false,
     this.paymentTypeOverride,
     this.targetInstallmentId,
+    this.targetInstallmentNumber,
   });
 
   final int saleId;
@@ -29,4 +30,8 @@
   /// Optional explicit installment selected by the user.
   /// Used to guarantee that a payment targets the intended overdue installment.
   final int? targetInstallmentId;
+
+  /// Optional installment number selected by the user.
+  /// Fallback when the local installment id changed after background sync.
+  final int? targetInstallmentNumber;
 }

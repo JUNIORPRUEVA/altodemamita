@@ -914,6 +914,9 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
         printReceiptAutomatically: _printReceiptAutomatically,
         paymentTypeOverride: isFinancingActive ? _selectedPaymentType : null,
         targetInstallmentId: isFinancingActive ? targetedInstallment?.id : null,
+        targetInstallmentNumber: isFinancingActive
+            ? targetedInstallment?.installmentNumber
+            : null,
       ),
     );
   }
