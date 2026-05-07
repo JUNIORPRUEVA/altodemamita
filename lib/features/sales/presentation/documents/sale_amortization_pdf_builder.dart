@@ -9,7 +9,8 @@ import '../../domain/sale_calculator.dart';
 import '../../domain/sale_detail.dart';
 
 class SaleAmortizationPdfBuilder {
-  static PdfPageFormat get pageFormat => PdfPageFormat.a4;
+  /// La tabla de amortización siempre se imprime en A4 vertical.
+  static PdfPageFormat get pageFormat => PdfPageFormat.a4.portrait;
 
   static Future<Uint8List> build({
     required SaleDetail detail,

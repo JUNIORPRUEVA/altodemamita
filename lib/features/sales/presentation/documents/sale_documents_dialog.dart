@@ -83,24 +83,17 @@ class SaleDocumentsDialog {
       );
       final fileName = _buildFileName(detail, type);
 
-      if (runtimeData.defaultPrinter != null &&
-          runtimeData.defaultPrinter!.hasSystemSelection) {
-        final printerRepository = PrinterRepository();
-        final systemPrinter = await printerRepository.resolvePrinter(
-          runtimeData.defaultPrinter!,
-        );
-        if (systemPrinter != null) {
-          await Printing.directPrintPdf(
-            printer: systemPrinter,
-            onLayout: (_) async => bytes,
-            name: fileName,
-            usePrinterSettings: false,
-          );
-          return;
-        }
-      }
-
-      await Printing.layoutPdf(onLayout: (_) async => bytes);
+      await Printing.layoutPdf(
+        name: fileName,
+        format: switch (type) {
+          SaleDocumentType.initialReceipt =>
+            SaleInitialReceiptPdfBuilder.pageFormat,
+          SaleDocumentType.amortization =>
+            SaleAmortizationPdfBuilder.pageFormat,
+        },
+        usePrinterSettings: true,
+        onLayout: (_) async => bytes,
+      );
     } catch (error) {
       FriendlyErrorMessages.forOperation(
         'imprimir el documento',
@@ -174,7 +167,7 @@ Future<Uint8List> _buildDocumentBytes({
     SaleDocumentType.initialReceipt => SaleInitialReceiptPdfBuilder.build(
       detail: detail,
       company: company,
-      pageFormat: SaleInitialReceiptPdfBuilder.pageFormat.landscape,
+      pageFormat: SaleInitialReceiptPdfBuilder.pageFormat,
     ),
     SaleDocumentType.amortization => SaleAmortizationPdfBuilder.build(
       detail: detail,
@@ -210,6 +203,7 @@ class _SaleDocumentsDialogContentState
     nombre: 'Sistema de Solares',
   );
   PrinterConfig? _defaultPrinter;
+  late PdfPageFormat _selectedPageFormat;
   bool _loadingData = true;
 
   @override
@@ -217,6 +211,7 @@ class _SaleDocumentsDialogContentState
     super.initState();
     _selectedType = widget.initialType;
     _printerRepository = PrinterRepository();
+    _selectedPageFormat = _documentPageFormat;
     _loadDialogData();
   }
 
@@ -251,8 +246,9 @@ class _SaleDocumentsDialogContentState
   PdfPageFormat get _documentPageFormat {
     return switch (_selectedType) {
       SaleDocumentType.initialReceipt =>
-        SaleInitialReceiptPdfBuilder.pageFormat,
-      SaleDocumentType.amortization => SaleAmortizationPdfBuilder.pageFormat,
+        SaleInitialReceiptPdfBuilder.pageFormat, // carta horizontal
+      SaleDocumentType.amortization =>
+        SaleAmortizationPdfBuilder.pageFormat, // A4 vertical
     };
   }
 
@@ -324,7 +320,7 @@ class _SaleDocumentsDialogContentState
         SaleDocumentType.initialReceipt => SaleInitialReceiptPdfBuilder.build(
           detail: widget.detail,
           company: _company,
-          pageFormat: resolvedPageFormat.landscape,
+          pageFormat: resolvedPageFormat,
         ),
         SaleDocumentType.amortization => SaleAmortizationPdfBuilder.build(
           detail: widget.detail,
@@ -344,9 +340,8 @@ class _SaleDocumentsDialogContentState
   }
 
   Future<Uint8List> _buildPreviewBytes(PdfPageFormat format) async {
-    final previewFormat = _selectedType == SaleDocumentType.initialReceipt
-        ? format.landscape
-        : format;
+    // El formato ya viene con la orientación correcta definida en pageFormat de cada builder.
+    final previewFormat = format;
 
     try {
       return await _buildDocumentBytes(pageFormat: previewFormat);
@@ -377,31 +372,20 @@ class _SaleDocumentsDialogContentState
 
     setState(() {
       _selectedType = type;
+      _selectedPageFormat = _documentPageFormat;
     });
     _warmUpCurrentDocument();
   }
 
   Future<void> _printNow() async {
     try {
-      final bytes = await _buildDocumentBytes(pageFormat: _documentPageFormat);
-      final defaultPrinter = _defaultPrinter;
-
-      if (defaultPrinter != null && defaultPrinter.hasSystemSelection) {
-        final systemPrinter = await _printerRepository.resolvePrinter(
-          defaultPrinter,
-        );
-        if (systemPrinter != null) {
-          await Printing.directPrintPdf(
-            printer: systemPrinter,
-            onLayout: (_) async => bytes,
-            name: _fileName,
-            usePrinterSettings: false,
-          );
-          return;
-        }
-      }
-
-      await Printing.layoutPdf(onLayout: (_) async => bytes);
+      final bytes = await _buildDocumentBytes(pageFormat: _selectedPageFormat);
+      await Printing.layoutPdf(
+        name: _fileName,
+        format: _selectedPageFormat,
+        usePrinterSettings: true,
+        onLayout: (_) async => bytes,
+      );
     } catch (error) {
       if (!mounted) {
         return;
@@ -416,7 +400,7 @@ class _SaleDocumentsDialogContentState
 
   Future<void> _exportPdf() async {
     try {
-      final bytes = await _buildDocumentBytes(pageFormat: _documentPageFormat);
+      final bytes = await _buildDocumentBytes(pageFormat: _selectedPageFormat);
       await Printing.sharePdf(bytes: bytes, filename: _fileName);
     } catch (error) {
       if (!mounted) {
@@ -521,6 +505,11 @@ class _SaleDocumentsDialogContentState
                             maxPageWidth: _previewMaxPageWidth,
                             canChangePageFormat: true,
                             canChangeOrientation: true,
+                            onPageFormatChanged: (format) {
+                              setState(() {
+                                _selectedPageFormat = format;
+                              });
+                            },
                             canDebug: false,
                             allowPrinting: false,
                             allowSharing: false,

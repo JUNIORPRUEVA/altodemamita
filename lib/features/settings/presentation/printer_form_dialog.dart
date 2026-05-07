@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 
@@ -41,6 +43,7 @@ class _PrinterFormDialogState extends State<PrinterFormDialog> {
   late final TextEditingController _modeloController;
 
   late String _selectedTipo;
+  late String _selectedOrientation;
   late bool _esPredeterminada;
   bool _isPickingPrinter = false;
   Printer? _selectedSystemPrinter;
@@ -57,6 +60,8 @@ class _PrinterFormDialogState extends State<PrinterFormDialog> {
       text: widget.initialPrinter?.modelo ?? '',
     );
     _selectedTipo = widget.initialPrinter?.tipo ?? 'térmica';
+    _selectedOrientation =
+        widget.initialPrinter?.defaultOrientation ?? 'landscape';
     _esPredeterminada = widget.initialPrinter?.esPredeterminada ?? false;
     final configMap = widget.initialPrinter?.configuracionMap;
     if (configMap != null && configMap.isNotEmpty) {
@@ -122,6 +127,30 @@ class _PrinterFormDialogState extends State<PrinterFormDialog> {
                     if (value != null) {
                       setState(() {
                         _selectedTipo = value;
+                      });
+                    }
+                  },
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: _selectedOrientation,
+                  decoration: const InputDecoration(
+                    labelText: 'Orientación predeterminada',
+                  ),
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'landscape',
+                      child: Text('Horizontal'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'portrait',
+                      child: Text('Vertical'),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() {
+                        _selectedOrientation = value;
                       });
                     }
                   },
@@ -253,6 +282,9 @@ class _PrinterFormDialogState extends State<PrinterFormDialog> {
           .copyWith(
             nombre: _nombreController.text.trim(),
             modelo: _modeloController.text.trim(),
+            configuracionJson: _buildConfigurationJson(
+              _selectedSystemPrinter!.toMap(),
+            ),
           );
     } else {
       final basePrinter = widget.initialPrinter ?? PrinterConfig.empty();
@@ -261,11 +293,20 @@ class _PrinterFormDialogState extends State<PrinterFormDialog> {
         modelo: _modeloController.text.trim(),
         tipo: _selectedTipo,
         esPredeterminada: _esPredeterminada,
+        configuracionJson: _buildConfigurationJson(
+          basePrinter.configuracionMap,
+        ),
         fechaActualizacion: DateTime.now(),
       );
     }
 
     Navigator.of(context).pop(printer);
+  }
+
+  String _buildConfigurationJson(Map<String, Object?> baseMap) {
+    final config = <String, Object?>{...baseMap};
+    config['default_orientation'] = _selectedOrientation;
+    return jsonEncode(config);
   }
 
   Future<void> _pickSystemPrinter() async {

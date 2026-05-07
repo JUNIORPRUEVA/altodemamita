@@ -8,6 +8,7 @@ import '../../../settings/domain/company_info.dart';
 import '../../domain/sale_detail.dart';
 
 class SaleInitialReceiptPdfBuilder {
+  /// El recibo de venta siempre se imprime en carta horizontal.
   static PdfPageFormat get pageFormat => PdfPageFormat.letter.landscape;
 
   static Future<Uint8List> build({

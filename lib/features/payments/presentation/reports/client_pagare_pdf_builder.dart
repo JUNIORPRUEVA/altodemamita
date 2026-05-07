@@ -29,6 +29,7 @@ class ClientPagarePdfBuilder {
   static Future<Uint8List> build({
     required ClientPagareReport report,
     required CompanyInfo company,
+    PdfPageFormat pageFormat = PdfPageFormat.a4,
   }) async {
     final baseFont = await _baseFontFuture;
     final boldFont = await _boldFontFuture;

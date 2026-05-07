@@ -81,9 +81,16 @@ class CompanyRepository {
   Future<void> _upsertCompanyProfile(CompanyInfo company) async {
     final existing = await database.query(
       DatabaseSchema.companyProfilesTable,
-      columns: ['id'],
+      columns: ['id', 'sync_id'],
       limit: 1,
     );
+
+    final existingSyncId = existing.isEmpty
+        ? null
+        : existing.first['sync_id']?.toString().trim();
+    final resolvedSyncId = (existingSyncId != null && existingSyncId.isNotEmpty)
+        ? existingSyncId
+        : 'company-profile-${DateTime.now().microsecondsSinceEpoch}';
 
     final values = {
       'name': company.nombre,
@@ -93,12 +100,13 @@ class CompanyRepository {
       'local_path': company.logoLocalPath,
       'remote_url': company.logoRemoteUrl,
       'upload_status': company.logoUploadStatus,
+      'sync_id': resolvedSyncId,
       'id_local': company.id,
       'sync_status':
-        company.logoUploadStatus == DatabaseSchema.uploadStatusPending ||
-          company.logoUploadStatus == DatabaseSchema.uploadStatusFailed
-        ? DatabaseSchema.syncStatusPendingUpdate
-        : DatabaseSchema.syncStatusSynced,
+          company.logoUploadStatus == DatabaseSchema.uploadStatusPending ||
+              company.logoUploadStatus == DatabaseSchema.uploadStatusFailed
+          ? DatabaseSchema.syncStatusPendingUpdate
+          : DatabaseSchema.syncStatusSynced,
       'created_at': company.fechaCreacion.toIso8601String(),
       'updated_at': company.fechaActualizacion.toIso8601String(),
       'last_modified_local': company.fechaActualizacion.toIso8601String(),

@@ -88,6 +88,7 @@ class SyncQueueService {
     'user_roles',
     'role_permissions',
     'permissions',
+    'company_profiles',
     'clients',
     'products',
     'sellers',
@@ -101,6 +102,7 @@ class SyncQueueService {
     'user_roles': ['users', 'roles'],
     'role_permissions': ['roles', 'permissions'],
     'permissions': ['users'],
+    'company_profiles': [],
     'clients': [],
     'products': ['clients'],
     'sellers': [],
@@ -115,6 +117,7 @@ class SyncQueueService {
     'user_roles': DatabaseSchema.userRolesTable,
     'role_permissions': DatabaseSchema.rolePermissionsTable,
     'permissions': DatabaseSchema.permissionsTable,
+    'company_profiles': DatabaseSchema.companyProfilesTable,
     'clients': DatabaseSchema.clientsTable,
     'products': DatabaseSchema.lotsTable,
     'sellers': DatabaseSchema.sellersTable,
@@ -180,7 +183,13 @@ class SyncQueueService {
       _handleConnectivityChanged,
     );
     _retryTimer = Timer.periodic(settings.queueRetryInterval, (_) {
-      unawaited(processQueue());
+      // Usamos syncPending en lugar de processQueue para que, en cada tick:
+      // 1) refreshScope() re-encole registros pendientes en SQLite que no
+      //    hayan llegado a la cola (incluyendo los que fallaron offline).
+      // 2) processQueue(includeDeferred:true) procese TODOS los items,
+      //    sin importar su next_attempt_at, garantizando que cuando el
+      //    internet regresa, los items se envian en el siguiente tick.
+      unawaited(syncPending());
     });
     await _refreshState();
 
@@ -845,7 +854,11 @@ class SyncQueueService {
               error: error.message,
               extra: {'type': 'socket'},
             );
-            await _scheduleRetry(
+            // No diferimos el item por errores de conectividad.
+            // next_attempt_at permanece en 'now', por lo que el siguiente
+            // tick del timer lo reintentara inmediatamente cuando el internet
+            // se restaure. Solo actualizamos last_error para diagnostico.
+            await _markConnectivityError(
               scope: scope,
               recordSyncIds: entryItems.map((item) => item.recordSyncId),
               errorMessage: 'Sin conexion: ${error.message}',
@@ -1658,6 +1671,41 @@ class SyncQueueService {
       scope: scope,
       recordSyncIds: ids,
       failedAt: now.toIso8601String(),
+    );
+    await _configRepository.saveLastRun(
+      errorMessage: errorMessage,
+      status: SyncRuntimeStatus.pending,
+    );
+    await _refreshState(lastError: errorMessage);
+  }
+
+  /// Registra un error de conectividad en la cola SIN diferir [next_attempt_at].
+  /// Esto garantiza que los items sean reintentados en el siguiente tick del
+  /// timer periodico en cuanto se restaure la conexion.
+  Future<void> _markConnectivityError({
+    required String scope,
+    required Iterable<String> recordSyncIds,
+    required String errorMessage,
+  }) async {
+    final ids = recordSyncIds
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toList(growable: false);
+    if (ids.isEmpty) {
+      return;
+    }
+
+    final db = await _appDatabase.database;
+    final now = DateTime.now();
+    final placeholders = List.filled(ids.length, '?').join(', ');
+    // Solo actualizamos updated_at y last_error; next_attempt_at queda
+    // en su valor original (ya en el pasado) para que la cola lo considere
+    // listo en el proximo ciclo.
+    await db.rawUpdate(
+      'UPDATE ${DatabaseSchema.syncQueueTable} '
+      'SET last_error = ?, updated_at = ? '
+      'WHERE scope = ? AND record_sync_id IN ($placeholders)',
+      [errorMessage, now.toIso8601String(), scope, ...ids],
     );
     await _configRepository.saveLastRun(
       errorMessage: errorMessage,

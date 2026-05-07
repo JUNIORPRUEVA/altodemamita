@@ -22,6 +22,7 @@ import '../../../features/settings/data/company_repository.dart';
 import '../../../features/settings/data/settings_repository.dart';
 import '../../../features/settings/domain/company_info.dart';
 import '../../../features/sales/data/seller_repository.dart';
+import '../../../repositories/company_profiles_sync_repository.dart';
 import '../../../repositories/installments_sync_repository.dart';
 import '../../../repositories/payments_sync_repository.dart';
 import '../../../repositories/permissions_sync_repository.dart';
@@ -2583,6 +2584,7 @@ class AuthService {
         UserRolesSyncRepository(appDatabase: _appDatabase),
         RolePermissionsSyncRepository(appDatabase: _appDatabase),
         PermissionsSyncRepository(appDatabase: _appDatabase),
+        CompanyProfilesSyncRepository(appDatabase: _appDatabase),
         ClientRepository(
           appDatabase: _appDatabase,
           syncQueueService: _syncQueueService,

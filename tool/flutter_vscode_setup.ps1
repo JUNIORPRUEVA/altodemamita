@@ -62,22 +62,31 @@ if ($wrapperFallbackDir -and (Test-Path $wrapperFallbackDir)) {
     'plugin_registrar.cc',
     'standard_codec.cc'
   )
-  $missing = $required | Where-Object { -not (Test-Path (Join-Path $wrapperDir $_)) }
+  $updated = 0
 
-  if ($missing.Count -gt 0) {
-    New-Item -ItemType Directory -Path $wrapperDir -Force | Out-Null
-    foreach ($f in $required) {
-      Copy-Item (Join-Path $wrapperFallbackDir $f) (Join-Path $wrapperDir $f) -Force
+  New-Item -ItemType Directory -Path $wrapperDir -Force | Out-Null
+  foreach ($f in $required) {
+    $source = Join-Path $wrapperFallbackDir $f
+    $dest = Join-Path $wrapperDir $f
+
+    if (Test-Path $source) {
+      Copy-Item $source $dest -Force
+      $updated++
     }
-    $includeSource = Join-Path $wrapperFallbackDir 'include'
-    $includeDest   = Join-Path $wrapperDir 'include'
-    if ((Test-Path $includeSource) -and -not (Test-Path $includeDest)) {
-      Copy-Item $includeSource $includeDest -Recurse -Force
-    }
-    Write-Host "[setup] cpp_client_wrapper copiado ($($missing.Count) archivos)"
-  } else {
-    Write-Host "[setup] cpp_client_wrapper OK"
   }
+
+  $includeSource = Join-Path $wrapperFallbackDir 'include'
+  $includeDest   = Join-Path $wrapperDir 'include'
+  if (Test-Path $includeSource) {
+    Copy-Item $includeSource $includeDest -Recurse -Force
+  }
+
+  $missingAfterSync = $required | Where-Object { -not (Test-Path (Join-Path $wrapperDir $_)) }
+  if ($missingAfterSync.Count -gt 0) {
+    throw "[setup] cpp_client_wrapper incompleto despues de sincronizar: $($missingAfterSync -join ', ')"
+  }
+
+  Write-Host "[setup] cpp_client_wrapper sincronizado ($updated archivos)"
 } else {
   Write-Host "[setup] WARN: no se encontro wrapperFallbackDir, se omite copia"
 }

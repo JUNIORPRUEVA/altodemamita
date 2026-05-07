@@ -39,6 +39,7 @@ class SyncConfigRepository {
 
   static const _jwtTokenPreferenceKey = 'sync.jwt_token';
   static const _deviceIdPreferenceKey = 'sync.device_id';
+  static const _deviceIdFallbackKey = 'sync.device_id_fallback';
   static const _cursorPreferencePrefix = 'sync.cursor.';
 
   static String normalizeBackendBaseUrl(String baseUrl) {
@@ -281,10 +282,21 @@ class SyncConfigRepository {
     final prefs = await _tryPreferences();
     final current = prefs?.getString(_deviceIdPreferenceKey);
     if (current != null && current.trim().isNotEmpty) {
+      await _settingsRepository.upsert(_deviceIdFallbackKey, current.trim());
       return current;
     }
 
+    final fallback =
+        (await _settingsRepository.fetchByKeys([_deviceIdFallbackKey]))[_deviceIdFallbackKey]
+            ?.value
+            .trim();
+    if (fallback != null && fallback.isNotEmpty) {
+      await prefs?.setString(_deviceIdPreferenceKey, fallback);
+      return fallback;
+    }
+
     await prefs?.setString(_deviceIdPreferenceKey, generated);
+    await _settingsRepository.upsert(_deviceIdFallbackKey, generated);
     return generated;
   }
 }

@@ -89,6 +89,7 @@ class DatabaseSchema {
     userRolesTable,
     rolePermissionsTable,
     permissionsTable,
+    companyProfilesTable,
     clientsTable,
     sellersTable,
     lotsTable,

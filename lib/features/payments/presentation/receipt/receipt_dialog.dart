@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:pdf/pdf.dart';
 import 'package:printing/printing.dart';
 
 import '../../../../core/resilience/friendly_error_messages.dart';
@@ -11,6 +12,11 @@ import 'receipt_controller.dart';
 import 'receipt_pdf_builder.dart';
 import 'receipt_view.dart';
 import '../../../../shared/widgets/recovery_experience.dart';
+
+final Map<String, PdfPageFormat> _receiptPageFormats = {
+  'Carta horizontal': PdfPageFormat.letter.landscape,
+  'Carta vertical': PdfPageFormat.letter.portrait,
+};
 
 class ReceiptDialog {
   static Future<void> show(
@@ -45,25 +51,10 @@ class ReceiptDialog {
         );
       }
 
-      final printerRepository = PrinterRepository();
-      final defaultPrinter = await printerRepository.getDefaultPrinter();
-      if (defaultPrinter != null && defaultPrinter.hasSystemSelection) {
-        final systemPrinter = await printerRepository.resolvePrinter(
-          defaultPrinter,
-        );
-        if (systemPrinter != null) {
-          await Printing.directPrintPdf(
-            printer: systemPrinter,
-            onLayout: (format) =>
-                ReceiptPdfBuilder.build(receipt, pageFormat: format),
-            name: 'Recibo-${receipt.receiptNumber}',
-            usePrinterSettings: true,
-          );
-          return;
-        }
-      }
-
       await Printing.layoutPdf(
+        name: 'Recibo-${receipt.receiptNumber}',
+        format: PdfPageFormat.letter.landscape,
+        usePrinterSettings: true,
         onLayout: (format) =>
             ReceiptPdfBuilder.build(receipt, pageFormat: format),
       );
@@ -97,6 +88,7 @@ class _ReceiptDialogContentState extends State<_ReceiptDialogContent> {
   late final PrinterRepository _printerRepository;
   PrinterConfig? _defaultPrinterConfig;
   bool _loadingPrinterConfig = true;
+  late String _selectedPageFormatLabel;
 
   @override
   void initState() {
@@ -105,6 +97,7 @@ class _ReceiptDialogContentState extends State<_ReceiptDialogContent> {
       receiptRepository: widget.receiptRepository,
     );
     _printerRepository = PrinterRepository();
+    _selectedPageFormatLabel = _receiptPageFormats.keys.first;
     _controller.loadReceipt(widget.paymentId);
     _loadDefaultPrinter();
 
@@ -127,7 +120,15 @@ class _ReceiptDialogContentState extends State<_ReceiptDialogContent> {
     setState(() {
       _defaultPrinterConfig = defaultPrinter;
       _loadingPrinterConfig = false;
+      if (defaultPrinter?.defaultOrientation == 'portrait') {
+        _selectedPageFormatLabel = 'Carta vertical';
+      }
     });
+  }
+
+  PdfPageFormat get _selectedPageFormat {
+    return _receiptPageFormats[_selectedPageFormatLabel] ??
+        PdfPageFormat.letter.landscape;
   }
 
   Future<void> _printNow() async {
@@ -137,34 +138,23 @@ class _ReceiptDialogContentState extends State<_ReceiptDialogContent> {
     }
 
     try {
-      PrinterConfig? defaultPrinter = _defaultPrinterConfig;
-      if (_loadingPrinterConfig && defaultPrinter == null) {
-        defaultPrinter = await _printerRepository.getDefaultPrinter();
+      if (_loadingPrinterConfig && _defaultPrinterConfig == null) {
+        final loadedPrinter = await _printerRepository.getDefaultPrinter();
         if (mounted) {
           setState(() {
-            _defaultPrinterConfig = defaultPrinter;
+            _defaultPrinterConfig = loadedPrinter;
             _loadingPrinterConfig = false;
+            if (loadedPrinter?.defaultOrientation == 'portrait') {
+              _selectedPageFormatLabel = 'Carta vertical';
+            }
           });
         }
       }
 
-      if (defaultPrinter != null && defaultPrinter.hasSystemSelection) {
-        final systemPrinter = await _printerRepository.resolvePrinter(
-          defaultPrinter,
-        );
-        if (systemPrinter != null) {
-          await Printing.directPrintPdf(
-            printer: systemPrinter,
-            onLayout: (format) =>
-                ReceiptPdfBuilder.build(receipt, pageFormat: format),
-            name: 'Recibo-${receipt.receiptNumber}',
-            usePrinterSettings: true,
-          );
-          return;
-        }
-      }
-
       await Printing.layoutPdf(
+        name: 'Recibo-${receipt.receiptNumber}',
+        format: _selectedPageFormat,
+        usePrinterSettings: true,
         onLayout: (format) =>
             ReceiptPdfBuilder.build(receipt, pageFormat: format),
       );
@@ -187,7 +177,10 @@ class _ReceiptDialogContentState extends State<_ReceiptDialogContent> {
     }
 
     try {
-      final bytes = await ReceiptPdfBuilder.build(receipt);
+      final bytes = await ReceiptPdfBuilder.build(
+        receipt,
+        pageFormat: _selectedPageFormat,
+      );
       await Printing.sharePdf(
         bytes: bytes,
         filename: 'Recibo-${receipt.receiptNumber}.pdf',
@@ -353,6 +346,12 @@ class _ReceiptDialogContentState extends State<_ReceiptDialogContent> {
                       _DialogActions(
                         onExport: _exportPdf,
                         onPrint: _printNow,
+                        selectedPageFormatLabel: _selectedPageFormatLabel,
+                        onChangePageFormat: (label) {
+                          setState(() {
+                            _selectedPageFormatLabel = label;
+                          });
+                        },
                         defaultPrinterName: _defaultPrinterConfig?.nombre,
                         loadingPrinterConfig: _loadingPrinterConfig,
                       ),
@@ -437,12 +436,16 @@ class _DialogActions extends StatelessWidget {
   const _DialogActions({
     required this.onExport,
     required this.onPrint,
+    required this.selectedPageFormatLabel,
+    required this.onChangePageFormat,
     required this.defaultPrinterName,
     required this.loadingPrinterConfig,
   });
 
   final Future<void> Function() onExport;
   final Future<void> Function() onPrint;
+  final String selectedPageFormatLabel;
+  final ValueChanged<String> onChangePageFormat;
   final String? defaultPrinterName;
   final bool loadingPrinterConfig;
 
@@ -466,7 +469,22 @@ class _DialogActions extends StatelessWidget {
             spacing: 8,
             runSpacing: 8,
             children: [
-              const Chip(label: Text('Formato carta horizontal')),
+              DropdownButton<String>(
+                value: selectedPageFormatLabel,
+                items: _receiptPageFormats.keys
+                    .map(
+                      (label) => DropdownMenuItem<String>(
+                        value: label,
+                        child: Text(label),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) {
+                  if (value != null) {
+                    onChangePageFormat(value);
+                  }
+                },
+              ),
               if (loadingPrinterConfig)
                 const Chip(label: Text('Cargando impresora...'))
               else if ((defaultPrinterName ?? '').isNotEmpty)
@@ -492,11 +510,7 @@ class _DialogActions extends StatelessWidget {
               FilledButton.icon(
                 onPressed: onPrint,
                 icon: const Icon(Icons.print_outlined),
-                label: Text(
-                  (defaultPrinterName ?? '').isNotEmpty
-                      ? 'Imprimir rápido'
-                      : 'Imprimir',
-                ),
+                label: const Text('Imprimir'),
               ),
             ],
           ),

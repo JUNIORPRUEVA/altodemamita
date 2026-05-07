@@ -154,6 +154,7 @@ class SyncApiClient {
       method: 'POST',
       uri: uri,
       jwtToken: settings.jwtToken,
+      deviceId: settings.deviceId,
       payload: payload,
     );
 
@@ -186,6 +187,7 @@ class SyncApiClient {
       method: 'GET',
       uri: uri,
       jwtToken: settings.jwtToken,
+      deviceId: settings.deviceId,
     );
 
     return SyncDownloadResponse(
@@ -199,6 +201,7 @@ class SyncApiClient {
     required String method,
     required Uri uri,
     required String jwtToken,
+    required String deviceId,
     Map<String, Object?>? payload,
   }) async {
     final normalizedToken = jwtToken.trim();
@@ -225,6 +228,10 @@ class SyncApiClient {
       HttpHeaders.authorizationHeader,
       'Bearer $normalizedToken',
     );
+    final normalizedDeviceId = deviceId.trim();
+    if (normalizedDeviceId.isNotEmpty) {
+      request.headers.set('x-device-id', normalizedDeviceId);
+    }
 
     if (payload != null) {
       request.write(jsonEncode(payload));

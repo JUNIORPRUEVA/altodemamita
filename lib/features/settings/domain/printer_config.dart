@@ -31,9 +31,7 @@ class PrinterConfig {
         return decoded;
       }
       if (decoded is Map) {
-        return decoded.map(
-          (key, value) => MapEntry(key.toString(), value),
-        );
+        return decoded.map((key, value) => MapEntry(key.toString(), value));
       }
     } catch (_) {
       return const {};
@@ -46,6 +44,17 @@ class PrinterConfig {
   String? get printerLocation => configuracionMap['location'] as String?;
 
   String? get printerComment => configuracionMap['comment'] as String?;
+
+  String? get defaultOrientation {
+    final rawValue =
+        configuracionMap['default_orientation'] ??
+        configuracionMap['orientation'];
+    final normalized = rawValue?.toString().trim().toLowerCase();
+    if (normalized == 'portrait' || normalized == 'landscape') {
+      return normalized;
+    }
+    return null;
+  }
 
   bool get hasSystemSelection => (printerUrl ?? '').isNotEmpty;
 

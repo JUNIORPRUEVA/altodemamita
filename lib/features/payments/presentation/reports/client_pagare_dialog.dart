@@ -37,29 +37,17 @@ class ClientPagareDialog {
       final company =
           await CompanyRepository(db).getCompanyInfo() ??
           CompanyInfo.empty().copyWith(nombre: 'Sistema de Solares');
-      final printerRepository = PrinterRepository();
-      final defaultPrinter = await printerRepository.getDefaultPrinter();
       final bytes = await ClientPagarePdfBuilder.build(
         report: report,
         company: company,
       );
 
-      if (defaultPrinter != null && defaultPrinter.hasSystemSelection) {
-        final systemPrinter = await printerRepository.resolvePrinter(
-          defaultPrinter,
-        );
-        if (systemPrinter != null) {
-          await Printing.directPrintPdf(
-            printer: systemPrinter,
-            onLayout: (_) async => bytes,
-            name: 'Pagares-Cliente-${report.clientId}',
-            usePrinterSettings: true,
-          );
-          return;
-        }
-      }
-
-      await Printing.layoutPdf(onLayout: (_) async => bytes);
+      await Printing.layoutPdf(
+        name: 'Pagares-Cliente-${report.clientId}',
+        format: ClientPagarePdfBuilder.pageFormat,
+        usePrinterSettings: true,
+        onLayout: (_) async => bytes,
+      );
     } catch (error) {
       FriendlyErrorMessages.forOperation(
         'imprimir la lista de pagos',
@@ -83,6 +71,10 @@ class _ClientPagareDialogContent extends StatefulWidget {
 class _ClientPagareDialogContentState
     extends State<_ClientPagareDialogContent> {
   late final PrinterRepository _printerRepository;
+  static final Map<String, PdfPageFormat> _pageFormats = {
+    'A4 vertical': PdfPageFormat.a4,
+    'A4 horizontal': PdfPageFormat.a4.landscape,
+  };
 
   final Map<String, Future<Uint8List>> _documentCache =
       <String, Future<Uint8List>>{};
@@ -91,12 +83,14 @@ class _ClientPagareDialogContentState
   CompanyInfo _company = CompanyInfo.empty().copyWith(
     nombre: 'Sistema de Solares',
   );
+  late PdfPageFormat _selectedPageFormat;
   bool _loading = true;
 
   @override
   void initState() {
     super.initState();
     _printerRepository = PrinterRepository();
+    _selectedPageFormat = PdfPageFormat.a4;
     _loadData();
   }
 
@@ -111,6 +105,9 @@ class _ClientPagareDialogContentState
       setState(() {
         _company = company ?? _company;
         _defaultPrinter = printer;
+        if (printer?.defaultOrientation == 'landscape') {
+          _selectedPageFormat = PdfPageFormat.a4.landscape;
+        }
         _loading = false;
       });
       _warmUpDocument();
@@ -126,7 +123,8 @@ class _ClientPagareDialogContentState
   }
 
   Future<Uint8List> _buildBytes() {
-    const cacheKey = 'client-pagare-a4';
+    final cacheKey =
+        'client-pagare-${_selectedPageFormat.width}x${_selectedPageFormat.height}';
     final cachedFuture = _documentCache[cacheKey];
     if (cachedFuture != null) {
       return cachedFuture;
@@ -135,6 +133,7 @@ class _ClientPagareDialogContentState
     final generatedFuture = ClientPagarePdfBuilder.build(
       report: widget.report,
       company: _company,
+      pageFormat: _selectedPageFormat,
     );
     final guardedFuture = generatedFuture.catchError((Object error) {
       _documentCache.remove(cacheKey);
@@ -167,22 +166,12 @@ class _ClientPagareDialogContentState
   Future<void> _printNow() async {
     try {
       final bytes = await _buildBytes();
-      final defaultPrinter = _defaultPrinter;
-      if (defaultPrinter != null && defaultPrinter.hasSystemSelection) {
-        final systemPrinter = await _printerRepository.resolvePrinter(
-          defaultPrinter,
-        );
-        if (systemPrinter != null) {
-          await Printing.directPrintPdf(
-            printer: systemPrinter,
-            onLayout: (_) async => bytes,
-            name: 'Pagares-Cliente-${widget.report.clientId}',
-            usePrinterSettings: true,
-          );
-          return;
-        }
-      }
-      await Printing.layoutPdf(onLayout: (_) async => bytes);
+      await Printing.layoutPdf(
+        name: 'Pagares-Cliente-${widget.report.clientId}',
+        format: _selectedPageFormat,
+        usePrinterSettings: true,
+        onLayout: (_) async => bytes,
+      );
     } catch (error) {
       if (!mounted) {
         return;
@@ -297,11 +286,8 @@ class _ClientPagareDialogContentState
                                         key: ValueKey(
                                           'client-pagare-preview-${widget.report.clientId}-${widget.report.items.length}',
                                         ),
-                                        initialPageFormat:
-                                            ClientPagarePdfBuilder.pageFormat,
-                                        pageFormats: const {
-                                          'A4 vertical': PdfPageFormat.a4,
-                                        },
+                                        initialPageFormat: _selectedPageFormat,
+                                        pageFormats: _pageFormats,
                                         maxPageWidth: maxPageWidth,
                                         useActions: false,
                                         padding: EdgeInsets.zero,
@@ -326,8 +312,13 @@ class _ClientPagareDialogContentState
                                             ),
                                           ],
                                         ),
-                                        canChangePageFormat: false,
-                                        canChangeOrientation: false,
+                                        canChangePageFormat: true,
+                                        canChangeOrientation: true,
+                                        onPageFormatChanged: (format) {
+                                          setState(() {
+                                            _selectedPageFormat = format;
+                                          });
+                                        },
                                         canDebug: false,
                                         allowPrinting: false,
                                         allowSharing: false,

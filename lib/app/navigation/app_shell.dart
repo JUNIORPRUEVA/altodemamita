@@ -28,6 +28,7 @@ import '../../features/sales/presentation/sellers_page.dart';
 import '../../features/settings/data/company_repository.dart';
 import '../../features/settings/data/settings_repository.dart';
 import '../../features/settings/presentation/settings_page.dart';
+import '../../repositories/company_profiles_sync_repository.dart';
 import '../../repositories/installments_sync_repository.dart';
 import '../../repositories/payments_sync_repository.dart';
 import '../../repositories/permissions_sync_repository.dart';
@@ -121,6 +122,8 @@ class _AppShellState extends State<AppShell> {
       RolePermissionsSyncRepository();
   final PermissionsSyncRepository _permissionsSyncRepository =
       PermissionsSyncRepository();
+  final CompanyProfilesSyncRepository _companyProfilesSyncRepository =
+      CompanyProfilesSyncRepository();
   final SalesSyncRepository _salesSyncRepository = SalesSyncRepository();
   final InstallmentsSyncRepository _installmentsSyncRepository =
       InstallmentsSyncRepository();
@@ -133,6 +136,7 @@ class _AppShellState extends State<AppShell> {
       _userRolesSyncRepository,
       _rolePermissionsSyncRepository,
       _permissionsSyncRepository,
+      _companyProfilesSyncRepository,
       _clientRepository,
       _productsSyncRepository,
       _sellerRepository,

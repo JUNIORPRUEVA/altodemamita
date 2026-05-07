@@ -44,34 +44,34 @@ class _PrintersPageState extends State<PrintersPage> {
     return BaseLayout(
       title: 'Impresoras',
       child: Column(
-              children: [
-                _isLoading
-                    ? const Center(child: CircularProgressIndicator())
-                    : _loadError != null
-                    ? _buildErrorState()
-                    : printers.isEmpty
-                    ? _buildEmptyState(isReadOnly: isReadOnly)
-                    : RefreshIndicator(
-                        onRefresh: _loadPrinters,
-                        child: ListView(
-                          padding: const EdgeInsets.all(16),
-                          children: [
-                            _buildSummaryCard(),
-                            const SizedBox(height: 16),
-                            ...printers.map(
-                              (printer) => _PrinterCard(
-                                printer: printer,
-                                readOnly: isReadOnly,
-                                onEdit: () => _editPrinter(printer),
-                                onDelete: () => _deletePrinter(printer),
-                                onSetDefault: () => _setDefaultPrinter(printer),
-                              ),
-                            ),
-                          ],
+        children: [
+          _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : _loadError != null
+              ? _buildErrorState()
+              : printers.isEmpty
+              ? _buildEmptyState(isReadOnly: isReadOnly)
+              : RefreshIndicator(
+                  onRefresh: _loadPrinters,
+                  child: ListView(
+                    padding: const EdgeInsets.all(16),
+                    children: [
+                      _buildSummaryCard(),
+                      const SizedBox(height: 16),
+                      ...printers.map(
+                        (printer) => _PrinterCard(
+                          printer: printer,
+                          readOnly: isReadOnly,
+                          onEdit: () => _editPrinter(printer),
+                          onDelete: () => _deletePrinter(printer),
+                          onSetDefault: () => _setDefaultPrinter(printer),
                         ),
                       ),
-              ],
-            ),
+                    ],
+                  ),
+                ),
+        ],
+      ),
     );
   }
 
@@ -500,16 +500,16 @@ class _PrinterCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 8),
                 ],
-                IconButton(
+                TextButton.icon(
                   onPressed: readOnly ? null : onEdit,
-                  icon: const Icon(Icons.edit_outlined),
-                  tooltip: 'Editar',
+                  icon: const Icon(Icons.edit_outlined, size: 18),
+                  label: const Text('Editar'),
                 ),
-                IconButton(
+                TextButton.icon(
                   onPressed: readOnly ? null : onDelete,
-                  icon: const Icon(Icons.delete_outline),
-                  color: Colors.red,
-                  tooltip: 'Eliminar',
+                  icon: const Icon(Icons.delete_outline, size: 18),
+                  label: const Text('Eliminar'),
+                  style: TextButton.styleFrom(foregroundColor: Colors.red),
                 ),
               ],
             ),
