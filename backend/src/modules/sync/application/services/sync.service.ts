@@ -3244,8 +3244,10 @@ export class SyncService {
     // creating an infinite reset loop on the client.
     // ────────────────────────────────────────────────────────────────────────────
     const paidAmount = this.roundCurrency(Number(installment.paidAmount));
-    const paidPrincipalAmount = this.roundCurrency(Math.min(principalAmount, paidAmount));
-    const paidInterestAmount = this.roundCurrency(Math.max(paidAmount - paidPrincipalAmount, 0));
+    // Interest is applied before principal (matches resolvePaymentSplit in payments.service.ts):
+    const installmentInterest = Number(payload?.['interest_amount'] ?? installment.interestAmount);
+    const paidInterestAmount = this.roundCurrency(Math.min(installmentInterest, paidAmount));
+    const paidPrincipalAmount = this.roundCurrency(Math.max(paidAmount - paidInterestAmount, 0));
     return {
       ...(payload ?? {}),
       id: installment.id,

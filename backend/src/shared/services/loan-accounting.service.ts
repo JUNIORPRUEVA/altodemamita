@@ -221,9 +221,12 @@ export class LoanAccountingService {
     } else if (outstandingBalance <= 0) {
       status = SaleStatus.completed;
     } else if (
-      refreshedInstallments.some(
-        (installment) => installment.status === InstallmentStatus.overdue,
-      )
+      refreshedInstallments.some((installment) => {
+        const remaining = this.roundCurrency(
+          Number(installment.amount) - Number(installment.paidAmount),
+        );
+        return remaining > 0.009 && this.isPastDue(installment.dueDate, new Date());
+      })
     ) {
       status = SaleStatus.overdue;
     }
