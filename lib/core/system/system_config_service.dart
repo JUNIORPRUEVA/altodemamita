@@ -68,6 +68,7 @@ class SystemConfigService extends ChangeNotifier {
   DateTime? _lastDeviceValidatedAt;
   String _deviceWriteReason = '';
   String _currentDeviceId = '';
+  String _lastRefreshError = '';
 
   bool get isReadOnly => _isReadOnly;
   bool get isLoading => _isLoading;
@@ -77,25 +78,34 @@ class SystemConfigService extends ChangeNotifier {
   DateTime? get lastDeviceValidatedAt => _lastDeviceValidatedAt;
   String get deviceWriteReason => _deviceWriteReason;
   String get currentDeviceId => _currentDeviceId;
+  String get lastRefreshError => _lastRefreshError;
 
   Future<void> initialize() async {
     _applyDeviceState(await _syncConfigRepository.loadDeviceWriteState());
     await refresh();
   }
 
-  Future<void> refresh() async {
+  Future<void> refresh({bool throwOnFailure = false}) async {
     if (_isLoading) {
       return;
     }
 
     _isLoading = true;
+    _lastRefreshError = '';
     notifyListeners();
 
     try {
       final settings = await _syncConfigRepository.loadSettings();
       _currentDeviceId = settings.deviceId;
+      debugPrint(
+        '[device-refresh] baseUrl=${settings.normalizedBaseUrl} '
+        'deviceId=${settings.deviceId} '
+        'jwtPresent=${settings.jwtToken.trim().isNotEmpty}',
+      );
       if (!settings.isConfigured) {
         _updateState(readOnly: false);
+        _lastRefreshError =
+            'Sync no configurado: falta JWT o URL base. Inicie sesion online.';
         if (_lastDeviceValidatedAt == null) {
           _applyDeviceState(
             DeviceWriteState(
@@ -119,8 +129,17 @@ class SystemConfigService extends ChangeNotifier {
         );
         _applyDeviceState(deviceState);
         await _syncConfigRepository.saveDeviceWriteState(deviceState);
+        debugPrint(
+          '[device-refresh] applied state isPrimary=${deviceState.isPrimary} '
+          'canWrite=${deviceState.canWrite}',
+        );
       }
-    } catch (_) {
+    } catch (error) {
+      _lastRefreshError = error.toString();
+      debugPrint('[device-refresh] error=$error');
+      if (throwOnFailure) {
+        rethrow;
+      }
       // Preserve the last known state if the backend is temporarily unreachable.
     } finally {
       _isLoading = false;
@@ -210,19 +229,34 @@ class SystemConfigService extends ChangeNotifier {
     required String jwtToken,
     required String deviceId,
   }) async {
-    final request = await _httpClient.getUrl(
-      Uri.parse('$baseUrl/devices/current'),
-    );
+    final uri = Uri.parse('$baseUrl/devices/current');
+    final normalizedDeviceId = deviceId.trim();
+    final normalizedJwt = jwtToken.trim();
+    final request = await _httpClient.getUrl(uri);
     request.headers.set(HttpHeaders.acceptHeader, ContentType.json.mimeType);
+    request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache, no-store');
+    request.headers.set('pragma', 'no-cache');
     request.headers.set(
       HttpHeaders.authorizationHeader,
-      'Bearer ${jwtToken.trim()}',
+      'Bearer $normalizedJwt',
     );
-    request.headers.set('x-device-id', deviceId);
+    request.headers.set('x-device-id', normalizedDeviceId);
+
+    debugPrint('[device-refresh] GET $uri');
+    debugPrint('[device-refresh] header x-device-id=$normalizedDeviceId');
+    debugPrint(
+      '[device-refresh] header Authorization=Bearer '
+      '${normalizedJwt.isEmpty ? '<EMPTY>' : '<SET>'}',
+    );
+
     final response = await request.close();
     final body = await utf8.decoder.bind(response).join();
+    debugPrint('[device-refresh] status=${response.statusCode}');
+    debugPrint('[device-refresh] body=$body');
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw HttpException('device current failed: ${response.statusCode}');
+      throw HttpException(
+        'device current failed: ${response.statusCode}; body=$body',
+      );
     }
 
     final decoded = body.trim().isEmpty
@@ -231,7 +265,12 @@ class SystemConfigService extends ChangeNotifier {
     final payload = decoded is Map<String, dynamic>
         ? _unwrapEnvelope(decoded)
         : const <String, dynamic>{};
-    return _deviceStateFromPayload(payload);
+    final state = _deviceStateFromPayload(payload);
+    debugPrint(
+      '[device-refresh] parsed isPrimary=${state.isPrimary} '
+      'canWrite=${state.canWrite}',
+    );
+    return state;
   }
 
   DeviceWriteState _deviceStateFromPayload(Map<String, dynamic> payload) {

@@ -276,7 +276,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final messenger = ScaffoldMessenger.maybeOf(context);
     try {
       final wasWritable = SystemConfigService.instance.canWrite;
-      await SystemConfigService.instance.refresh();
+      await SystemConfigService.instance.refresh(throwOnFailure: true);
       if (!mounted) return;
       final systemConfig = SystemConfigService.instance;
       final justUnlocked = !wasWritable && systemConfig.canWrite;
@@ -303,11 +303,14 @@ class _SettingsPageState extends State<SettingsPage> {
           duration: Duration(seconds: systemConfig.canWrite ? 3 : 6),
         ),
       );
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
       messenger?.showSnackBar(
-        const SnackBar(
-          content: Text('No se pudo actualizar el estado de esta PC.'),
+        SnackBar(
+          content: Text(
+            'No se pudo actualizar el estado de esta PC: $error',
+          ),
+          duration: const Duration(seconds: 8),
         ),
       );
     }

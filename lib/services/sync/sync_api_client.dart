@@ -214,9 +214,15 @@ class SyncApiClient {
     }
 
     final normalizedDeviceId = deviceId.trim();
+    if (normalizedDeviceId.isEmpty) {
+      throw HttpException(
+        'Esta PC no esta autorizada (falta x-device-id local).',
+        uri: uri,
+      );
+    }
     _log(
       'REQUEST -> ${method.toUpperCase()} $uri '
-      '[device_id=${normalizedDeviceId.isEmpty ? 'none' : normalizedDeviceId}, has_jwt=true]',
+      '[device_id=$normalizedDeviceId, has_jwt=true]',
     );
 
     final HttpClientRequest request;
@@ -232,9 +238,7 @@ class SyncApiClient {
       HttpHeaders.authorizationHeader,
       'Bearer $normalizedToken',
     );
-    if (normalizedDeviceId.isNotEmpty) {
-      request.headers.set('x-device-id', normalizedDeviceId);
-    }
+    request.headers.set('x-device-id', normalizedDeviceId);
 
     if (payload != null) {
       request.write(jsonEncode(payload));

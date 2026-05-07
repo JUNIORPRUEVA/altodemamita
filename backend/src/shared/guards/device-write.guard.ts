@@ -64,11 +64,36 @@ export class DeviceWriteGuard implements CanActivate {
       });
     }
 
-    const deviceId = this.extractDeviceId(request);
+    const headerDeviceId = this.extractHeaderDeviceId(request);
+    if (!headerDeviceId) {
+      this.logger.warn(
+        `Blocked request without x-device-id: user=${user.sub}, method=${method}, path=${request.originalUrl ?? request.url ?? ''}`,
+      );
+      throw new ForbiddenException({
+        message: 'DEVICE_NOT_AUTHORIZED',
+        detail: 'Esta PC no esta autorizada (falta header x-device-id).',
+        reason: 'missing_device_id',
+      });
+    }
+
+    const payloadDeviceId = this.extractPayloadDeviceId(request);
+    if (payloadDeviceId.length > 0 && payloadDeviceId !== headerDeviceId) {
+      this.logger.warn(
+        `Blocked request due device id mismatch: user=${user.sub}, header=${headerDeviceId}, payload=${payloadDeviceId}, method=${method}, path=${request.originalUrl ?? request.url ?? ''}`,
+      );
+      throw new ForbiddenException({
+        message: 'DEVICE_NOT_AUTHORIZED',
+        detail: 'Esta PC no esta autorizada (x-device-id no coincide con el payload).',
+        reason: 'device_id_mismatch',
+        header_device_id: headerDeviceId,
+        payload_device_id: payloadDeviceId,
+      });
+    }
+
     const deviceState = await this.deviceAuthorizationService.resolveCurrentAccess({
       userId: user.sub,
       clientType: user.type,
-      deviceId,
+      deviceId: headerDeviceId,
       roles: user.roles,
       autoRegisterDesktop: false,
     });
@@ -91,10 +116,8 @@ export class DeviceWriteGuard implements CanActivate {
     });
   }
 
-  private extractDeviceId(request: {
+  private extractHeaderDeviceId(request: {
     headers?: Record<string, string | string[] | undefined>;
-    body?: Record<string, unknown>;
-    query?: Record<string, unknown>;
   }): string {
     const header = request.headers?.['x-device-id'];
     if (typeof header === 'string' && header.trim().length > 0) {
@@ -107,15 +130,29 @@ export class DeviceWriteGuard implements CanActivate {
         }
       }
     }
+    return '';
+  }
 
+  private extractPayloadDeviceId(request: {
+    body?: Record<string, unknown>;
+    query?: Record<string, unknown>;
+  }): string {
     const bodyDeviceId = request.body?.['device_id'];
     if (typeof bodyDeviceId === 'string' && bodyDeviceId.trim().length > 0) {
       return bodyDeviceId.trim();
+    }
+    const bodyDeviceIdCamel = request.body?.['deviceId'];
+    if (typeof bodyDeviceIdCamel === 'string' && bodyDeviceIdCamel.trim().length > 0) {
+      return bodyDeviceIdCamel.trim();
     }
 
     const queryDeviceId = request.query?.['device_id'];
     if (typeof queryDeviceId === 'string' && queryDeviceId.trim().length > 0) {
       return queryDeviceId.trim();
+    }
+    const queryDeviceIdCamel = request.query?.['deviceId'];
+    if (typeof queryDeviceIdCamel === 'string' && queryDeviceIdCamel.trim().length > 0) {
+      return queryDeviceIdCamel.trim();
     }
 
     return '';

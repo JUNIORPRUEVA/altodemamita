@@ -108,10 +108,14 @@ class BackendApiClient {
           'No hay una sesion online activa para ejecutar la operacion.',
         );
       }
-      headers['Authorization'] = 'Bearer $token';
-      if (settings.deviceId.trim().isNotEmpty) {
-        headers['x-device-id'] = settings.deviceId.trim();
+      final deviceId = settings.deviceId.trim();
+      if (deviceId.isEmpty) {
+        throw const BackendApiException(
+          'Esta PC no esta autorizada (falta x-device-id local).',
+        );
       }
+      headers['Authorization'] = 'Bearer $token';
+      headers['x-device-id'] = deviceId;
     }
 
     final encodedBody = body == null ? null : jsonEncode(body);

@@ -1,5 +1,6 @@
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -282,6 +283,9 @@ class SyncConfigRepository {
     final prefs = await _tryPreferences();
     final current = prefs?.getString(_deviceIdPreferenceKey);
     if (current != null && current.trim().isNotEmpty) {
+      debugPrint(
+        '[device-id] source=SharedPreferences value=${current.trim()}',
+      );
       // Backup to SQLite for cross-login recovery; ignored if device not yet
       // authorized (bootstrap state — SharedPreferences is the primary store).
       try {
@@ -297,11 +301,13 @@ class SyncConfigRepository {
             ?.value
             .trim();
     if (fallback != null && fallback.isNotEmpty) {
+      debugPrint('[device-id] source=SQLite fallback value=$fallback');
       await prefs?.setString(_deviceIdPreferenceKey, fallback);
       return fallback;
     }
 
     await prefs?.setString(_deviceIdPreferenceKey, generated);
+    debugPrint('[device-id] source=generated value=$generated');
     try {
       await _settingsRepository.upsert(_deviceIdFallbackKey, generated);
     } on DeviceWriteBlockedException {
