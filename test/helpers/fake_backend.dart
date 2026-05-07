@@ -11,6 +11,7 @@ class FakeBackendState {
   bool offline = false;
   final Set<String> unreachableHosts = <String>{};
   bool rejectSyncDownloadUnauthorized = false;
+  bool rejectSyncDownloadForDeviceUnauthorized = false;
   bool systemReadOnly = false;
   String companyName = '';
   String adminEmail = '';
@@ -654,6 +655,16 @@ class _FakeHttpClientRequest implements HttpClientRequest {
         return _jsonResponse(
           status: HttpStatus.unauthorized,
           body: {'success': false, 'message': 'Unauthorized'},
+        );
+      }
+
+      if (_state.rejectSyncDownloadForDeviceUnauthorized) {
+        return _jsonResponse(
+          status: HttpStatus.forbidden,
+          body: {
+            'success': false,
+            'message': 'DEVICE_NOT_AUTHORIZED_FOR_WRITE',
+          },
         );
       }
 

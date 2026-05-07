@@ -214,6 +214,28 @@ class SyncQueueService {
     await _refreshState(clearLastError: true);
   }
 
+  Future<int> resetDeferredJobsForDeviceSwitch() async {
+    if (_isDisposed) {
+      return 0;
+    }
+
+    final db = await _appDatabase.database;
+    final now = DateTime.now().toIso8601String();
+    final affected = await db.rawUpdate(
+      'UPDATE ${DatabaseSchema.syncQueueTable} '
+      'SET attempt_count = 0, '
+      'last_error = NULL, '
+      'updated_at = ?, '
+      'next_attempt_at = ? '
+      'WHERE attempt_count > 0 '
+      "OR TRIM(COALESCE(last_error, '')) != '' "
+      'OR next_attempt_at > ?',
+      [now, now, now],
+    );
+    await _refreshState(clearLastError: true);
+    return affected;
+  }
+
   Future<int> requeueUnresolvedConflicts({Iterable<String>? scopes}) async {
     if (SystemConfigService.instance.isReadOnly) {
       return 0;
@@ -879,7 +901,7 @@ class SyncQueueService {
             }
             if (_isDeviceWriteUnauthorizedError(error)) {
               final reason =
-                  'WRITE_BLOCKED: este dispositivo no esta autorizado para escribir en la nube (PC no primaria).';
+                  'Esta PC no está autorizada para sincronizar. Actívela desde Configuración.';
               await _syncLogger.log(
                 action: 'upload',
                 entity: scope,

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 
 import { PrismaService } from 'src/infrastructure/prisma/prisma.service';
 import { AuthenticatedUser } from '../decorators/current-user.decorator';
@@ -38,6 +38,8 @@ export interface AuthorizedDeviceSummary {
 
 @Injectable()
 export class DeviceAuthorizationService {
+  private readonly logger = new Logger(DeviceAuthorizationService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   private static readonly manualDeviceRegistrationEnabled = true;
@@ -146,6 +148,9 @@ export class DeviceAuthorizationService {
     }
 
     if (device == null) {
+      this.logger.warn(
+        `Device not registered: user=${options.userId}, deviceId=${deviceId}`,
+      );
       return this.buildState({
         userId: options.userId,
         clientType,
@@ -197,6 +202,9 @@ export class DeviceAuthorizationService {
     });
 
     if (device.revokedAt != null) {
+      this.logger.warn(
+        `Device revoked: user=${options.userId}, deviceId=${deviceId}`,
+      );
       return this.buildState({
         userId: options.userId,
         clientType,
@@ -212,6 +220,9 @@ export class DeviceAuthorizationService {
     }
 
     const canWrite = device.isPrimary && device.canWrite;
+    this.logger.log(
+      `Device access resolved: user=${options.userId}, deviceId=${deviceId}, canWrite=${canWrite}, isPrimary=${device.isPrimary}, reason=${canWrite ? 'authorized' : 'device_not_primary'}`,
+    );
     return this.buildState({
       userId: options.userId,
       clientType,
@@ -287,10 +298,17 @@ export class DeviceAuthorizationService {
     const platform = this.normalizeOptionalText(options.platform);
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.authorizedDevice.deleteMany({
+      await tx.authorizedDevice.updateMany({
         where: {
           userId: options.userId,
+          revokedAt: null,
           deviceId: { not: normalizedDeviceId },
+        },
+        data: {
+          isPrimary: false,
+          canWrite: false,
+          revokedAt: now,
+          updatedAt: now,
         },
       });
 
@@ -331,6 +349,10 @@ export class DeviceAuthorizationService {
         },
       });
     });
+
+    this.logger.log(
+      `Device activated: user=${options.userId}, deviceId=${normalizedDeviceId}, actor=${options.actorType}`,
+    );
 
     return this.buildState({
       userId: options.userId,

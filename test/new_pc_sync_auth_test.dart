@@ -116,6 +116,20 @@ void main() {
       expect((await configRepository.loadSettings()).jwtToken, isEmpty);
     },
   );
+
+  test('sync se bloquea con mensaje claro si la PC no esta autorizada', () async {
+    await configRepository.saveJwtToken('jwt-test-token');
+    backendState.rejectSyncDownloadForDeviceUnauthorized = true;
+    final syncService = buildSyncService(repositories: [_FakeSyncRepository()]);
+
+    final report = await syncService.syncNow(forceFullDownload: true);
+
+    expect(report.wasSkipped, isTrue);
+    expect(
+      report.errorMessage,
+      SyncService.deviceAuthorizationRequiredMessage,
+    );
+  });
 }
 
 class _FakeSyncRepository implements SyncRepository {

@@ -3,6 +3,7 @@ import {
   ExecutionContext,
   ForbiddenException,
   Injectable,
+  Logger,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 
@@ -13,6 +14,8 @@ import { isPanelActor } from '../utils/panel-access.util';
 
 @Injectable()
 export class DeviceWriteGuard implements CanActivate {
+  private readonly logger = new Logger(DeviceWriteGuard.name);
+
   constructor(
     private readonly reflector: Reflector,
     private readonly deviceAuthorizationService: DeviceAuthorizationService,
@@ -33,6 +36,8 @@ export class DeviceWriteGuard implements CanActivate {
 
     const request = context.switchToHttp().getRequest<{
       method?: string;
+      url?: string;
+      originalUrl?: string;
       headers?: Record<string, string | string[] | undefined>;
       body?: Record<string, unknown>;
       query?: Record<string, unknown>;
@@ -41,7 +46,9 @@ export class DeviceWriteGuard implements CanActivate {
     }>();
 
     const method = request.method?.toUpperCase() ?? 'GET';
-    if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+    const enforceSyncDownload =
+      method === 'GET' && this.isSyncDownloadRequest(request);
+    if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) && !enforceSyncDownload) {
       return true;
     }
 
@@ -70,6 +77,10 @@ export class DeviceWriteGuard implements CanActivate {
     if (deviceState.canWrite) {
       return true;
     }
+
+    this.logger.warn(
+      `Blocked request: user=${user.sub}, method=${method}, path=${request.originalUrl ?? request.url ?? ''}, reason=${deviceState.reason}, deviceId=${deviceState.deviceId}`,
+    );
 
     throw new ForbiddenException({
       message: 'DEVICE_NOT_AUTHORIZED_FOR_WRITE',
@@ -108,5 +119,10 @@ export class DeviceWriteGuard implements CanActivate {
     }
 
     return '';
+  }
+
+  private isSyncDownloadRequest(request: { url?: string; originalUrl?: string }): boolean {
+    const path = (request.originalUrl ?? request.url ?? '').toLowerCase();
+    return path.includes('/sync/download');
   }
 }

@@ -213,7 +213,11 @@ class SyncApiClient {
       );
     }
 
-    _log('REQUEST -> ${method.toUpperCase()} $uri');
+    final normalizedDeviceId = deviceId.trim();
+    _log(
+      'REQUEST -> ${method.toUpperCase()} $uri '
+      '[device_id=${normalizedDeviceId.isEmpty ? 'none' : normalizedDeviceId}, has_jwt=true]',
+    );
 
     final HttpClientRequest request;
     try {
@@ -228,7 +232,6 @@ class SyncApiClient {
       HttpHeaders.authorizationHeader,
       'Bearer $normalizedToken',
     );
-    final normalizedDeviceId = deviceId.trim();
     if (normalizedDeviceId.isNotEmpty) {
       request.headers.set('x-device-id', normalizedDeviceId);
     }

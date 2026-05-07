@@ -299,6 +299,44 @@ class SyncConfigRepository {
     await _settingsRepository.upsert(_deviceIdFallbackKey, generated);
     return generated;
   }
+
+  Future<void> clearSyncRuntimeState() async {
+    final prefs = await _tryPreferences();
+    if (prefs != null) {
+      final cursorKeys = prefs
+          .getKeys()
+          .where((key) => key.startsWith(_cursorPreferencePrefix))
+          .toList(growable: false);
+      for (final key in cursorKeys) {
+        await prefs.remove(key);
+      }
+
+      await prefs.remove(syncDeviceIsPrimaryKey);
+      await prefs.remove(syncDeviceCanWriteKey);
+      await prefs.remove(syncDeviceLastValidatedAtKey);
+      await prefs.remove(syncDeviceReasonKey);
+    }
+
+    await _settingsRepository.saveMultiple({
+      syncLastErrorKey: '',
+      syncLastRunAtKey: '',
+      syncLastStatusKey: SyncRuntimeStatus.pending.name,
+    });
+  }
+
+  Future<String> rotateDeviceId() async {
+    final random = Random.secure();
+    final generated = List<int>.generate(
+      16,
+      (_) => random.nextInt(256),
+    ).map((value) => value.toRadixString(16).padLeft(2, '0')).join();
+
+    final prefs = await _tryPreferences();
+    await prefs?.setString(_deviceIdPreferenceKey, generated);
+    await _settingsRepository.upsert(_deviceIdFallbackKey, generated);
+    await clearSyncRuntimeState();
+    return generated;
+  }
 }
 
 class DeviceWriteState {

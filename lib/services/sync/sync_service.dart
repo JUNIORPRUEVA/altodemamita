@@ -29,6 +29,8 @@ class SyncService {
   };
   static const String cloudLoginRequiredMessage =
       'Debe iniciar sesión en la nube para sincronizar.';
+    static const String deviceAuthorizationRequiredMessage =
+      'Esta PC no está autorizada para sincronizar. Actívela desde Configuración.';
 
   SyncService({
     required List<SyncRepository> repositories,
@@ -238,6 +240,32 @@ class SyncService {
       return report;
     } on HttpException catch (error) {
       _lastScopeWarnings = const [];
+      if (_isDeviceUnauthorizedSyncError(error)) {
+        final report = SyncReport(
+          startedAt: startedAt,
+          finishedAt: DateTime.now(),
+          wasSkipped: true,
+          errorMessage: deviceAuthorizationRequiredMessage,
+        );
+        await _configRepository.saveLastRun(
+          errorMessage: report.errorMessage,
+          status: SyncRuntimeStatus.pending,
+        );
+        await _syncLogger.log(
+          action: forceFullDownload ? 'fullSync' : 'syncNow',
+          entity: 'sync',
+          result: 'pending',
+          error: report.errorMessage,
+          extra: {'reason': 'device_not_authorized'},
+        );
+        _lastReport = report;
+        final notify = _onSyncFinished;
+        if (notify != null) {
+          unawaited(notify(report));
+        }
+        return report;
+      }
+
       if (_isUnauthorizedSyncError(error)) {
         await _invalidateCloudSession(
           'La sesion de nube vencio o fue rechazada por el backend.',
@@ -801,6 +829,38 @@ class SyncService {
   bool _isUnauthorizedSyncError(HttpException error) {
     final message = error.message.toLowerCase();
     return message.contains('401') || message.contains('unauthorized');
+  }
+
+  bool _isDeviceUnauthorizedSyncError(HttpException error) {
+    return error.message.trim().toUpperCase().contains(
+      'DEVICE_NOT_AUTHORIZED_FOR_WRITE',
+    );
+  }
+
+  Future<String> recoverAfterDeviceAuthorization() async {
+    final unlockedJobs = await _syncQueueService.resetDeferredJobsForDeviceSwitch();
+    await _configRepository.clearSyncRuntimeState();
+    final report = await syncNow(forceFullDownload: true);
+    final downloaded = report.downloadedRecords;
+    final uploaded = report.uploadedRecords;
+    return 'Recuperacion completada. Jobs desbloqueados: $unlockedJobs, descargados: $downloaded, subidos: $uploaded.';
+  }
+
+  Future<String> resetLocalDeviceIdentityForAdmin() async {
+    final previousSettings = await _configRepository.loadSettings();
+    final oldDeviceId = previousSettings.deviceId;
+    final unlockedJobs = await _syncQueueService.resetDeferredJobsForDeviceSwitch();
+    final newDeviceId = await _configRepository.rotateDeviceId();
+    await _configRepository.saveDeviceWriteState(
+      const DeviceWriteState(
+        isPrimary: false,
+        canWrite: false,
+        lastValidatedAt: null,
+        reason: 'device_not_registered',
+      ),
+    );
+    await SystemConfigService.instance.refresh();
+    return 'Identificacion local reiniciada. ID anterior: $oldDeviceId. Nuevo ID: $newDeviceId. Jobs desbloqueados: $unlockedJobs.';
   }
 
   String _buildMissingConfigurationMessage(SyncSettings settings) {

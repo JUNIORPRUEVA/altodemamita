@@ -265,10 +265,10 @@ class SystemConfigService extends ChangeNotifier {
         return 'Este equipo fue revocado y ya no puede escribir.';
       case 'device_not_primary':
       case 'registered_secondary':
-        return 'Este equipo no es la PC principal autorizada para escribir.';
+        return 'Esta PC no está autorizada para sincronizar. Actívela desde Configuración.';
       case 'device_not_registered':
       case 'missing_device_id':
-        return 'Este equipo aun no esta autorizado. Copia el ID de esta PC y activalo en el panel web.';
+        return 'Esta PC no está autorizada para sincronizar. Actívela desde Configuración.';
       default:
         return 'Este dispositivo no esta autorizado para escribir.';
     }

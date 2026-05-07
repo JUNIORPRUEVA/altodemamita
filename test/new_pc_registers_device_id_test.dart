@@ -21,4 +21,19 @@ void main() {
     expect(firstDeviceId, hasLength(32));
     expect(secondDeviceId, firstDeviceId);
   });
+
+  test('reset de identificacion local rota el device_id', () async {
+    final repository = SyncConfigRepository(
+      preferencesFactory: SharedPreferences.getInstance,
+    );
+
+    final firstDeviceId = await repository.getOrCreateDeviceId();
+    final rotatedDeviceId = await repository.rotateDeviceId();
+    final loadedAfterRotation = await repository.getOrCreateDeviceId();
+
+    expect(firstDeviceId, isNotEmpty);
+    expect(rotatedDeviceId, isNotEmpty);
+    expect(rotatedDeviceId, isNot(firstDeviceId));
+    expect(loadedAfterRotation, rotatedDeviceId);
+  });
 }

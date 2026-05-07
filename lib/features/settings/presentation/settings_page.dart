@@ -29,10 +29,14 @@ class SettingsPage extends StatefulWidget {
     super.key,
     this.onCompanyInfoChanged,
     this.onRunSyncRecovery,
+    this.onRunPostAuthorizationRecovery,
+    this.onResetLocalDeviceIdentity,
   });
 
   final VoidCallback? onCompanyInfoChanged;
   final Future<String> Function()? onRunSyncRecovery;
+  final Future<String> Function()? onRunPostAuthorizationRecovery;
+  final Future<String> Function()? onResetLocalDeviceIdentity;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -227,6 +231,13 @@ class _SettingsPageState extends State<SettingsPage> {
                       description: 'Forzar descarga completa de datos',
                       onTap: _runSyncRecoveryFromSettings,
                     ),
+                    _SettingCard(
+                      width: cardWidth,
+                      icon: Icons.fingerprint_rounded,
+                      title: 'Resetear identificacion de PC',
+                      description: 'Generar nuevo ID local para esta PC',
+                      onTap: _resetLocalDeviceIdentity,
+                    ),
                     _BackupSettingCard(
                       width: compact ? constraints.maxWidth : 456,
                       controller: _backupController,
@@ -264,9 +275,23 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _refreshDeviceStatus() async {
     final messenger = ScaffoldMessenger.maybeOf(context);
     try {
+      final wasWritable = SystemConfigService.instance.canWrite;
       await SystemConfigService.instance.refresh();
       if (!mounted) return;
       final systemConfig = SystemConfigService.instance;
+      final justUnlocked = !wasWritable && systemConfig.canWrite;
+      if (justUnlocked) {
+        final recovery = widget.onRunPostAuthorizationRecovery;
+        if (recovery != null) {
+          final summary = await recovery();
+          if (!mounted) {
+            return;
+          }
+          messenger?.showSnackBar(SnackBar(content: Text(summary)));
+          return;
+        }
+      }
+
       final message = systemConfig.canWrite
           ? 'Estado del dispositivo actualizado.'
           : (systemConfig.deviceWriteReason.isEmpty
@@ -370,6 +395,73 @@ class _SettingsPageState extends State<SettingsPage> {
           content: Text(
             'No se pudo completar la reparacion de sincronizacion.',
           ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isRunningSyncRecovery = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _resetLocalDeviceIdentity() async {
+    if (_isRunningSyncRecovery) {
+      return;
+    }
+
+    final callback = widget.onResetLocalDeviceIdentity;
+    if (callback == null) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          content: Text('No hay servicio para resetear el ID de esta PC.'),
+        ),
+      );
+      return;
+    }
+
+    final allowed = await _ensureSettingsAccess(
+      scope: AdminOverrideScope.settingsSync,
+      title: 'Autorizacion administrativa requerida',
+      message:
+          'Necesitas la clave de un administrador para resetear la identificacion local de esta PC.',
+    );
+    if (!allowed || !mounted) {
+      return;
+    }
+
+    final confirmed = await DangerousActionConfirmDialog.show(
+      context,
+      title: 'Resetear identificacion local de esta PC',
+      warning:
+          'Esta accion genera un nuevo ID local para esta PC y limpia el estado tecnico de sincronizacion (cursores, bloqueos y reintentos).\n\n'
+          'No borra ventas, pagos, clientes ni cuotas.\n'
+          'Despues debes copiar el nuevo ID y activarlo en Configuracion del panel web.',
+      confirmLabel: 'Si, resetear ID local',
+    );
+    if (!confirmed || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _isRunningSyncRecovery = true;
+    });
+
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    try {
+      final summary = await callback();
+      if (!mounted) {
+        return;
+      }
+      messenger?.showSnackBar(SnackBar(content: Text(summary)));
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      messenger?.showSnackBar(
+        const SnackBar(
+          content: Text('No se pudo resetear la identificacion de esta PC.'),
         ),
       );
     } finally {

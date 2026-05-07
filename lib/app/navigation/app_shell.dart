@@ -587,6 +587,9 @@ class _AppShellState extends State<AppShell> {
         return SettingsPage(
           onCompanyInfoChanged: _loadCompanyDisplayName,
           onRunSyncRecovery: _runSyncRecoveryFromSettings,
+          onRunPostAuthorizationRecovery:
+              _runPostAuthorizationRecoveryFromSettings,
+          onResetLocalDeviceIdentity: _resetLocalDeviceIdentityFromSettings,
         );
     }
   }
@@ -599,6 +602,14 @@ class _AppShellState extends State<AppShell> {
         ? ''
         : ' Esta PC no es primaria, por lo que las subidas seguiran en espera.';
     return 'Reparacion completada. Registros descargados: $downloaded.$writeStateMessage';
+  }
+
+  Future<String> _runPostAuthorizationRecoveryFromSettings() async {
+    return _syncService.recoverAfterDeviceAuthorization();
+  }
+
+  Future<String> _resetLocalDeviceIdentityFromSettings() async {
+    return _syncService.resetLocalDeviceIdentityForAdmin();
   }
 
   @override
@@ -2024,7 +2035,7 @@ class _DeviceWriteBlockedBanner extends StatelessWidget {
     final reason = systemConfig.deviceWriteReason.trim();
     final message = reason.isNotEmpty
         ? reason
-        : 'Esta PC no está autorizada para subir datos a la nube.';
+      : 'Esta PC no está autorizada para sincronizar. Actívela desde Configuración.';
 
     return Container(
       width: double.infinity,
