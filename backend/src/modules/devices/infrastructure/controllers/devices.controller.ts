@@ -41,6 +41,7 @@ export class DevicesController {
   }
 
   @Get('current')
+  @AllowDeviceWriteBypass()
   getCurrent(
     @CurrentUser() user: AuthenticatedUser,
     @Headers('x-device-id') headerDeviceId?: string,
