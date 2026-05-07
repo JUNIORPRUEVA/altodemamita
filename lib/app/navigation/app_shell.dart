@@ -582,8 +582,13 @@ class _AppShellState extends State<AppShell> {
   }
 
   Future<String> _runSyncRecoveryFromSettings() async {
-    final report = await _syncService.syncNow(forceFullDownload: true);
-    return report.summary;
+    final downloaded = await _syncService.downloadUpdates(
+      forceFullDownload: true,
+    );
+    final writeStateMessage = SystemConfigService.instance.canWrite
+        ? ''
+        : ' Esta PC no es primaria, por lo que las subidas seguiran en espera.';
+    return 'Reparacion completada. Registros descargados: $downloaded.$writeStateMessage';
   }
 
   @override

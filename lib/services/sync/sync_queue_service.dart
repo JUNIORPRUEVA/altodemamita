@@ -864,6 +864,24 @@ class SyncQueueService {
               );
               return processedCount;
             }
+            if (_isDeviceWriteUnauthorizedError(error)) {
+              final reason =
+                  'WRITE_BLOCKED: este dispositivo no esta autorizado para escribir en la nube (PC no primaria).';
+              await _syncLogger.log(
+                action: 'upload',
+                entity: scope,
+                result: 'pending',
+                error: reason,
+                extra: {'type': 'device_write_blocked'},
+              );
+              await _pauseQueueForAuthRequired(
+                scope: scope,
+                recordSyncIds: entryItems.map((item) => item.recordSyncId),
+                reason: reason,
+              );
+              unavailableScopes.add(scope);
+              continue;
+            }
             await _syncLogger.log(
               action: 'upload',
               entity: scope,
@@ -1322,10 +1340,9 @@ class SyncQueueService {
             settings: settings,
             candidateIds: authoritativeCheckIds,
           );
-    final acknowledgedQueueIds = legacyQueueIds
-        .where((id) => remoteDeletedIds.contains(id))
-        .toSet()
-      ..addAll(orphanQueueIds);
+    final acknowledgedQueueIds =
+        legacyQueueIds.where((id) => remoteDeletedIds.contains(id)).toSet()
+          ..addAll(orphanQueueIds);
     final retryQueueIds = legacyQueueIds.difference(acknowledgedQueueIds);
     final now = DateTime.now().toIso8601String();
     await db.transaction((txn) async {
@@ -1894,6 +1911,12 @@ class SyncQueueService {
   bool _isUnauthorizedHttpError(HttpException error) {
     final message = error.message.toLowerCase();
     return message.contains('401') || message.contains('unauthorized');
+  }
+
+  bool _isDeviceWriteUnauthorizedError(HttpException error) {
+    return error.message.trim().toUpperCase().contains(
+      'DEVICE_NOT_AUTHORIZED_FOR_WRITE',
+    );
   }
 
   bool _isDatabaseClosedError(Object error) {
