@@ -369,6 +369,7 @@ class SyncQueueService {
     required Map<String, Object?> payload,
     bool triggerProcessing = true,
   }) {
+    SystemConfigService.instance.ensureWritable();
     unawaited(
       _syncLogger.log(
         action: 'enqueue',
@@ -393,6 +394,7 @@ class SyncQueueService {
     required Map<String, Object?> payload,
     bool triggerProcessing = true,
   }) {
+    SystemConfigService.instance.ensureWritable();
     unawaited(
       _syncLogger.log(
         action: 'enqueue',
@@ -418,6 +420,7 @@ class SyncQueueService {
     items,
     bool triggerProcessing = true,
   }) async {
+    SystemConfigService.instance.ensureWritable();
     final normalizedItems = items
         .where(
           (item) =>
@@ -1984,9 +1987,9 @@ class SyncQueueService {
   }
 
   bool _isDeviceWriteUnauthorizedError(HttpException error) {
-    return error.message.trim().toUpperCase().contains(
-      'DEVICE_NOT_AUTHORIZED_FOR_WRITE',
-    );
+    final normalized = error.message.trim().toUpperCase();
+    return normalized.contains('DEVICE_NOT_AUTHORIZED') ||
+        normalized.contains('DEVICE_NOT_AUTHORIZED_FOR_WRITE');
   }
 
   bool _isDatabaseClosedError(Object error) {

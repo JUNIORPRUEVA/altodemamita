@@ -25,22 +25,26 @@ export class PaymentsService {
     const installment = dto.installmentId ? await this.ensureInstallment(dto.installmentId, dto.saleId) : null;
     const split = await this.resolvePaymentSplit(dto, installment?.id);
 
-    const payment = await this.prisma.payment.create({
-      data: {
-        saleId: dto.saleId,
-        installmentId: dto.installmentId,
-        paymentDate: new Date(dto.paymentDate),
-        amount: dto.amount,
-        principalAmount: split.principalAmount,
-        interestAmount: split.interestAmount,
-        method: dto.method,
-        reference: dto.reference,
-        notes: dto.notes,
-        syncStatus: SyncStatus.pending,
-      },
+    const payment = await this.prisma.$transaction(async (tx) => {
+      const createdPayment = await tx.payment.create({
+        data: {
+          saleId: dto.saleId,
+          installmentId: dto.installmentId,
+          paymentDate: new Date(dto.paymentDate),
+          amount: dto.amount,
+          principalAmount: split.principalAmount,
+          interestAmount: split.interestAmount,
+          method: dto.method,
+          reference: dto.reference,
+          notes: dto.notes,
+          syncStatus: SyncStatus.pending,
+        },
+      });
+
+      await this.accountingService.syncSaleAggregates(tx, sale.id);
+      return createdPayment;
     });
 
-    await this.accountingService.syncSaleAggregates(this.prisma, sale.id);
     const created = await this.findOne(payment.id);
     this.realtimeEvents.publishPaymentCreated(
       payment.id,
@@ -223,22 +227,25 @@ export class PaymentsService {
       installmentId,
     );
 
-    await this.prisma.payment.update({
-      where: { id },
-      data: {
-        installmentId,
-        paymentDate: dto.paymentDate ? new Date(dto.paymentDate) : undefined,
-        amount: dto.amount,
-        principalAmount: split.principalAmount,
-        interestAmount: split.interestAmount,
-        method: dto.method,
-        reference: dto.reference,
-        notes: dto.notes,
-        syncStatus: SyncStatus.pending,
-      },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.payment.update({
+        where: { id },
+        data: {
+          installmentId,
+          paymentDate: dto.paymentDate ? new Date(dto.paymentDate) : undefined,
+          amount: dto.amount,
+          principalAmount: split.principalAmount,
+          interestAmount: split.interestAmount,
+          method: dto.method,
+          reference: dto.reference,
+          notes: dto.notes,
+          syncStatus: SyncStatus.pending,
+        },
+      });
+
+      await this.accountingService.syncSaleAggregates(tx, payment.saleId);
     });
 
-    await this.accountingService.syncSaleAggregates(this.prisma, payment.saleId);
     const updated = await this.findOne(id);
     this.realtimeEvents.publishEntityUpdated({
       entity: 'payment',
@@ -262,14 +269,18 @@ export class PaymentsService {
 
   async remove(id: string) {
     const payment = await this.findOne(id);
-    await this.prisma.payment.update({
-      where: { id },
-      data: {
-        deletedAt: new Date(),
-        syncStatus: SyncStatus.pending,
-      },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.payment.update({
+        where: { id },
+        data: {
+          deletedAt: new Date(),
+          syncStatus: SyncStatus.pending,
+        },
+      });
+
+      await this.accountingService.syncSaleAggregates(tx, payment.saleId);
     });
-    await this.accountingService.syncSaleAggregates(this.prisma, payment.saleId);
+
     this.realtimeEvents.publishEntityUpdated({
       entity: 'payment',
       action: 'deleted',

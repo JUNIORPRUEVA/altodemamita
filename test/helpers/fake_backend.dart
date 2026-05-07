@@ -607,7 +607,7 @@ class _FakeHttpClientRequest implements HttpClientRequest {
           status: HttpStatus.forbidden,
           body: {
             'success': false,
-            'message': 'DEVICE_NOT_AUTHORIZED_FOR_WRITE',
+            'message': 'DEVICE_NOT_AUTHORIZED',
           },
         );
       }
@@ -663,7 +663,7 @@ class _FakeHttpClientRequest implements HttpClientRequest {
           status: HttpStatus.forbidden,
           body: {
             'success': false,
-            'message': 'DEVICE_NOT_AUTHORIZED_FOR_WRITE',
+            'message': 'DEVICE_NOT_AUTHORIZED',
           },
         );
       }

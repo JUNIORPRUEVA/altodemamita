@@ -38,7 +38,7 @@ void main() {
         isA<HttpException>().having(
           (error) => error.message,
           'message',
-          contains('DEVICE_NOT_AUTHORIZED_FOR_WRITE'),
+          contains('DEVICE_NOT_AUTHORIZED'),
         ),
       ),
     );

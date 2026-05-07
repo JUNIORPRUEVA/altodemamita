@@ -296,9 +296,11 @@ class SyncApiClient {
 
     if (response.statusCode == HttpStatus.forbidden) {
       final message = decodedBody['message']?.toString().trim() ?? '';
-      if (message == 'DEVICE_NOT_AUTHORIZED_FOR_WRITE') {
+      if (
+          message == 'DEVICE_NOT_AUTHORIZED' ||
+          message == 'DEVICE_NOT_AUTHORIZED_FOR_WRITE') {
         throw HttpException(
-          'DEVICE_NOT_AUTHORIZED_FOR_WRITE',
+          'DEVICE_NOT_AUTHORIZED',
           uri: uri,
         );
       }

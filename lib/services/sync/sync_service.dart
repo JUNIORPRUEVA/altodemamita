@@ -832,9 +832,9 @@ class SyncService {
   }
 
   bool _isDeviceUnauthorizedSyncError(HttpException error) {
-    return error.message.trim().toUpperCase().contains(
-      'DEVICE_NOT_AUTHORIZED_FOR_WRITE',
-    );
+    final normalized = error.message.trim().toUpperCase();
+    return normalized.contains('DEVICE_NOT_AUTHORIZED') ||
+        normalized.contains('DEVICE_NOT_AUTHORIZED_FOR_WRITE');
   }
 
   Future<String> recoverAfterDeviceAuthorization() async {
