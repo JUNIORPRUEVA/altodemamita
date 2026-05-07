@@ -82,6 +82,9 @@ export class DeviceAuthorizationService {
     }
 
     if (!deviceId) {
+      this.logger.warn(
+        `[current] MISSING_DEVICE_ID — user=${options.userId} clientType=${clientType}`,
+      );
       return this.buildState({
         userId: options.userId,
         clientType,
@@ -149,7 +152,7 @@ export class DeviceAuthorizationService {
 
     if (device == null) {
       this.logger.warn(
-        `Device not registered: user=${options.userId}, deviceId=${deviceId}`,
+        `[current] DEVICE_NOT_REGISTERED — user=${options.userId} deviceId="${deviceId}"`,
       );
       return this.buildState({
         userId: options.userId,
@@ -288,7 +291,14 @@ export class DeviceAuthorizationService {
     platform?: string | null;
   }): Promise<DeviceAccessState> {
     const normalizedDeviceId = this.normalizeDeviceId(options.deviceId);
+
+    this.logger.log(
+      `[activate] START — user=${options.userId} actor=${options.actorType} ` +
+      `rawDeviceId="${options.deviceId}" normalizedDeviceId="${normalizedDeviceId}"`,
+    );
+
     if (!normalizedDeviceId) {
+      this.logger.warn(`[activate] REJECTED — device_id is empty for user=${options.userId}`);
       throw new BadRequestException('Debe especificar un device_id valido.');
     }
 
@@ -297,8 +307,11 @@ export class DeviceAuthorizationService {
     const deviceName = this.normalizeOptionalText(options.deviceName);
     const platform = this.normalizeOptionalText(options.platform);
 
+    let revokedCount = 0;
+    let upsertMode: 'created' | 'updated' = 'created';
+
     await this.prisma.$transaction(async (tx) => {
-      await tx.authorizedDevice.updateMany({
+      const revokeResult = await tx.authorizedDevice.updateMany({
         where: {
           userId: options.userId,
           revokedAt: null,
@@ -311,6 +324,7 @@ export class DeviceAuthorizationService {
           updatedAt: now,
         },
       });
+      revokedCount = revokeResult.count;
 
       const existing = await tx.authorizedDevice.findFirst({
         where: {
@@ -333,6 +347,7 @@ export class DeviceAuthorizationService {
             lastSeenAt: now,
           },
         });
+        upsertMode = 'created';
         return;
       }
 
@@ -348,10 +363,13 @@ export class DeviceAuthorizationService {
           lastSeenAt: now,
         },
       });
+      upsertMode = 'updated';
     });
 
     this.logger.log(
-      `Device activated: user=${options.userId}, deviceId=${normalizedDeviceId}, actor=${options.actorType}`,
+      `[activate] SUCCESS — user=${options.userId} deviceId="${normalizedDeviceId}" ` +
+      `upsert=${upsertMode} revokedOthers=${revokedCount} actor=${options.actorType} ` +
+      `isPrimary=true canWrite=true`,
     );
 
     return this.buildState({

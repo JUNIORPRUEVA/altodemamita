@@ -91,16 +91,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (!mounted) {
         return;
       }
+      _deviceIdController.clear();
       messenger?.showSnackBar(
-        const SnackBar(content: Text('PC autorizada correctamente.')),
+        const SnackBar(
+          content: Text(
+            'PC autorizada correctamente. En la app desktop presiona "Actualizar estado" para activar la sincronizacion.',
+          ),
+          duration: Duration(seconds: 8),
+        ),
       );
       _reload();
     } catch (error) {
       if (!mounted) {
         return;
       }
+      final detail = error is ApiException && error.statusCode != null
+          ? '(${error.statusCode}) $error'
+          : '$error';
       messenger?.showSnackBar(
-        SnackBar(content: Text('No se pudo activar el dispositivo: $error')),
+        SnackBar(content: Text('No se pudo activar el dispositivo: $detail')),
       );
     } finally {
       if (mounted) {
@@ -363,12 +372,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _InfoTile(
-                title: 'PC activa',
-                value: activeDevice?.deviceName?.trim().isNotEmpty == true
-                    ? activeDevice!.deviceName!
-                    : (activeDevice?.deviceId ?? 'Ninguna'),
-              ),
+              if (activeDevice != null) ...[
+                _InfoTile(
+                  title: 'PC activa',
+                  value: activeDevice.deviceName?.trim().isNotEmpty == true
+                      ? activeDevice.deviceName!
+                      : 'Sin nombre',
+                ),
+                const SizedBox(height: 4),
+                SelectableText(
+                  activeDevice.deviceId,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontFamily: 'monospace',
+                    color: Color(0xFF415365),
+                  ),
+                ),
+              ] else
+                const _InfoTile(title: 'PC activa', value: 'Ninguna'),
               const SizedBox(height: 12),
               TextField(
                 controller: _deviceIdController,
@@ -400,10 +421,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               const SizedBox(height: 10),
               const Text(
-                'Al activar una nueva PC, el backend elimina cualquier otra PC autorizada y deja solo una activa.',
+                '1. En la app desktop, ve a Configuracion y copia el ID.\n'
+                '2. Pegalo arriba y presiona "Activar esta PC".\n'
+                '3. Vuelve a la app desktop y presiona "Actualizar estado".',
                 style: TextStyle(
                   fontSize: 12.5,
-                  height: 1.45,
+                  height: 1.5,
                   color: Color(0xFF687487),
                 ),
               ),

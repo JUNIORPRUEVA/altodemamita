@@ -78,11 +78,12 @@ export class DevicesController {
   @RequirePermissions(PERMISSIONS.systemConfig)
   @HttpCode(HttpStatus.OK)
   activate(@CurrentUser() user: AuthenticatedUser, @Body() dto: ActivateDeviceDto) {
+    const resolvedDeviceId = dto.resolvedDeviceId;
     return this.deviceAuthorizationService.activateSingleDevice({
       userId: user.sub,
       actorType: user.type,
       roles: user.roles,
-      deviceId: dto.device_id,
+      deviceId: resolvedDeviceId,
       deviceName: dto.device_name,
       platform: dto.platform,
     });

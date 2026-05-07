@@ -293,11 +293,16 @@ class _SettingsPageState extends State<SettingsPage> {
       }
 
       final message = systemConfig.canWrite
-          ? 'Estado del dispositivo actualizado.'
+          ? 'Estado actualizado. Esta PC esta autorizada para sincronizar.'
           : (systemConfig.deviceWriteReason.isEmpty
-                ? 'Esta PC sigue sin permiso de escritura.'
-                : systemConfig.deviceWriteReason);
-      messenger?.showSnackBar(SnackBar(content: Text(message)));
+                ? 'Esta PC aun no esta autorizada. Copia el ID y activala en el panel web.'
+                : '${systemConfig.deviceWriteReason} Copia el ID y activalo en el panel web.');
+      messenger?.showSnackBar(
+        SnackBar(
+          content: Text(message),
+          duration: Duration(seconds: systemConfig.canWrite ? 3 : 6),
+        ),
+      );
     } catch (_) {
       if (!mounted) return;
       messenger?.showSnackBar(
