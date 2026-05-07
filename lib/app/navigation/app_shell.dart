@@ -441,6 +441,33 @@ class _AppShellState extends State<AppShell> {
       if (!mounted || !confirmed) {
         return;
       }
+
+      final password = await showDialog<String>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const _PrimaryEditorPasswordDialog(),
+      );
+      if (!mounted || password == null) {
+        return;
+      }
+
+      final authService = context.read<AuthProvider>().authService;
+      final isValid = await authService.verifyAdminPassword(
+        password: password,
+      );
+      if (!mounted) {
+        return;
+      }
+      if (!isValid) {
+        messenger?.showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Contrasena invalida. Solo un editor principal puede autorizar esta accion.',
+            ),
+          ),
+        );
+        return;
+      }
     }
 
     try {
@@ -861,6 +888,90 @@ class _SyncStatusBadge extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _PrimaryEditorPasswordDialog extends StatefulWidget {
+  const _PrimaryEditorPasswordDialog();
+
+  @override
+  State<_PrimaryEditorPasswordDialog> createState() =>
+      _PrimaryEditorPasswordDialogState();
+}
+
+class _PrimaryEditorPasswordDialogState
+    extends State<_PrimaryEditorPasswordDialog> {
+  final TextEditingController _passwordController = TextEditingController();
+  bool _obscurePassword = true;
+  String? _error;
+
+  @override
+  void dispose() {
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final value = _passwordController.text.trim();
+    if (value.isEmpty) {
+      setState(() {
+        _error = 'Ingresa la contrasena del editor principal.';
+      });
+      return;
+    }
+    Navigator.of(context).pop(value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      icon: const Icon(Icons.lock_open_rounded),
+      title: const Text('Autorizar editor principal'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Para habilitar escritura en esta PC, confirma con la contrasena del editor principal.',
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _passwordController,
+            autofocus: true,
+            obscureText: _obscurePassword,
+            onSubmitted: (_) => _submit(),
+            decoration: InputDecoration(
+              labelText: 'Contrasena',
+              errorText: _error,
+              suffixIcon: IconButton(
+                tooltip: _obscurePassword ? 'Mostrar' : 'Ocultar',
+                onPressed: () {
+                  setState(() {
+                    _obscurePassword = !_obscurePassword;
+                  });
+                },
+                icon: Icon(
+                  _obscurePassword
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton.icon(
+          onPressed: _submit,
+          icon: const Icon(Icons.check_circle_outline),
+          label: const Text('Validar y reclamar'),
+        ),
+      ],
     );
   }
 }

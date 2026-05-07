@@ -30,7 +30,7 @@ class DeviceStatusPanel extends StatelessWidget {
     final systemConfig = context.watch<SystemConfigService>();
     final auth = context.watch<AuthProvider>();
     final canClaimPrimary =
-        auth.currentUser?.isAdmin == true && !systemConfig.canWrite;
+        auth.currentUser != null && !systemConfig.canWrite;
 
     return Container(
       width: double.infinity,

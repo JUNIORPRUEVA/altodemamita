@@ -364,6 +364,10 @@ class AuthProvider extends ChangeNotifier {
     required String module,
     required PermissionAction action,
   }) {
+    if (_blocksWriteByDevice(action: action)) {
+      return false;
+    }
+
     if (_blocksActionInReadOnly(module: module, action: action)) {
       return false;
     }
@@ -382,6 +386,10 @@ class AuthProvider extends ChangeNotifier {
     required String scope,
     required String password,
   }) async {
+    if (!SystemConfigService.instance.canWrite) {
+      return false;
+    }
+
     if (isReadOnly && !_localFirstModules.contains(scope)) {
       return false;
     }
@@ -421,6 +429,10 @@ class AuthProvider extends ChangeNotifier {
   }
 
   bool canAccess(String module, PermissionAction action) {
+    if (_blocksWriteByDevice(action: action)) {
+      return false;
+    }
+
     if (_blocksActionInReadOnly(module: module, action: action)) {
       return false;
     }
@@ -449,5 +461,10 @@ class AuthProvider extends ChangeNotifier {
     }
 
     return !_localFirstModules.contains(module);
+  }
+
+  bool _blocksWriteByDevice({required PermissionAction action}) {
+    return action != PermissionAction.read &&
+        !SystemConfigService.instance.canWrite;
   }
 }

@@ -235,7 +235,7 @@ class SyncConfigRepository {
     if (prefs == null) {
       return const DeviceWriteState(
         isPrimary: false,
-        canWrite: true,
+        canWrite: false,
         lastValidatedAt: null,
         reason: '',
       );
@@ -245,7 +245,7 @@ class SyncConfigRepository {
       isPrimary:
           (prefs.getString(syncDeviceIsPrimaryKey) ?? '').trim() == 'true',
       canWrite:
-          (prefs.getString(syncDeviceCanWriteKey) ?? '').trim() != 'false',
+          (prefs.getString(syncDeviceCanWriteKey) ?? '').trim() == 'true',
       lastValidatedAt: DateTime.tryParse(
         prefs.getString(syncDeviceLastValidatedAtKey) ?? '',
       ),

@@ -290,6 +290,9 @@ class AuthService {
         if (_looksLikeCredentialFailure(error.message)) {
           throw const AuthException(invalidLocalCredentialsMessage);
         }
+        if (!_looksLikeConnectivityFailure(error.message)) {
+          throw AuthException(error.message);
+        }
         try {
           final localUser = await _signInLocalValidated(
             identifier: email,
@@ -2551,6 +2554,20 @@ class AuthService {
         normalized.contains('disabled') ||
         normalized.contains('blocked') ||
         normalized.contains('suspend');
+  }
+
+  bool _looksLikeConnectivityFailure(String message) {
+    final normalized = message.trim().toLowerCase();
+    return normalized.contains('timeout') ||
+        normalized.contains('tiempo de espera') ||
+        normalized.contains('socket') ||
+        normalized.contains('network') ||
+        normalized.contains('conexion') ||
+        normalized.contains('conexión') ||
+        normalized.contains('offline') ||
+        normalized.contains('unreachable') ||
+        normalized.contains('temporarily unavailable') ||
+        normalized.contains('temporariamente no disponible');
   }
 
   Future<bool> _runFullSyncIfPossible() async {
