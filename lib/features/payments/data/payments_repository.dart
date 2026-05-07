@@ -213,6 +213,13 @@ class PaymentsRepository {
 
   Future<void> registerPayment(PaymentDraft draft) async {
     SystemConfigService.instance.ensureWritable();
+
+    // Reconcile installment states from actual pagos before applying this
+    // payment. This guards against sync race conditions where conflict recovery
+    // temporarily resets installment monto_pagado to server state (which may
+    // not yet reflect local payments), causing duplicate payment targets.
+    await _reconcileSaleInstallmentsBeforePayment(draft.saleId);
+
     final deletedInstallmentPayloads = <Map<String, Object?>>[];
 
     await _runWithDatabaseRetry(() async {
@@ -1343,6 +1350,99 @@ class PaymentsRepository {
     }
 
     return _roundCurrency(_toDouble(rows.first['total_pendiente']));
+  }
+
+  /// Reconciles installment states for [saleId] from the actual pagos table
+  /// before applying a new payment. Guards against sync race conditions where
+  /// conflict recovery may have temporarily reset installment monto_pagado.
+  Future<void> _reconcileSaleInstallmentsBeforePayment(int saleId) async {
+    final db = await _appDatabase.database;
+    final repairAsOf = DateTime.now();
+    final nowIso = repairAsOf.toIso8601String();
+
+    await db.transaction<void>((txn) async {
+      final installmentRows = await txn.query(
+        DatabaseSchema.installmentsTable,
+        where: 'venta_id = ? AND deleted_at IS NULL AND estado <> ?',
+        whereArgs: [saleId, 'ajustada'],
+      );
+
+      var anyFixed = false;
+      for (final row in installmentRows) {
+        if ((row['estado'] as String? ?? '') == 'cancelada') continue;
+        final installmentId = _toInt(row['id']);
+        final totalAmount = _toDouble(row['monto_cuota']);
+
+        final paymentSumRows = await txn.rawQuery(
+          '''
+          SELECT COALESCE(SUM(monto_pagado), 0) AS paid_total
+          FROM ${DatabaseSchema.paymentsTable}
+          WHERE cuota_id = ? AND deleted_at IS NULL
+          ''',
+          [installmentId],
+        );
+
+        final rawPaid = _roundCurrency(
+          _toDouble(paymentSumRows.first['paid_total']),
+        );
+        // Cap to totalAmount to prevent over-payment display from duplicate pagos.
+        final paidAmount =
+            rawPaid > totalAmount ? _roundCurrency(totalAmount) : rawPaid;
+        final currentMontoPagado = _toDouble(row['monto_pagado']);
+
+        if ((currentMontoPagado - paidAmount).abs() <= 0.009) continue;
+
+        // State is inconsistent — restore from pagos.
+        final interestAmount = _toDouble(row['interes_cuota']);
+        final principalAmount = _toDouble(row['capital_cuota']);
+        final interestPaid = _roundCurrency(
+          paidAmount > interestAmount ? interestAmount : paidAmount,
+        );
+        final principalPaid = _roundCurrency(
+          (paidAmount - interestPaid).clamp(0, principalAmount),
+        );
+        final dueDate = DateTime.parse(row['fecha_vencimiento'] as String);
+        final repairedStatus = SaleCalculator.resolveInstallmentStatus(
+          totalAmount: totalAmount,
+          paidAmount: paidAmount,
+          dueDate: dueDate,
+          asOf: repairAsOf,
+        );
+
+        await txn.update(
+          DatabaseSchema.installmentsTable,
+          {
+            'monto_pagado': paidAmount,
+            'capital_pagado': principalPaid,
+            'interes_pagado': interestPaid,
+            'estado': repairedStatus,
+            'fecha_actualizacion': nowIso,
+            'sync_status': DatabaseSchema.syncStatusPending,
+          },
+          where: 'id = ?',
+          whereArgs: [installmentId],
+        );
+        anyFixed = true;
+      }
+
+      if (anyFixed) {
+        final newPendingBalance = await _loadOutstandingContractBalance(
+          txn,
+          saleId,
+        );
+        await txn.update(
+          DatabaseSchema.salesTable,
+          {
+            'saldo_pendiente': newPendingBalance,
+            'estado': newPendingBalance <= 0.009 ? 'pagada' : 'activa',
+            'fecha_actualizacion': nowIso,
+            'sync_status': DatabaseSchema.syncStatusPending,
+          },
+          where: 'id = ? AND deleted_at IS NULL',
+          whereArgs: [saleId],
+        );
+      }
+    });
   }
 
   Future<PaymentRepairReport> repairExistingPaymentApplicationInconsistencies({

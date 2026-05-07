@@ -308,26 +308,28 @@ class InstallmentsSyncRepository implements SyncRepository {
             _readDouble(paidRows.first['paid_total']),
           );
           final totalAmount = _readDouble(installment['monto_cuota']);
+          // Cap paid amount at total to handle duplicate pagos without breaking display.
+          final cappedPaidAmount = paidAmount > totalAmount ? _roundCurrency(totalAmount) : paidAmount;
           final interestAmount = _readDouble(installment['interes_cuota']);
           final principalAmount = _readDouble(installment['capital_cuota']);
           final interestPaid = _roundCurrency(
-            paidAmount > interestAmount ? interestAmount : paidAmount,
+            cappedPaidAmount > interestAmount ? interestAmount : cappedPaidAmount,
           );
           final principalPaid = _roundCurrency(
-            (paidAmount - interestPaid).clamp(0, principalAmount),
+            (cappedPaidAmount - interestPaid).clamp(0, principalAmount),
           );
           final dueDate =
               _parseDate(installment['fecha_vencimiento']?.toString()) ?? now;
           final newStatus = _resolveInstallmentStatusForReconcile(
             dueDate: dueDate,
-            paidAmount: paidAmount,
+            paidAmount: cappedPaidAmount,
             totalAmount: totalAmount,
             asOf: now,
           );
 
           final statusChanged = currentStatus != newStatus;
           final paidChanged =
-              (_readDouble(installment['monto_pagado']) - paidAmount).abs() >
+              (_readDouble(installment['monto_pagado']) - cappedPaidAmount).abs() >
               0.009;
           final principalChanged =
               (_readDouble(installment['capital_pagado']) - principalPaid)
@@ -348,12 +350,15 @@ class InstallmentsSyncRepository implements SyncRepository {
           await txn.update(
             DatabaseSchema.installmentsTable,
             {
-              'monto_pagado': paidAmount,
+              'monto_pagado': cappedPaidAmount,
               'capital_pagado': principalPaid,
               'interes_pagado': interestPaid,
               'estado': newStatus,
               'fecha_actualizacion': nowIso,
-              'sync_status': DatabaseSchema.syncStatusSynced,
+              // Mark as pending so the corrected state is uploaded to the server.
+              // This ensures syncSaleAggregates on the backend gets correct input
+              // and updates syncPayload, breaking the stale-syncPayload download loop.
+              'sync_status': DatabaseSchema.syncStatusPending,
             },
             where: 'id = ?',
             whereArgs: [installmentId],
@@ -380,7 +385,8 @@ class InstallmentsSyncRepository implements SyncRepository {
             'saldo_pendiente': pendingBalance,
             'estado': pendingBalance <= 0.009 ? 'pagada' : 'activa',
             'fecha_actualizacion': nowIso,
-            'sync_status': DatabaseSchema.syncStatusSynced,
+            // Pending so the corrected saldo_pendiente reaches the server.
+            'sync_status': DatabaseSchema.syncStatusPending,
           },
           where: 'id = ? AND deleted_at IS NULL',
           whereArgs: [saleId],

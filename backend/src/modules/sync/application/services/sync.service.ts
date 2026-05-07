@@ -3201,10 +3201,14 @@ export class SyncService {
             : null),
       monthly_interest: Number(payload?.['monthly_interest'] ?? sale.interestRate),
       installment_count: Number(payload?.['installment_count'] ?? sale.termMonths),
+      // pending_balance: use syncPayload value (client's calculation) as primary — the
+      // backend outstandingBalance uses a different accounting formula. The client
+      // reconcile (_reconcileSalesFromPayments) corrects this after every merge.
       pending_balance: Number(payload?.['pending_balance'] ?? sale.outstandingBalance),
-      status: payload?.['status']?.toString() ?? this.mapSaleStatusToLocal(sale.status),
+      // Live state/timestamp — always reflect current Prisma state after syncSaleAggregates:
+      status: this.mapSaleStatusToLocal(sale.status),
       created_at: payload?.['created_at']?.toString() ?? sale.createdAt.toISOString(),
-      updated_at: payload?.['updated_at']?.toString() ?? sale.updatedAt.toISOString(),
+      updated_at: sale.updatedAt.toISOString(),
       deleted_at: payload?.['deleted_at']?.toString() ?? sale.deletedAt?.toISOString(),
       sync_status: sale.syncStatus,
     };
@@ -3228,12 +3232,20 @@ export class SyncService {
     sale: { syncId: string };
   }) {
     const payload = this.readJsonRecord(installment.syncPayload);
+    // Structural/immutable fields come from syncPayload (set at creation, never change).
     const totalAmount = Number(payload?.['total_amount'] ?? installment.amount);
     const principalAmount = Number(payload?.['principal_amount'] ?? installment.principalAmount);
-    const paidAmount = Number(payload?.['paid_amount'] ?? installment.paidAmount);
-    const paidPrincipalAmount = Number(
-      payload?.['paid_principal_amount'] ?? Math.min(principalAmount, paidAmount),
-    );
+    // ─── CRITICAL FIX ───────────────────────────────────────────────────────────
+    // Financial/state fields MUST come from live Prisma data, NOT from syncPayload.
+    // syncSaleAggregates updates installment.paidAmount and installment.status in
+    // Prisma after every payment upload, but it never updates syncPayload. Using
+    // syncPayload here causes downloads to always return the original stale
+    // paid_amount=0/status=vencida regardless of how many payments have been applied,
+    // creating an infinite reset loop on the client.
+    // ────────────────────────────────────────────────────────────────────────────
+    const paidAmount = this.roundCurrency(Number(installment.paidAmount));
+    const paidPrincipalAmount = this.roundCurrency(Math.min(principalAmount, paidAmount));
+    const paidInterestAmount = this.roundCurrency(Math.max(paidAmount - paidPrincipalAmount, 0));
     return {
       ...(payload ?? {}),
       id: installment.id,
@@ -3246,17 +3258,14 @@ export class SyncService {
       total_amount: totalAmount,
       principal_amount: principalAmount,
       interest_amount: Number(payload?.['interest_amount'] ?? installment.interestAmount),
+      // Live accounting fields — always reflect current Prisma state after syncSaleAggregates:
       paid_amount: paidAmount,
       paid_principal_amount: paidPrincipalAmount,
-      paid_interest_amount: Number(
-        payload?.['paid_interest_amount'] ?? Math.max(paidAmount - paidPrincipalAmount, 0),
-      ),
-      ending_balance: Number(
-        payload?.['ending_balance'] ?? Math.max(totalAmount - paidAmount, 0),
-      ),
-      status: payload?.['status']?.toString() ?? this.mapInstallmentStatusToLocal(installment.status),
+      paid_interest_amount: paidInterestAmount,
+      ending_balance: this.roundCurrency(Math.max(totalAmount - paidAmount, 0)),
+      status: this.mapInstallmentStatusToLocal(installment.status),
       created_at: payload?.['created_at']?.toString() ?? installment.createdAt.toISOString(),
-      updated_at: payload?.['updated_at']?.toString() ?? installment.updatedAt.toISOString(),
+      updated_at: installment.updatedAt.toISOString(),
       deleted_at: payload?.['deleted_at']?.toString() ?? installment.deletedAt?.toISOString(),
       sync_status: installment.syncStatus,
     };
