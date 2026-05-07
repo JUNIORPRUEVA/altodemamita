@@ -249,6 +249,9 @@ class SyncApiClient {
     try {
       response = await request.close();
       _log('RESPONSE -> ${response.statusCode} $uri');
+      if (uri.path.toLowerCase().contains('/sync/download')) {
+        _log('[sync-download] STATUS ${response.statusCode}');
+      }
       responseBody = await utf8.decoder.bind(response).join();
     } catch (error) {
       _log('ERROR -> request failed ${method.toUpperCase()} $uri : $error');

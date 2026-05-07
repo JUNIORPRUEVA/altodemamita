@@ -595,9 +595,7 @@ class _AppShellState extends State<AppShell> {
   }
 
   Future<String> _runSyncRecoveryFromSettings() async {
-    final downloaded = await _syncService.downloadUpdates(
-      forceFullDownload: true,
-    );
+    final downloaded = await _syncService.forceFullDownloadFromCloud();
     final writeStateMessage = SystemConfigService.instance.canWrite
         ? ''
         : ' Esta PC no es primaria, por lo que las subidas seguiran en espera.';
@@ -605,7 +603,9 @@ class _AppShellState extends State<AppShell> {
   }
 
   Future<String> _runPostAuthorizationRecoveryFromSettings() async {
-    return _syncService.recoverAfterDeviceAuthorization();
+    final recoverySummary = await _syncService.recoverAfterDeviceAuthorization();
+    final downloaded = await _syncService.forceFullDownloadFromCloud();
+    return '$recoverySummary Descarga forzada desde la nube: $downloaded registros.';
   }
 
   Future<String> _resetLocalDeviceIdentityFromSettings() async {

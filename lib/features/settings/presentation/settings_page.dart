@@ -275,12 +275,12 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _refreshDeviceStatus() async {
     final messenger = ScaffoldMessenger.maybeOf(context);
     try {
-      final wasWritable = SystemConfigService.instance.canWrite;
       await SystemConfigService.instance.refresh(throwOnFailure: true);
       if (!mounted) return;
       final systemConfig = SystemConfigService.instance;
-      final justUnlocked = !wasWritable && systemConfig.canWrite;
-      if (justUnlocked) {
+      final canRecoverNow =
+          systemConfig.canWrite && systemConfig.isPrimaryDevice;
+      if (canRecoverNow) {
         final recovery = widget.onRunPostAuthorizationRecovery;
         if (recovery != null) {
           final summary = await recovery();

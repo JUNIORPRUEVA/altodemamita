@@ -65,6 +65,7 @@ class SyncService {
   List<String> _lastScopeWarnings = const [];
   bool _isSyncing = false;
   bool _cloudSessionInvalidated = false;
+  bool _didExecuteCloudDownloadRequest = false;
   SyncReport? _lastReport;
 
   bool get isSyncing => _isSyncing;
@@ -476,6 +477,15 @@ class SyncService {
     );
   }
 
+  Future<int> forceFullDownloadFromCloud() async {
+    _didExecuteCloudDownloadRequest = false;
+    final downloaded = await downloadUpdates(forceFullDownload: true);
+    if (!_didExecuteCloudDownloadRequest) {
+      throw StateError('No se ejecutó descarga desde la nube.');
+    }
+    return downloaded;
+  }
+
   Future<int> downloadUpdatesForScopes(
     Iterable<String> scopes, {
     bool forceFullDownload = false,
@@ -548,8 +558,24 @@ class SyncService {
       }
     }
 
+    const requiredScopesForAudit = <String>{
+      'sellers',
+      'products',
+      'clients',
+      'sales',
+      'payments',
+      'installments',
+    };
+
+    debugPrint('[sync-download] START');
+    debugPrint('[sync-download] URL=${settings.normalizedBaseUrl}/sync/download');
+    debugPrint(
+      '[sync-download] x-device-id=${settings.deviceId.trim().isEmpty ? '<empty>' : settings.deviceId.trim()}',
+    );
+
     late final SyncDownloadResponse response;
     try {
+      _didExecuteCloudDownloadRequest = true;
       response = await _apiClient.downloadChanges(
         settings: settings,
         updatedSinceByScope: cursorBeforeByScope,
@@ -561,6 +587,19 @@ class SyncService {
         );
       }
       rethrow;
+    }
+
+    final cloudCountsByScope = <String, int>{
+      for (final scope in targetScopes)
+        scope: response.supportsScope(scope)
+            ? response.recordsForScope(scope).length
+            : 0,
+    };
+
+    for (final scope in cloudCountsByScope.keys) {
+      debugPrint(
+        '[sync-download] CLOUD_COUNT scope=$scope records=${cloudCountsByScope[scope] ?? 0}',
+      );
     }
 
     var downloadedRecords = 0;
@@ -599,6 +638,10 @@ class SyncService {
           await repository.mergeRemoteRecords(scopeRecords);
           downloadedRecords += scopeRecords.length;
         }
+
+        debugPrint(
+          '[sync-download] LOCAL_APPLY scope=${repository.scope} inserted_or_updated=${scopeRecords.length}',
+        );
 
         final nextCursor =
             response.cursorForScope(repository.scope) ??
@@ -677,6 +720,15 @@ class SyncService {
         'warnings': scopeWarnings.length,
       },
     );
+
+    final requiredScopesAllZero = requiredScopesForAudit.every(
+      (scope) => (cloudCountsByScope[scope] ?? 0) == 0,
+    );
+    if (requiredScopesAllZero) {
+      debugPrint(
+        '[sync-download] WARNING required scopes (sellers, products, clients, sales, payments, installments) returned 0 records.',
+      );
+    }
 
     return downloadedRecords;
   }
