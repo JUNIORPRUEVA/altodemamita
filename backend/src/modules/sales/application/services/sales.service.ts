@@ -410,6 +410,56 @@ export class SalesService {
     return { id, removed: true };
   }
 
+  async forceDeletePermanently(id: string) {
+    const sale = await this.prisma.sale.findFirst({
+      where: { id },
+      select: {
+        id: true,
+        productId: true,
+        deletedAt: true,
+        syncId: true,
+      },
+    });
+
+    if (!sale) {
+      throw new NotFoundException('Venta no encontrada.');
+    }
+
+    const deletedAt = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      await tx.payment.deleteMany({ where: { saleId: id } });
+      await tx.installment.deleteMany({ where: { saleId: id } });
+      await tx.sale.delete({ where: { id } });
+
+      if (sale.deletedAt == null) {
+        await tx.product.updateMany({
+          where: { id: sale.productId, deletedAt: null },
+          data: {
+            stock: { increment: 1 },
+            syncStatus: SyncStatus.pending,
+          },
+        });
+      }
+    });
+
+    this.realtimeEvents.publishEntityUpdated({
+      entity: 'sale',
+      action: 'deleted',
+      id,
+      recordSyncId: sale.syncId,
+      data: {
+        id,
+        record_sync_id: sale.syncId,
+        sync_id: sale.syncId,
+        hardDeleted: true,
+      },
+      source: 'api',
+      updatedAt: deletedAt.toISOString(),
+    });
+
+    return { id, removed: true, hardDeleted: true };
+  }
+
   private buildWhere(search?: string): Prisma.SaleWhereInput {
     const normalizedSearch = search?.trim();
     if (!normalizedSearch) {

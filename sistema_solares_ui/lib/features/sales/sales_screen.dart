@@ -19,6 +19,7 @@ class _SalesScreenState extends State<SalesScreen> {
   final _searchController = TextEditingController();
   Future<SalesPageData>? _future;
   int _lastTick = -1;
+  final Set<String> _deletingSaleIds = <String>{};
 
   @override
   void dispose() {
@@ -237,6 +238,28 @@ class _SalesScreenState extends State<SalesScreen> {
                                   foreground: const Color(0xFF8C5A2C),
                                 ),
                                 if (compact) _StatusTag(status: status),
+                                IconButton(
+                                  tooltip: 'Eliminar de nube (forzado)',
+                                  onPressed: _deletingSaleIds.contains(
+                                    item['id']?.toString() ?? '',
+                                  )
+                                      ? null
+                                      : () => _forceDeleteSale(item),
+                                  icon: _deletingSaleIds.contains(
+                                    item['id']?.toString() ?? '',
+                                  )
+                                      ? const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : const Icon(
+                                          Icons.delete_forever_rounded,
+                                          color: Color(0xFFB05233),
+                                        ),
+                                ),
                               ],
                             ),
                           );
@@ -281,6 +304,113 @@ class _SalesScreenState extends State<SalesScreen> {
       ScaffoldMessenger.maybeOf(
         context,
       )?.showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+  }
+
+  Future<String?> _askAdminPassword() async {
+    final controller = TextEditingController();
+    var obscure = true;
+    final password = await showDialog<String>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Contrasena de administrador'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            obscureText: obscure,
+            decoration: InputDecoration(
+              labelText: 'Contrasena',
+              suffixIcon: IconButton(
+                onPressed: () => setDialogState(() => obscure = !obscure),
+                icon: Icon(
+                  obscure ? Icons.visibility_off : Icons.visibility,
+                ),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(controller.text),
+              child: const Text('Continuar'),
+            ),
+          ],
+        ),
+      ),
+    );
+    controller.dispose();
+    return password?.trim();
+  }
+
+  Future<void> _forceDeleteSale(Map<String, dynamic> item) async {
+    final saleId = item['id']?.toString().trim() ?? '';
+    if (saleId.isEmpty || _deletingSaleIds.contains(saleId)) {
+      return;
+    }
+
+    final contract = item['contractNumber']?.toString().trim();
+    final client = _fullName(item['client']);
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Eliminar venta de la nube'),
+        content: Text(
+          'Se eliminara COMPLETAMENTE esta venta en la nube.\n\nCliente: $client\nContrato: ${contract?.isNotEmpty == true ? contract : 'Sin contrato'}\n\nEsta accion no se puede deshacer.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton.tonal(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Eliminar definitivamente'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) {
+      return;
+    }
+
+    final password = await _askAdminPassword();
+    if (password == null || password.isEmpty || !mounted) {
+      return;
+    }
+
+    setState(() => _deletingSaleIds.add(saleId));
+    final messenger = ScaffoldMessenger.maybeOf(context);
+
+    try {
+      await SalesService(
+        context.read<ApiClient>(),
+      ).forceDeleteFromCloud(saleId: saleId, adminPassword: password);
+      if (!mounted) {
+        return;
+      }
+      messenger?.showSnackBar(
+        const SnackBar(
+          content: Text('Venta eliminada completamente de la nube.'),
+        ),
+      );
+      _reload();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      messenger?.showSnackBar(
+        SnackBar(content: Text('No se pudo eliminar la venta: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _deletingSaleIds.remove(saleId));
+      }
     }
   }
 

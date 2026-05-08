@@ -21,6 +21,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<SettingsOverview>? _future;
   int _lastTick = -1;
   bool _isActivatingDevice = false;
+  bool _isResettingCloud = false;
 
   @override
   void initState() {
@@ -116,6 +117,108 @@ class _SettingsScreenState extends State<SettingsScreen> {
         setState(() {
           _isActivatingDevice = false;
         });
+      }
+    }
+  }
+
+  Future<String?> _askAdminPassword({required String title}) async {
+    final controller = TextEditingController();
+    var obscure = true;
+    final password = await showDialog<String>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(title),
+          content: TextField(
+            controller: controller,
+            obscureText: obscure,
+            autofocus: true,
+            decoration: InputDecoration(
+              labelText: 'Contrasena de administrador',
+              suffixIcon: IconButton(
+                onPressed: () => setDialogState(() => obscure = !obscure),
+                icon: Icon(
+                  obscure ? Icons.visibility_off : Icons.visibility,
+                ),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(controller.text),
+              child: const Text('Continuar'),
+            ),
+          ],
+        ),
+      ),
+    );
+    controller.dispose();
+    return password?.trim();
+  }
+
+  Future<void> _resetCloudOnly() async {
+    if (_isResettingCloud) {
+      return;
+    }
+
+    final password = await _askAdminPassword(
+      title: 'Reset solo nube',
+    );
+    if (password == null || password.isEmpty || !mounted) {
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Confirmar reset de nube'),
+        content: const Text(
+          'Se eliminaran TODOS los datos de la nube y esta accion no se puede deshacer.\n\nLa base local de las PCs no se tocara.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton.tonal(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Resetear nube'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) {
+      return;
+    }
+
+    setState(() => _isResettingCloud = true);
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    try {
+      await _settingsService.resetCloudDatabase(adminPassword: password);
+      if (!mounted) {
+        return;
+      }
+      messenger?.showSnackBar(
+        const SnackBar(
+          content: Text('Reset de nube completado correctamente.'),
+        ),
+      );
+      _reload();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      messenger?.showSnackBar(
+        SnackBar(content: Text('No se pudo resetear la nube: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isResettingCloud = false);
       }
     }
   }
@@ -434,6 +537,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         );
 
+        final cloudResetCard = _SettingsCard(
+          title: 'Reset de nube (solo servidor)',
+          icon: Icons.cloud_off_rounded,
+          accentColor: const Color(0xFF9B2C2C),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Esta accion borra datos solamente en la nube. No elimina datos locales en las PCs.',
+                style: TextStyle(
+                  fontSize: 12.5,
+                  height: 1.45,
+                  color: Color(0xFF687487),
+                ),
+              ),
+              const SizedBox(height: 12),
+              FilledButton.tonalIcon(
+                onPressed: _isResettingCloud ? null : _resetCloudOnly,
+                icon: _isResettingCloud
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.delete_sweep_rounded),
+                label: Text(
+                  _isResettingCloud
+                      ? 'Reseteando nube...'
+                      : 'Resetear solo nube (contrasena)',
+                ),
+              ),
+            ],
+          ),
+        );
+
         final rolesCard = _SettingsCard(
           title: 'Roles disponibles',
           icon: Icons.badge_outlined,
@@ -675,6 +813,51 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
                 _MobileSettingsNavTile(
+                  icon: Icons.cloud_off_rounded,
+                  title: 'Reset solo nube',
+                  subtitle: 'Borra solo datos del servidor',
+                  trailingLabel: _isResettingCloud ? 'Procesando' : 'Abrir',
+                  onTap: () {
+                    if (_isResettingCloud) {
+                      return;
+                    }
+                    _openMobileSection(
+                          title: 'Reset solo nube',
+                          child: _MobileSettingsDetailSection(
+                            children: [
+                              const _MobileSettingsFactRow(
+                                label: 'Alcance',
+                                value: 'Solo nube (servidor)',
+                              ),
+                              const _MobileSettingsFactRow(
+                                label: 'PC local',
+                                value: 'No se borra con esta accion',
+                              ),
+                              FilledButton.tonalIcon(
+                                onPressed: _isResettingCloud
+                                    ? null
+                                    : _resetCloudOnly,
+                                icon: _isResettingCloud
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Icon(Icons.delete_sweep_rounded),
+                                label: Text(
+                                  _isResettingCloud
+                                      ? 'Reseteando...'
+                                      : 'Resetear nube (contrasena)',
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                  },
+                ),
+                _MobileSettingsNavTile(
                   icon: Icons.badge_outlined,
                   title: 'Roles disponibles',
                   subtitle: '${data.roles.length} roles cargados',
@@ -777,6 +960,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               const SizedBox(height: 16),
                               deviceControlCard,
                               const SizedBox(height: 16),
+                              cloudResetCard,
+                              const SizedBox(height: 16),
                               rolesCard,
                             ],
                           ),
@@ -794,6 +979,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       usersCard,
                       const SizedBox(height: 16),
                       deviceControlCard,
+                      const SizedBox(height: 16),
+                      cloudResetCard,
                       const SizedBox(height: 16),
                       rolesCard,
                       const SizedBox(height: 16),

@@ -165,4 +165,17 @@ class SettingsService {
       );
     }
   }
+
+  Future<void> resetCloudDatabase({required String adminPassword}) async {
+    final normalizedPassword = adminPassword.trim();
+    if (normalizedPassword.isEmpty) {
+      throw ApiException('Debes ingresar la contrasena de administrador.');
+    }
+
+    await _apiClient.delete(
+      '/reset-database',
+      authorized: false,
+      customHeaders: {'x-admin-key': normalizedPassword},
+    );
+  }
 }

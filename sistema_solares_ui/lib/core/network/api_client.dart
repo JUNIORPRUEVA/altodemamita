@@ -17,6 +17,11 @@ class ApiException implements Exception {
 class ApiClient {
   ApiClient({http.Client? client}) : _client = client ?? http.Client();
 
+  static const List<String> _panelWriteAllowedPathPrefixes = <String>[
+    '/reset-database',
+    '/sales/force-delete/',
+  ];
+
   static const List<String> _blockedPanelWritePaths = <String>[
     '/sales',
     '/payments',
@@ -58,12 +63,14 @@ class ApiClient {
     String path, {
     Map<String, String>? queryParameters,
     bool authorized = true,
+    Map<String, String>? customHeaders,
   }) {
     return _request(
       'GET',
       path,
       queryParameters: queryParameters,
       authorized: authorized,
+      customHeaders: customHeaders,
     );
   }
 
@@ -72,6 +79,7 @@ class ApiClient {
     Map<String, dynamic>? body,
     Map<String, String>? queryParameters,
     bool authorized = true,
+    Map<String, String>? customHeaders,
   }) {
     return _request(
       'POST',
@@ -79,6 +87,7 @@ class ApiClient {
       body: body,
       queryParameters: queryParameters,
       authorized: authorized,
+      customHeaders: customHeaders,
     );
   }
 
@@ -87,6 +96,7 @@ class ApiClient {
     Map<String, dynamic>? body,
     Map<String, String>? queryParameters,
     bool authorized = true,
+    Map<String, String>? customHeaders,
   }) {
     return _request(
       'PATCH',
@@ -94,6 +104,7 @@ class ApiClient {
       body: body,
       queryParameters: queryParameters,
       authorized: authorized,
+      customHeaders: customHeaders,
     );
   }
 
@@ -101,12 +112,14 @@ class ApiClient {
     String path, {
     Map<String, String>? queryParameters,
     bool authorized = true,
+    Map<String, String>? customHeaders,
   }) {
     return _request(
       'DELETE',
       path,
       queryParameters: queryParameters,
       authorized: authorized,
+      customHeaders: customHeaders,
     );
   }
 
@@ -116,6 +129,7 @@ class ApiClient {
     Map<String, dynamic>? body,
     Map<String, String>? queryParameters,
     bool authorized = true,
+    Map<String, String>? customHeaders,
     bool isRetry = false,
   }) async {
     if (authorized) {
@@ -133,6 +147,7 @@ class ApiClient {
     final headers = <String, String>{
       'Accept': 'application/json',
       'Content-Type': 'application/json',
+      ...?customHeaders,
     };
     if (authorized && _jwtToken?.isNotEmpty == true) {
       headers['Authorization'] = 'Bearer $_jwtToken';
@@ -207,6 +222,7 @@ class ApiClient {
           body: body,
           queryParameters: queryParameters,
           authorized: authorized,
+          customHeaders: customHeaders,
           isRetry: true,
         );
       }
@@ -247,6 +263,12 @@ class ApiClient {
     }
 
     final normalizedPath = uri.path.trim().toLowerCase();
+    for (final allowedPrefix in _panelWriteAllowedPathPrefixes) {
+      if (normalizedPath.contains(allowedPrefix)) {
+        return;
+      }
+    }
+
     for (final blockedPath in _blockedPanelWritePaths) {
       if (normalizedPath.contains(blockedPath)) {
         _debugBlockedWrite(

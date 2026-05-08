@@ -54,6 +54,26 @@ class SalesService {
     return _asMap(response);
   }
 
+  Future<void> forceDeleteFromCloud({
+    required String saleId,
+    required String adminPassword,
+  }) async {
+    final normalizedId = saleId.trim();
+    final normalizedPassword = adminPassword.trim();
+    if (normalizedId.isEmpty) {
+      throw ApiException('La venta no tiene un ID valido.');
+    }
+    if (normalizedPassword.isEmpty) {
+      throw ApiException('Debes ingresar la contrasena de administrador.');
+    }
+
+    await _apiClient.delete(
+      '/sales/force-delete/$normalizedId',
+      authorized: false,
+      customHeaders: {'x-admin-key': normalizedPassword},
+    );
+  }
+
   Map<String, dynamic> _asMap(dynamic value) {
     return (value as Map<dynamic, dynamic>).map(
       (key, val) => MapEntry(key.toString(), val),
