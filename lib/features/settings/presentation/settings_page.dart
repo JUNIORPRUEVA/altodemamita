@@ -18,6 +18,7 @@ import '../../backup/presentation/backup_controller.dart';
 import '../../backup/presentation/backup_page.dart' as backup_feature;
 import '../../backup/services/backup_service.dart';
 import '../../backup/services/disk_detection_service.dart';
+import '../../../services/sync/sync_queue_service.dart';
 import 'company_info_page.dart';
 import 'documentation_page.dart';
 import 'financial_params_page.dart';
@@ -32,6 +33,7 @@ class SettingsPage extends StatefulWidget {
     this.onRunPostAuthorizationRecovery,
     this.onResetLocalDeviceIdentity,
     this.onResetBusinessData,
+    this.onResetLocalOnly,
   });
 
   final VoidCallback? onCompanyInfoChanged;
@@ -39,6 +41,7 @@ class SettingsPage extends StatefulWidget {
   final Future<String> Function()? onRunPostAuthorizationRecovery;
   final Future<String> Function()? onResetLocalDeviceIdentity;
   final Future<String> Function()? onResetBusinessData;
+  final Future<String> Function()? onResetLocalOnly;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -142,6 +145,11 @@ class _SettingsPageState extends State<SettingsPage> {
                 onRefresh: _refreshDeviceStatus,
                 onCopyDeviceId: _copyDeviceId,
               ),
+            ),
+            const SizedBox(height: 6),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: _SyncStatusBanner(),
             ),
             const SizedBox(height: 8),
             LayoutBuilder(
@@ -253,6 +261,7 @@ class _SettingsPageState extends State<SettingsPage> {
                           backupService: _backupService,
                           diskDetectionService: _diskDetectionService,
                           onResetBusinessData: widget.onResetBusinessData,
+                          onResetLocalOnly: widget.onResetLocalOnly,
                         ),
                         onClosed: () async {
                           if (!mounted) {
@@ -554,6 +563,90 @@ class _SettingCard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _SyncStatusBanner extends StatelessWidget {
+  const _SyncStatusBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<SyncQueueState>(
+      stream: SyncQueueService.instance.stateStream,
+      initialData: SyncQueueService.instance.state,
+      builder: (context, snapshot) {
+        final state = snapshot.data ?? SyncQueueService.instance.state;
+        final error = state.lastError;
+        final pending = state.pendingCount;
+
+        if (error == null && pending == 0) {
+          return const SizedBox.shrink();
+        }
+
+        final isError = error != null;
+        final bgColor =
+            isError ? const Color(0xFFFFF2F0) : const Color(0xFFFFF9E6);
+        final borderColor =
+            isError ? const Color(0xFFF4C7C3) : const Color(0xFFFFE096);
+        final fgColor =
+            isError ? const Color(0xFFB42318) : const Color(0xFF8B6914);
+        final textColor =
+            isError ? const Color(0xFF7A271A) : const Color(0xFF5C4A00);
+
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: bgColor,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: borderColor),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    isError
+                        ? Icons.sync_problem_rounded
+                        : Icons.cloud_upload_outlined,
+                    size: 15,
+                    color: fgColor,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      pending > 0
+                          ? '$pending registros pendientes de subir a la nube'
+                          : 'Problema de sincronizacion',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12.5,
+                        color: fgColor,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              if (error != null) ...[
+                const SizedBox(height: 5),
+                Text(
+                  error,
+                  style: TextStyle(fontSize: 12, color: textColor),
+                ),
+              ],
+              if (pending > 0 && error == null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Los registros se subiran automaticamente cuando la conexion este disponible y la PC este autorizada.',
+                  style: TextStyle(fontSize: 11.5, color: textColor),
+                ),
+              ],
+            ],
+          ),
+        );
+      },
     );
   }
 }

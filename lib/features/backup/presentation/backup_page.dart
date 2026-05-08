@@ -21,6 +21,7 @@ class BackupPage extends StatefulWidget {
   final BackupService backupService;
   final DiskDetectionService diskDetectionService;
   final Future<String> Function()? onResetBusinessData;
+  final Future<String> Function()? onResetLocalOnly;
 
   const BackupPage({
     Key? key,
@@ -28,6 +29,7 @@ class BackupPage extends StatefulWidget {
     required this.backupService,
     required this.diskDetectionService,
     this.onResetBusinessData,
+    this.onResetLocalOnly,
   }) : super(key: key);
 
   @override
@@ -708,8 +710,9 @@ class _BackupPageState extends State<BackupPage> {
   }
 
   Widget _buildDangerZoneSection() {
-    final callback = widget.onResetBusinessData;
-    final enabled = callback != null && !_isRunningBusinessReset;
+    final callbackBoth = widget.onResetBusinessData;
+    final callbackLocal = widget.onResetLocalOnly;
+    final enabled = !_isRunningBusinessReset;
 
     return Card(
       margin: const EdgeInsets.all(8),
@@ -724,7 +727,7 @@ class _BackupPageState extends State<BackupPage> {
             style: TextStyle(fontWeight: FontWeight.w700),
           ),
           subtitle: const Text(
-            'Borra clientes, solares, vendedores y ventas (nube + local).',
+            'Borra clientes, solares, vendedores y ventas.',
           ),
           children: [
             Container(
@@ -736,7 +739,7 @@ class _BackupPageState extends State<BackupPage> {
                 border: Border.all(color: const Color(0xFFF4C7C3)),
               ),
               child: const Text(
-                'Accion irreversible. Tambien elimina cuotas y pagos asociados para mantener consistencia.\n\n'
+                'Accion irreversible. Tambien elimina cuotas y pagos asociados.\n\n'
                 'Requiere clave del usuario actual.',
                 style: TextStyle(color: Color(0xFF7A271A), height: 1.4),
               ),
@@ -745,7 +748,16 @@ class _BackupPageState extends State<BackupPage> {
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
-                onPressed: enabled ? _resetBusinessData : null,
+                onPressed: enabled && callbackBoth != null
+                    ? () => _executeReset(
+                          callback: callbackBoth,
+                          title: 'Borrar nube + esta PC',
+                          warning:
+                              'Se eliminaran definitivamente los datos comerciales en la NUBE y en ESTA PC: clientes, solares, vendedores, ventas, cuotas y pagos.\n\n'
+                              'Requiere conexion con el servidor.',
+                          confirmLabel: 'Si, borrar nube y PC',
+                        )
+                    : null,
                 style: FilledButton.styleFrom(
                   backgroundColor: const Color(0xFFB42318),
                 ),
@@ -758,15 +770,50 @@ class _BackupPageState extends State<BackupPage> {
                           color: Colors.white,
                         ),
                       )
-                    : const Icon(Icons.delete_forever_outlined),
+                    : const Icon(Icons.cloud_off_outlined),
                 label: Text(
                   _isRunningBusinessReset
-                      ? 'Ejecutando reseteo...'
-                      : 'Ejecutar reseteo',
+                      ? 'Ejecutando...'
+                      : 'Borrar nube + esta PC',
                 ),
               ),
             ),
-            if (callback == null)
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: enabled && callbackLocal != null
+                    ? () => _executeReset(
+                          callback: callbackLocal,
+                          title: 'Borrar solo esta PC',
+                          warning:
+                              'Se eliminaran los datos comerciales SOLO EN ESTA PC: clientes, solares, vendedores, ventas, cuotas y pagos.\n\n'
+                              'La nube NO se toca. Usa esto si no tienes conexion.',
+                          confirmLabel: 'Si, borrar solo en esta PC',
+                        )
+                    : null,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFFB42318),
+                  side: const BorderSide(color: Color(0xFFB42318)),
+                ),
+                icon: _isRunningBusinessReset
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Color(0xFFB42318),
+                        ),
+                      )
+                    : const Icon(Icons.computer_outlined),
+                label: Text(
+                  _isRunningBusinessReset
+                      ? 'Ejecutando...'
+                      : 'Borrar solo esta PC (sin conexion)',
+                ),
+              ),
+            ),
+            if (callbackBoth == null && callbackLocal == null)
               const Padding(
                 padding: EdgeInsets.only(top: 8),
                 child: Text(
@@ -780,13 +827,13 @@ class _BackupPageState extends State<BackupPage> {
     );
   }
 
-  Future<void> _resetBusinessData() async {
+  Future<void> _executeReset({
+    required Future<String> Function() callback,
+    required String title,
+    required String warning,
+    required String confirmLabel,
+  }) async {
     if (_isRunningBusinessReset) {
-      return;
-    }
-
-    final callback = widget.onResetBusinessData;
-    if (callback == null) {
       return;
     }
 
@@ -796,11 +843,9 @@ class _BackupPageState extends State<BackupPage> {
 
     final confirmed = await DangerousActionConfirmDialog.show(
       context,
-      title: 'Confirmar reseteo de datos',
-      warning:
-          'Se eliminaran definitivamente los datos comerciales en la nube y en esta PC: clientes, solares, vendedores, ventas, cuotas y pagos.\n\n'
-          'No se borran usuarios, permisos, impresoras ni configuracion general.',
-      confirmLabel: 'Si, ejecutar reseteo',
+      title: title,
+      warning: warning,
+      confirmLabel: confirmLabel,
     );
     if (!confirmed || !mounted) {
       return;

@@ -41,6 +41,7 @@ import '../../repositories/user_roles_sync_repository.dart';
 import '../../services/realtime_sync_service.dart';
 import '../../services/cloud_reset_service.dart';
 import '../../services/sync/sync_conflict_service.dart';
+import '../../services/sync/sync_config_repository.dart';
 import '../../services/sync/sync_manager.dart';
 import '../../services/sync/sync_queue_service.dart';
 import '../../services/sync/sync_service.dart';
@@ -639,16 +640,44 @@ class _AppShellState extends State<AppShell> {
               _runPostAuthorizationRecoveryFromSettings,
           onResetLocalDeviceIdentity: _resetLocalDeviceIdentityFromSettings,
           onResetBusinessData: _resetBusinessDataFromSettings,
+          onResetLocalOnly: _resetLocalOnlyFromSettings,
         );
     }
   }
 
   Future<String> _runSyncRecoveryFromSettings() async {
-    final downloaded = await _syncService.forceFullDownloadFromCloud();
+    // Verificar si el JWT está configurado
+    final settings = await SyncConfigRepository().loadSettings();
+    if (!settings.isConfigured) {
+      if (settings.baseUrl.trim().isEmpty) {
+        return 'No hay URL de servidor configurada. Contacta al administrador del sistema.';
+      }
+      return 'No hay sesion de nube activa (JWT vacio). '
+          'Cierra sesion, asegurate de tener internet y vuelve a iniciar sesion '
+          'para que el sistema guarde tus credenciales de nube.';
+    }
+
+    // Intentar sincronizacion completa (subidas + descargas)
+    final report = await _syncService.syncNow(forceFullDownload: true);
+
+    if (report.wasSkipped) {
+      return 'Sincronizacion bloqueada: ${report.errorMessage ?? 'razon desconocida'}. '
+          'Si el error dice "no autorizada", activa esta PC desde el panel web.';
+    }
+
+    if (report.hadConnectivityError) {
+      return 'Error de conexion con el servidor. Verifica que el backend este en linea '
+          'y que esta PC tenga acceso a internet. '
+          '${report.pendingRecords > 0 ? "${report.pendingRecords} registros siguen en espera." : ""}';
+    }
+
     final writeStateMessage = SystemConfigService.instance.canWrite
         ? ''
-        : ' Esta PC no es primaria, por lo que las subidas seguiran en espera.';
-    return 'Reparacion completada. Registros descargados: $downloaded.$writeStateMessage';
+        : ' Esta PC no esta autorizada para subir datos: activa su ID desde el panel web.';
+    return 'Sincronizacion completada. '
+        'Subidos: ${report.uploadedRecords}, descargados: ${report.downloadedRecords}'
+        '${report.pendingRecords > 0 ? ", pendientes: ${report.pendingRecords}" : ""}'
+        '.$writeStateMessage';
   }
 
   Future<String> _runPostAuthorizationRecoveryFromSettings() async {
@@ -661,24 +690,43 @@ class _AppShellState extends State<AppShell> {
     return _syncService.resetLocalDeviceIdentityForAdmin();
   }
 
+  Future<String> _resetLocalOnlyFromSettings() async {
+    final local = await _syncService.resetLocalBusinessDataForAdmin();
+    final localSummary = [
+      'ventas=${local['sales'] ?? 0}',
+      'clientes=${local['clients'] ?? 0}',
+      'vendedores=${local['sellers'] ?? 0}',
+      'cuotas=${local['installments'] ?? 0}',
+      'pagos=${local['payments'] ?? 0}',
+      'cola=${local['sync_queue'] ?? 0}',
+    ].join(' | ');
+    return 'Borrado local completado: $localSummary. La nube NO fue modificada.';
+  }
+
   Future<String> _resetBusinessDataFromSettings() async {
     final cloudResetService = CloudResetService();
     try {
       final cloud = await cloudResetService.resetCloudDatabase();
       final local = await _syncService.resetLocalBusinessDataForAdmin();
       final localSummary = [
-        'sales=${local['sales'] ?? 0}',
-        'clients=${local['clients'] ?? 0}',
-        'sellers=${local['sellers'] ?? 0}',
-        'products=${local['products'] ?? 0}',
-        'installments=${local['installments'] ?? 0}',
-        'payments=${local['payments'] ?? 0}',
-        'queue=${local['sync_queue'] ?? 0}',
+        'ventas=${local['sales'] ?? 0}',
+        'clientes=${local['clients'] ?? 0}',
+        'vendedores=${local['sellers'] ?? 0}',
+        'cuotas=${local['installments'] ?? 0}',
+        'pagos=${local['payments'] ?? 0}',
+        'cola=${local['sync_queue'] ?? 0}',
       ].join(' | ');
-
-      return 'Reseteo completado. Nube: ${cloud.summary}. Local: $localSummary';
+      return 'Reseteo nube+local completado. Nube: ${cloud.summary}. Local: $localSummary';
     } on CloudResetException catch (error) {
-      throw Exception(error.message);
+      throw Exception(
+        'Error al borrar la nube: ${error.message}. '
+        'Si no tienes conexion usa "Borrar solo esta PC" en su lugar.',
+      );
+    } on SocketException {
+      throw Exception(
+        'Sin conexion con el servidor. '
+        'Usa "Borrar solo esta PC" para borrar solo el almacenamiento local sin necesitar internet.',
+      );
     } finally {
       cloudResetService.dispose();
     }
