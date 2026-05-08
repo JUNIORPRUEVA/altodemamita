@@ -31,12 +31,14 @@ class SettingsPage extends StatefulWidget {
     this.onRunSyncRecovery,
     this.onRunPostAuthorizationRecovery,
     this.onResetLocalDeviceIdentity,
+    this.onResetBusinessData,
   });
 
   final VoidCallback? onCompanyInfoChanged;
   final Future<String> Function()? onRunSyncRecovery;
   final Future<String> Function()? onRunPostAuthorizationRecovery;
   final Future<String> Function()? onResetLocalDeviceIdentity;
+  final Future<String> Function()? onResetBusinessData;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -250,6 +252,7 @@ class _SettingsPageState extends State<SettingsPage> {
                           controller: _backupController,
                           backupService: _backupService,
                           diskDetectionService: _diskDetectionService,
+                          onResetBusinessData: widget.onResetBusinessData,
                         ),
                         onClosed: () async {
                           if (!mounted) {

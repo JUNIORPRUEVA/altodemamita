@@ -14,17 +14,20 @@ import '../services/backup_service.dart';
 import '../services/disk_detection_service.dart';
 import 'backup_controller.dart';
 import '../../../shared/widgets/base_layout.dart';
+import '../../../shared/widgets/dangerous_action_confirm_dialog.dart';
 
 class BackupPage extends StatefulWidget {
   final BackupController? controller;
   final BackupService backupService;
   final DiskDetectionService diskDetectionService;
+  final Future<String> Function()? onResetBusinessData;
 
   const BackupPage({
     Key? key,
     this.controller,
     required this.backupService,
     required this.diskDetectionService,
+    this.onResetBusinessData,
   }) : super(key: key);
 
   @override
@@ -34,6 +37,7 @@ class BackupPage extends StatefulWidget {
 class _BackupPageState extends State<BackupPage> {
   late final BackupController _controller;
   late final bool _ownsController;
+  bool _isRunningBusinessReset = false;
 
   @override
   void initState() {
@@ -119,6 +123,7 @@ class _BackupPageState extends State<BackupPage> {
                       if (_controller.config != null)
                         _buildConfigurationSection(_controller),
                       _buildManualBackupSection(_controller),
+                      _buildDangerZoneSection(),
                       _buildBackupHistorySection(_controller),
                     ],
                   ),
@@ -700,6 +705,137 @@ class _BackupPageState extends State<BackupPage> {
         ),
       ),
     );
+  }
+
+  Widget _buildDangerZoneSection() {
+    final callback = widget.onResetBusinessData;
+    final enabled = callback != null && !_isRunningBusinessReset;
+
+    return Card(
+      margin: const EdgeInsets.all(8),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: ExpansionTile(
+          tilePadding: EdgeInsets.zero,
+          childrenPadding: const EdgeInsets.only(top: 8),
+          leading: const Icon(Icons.warning_amber_rounded, color: Color(0xFFB42318)),
+          title: const Text(
+            'Zona avanzada: reseteo de datos',
+            style: TextStyle(fontWeight: FontWeight.w700),
+          ),
+          subtitle: const Text(
+            'Borra clientes, solares, vendedores y ventas (nube + local).',
+          ),
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF2F0),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFF4C7C3)),
+              ),
+              child: const Text(
+                'Accion irreversible. Tambien elimina cuotas y pagos asociados para mantener consistencia.\n\n'
+                'Requiere clave del usuario actual.',
+                style: TextStyle(color: Color(0xFF7A271A), height: 1.4),
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: enabled ? _resetBusinessData : null,
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFFB42318),
+                ),
+                icon: _isRunningBusinessReset
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.delete_forever_outlined),
+                label: Text(
+                  _isRunningBusinessReset
+                      ? 'Ejecutando reseteo...'
+                      : 'Ejecutar reseteo',
+                ),
+              ),
+            ),
+            if (callback == null)
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Text(
+                  'El servicio de reseteo no esta disponible en esta version.',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _resetBusinessData() async {
+    if (_isRunningBusinessReset) {
+      return;
+    }
+
+    final callback = widget.onResetBusinessData;
+    if (callback == null) {
+      return;
+    }
+
+    if (!await _ensureAuthorized()) {
+      return;
+    }
+
+    final confirmed = await DangerousActionConfirmDialog.show(
+      context,
+      title: 'Confirmar reseteo de datos',
+      warning:
+          'Se eliminaran definitivamente los datos comerciales en la nube y en esta PC: clientes, solares, vendedores, ventas, cuotas y pagos.\n\n'
+          'No se borran usuarios, permisos, impresoras ni configuracion general.',
+      confirmLabel: 'Si, ejecutar reseteo',
+    );
+    if (!confirmed || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _isRunningBusinessReset = true;
+    });
+
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    messenger?.showSnackBar(
+      const SnackBar(content: Text('Ejecutando reseteo de datos...')),
+    );
+
+    try {
+      final summary = await callback();
+      if (!mounted) {
+        return;
+      }
+      messenger?.showSnackBar(SnackBar(content: Text(summary)));
+      await _controller.initialize(silent: true, forceRefresh: true);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      messenger?.showSnackBar(
+        SnackBar(content: Text('No se pudo completar el reseteo: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isRunningBusinessReset = false;
+        });
+      }
+    }
   }
 
   Widget _buildBackupItem(

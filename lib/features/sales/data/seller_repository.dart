@@ -115,6 +115,16 @@ class SellerRepository implements SyncRepository {
         );
       }
 
+      // Anonimizar cualquier registro eliminado que aún conserve la cédula
+      // original, para evitar el UNIQUE constraint de SQLite en el INSERT.
+      await db.rawUpdate(
+        "UPDATE ${DatabaseSchema.sellersTable} "
+        "SET cedula = '__DELETED__' || CAST(id AS TEXT) "
+        'WHERE deleted_at IS NOT NULL '
+        'AND TRIM(cedula) = ?',
+        [seller.documentId],
+      );
+
       final id = await db.insert(DatabaseSchema.sellersTable, {
         ...seller.toMap(),
         'sync_id': _newSyncId(),

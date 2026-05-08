@@ -145,6 +145,7 @@ export class SyncService {
       const installments = await tx.installment.deleteMany({});
       const sales = await tx.sale.deleteMany({});
       const clients = await tx.client.deleteMany({});
+      const sellers = await tx.seller.deleteMany({});
       const products = await tx.product.deleteMany({});
 
       return {
@@ -152,6 +153,7 @@ export class SyncService {
         installments: installments.count,
         sales: sales.count,
         clients: clients.count,
+        sellers: sellers.count,
         products: products.count,
       };
     });

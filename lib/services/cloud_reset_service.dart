@@ -28,6 +28,7 @@ class CloudResetResult {
     final ordered = [
       'sales',
       'clients',
+      'sellers',
       'products',
       'installments',
       'payments',

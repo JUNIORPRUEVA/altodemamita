@@ -176,6 +176,17 @@ class ClientRepository implements SyncRepository {
       }
 
       if (normalizedClient.id == null) {
+        // Anonimizar cualquier registro eliminado que aún conserve la cédula
+        // original (caso: borrado antes de la anonimización o revertido por sync).
+        // Esto evita que el UNIQUE constraint de SQLite bloquee el nuevo INSERT.
+        await db.rawUpdate(
+          "UPDATE ${DatabaseSchema.clientsTable} "
+          "SET cedula = '__DELETED__' || CAST(id AS TEXT) "
+          'WHERE deleted_at IS NOT NULL '
+          'AND TRIM(cedula) = ?',
+          [normalizedClient.documentId],
+        );
+
         final insertedId = await db.insert(
           DatabaseSchema.clientsTable,
           normalizedClient.toMap()

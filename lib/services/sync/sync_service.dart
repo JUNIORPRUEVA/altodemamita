@@ -915,6 +915,59 @@ class SyncService {
     return 'Identificacion local reiniciada. ID anterior: $oldDeviceId. Nuevo ID: $newDeviceId. Jobs desbloqueados: $unlockedJobs.';
   }
 
+  Future<Map<String, int>> resetLocalBusinessDataForAdmin() async {
+    final businessScopes = const <String>{
+      'clients',
+      'sellers',
+      'products',
+      'sales',
+      'installments',
+      'payments',
+    };
+    final db = await _appDatabase.database;
+    final now = DateTime.now().toIso8601String();
+
+    final deleted = await db.transaction<Map<String, int>>((txn) async {
+      final payments = await txn.delete(DatabaseSchema.paymentsTable);
+      final installments = await txn.delete(DatabaseSchema.installmentsTable);
+      final sales = await txn.delete(DatabaseSchema.salesTable);
+      final clients = await txn.delete(DatabaseSchema.clientsTable);
+      final sellers = await txn.delete(DatabaseSchema.sellersTable);
+      final products = await txn.delete(DatabaseSchema.lotsTable);
+
+      final placeholders = List.filled(businessScopes.length, '?').join(', ');
+      final queueRows = await txn.rawDelete(
+        'DELETE FROM ${DatabaseSchema.syncQueueTable} '
+        'WHERE scope IN ($placeholders)',
+        businessScopes.toList(growable: false),
+      );
+      await txn.rawUpdate(
+        'UPDATE ${DatabaseSchema.conflictLogsTable} '
+        'SET resolved_at = COALESCE(resolved_at, ?), '
+        "resolution = COALESCE(resolution, 'business_reset') "
+        'WHERE resolved_at IS NULL AND scope IN ($placeholders)',
+        [now, ...businessScopes],
+      );
+
+      return {
+        'payments': payments,
+        'installments': installments,
+        'sales': sales,
+        'clients': clients,
+        'sellers': sellers,
+        'products': products,
+        'sync_queue': queueRows,
+      };
+    });
+
+    await _configRepository.clearCursors(businessScopes);
+    await _configRepository.saveLastRun(
+      errorMessage: '',
+      status: SyncRuntimeStatus.pending,
+    );
+    return deleted;
+  }
+
   String _buildMissingConfigurationMessage(SyncSettings settings) {
     final hasBaseUrl = settings.baseUrl.trim().isNotEmpty;
     final hasJwtToken = settings.jwtToken.trim().isNotEmpty;

@@ -39,6 +39,7 @@ import '../../repositories/sales_sync_repository.dart';
 import '../../repositories/users_sync_repository.dart';
 import '../../repositories/user_roles_sync_repository.dart';
 import '../../services/realtime_sync_service.dart';
+import '../../services/cloud_reset_service.dart';
 import '../../services/sync/sync_conflict_service.dart';
 import '../../services/sync/sync_manager.dart';
 import '../../services/sync/sync_queue_service.dart';
@@ -637,6 +638,7 @@ class _AppShellState extends State<AppShell> {
           onRunPostAuthorizationRecovery:
               _runPostAuthorizationRecoveryFromSettings,
           onResetLocalDeviceIdentity: _resetLocalDeviceIdentityFromSettings,
+          onResetBusinessData: _resetBusinessDataFromSettings,
         );
     }
   }
@@ -657,6 +659,29 @@ class _AppShellState extends State<AppShell> {
 
   Future<String> _resetLocalDeviceIdentityFromSettings() async {
     return _syncService.resetLocalDeviceIdentityForAdmin();
+  }
+
+  Future<String> _resetBusinessDataFromSettings() async {
+    final cloudResetService = CloudResetService();
+    try {
+      final cloud = await cloudResetService.resetCloudDatabase();
+      final local = await _syncService.resetLocalBusinessDataForAdmin();
+      final localSummary = [
+        'sales=${local['sales'] ?? 0}',
+        'clients=${local['clients'] ?? 0}',
+        'sellers=${local['sellers'] ?? 0}',
+        'products=${local['products'] ?? 0}',
+        'installments=${local['installments'] ?? 0}',
+        'payments=${local['payments'] ?? 0}',
+        'queue=${local['sync_queue'] ?? 0}',
+      ].join(' | ');
+
+      return 'Reseteo completado. Nube: ${cloud.summary}. Local: $localSummary';
+    } on CloudResetException catch (error) {
+      throw Exception(error.message);
+    } finally {
+      cloudResetService.dispose();
+    }
   }
 
   @override
