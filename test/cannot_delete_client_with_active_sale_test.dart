@@ -7,6 +7,7 @@ import 'package:sistema_solares/core/database/app_database.dart';
 import 'package:sistema_solares/core/database/database_schema.dart';
 import 'package:sistema_solares/core/errors/active_sales_block_delete_exception.dart';
 import 'package:sistema_solares/features/clients/data/client_repository.dart';
+import 'package:sistema_solares/features/clients/domain/client.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -113,5 +114,65 @@ void main() {
       whereArgs: [clientId],
     );
     expect(rows.first['deleted_at'], isNotNull);
+    expect(rows.first['cedula'], '__DELETED__$clientId');
+  });
+
+  test('blocks_duplicate_active_client_document_and_allows_recreate_after_delete', () async {
+    final db = await appDatabase.database;
+    final now = DateTime.now();
+    final document = '00100000999';
+
+    final firstId = await db.insert(DatabaseSchema.clientsTable, {
+      'sync_id': 'client-dup-1',
+      'cedula': document,
+      'nombre': 'Cliente Uno',
+      'telefono': '8090000001',
+      'fecha_creacion': now.toIso8601String(),
+      'fecha_actualizacion': now.toIso8601String(),
+      'sync_status': DatabaseSchema.syncStatusSynced,
+    });
+
+    await expectLater(
+      repository.save(
+        Client(
+          fullName: 'Cliente Dos',
+          documentId: document,
+          phone: '8090000002',
+          address: null,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      ),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          contains('cliente activo con esta cédula'),
+        ),
+      ),
+    );
+
+    await repository.delete(firstId);
+
+    await expectLater(
+      repository.save(
+        Client(
+          fullName: 'Cliente Recreado',
+          documentId: document,
+          phone: '8090000003',
+          address: null,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      ),
+      completes,
+    );
+
+    final activeRows = await db.query(
+      DatabaseSchema.clientsTable,
+      where: 'TRIM(cedula) = ? AND deleted_at IS NULL',
+      whereArgs: [document],
+    );
+    expect(activeRows.length, 1);
   });
 }

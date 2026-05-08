@@ -7,7 +7,7 @@ import '../security/password_hasher.dart';
 
 class DatabaseSchema {
   static const String databaseName = 'sistema_solares.db';
-  static const int databaseVersion = 22;
+  static const int databaseVersion = 24;
   static const String defaultSyncBaseUrl = BASE_URL;
 
   static const String clientsTable = 'clientes';
@@ -127,6 +127,8 @@ class DatabaseSchema {
     await _migrateToVersion20(db);
     await _migrateToVersion21(db);
     await _migrateToVersion22(db);
+    await _migrateToVersion23(db);
+    await _migrateToVersion24(db);
   }
 
   static Future<void> ensureCoreStructures(DatabaseExecutor db) async {
@@ -150,6 +152,8 @@ class DatabaseSchema {
     await _migrateToVersion20(db);
     await _migrateToVersion21(db);
     await _migrateToVersion22(db);
+    await _migrateToVersion23(db);
+    await _migrateToVersion24(db);
     await seedDefaults(db);
   }
 
@@ -376,6 +380,14 @@ class DatabaseSchema {
 
     if (oldVersion < 22 && newVersion >= 22) {
       await _migrateToVersion22(db);
+    }
+
+    if (oldVersion < 23 && newVersion >= 23) {
+      await _migrateToVersion23(db);
+    }
+
+    if (oldVersion < 24 && newVersion >= 24) {
+      await _migrateToVersion24(db);
     }
 
     await seedDefaults(db);
@@ -697,6 +709,45 @@ class DatabaseSchema {
   }
 
   /// v22: separa el dinero del apartado del dinero del inicial.
+  /// Elimina los intervalos de sincronizacion guardados (10s retry / 5s polling)
+  /// para que la app use los nuevos valores rapidos por defecto (3s / 2s).
+  static Future<void> _migrateToVersion23(DatabaseExecutor db) async {
+    if (!await _tableExists(db, settingsTable)) {
+      return;
+    }
+    await db.rawDelete(
+      "DELETE FROM $settingsTable WHERE clave IN ('sync.queue_retry_seconds', 'sync.realtime_polling_seconds')",
+    );
+  }
+
+  /// Libera cédulas de registros eliminados para permitir recreación segura.
+  /// Mantiene UNIQUE(cedula) sin bloquear nuevos registros activos.
+  static Future<void> _migrateToVersion24(DatabaseExecutor db) async {
+    if (await _tableExists(db, clientsTable) &&
+        await _columnExists(db, clientsTable, 'deleted_at') &&
+        await _columnExists(db, clientsTable, 'cedula')) {
+      await db.rawUpdate(
+        "UPDATE $clientsTable "
+        "SET cedula = '__DELETED__' || id "
+        "WHERE deleted_at IS NOT NULL "
+        "AND COALESCE(TRIM(cedula), '') <> '' "
+        "AND cedula NOT LIKE '__DELETED__%'",
+      );
+    }
+
+    if (await _tableExists(db, sellersTable) &&
+        await _columnExists(db, sellersTable, 'deleted_at') &&
+        await _columnExists(db, sellersTable, 'cedula')) {
+      await db.rawUpdate(
+        "UPDATE $sellersTable "
+        "SET cedula = '__DELETED__' || id "
+        "WHERE deleted_at IS NOT NULL "
+        "AND COALESCE(TRIM(cedula), '') <> '' "
+        "AND cedula NOT LIKE '__DELETED__%'",
+      );
+    }
+  }
+
   /// Agrega `monto_apartado_pagado` a la tabla de ventas. Para datos legados
   /// el valor por defecto es 0; las ventas previas siguen contabilizando
   /// `monto_inicial_pagado` como antes.

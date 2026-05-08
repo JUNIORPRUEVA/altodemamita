@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../../../features/auth/domain/permission_model.dart';
 import '../../../features/auth/presentation/auth_provider.dart';
@@ -133,6 +134,23 @@ class _SellersPageState extends State<SellersPage> {
       if (!mounted) {
         return;
       }
+      final friendly = _decodeSellerWriteError(error);
+      if (friendly != null) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(
+            content: Text(friendly),
+            backgroundColor: Theme.of(context).colorScheme.error,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+        FriendlyErrorMessages.forOperation(
+          'guardar el vendedor',
+          error,
+          module: 'ventas',
+          presentToUser: false,
+        );
+        return;
+      }
       FriendlyErrorMessages.forOperation(
         'guardar el vendedor',
         error,
@@ -209,6 +227,27 @@ class _SellersPageState extends State<SellersPage> {
   void _clearSearch() {
     _searchController.clear();
     _load();
+  }
+
+  String? _decodeSellerWriteError(Object error) {
+    if (error is StateError) {
+      final message = error.message.toString().trim();
+      if (message.isNotEmpty) {
+        return message;
+      }
+    }
+
+    if (error is DatabaseException) {
+      final normalized = error.toString();
+      if (normalized.contains('UNIQUE constraint failed: vendedores.cedula')) {
+        return 'Ya existe un vendedor activo con esta cédula. Verifica los datos antes de continuar.';
+      }
+      if (normalized.contains('NOT NULL constraint failed: vendedores.cedula')) {
+        return 'La cédula es obligatoria.';
+      }
+    }
+
+    return null;
   }
 
   @override

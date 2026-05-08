@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { Request, Response } from 'express';
 
 const REDACTED = '[REDACTED]';
@@ -99,18 +100,84 @@ function summarizeRequestBody(path: string, body: unknown): unknown {
 export class HttpExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(HttpExceptionFilter.name);
 
+  private mapPrismaException(
+    exception: Prisma.PrismaClientKnownRequestError,
+    path: string,
+  ): { status: HttpStatus; body: { message: string; errorCode: string } } {
+    if (exception.code === 'P2002') {
+      const target = Array.isArray(exception.meta?.target)
+        ? exception.meta?.target.join(',')
+        : String(exception.meta?.target ?? '');
+      const normalizedTarget = target.toLowerCase();
+      const normalizedPath = path.toLowerCase();
+
+      if (
+        normalizedTarget.includes('document_id') &&
+        (normalizedPath.includes('/clients') || normalizedPath.includes('/sync'))
+      ) {
+        return {
+          status: HttpStatus.BAD_REQUEST,
+          body: {
+            message:
+              'Ya existe un cliente activo con esta cédula. Verifica los datos antes de continuar.',
+            errorCode: 'ACTIVE_CLIENT_DOCUMENT_DUPLICATE',
+          },
+        };
+      }
+
+      if (
+        normalizedTarget.includes('document_id') &&
+        (normalizedPath.includes('/sellers') || normalizedPath.includes('/sync'))
+      ) {
+        return {
+          status: HttpStatus.BAD_REQUEST,
+          body: {
+            message:
+              'Ya existe un vendedor activo con esta cédula. Verifica los datos antes de continuar.',
+            errorCode: 'ACTIVE_SELLER_DOCUMENT_DUPLICATE',
+          },
+        };
+      }
+
+      return {
+        status: HttpStatus.BAD_REQUEST,
+        body: {
+          message: 'No pudimos completar la acción. Intenta nuevamente o contacta al administrador.',
+          errorCode: 'UNIQUE_CONSTRAINT_VIOLATION',
+        },
+      };
+    }
+
+    return {
+      status: HttpStatus.INTERNAL_SERVER_ERROR,
+      body: {
+        message: 'No pudimos completar la acción. Intenta nuevamente o contacta al administrador.',
+        errorCode: 'PRISMA_KNOWN_ERROR',
+      },
+    };
+  }
+
   catch(exception: unknown, host: ArgumentsHost): void {
     const context = host.switchToHttp();
     const response = context.getResponse<Response>();
     const request = context.getRequest<Request>();
 
-    const status = exception instanceof HttpException
-      ? exception.getStatus()
-      : HttpStatus.INTERNAL_SERVER_ERROR;
+    const prismaHandled =
+      exception instanceof Prisma.PrismaClientKnownRequestError
+        ? this.mapPrismaException(exception, request.url)
+        : null;
 
-    const exceptionResponse = exception instanceof HttpException
-      ? exception.getResponse()
-      : { message: 'Internal server error' };
+    const status = prismaHandled
+      ? prismaHandled.status
+      : exception instanceof HttpException
+        ? exception.getStatus()
+        : HttpStatus.INTERNAL_SERVER_ERROR;
+
+    const exceptionResponse = prismaHandled
+      ? prismaHandled.body
+      : exception instanceof HttpException
+        ? exception.getResponse()
+        : { message: 'Internal server error' };
 
     const authorizationHeader = request.headers.authorization;
     const sanitizedAuthorization = authorizationHeader ? REDACTED : null;

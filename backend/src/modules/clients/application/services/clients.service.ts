@@ -19,6 +19,7 @@ export class ClientsService {
     if (dto.code) {
       await this.ensureUniqueCode(dto.code);
     }
+    await this.ensureUniqueDocument(dto.documentId);
 
     const result = await this.prisma.client.create({
       data: {
@@ -78,6 +79,7 @@ export class ClientsService {
     if (dto.code) {
       await this.ensureUniqueCode(dto.code, id);
     }
+    await this.ensureUniqueDocument(dto.documentId, id);
 
     return this.prisma.client.update({
       where: { id },
@@ -90,7 +92,7 @@ export class ClientsService {
   }
 
   async remove(id: string) {
-    await this.findOne(id);
+    const client = await this.findOne(id);
 
     const activeSaleCount = await this.prisma.sale.count({
       where: {
@@ -112,6 +114,7 @@ export class ClientsService {
       where: { id },
       data: {
         deletedAt: new Date(),
+        documentId: this.deletedDocumentPlaceholder(client.documentId, id),
         syncStatus: SyncStatus.pending,
       },
     });
@@ -174,6 +177,39 @@ export class ClientsService {
       this.logger.warn(`CLIENT DTO INVALID duplicate_code code=${code} id=${id ?? 'new'}`);
       throw new BadRequestException('Ya existe un cliente con ese código.');
     }
+  }
+
+  private async ensureUniqueDocument(documentId?: string, id?: string) {
+    const normalized = documentId?.trim();
+    if (!normalized) {
+      return;
+    }
+
+    const existing = await this.prisma.client.findFirst({
+      where: {
+        deletedAt: null,
+        documentId: { equals: normalized, mode: 'insensitive' },
+        id: id ? { not: id } : undefined,
+      },
+      select: { id: true },
+    });
+
+    if (existing) {
+      throw new BadRequestException(
+        'Ya existe un cliente activo con esta cédula. Verifica los datos antes de continuar.',
+      );
+    }
+  }
+
+  private deletedDocumentPlaceholder(documentId: string | null, id: string): string | null {
+    const normalized = documentId?.trim();
+    if (!normalized) {
+      return null;
+    }
+    if (normalized.startsWith('__DELETED__')) {
+      return normalized;
+    }
+    return `__DELETED__${id}`;
   }
 
   private serialize(payload: unknown): string {

@@ -101,7 +101,7 @@ class ClientsController extends ChangeNotifier {
     if (error is DatabaseException) {
       final normalized = error.toString();
       if (normalized.contains('UNIQUE constraint failed: clientes.cedula')) {
-        return 'Ya existe un cliente con esa cédula.';
+        return 'Ya existe un cliente activo con esta cédula. Verifica los datos antes de continuar.';
       }
       if (normalized.contains('NOT NULL constraint failed: clientes.cedula')) {
         return 'La cédula es obligatoria.';

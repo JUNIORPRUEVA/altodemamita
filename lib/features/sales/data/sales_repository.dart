@@ -1159,9 +1159,9 @@ class SalesRepository {
     );
 
     try {
-      for (final scope in scopes) {
-        await _syncQueueService.refreshScope(scope);
-      }
+      await Future.wait(
+        scopes.map((scope) => _syncQueueService.refreshScope(scope)),
+      );
 
       final processed = await _syncQueueService.processQueue(
         includeDeferred: true,
@@ -1193,9 +1193,9 @@ class SalesRepository {
       'Intentando sync -> scope=sales operation=$operationLabel scopes=${scopes.join(',')}',
     );
     try {
-      for (final scope in scopes) {
-        await _syncQueueService.refreshScope(scope);
-      }
+      await Future.wait(
+        scopes.map((scope) => _syncQueueService.refreshScope(scope)),
+      );
       final processed = await _syncQueueService.processQueue(
         includeDeferred: true,
       );

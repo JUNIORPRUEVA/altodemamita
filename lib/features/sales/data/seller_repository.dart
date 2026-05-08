@@ -106,6 +106,15 @@ class SellerRepository implements SyncRepository {
       }
 
       final db = await _appDatabase.database;
+      final duplicateId = await _findActiveSellerIdByDocumentId(
+        seller.documentId,
+      );
+      if (duplicateId != null) {
+        throw StateError(
+          'Ya existe un vendedor activo con esta cédula. Verifica los datos antes de continuar.',
+        );
+      }
+
       final id = await db.insert(DatabaseSchema.sellersTable, {
         ...seller.toMap(),
         'sync_id': _newSyncId(),
@@ -147,6 +156,16 @@ class SellerRepository implements SyncRepository {
       }
 
       final db = await _appDatabase.database;
+      final duplicateId = await _findActiveSellerIdByDocumentId(
+        seller.documentId,
+        excludeId: seller.id,
+      );
+      if (duplicateId != null) {
+        throw StateError(
+          'Ya existe un vendedor activo con esta cédula. Verifica los datos antes de continuar.',
+        );
+      }
+
       await db.update(
         DatabaseSchema.sellersTable,
         {
@@ -201,9 +220,22 @@ class SellerRepository implements SyncRepository {
         );
       }
 
+      final sellerRow = await db.query(
+        DatabaseSchema.sellersTable,
+        columns: ['cedula'],
+        where: 'id = ?',
+        whereArgs: [id],
+        limit: 1,
+      );
+      final currentDocument = sellerRow.isEmpty
+          ? ''
+          : (sellerRow.first['cedula']?.toString() ?? '');
+      final deletedDocument = _deletedDocumentPlaceholder(currentDocument, id);
+
       await db.update(
         DatabaseSchema.sellersTable,
         {
+          'cedula': deletedDocument,
           'deleted_at': DateTime.now().toIso8601String(),
           'sync_status': DatabaseSchema.syncStatusPendingDelete,
           'last_modified_local': DateTime.now().toIso8601String(),
@@ -517,5 +549,51 @@ class SellerRepository implements SyncRepository {
           : seller.documentId.trim(),
       'phone': seller.phone.trim().isEmpty ? null : seller.phone.trim(),
     };
+  }
+
+  Future<int?> _findActiveSellerIdByDocumentId(
+    String documentId, {
+    int? excludeId,
+  }) async {
+    final normalized = documentId.trim();
+    if (normalized.isEmpty) {
+      return null;
+    }
+
+    final db = await _appDatabase.database;
+    final where = StringBuffer('deleted_at IS NULL AND TRIM(cedula) = ?');
+    final whereArgs = <Object>[normalized];
+    if (excludeId != null) {
+      where.write(' AND id <> ?');
+      whereArgs.add(excludeId);
+    }
+
+    final rows = await db.query(
+      DatabaseSchema.sellersTable,
+      columns: ['id'],
+      where: where.toString(),
+      whereArgs: whereArgs,
+      limit: 1,
+    );
+    if (rows.isEmpty) {
+      return null;
+    }
+
+    final id = rows.first['id'];
+    if (id is int) {
+      return id;
+    }
+    if (id is num) {
+      return id.toInt();
+    }
+    return int.tryParse(id?.toString() ?? '');
+  }
+
+  String _deletedDocumentPlaceholder(String documentId, int id) {
+    final normalized = documentId.trim();
+    if (normalized.startsWith('__DELETED__')) {
+      return normalized;
+    }
+    return '__DELETED__$id';
   }
 }

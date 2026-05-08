@@ -76,15 +76,15 @@ class SyncConfigRepository {
 
     final token = await _sensitiveStorage.read(_jwtTokenPreferenceKey) ?? '';
     final retrySeconds =
-        int.tryParse(values[syncQueueRetrySecondsKey]?.value ?? '10') ?? 10;
+        int.tryParse(values[syncQueueRetrySecondsKey]?.value ?? '3') ?? 3;
     final pollingSeconds =
-        int.tryParse(values[syncRealtimePollingSecondsKey]?.value ?? '5') ?? 5;
+        int.tryParse(values[syncRealtimePollingSecondsKey]?.value ?? '2') ?? 2;
 
     return SyncSettings(
       baseUrl: baseUrl,
       jwtToken: token,
-      queueRetryInterval: Duration(seconds: retrySeconds.clamp(3, 300)),
-      realtimePollingInterval: Duration(seconds: pollingSeconds.clamp(3, 300)),
+      queueRetryInterval: Duration(seconds: retrySeconds.clamp(1, 300)),
+      realtimePollingInterval: Duration(seconds: pollingSeconds.clamp(1, 300)),
       conflictStrategy: SyncConflictStrategy.fromStorage(
         values[syncConflictStrategyKey]?.value,
       ),
@@ -108,14 +108,14 @@ class SyncConfigRepository {
   Future<void> saveQueueRetryInterval(Duration interval) {
     return _settingsRepository.upsert(
       syncQueueRetrySecondsKey,
-      interval.inSeconds.clamp(3, 300).toString(),
+      interval.inSeconds.clamp(1, 300).toString(),
     );
   }
 
   Future<void> saveRealtimePollingInterval(Duration interval) {
     return _settingsRepository.upsert(
       syncRealtimePollingSecondsKey,
-      interval.inSeconds.clamp(3, 300).toString(),
+      interval.inSeconds.clamp(1, 300).toString(),
     );
   }
 

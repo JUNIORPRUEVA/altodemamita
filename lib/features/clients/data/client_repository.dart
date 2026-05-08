@@ -165,6 +165,16 @@ class ClientRepository implements SyncRepository {
         syncStatus: SyncStatus.pending,
       );
 
+      final duplicateId = await _findActiveClientIdByDocumentId(
+        normalizedClient.documentId,
+        excludeId: normalizedClient.id,
+      );
+      if (duplicateId != null) {
+        throw StateError(
+          'Ya existe un cliente activo con esta cédula. Verifica los datos antes de continuar.',
+        );
+      }
+
       if (normalizedClient.id == null) {
         final insertedId = await db.insert(
           DatabaseSchema.clientsTable,
@@ -252,9 +262,14 @@ class ClientRepository implements SyncRepository {
         deletedAt: now,
         syncStatus: SyncStatus.pending,
       );
+      final deletedDocument = _deletedDocumentPlaceholder(
+        existing.documentId,
+        id,
+      );
       await db.update(
         DatabaseSchema.clientsTable,
         deletedClient.toMap()
+          ..['cedula'] = deletedDocument
           ..['sync_status'] = DatabaseSchema.syncStatusPendingDelete
           ..['last_modified_local'] = now.toIso8601String()
           ..remove('id'),
@@ -541,6 +556,52 @@ class ClientRepository implements SyncRepository {
     }
     final trimmed = value.trim();
     return trimmed.isEmpty ? null : trimmed;
+  }
+
+  Future<int?> _findActiveClientIdByDocumentId(
+    String documentId, {
+    int? excludeId,
+  }) async {
+    final normalized = documentId.trim();
+    if (normalized.isEmpty) {
+      return null;
+    }
+
+    final db = await _appDatabase.database;
+    final where = StringBuffer('deleted_at IS NULL AND TRIM(cedula) = ?');
+    final whereArgs = <Object>[normalized];
+    if (excludeId != null) {
+      where.write(' AND id <> ?');
+      whereArgs.add(excludeId);
+    }
+
+    final rows = await db.query(
+      DatabaseSchema.clientsTable,
+      columns: ['id'],
+      where: where.toString(),
+      whereArgs: whereArgs,
+      limit: 1,
+    );
+    if (rows.isEmpty) {
+      return null;
+    }
+
+    final id = rows.first['id'];
+    if (id is int) {
+      return id;
+    }
+    if (id is num) {
+      return id.toInt();
+    }
+    return int.tryParse(id?.toString() ?? '');
+  }
+
+  String _deletedDocumentPlaceholder(String documentId, int id) {
+    final normalized = documentId.trim();
+    if (normalized.startsWith('__DELETED__')) {
+      return normalized;
+    }
+    return '__DELETED__$id';
   }
 
   Future<List<Client>> _fetchAllFromBackend({String query = ''}) async {

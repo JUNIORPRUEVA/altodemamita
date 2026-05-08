@@ -40,12 +40,13 @@ class FriendlyErrorMessages {
 
     if (error is DeviceWriteBlockedException) {
       return FriendlyErrorMessage(
-        title: 'Esta PC no puede escribir',
-        message: 'Esta PC no tiene permiso de escritura.',
+        title: 'PC no autorizada para cambios',
+        message:
+            'Esta PC no está autorizada para realizar cambios. Actívala desde Configuración.',
         details: error.message,
         suggestions: const [
-          'Verifique si esta PC figura como principal.',
-          'Si eres administrador, actualiza o reclama esta PC.',
+          'Abre Configuración y valida el estado de autorización de este equipo.',
+          'Si eres administrador, activa esta PC desde el panel web.',
         ],
       );
     }
@@ -79,14 +80,14 @@ class FriendlyErrorMessages {
 
     if (_looksLikeServerIssue(raw)) {
       return const FriendlyErrorMessage(
-        title: 'Conexion al servidor no disponible',
+        title: 'No pudimos conectar con el servidor',
         message:
-            'No pudimos conectar con el servidor. La app seguira usando los datos locales.',
+            'No pudimos conectar con el servidor. Revisa tu internet e intenta nuevamente.',
         details:
-            'Este problema suele ser temporal y no impide continuar en modo local.',
+            'Puedes seguir trabajando localmente; la app intentará sincronizar nuevamente.',
         suggestions: [
-          'Reintenta en unos minutos.',
-          'Continua en modo local mientras se restablece la conexion.',
+          'Verifica tu conexión a internet.',
+          'Intenta nuevamente en unos segundos.',
         ],
       );
     }
@@ -159,7 +160,7 @@ class FriendlyErrorMessages {
 
     return const FriendlyErrorMessage(
       title: 'No pudimos completar esta accion',
-      message: 'Parece que hubo un problema temporal.',
+      message: 'No pudimos completar la acción. Intenta nuevamente o contacta al administrador.',
       details:
           'La app sigue funcionando. Puedes intentarlo otra vez.',
       suggestions: [
@@ -219,13 +220,13 @@ class FriendlyErrorMessages {
 
     if (error is DeviceWriteBlockedException) {
       return FriendlyErrorMessage(
-        title: 'Esta PC no puede escribir',
+        title: 'PC no autorizada para cambios',
         message:
-            'La accion "$action" no se ejecuto porque esta PC no tiene permiso de escritura.',
+            'Esta PC no está autorizada para realizar cambios. Actívala desde Configuración.',
         details: error.message,
         suggestions: const [
-          'Puede seguir consultando informacion y listados.',
-          'Si eres administrador, actualiza o reclama esta PC.',
+          'Puedes seguir consultando información y reportes.',
+          'Si eres administrador, activa esta PC desde el panel web.',
         ],
       );
     }

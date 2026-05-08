@@ -88,7 +88,7 @@ export class SellersService {
   }
 
   async remove(id: string) {
-    await this.findOne(id);
+    const seller = await this.findOne(id);
 
     const activeSaleCount = await this.prisma.sale.count({
       where: {
@@ -109,6 +109,7 @@ export class SellersService {
     const result = await this.prisma.seller.update({
       where: { id },
       data: {
+        documentId: this.deletedDocumentPlaceholder(seller.documentId, id),
         deletedAt: new Date(),
         syncStatus: SyncStatus.pending,
       },
@@ -141,12 +142,26 @@ export class SellersService {
     const existing = await this.prisma.seller.findFirst({
       where: {
         deletedAt: null,
-        documentId: normalizedDocumentId,
+        documentId: { equals: normalizedDocumentId, mode: 'insensitive' },
         id: excludeId ? { not: excludeId } : undefined,
       },
+      select: { id: true },
     });
     if (existing) {
-      throw new BadRequestException('Ya existe un vendedor con esa cédula.');
+      throw new BadRequestException(
+        'Ya existe un vendedor activo con esta cédula. Verifica los datos antes de continuar.',
+      );
     }
+  }
+
+  private deletedDocumentPlaceholder(documentId: string | null, id: string): string | null {
+    const normalized = documentId?.trim();
+    if (!normalized) {
+      return null;
+    }
+    if (normalized.startsWith('__DELETED__')) {
+      return normalized;
+    }
+    return `__DELETED__${id}`;
   }
 }
