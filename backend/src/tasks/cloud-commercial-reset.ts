@@ -112,6 +112,14 @@ function parseMode(argv: string[]): Mode {
   throw new Error('Debes indicar --mode=dry-run o --mode=execute');
 }
 
+function readBooleanEnv(name: string, defaultValue = false): boolean {
+  const raw = process.env[name]?.trim().toLowerCase();
+  if (!raw) {
+    return defaultValue;
+  }
+  return raw === '1' || raw === 'true' || raw === 'yes';
+}
+
 function sanitizeFileStamp(value: string): string {
   return value.replace(/[:.]/g, '-');
 }
@@ -257,6 +265,7 @@ function writeJsonReport(reportDir: string, mode: Mode, report: ResetReport): st
 async function main(): Promise<void> {
   const mode = parseMode(process.argv.slice(2));
   const databaseUrl = process.env.DATABASE_URL?.trim() ?? '';
+  const skipPgDump = readBooleanEnv('SKIP_PG_DUMP', false);
   if (databaseUrl.length === 0) {
     throw new Error('DATABASE_URL es obligatorio.');
   }
@@ -314,17 +323,27 @@ async function main(): Promise<void> {
     ensureDirectory(backupDir);
     const backupStamp = sanitizeFileStamp(nowIso());
     const backupPath = path.join(backupDir, `cloud-commercial-reset-backup-${backupStamp}.sql`);
+    let backupStats: fs.Stats | undefined;
 
-    console.log('Generando backup SQL completo con pg_dump...');
-    await runPgDump(backupPath, databaseUrl);
+    if (skipPgDump) {
+      const warning =
+          'ATENCION: Ejecutando limpieza SIN backup automatico pg_dump. Asegurate de haber realizado backup manual.';
+      console.warn('==========================================================================');
+      console.warn(warning);
+      console.warn('==========================================================================');
+      report.notes.push(warning);
+    } else {
+      console.log('Generando backup SQL completo con pg_dump...');
+      await runPgDump(backupPath, databaseUrl);
 
-    if (!fs.existsSync(backupPath)) {
-      throw new Error(`Backup no encontrado en ${backupPath}`);
-    }
+      if (!fs.existsSync(backupPath)) {
+        throw new Error(`Backup no encontrado en ${backupPath}`);
+      }
 
-    const backupStats = fs.statSync(backupPath);
-    if (backupStats.size <= 0) {
-      throw new Error(`Backup vacio en ${backupPath}`);
+      backupStats = fs.statSync(backupPath);
+      if (backupStats.size <= 0) {
+        throw new Error(`Backup vacio en ${backupPath}`);
+      }
     }
 
     await deleteCommercialTables(prisma, orderedTables);
@@ -341,17 +360,23 @@ async function main(): Promise<void> {
     report.executed = true;
     report.afterCounts = afterCounts;
     report.deletedRowsByTable = deletedRowsByTable;
-    report.backup = {
-      path: backupPath,
-      sizeBytes: backupStats.size,
-      createdAt: nowIso(),
-    };
+    if (backupStats) {
+      report.backup = {
+        path: backupPath,
+        sizeBytes: backupStats.size,
+        createdAt: nowIso(),
+      };
+    }
 
     const reportPath = writeJsonReport(reportsDir, mode, report);
 
     console.log('EXECUTE completado con exito.');
     console.log(`Base objetivo: ${summary.host}/${summary.database}`);
-    console.log(`Backup SQL: ${backupPath}`);
+    if (backupStats) {
+      console.log(`Backup SQL: ${backupPath}`);
+    } else {
+      console.log('Backup SQL automatico: OMITIDO por SKIP_PG_DUMP=true (se requiere backup manual previo).');
+    }
     console.log(`Tablas limpiadas (orden): ${orderedTables.join(' -> ') || '(ninguna)'}`);
     console.log(`Reporte JSON: ${reportPath}`);
     console.log('Restauracion de backup (si se requiere):');
