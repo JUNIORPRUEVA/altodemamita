@@ -454,31 +454,41 @@ class CloudAuditTool {
   private async detectOrphanedRecords(): Promise<OrphanedRecords> {
     console.log('   🔍 Detectando registros huérfanos...');
 
+    const countFromRaw = async (sql: string): Promise<number> => {
+      const rows = await this.prisma.$queryRawUnsafe<Array<{ count: bigint | number }>>(sql);
+      const value = rows[0]?.count ?? 0;
+      return Number(value);
+    };
+
     return {
-      paymentsWithoutSale: await this.prisma.payment.count({
-        where: {
-          sale: { is: null },
-          deletedAt: null,
-        },
-      }),
-      installmentsWithoutSale: await this.prisma.installment.count({
-        where: {
-          sale: { is: null },
-          deletedAt: null,
-        },
-      }),
-      salesWithoutClient: await this.prisma.sale.count({
-        where: {
-          client: { is: null },
-          deletedAt: null,
-        },
-      }),
-      salesWithoutProduct: await this.prisma.sale.count({
-        where: {
-          product: { is: null },
-          deletedAt: null,
-        },
-      }),
+      paymentsWithoutSale: await countFromRaw(`
+        SELECT COUNT(*)::bigint AS count
+        FROM payments p
+        LEFT JOIN sales s ON s.id = p.sale_id
+        WHERE p.deleted_at IS NULL
+          AND (s.id IS NULL OR s.deleted_at IS NOT NULL)
+      `),
+      installmentsWithoutSale: await countFromRaw(`
+        SELECT COUNT(*)::bigint AS count
+        FROM installments i
+        LEFT JOIN sales s ON s.id = i.sale_id
+        WHERE i.deleted_at IS NULL
+          AND (s.id IS NULL OR s.deleted_at IS NOT NULL)
+      `),
+      salesWithoutClient: await countFromRaw(`
+        SELECT COUNT(*)::bigint AS count
+        FROM sales s
+        LEFT JOIN clients c ON c.id = s.client_id
+        WHERE s.deleted_at IS NULL
+          AND (c.id IS NULL OR c.deleted_at IS NOT NULL)
+      `),
+      salesWithoutProduct: await countFromRaw(`
+        SELECT COUNT(*)::bigint AS count
+        FROM sales s
+        LEFT JOIN products p ON p.id = s.product_id
+        WHERE s.deleted_at IS NULL
+          AND (p.id IS NULL OR p.deleted_at IS NOT NULL)
+      `),
     };
   }
 
