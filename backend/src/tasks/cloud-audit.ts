@@ -57,6 +57,14 @@ interface TableCounts {
   installmentsDeleted: number;
 }
 
+type CountTableKey =
+  | 'clients'
+  | 'sellers'
+  | 'products'
+  | 'sales'
+  | 'payments'
+  | 'installments';
+
 interface ComparisonResult {
   tables: {
     [table: string]: TableComparison;
@@ -449,25 +457,25 @@ class CloudAuditTool {
     return {
       paymentsWithoutSale: await this.prisma.payment.count({
         where: {
-          sale: null,
+          sale: { is: null },
           deletedAt: null,
         },
       }),
       installmentsWithoutSale: await this.prisma.installment.count({
         where: {
-          sale: null,
+          sale: { is: null },
           deletedAt: null,
         },
       }),
       salesWithoutClient: await this.prisma.sale.count({
         where: {
-          client: null,
+          client: { is: null },
           deletedAt: null,
         },
       }),
       salesWithoutProduct: await this.prisma.sale.count({
         where: {
-          product: null,
+          product: { is: null },
           deletedAt: null,
         },
       }),
@@ -756,13 +764,22 @@ class CloudAuditTool {
     console.log('─'.repeat(60));
 
     const tables = [
-      { name: 'Clientes', key: 'clients' },
-      { name: 'Vendedores', key: 'sellers' },
-      { name: 'Solares/Productos', key: 'products' },
-      { name: 'Ventas', key: 'sales' },
-      { name: 'Cuotas/Installments', key: 'installments' },
-      { name: 'Pagos', key: 'payments' },
+      { name: 'Clientes', key: 'clients' as CountTableKey },
+      { name: 'Vendedores', key: 'sellers' as CountTableKey },
+      { name: 'Solares/Productos', key: 'products' as CountTableKey },
+      { name: 'Ventas', key: 'sales' as CountTableKey },
+      { name: 'Cuotas/Installments', key: 'installments' as CountTableKey },
+      { name: 'Pagos', key: 'payments' as CountTableKey },
     ];
+
+    const deletedKeyByTable: Record<CountTableKey, keyof TableCounts> = {
+      clients: 'clientsDeleted',
+      sellers: 'sellersDeleted',
+      products: 'productsDeleted',
+      sales: 'salesDeleted',
+      payments: 'paymentsDeleted',
+      installments: 'installmentsDeleted',
+    };
 
     for (const table of tables) {
       const comparison = report.comparison.tables[table.key];
@@ -773,10 +790,10 @@ class CloudAuditTool {
 
       console.log(`\n  ${table.name}`);
       console.log(
-        `    NUBE:  ${String(cloud).padEnd(6)} registros activos | ${report.cloudCounts[`${table.key}Deleted` as any] || 0} eliminados`
+        `    NUBE:  ${String(cloud).padEnd(6)} registros activos | ${report.cloudCounts[deletedKeyByTable[table.key]] || 0} eliminados`
       );
       console.log(
-        `    LOCAL: ${String(local).padEnd(6)} registros activos | ${report.localCounts[`${table.key}Deleted` as any] || 0} eliminados`
+        `    LOCAL: ${String(local).padEnd(6)} registros activos | ${report.localCounts[deletedKeyByTable[table.key]] || 0} eliminados`
       );
 
       if (diff > 0) {
