@@ -734,7 +734,7 @@ class SyncQueueService {
             );
 
             final returnedRecords = response.recordsForScope(scope);
-            if (returnedRecords.isNotEmpty) {
+            if (allowCloudPull && returnedRecords.isNotEmpty) {
               await repository.mergeRemoteRecords(returnedRecords);
             }
 
@@ -817,7 +817,7 @@ class SyncQueueService {
               error: error.message,
               extra: {'type': 'conflict'},
             );
-            if (error.returnedRecords.isNotEmpty) {
+            if (allowCloudPull && error.returnedRecords.isNotEmpty) {
               await repository.mergeRemoteRecords(error.returnedRecords);
             }
             // Keep download cursors untouched on upload-conflict responses.
@@ -837,7 +837,7 @@ class SyncQueueService {
                 .map(_readReturnedRecordSyncId)
                 .whereType<String>()
                 .toSet();
-            final autoResolvedIds = affectedIds
+            final backendAcknowledgedIds = affectedIds
                 .where((id) => returnedSyncIds.contains(id))
                 .toList(growable: false);
             final stillConflictedIds = affectedIds
@@ -854,9 +854,10 @@ class SyncQueueService {
               exception: error,
             );
 
-            // If the backend didn't include authoritative records in the 409 payload,
-            // try recovering by downloading the server state once for this scope.
-            if (stillConflictedIds.isNotEmpty &&
+            // FASE 0 containment: never auto-download cloud state during
+            // conflict handling while cloud pull is blocked.
+            if (allowCloudPull &&
+                stillConflictedIds.isNotEmpty &&
                 error.returnedRecords.isEmpty) {
               await _attemptConflictRecoveryDownload(
                 scope: scope,
@@ -866,14 +867,13 @@ class SyncQueueService {
               );
             }
 
-            if (autoResolvedIds.isNotEmpty) {
-              await repository.markAsSynced(autoResolvedIds);
+            if (backendAcknowledgedIds.isNotEmpty &&
+                error.strategy != SyncConflictStrategy.manual) {
+              await repository.markAsSynced(backendAcknowledgedIds);
               await _conflictService.resolveConflicts(
                 scope: scope,
-                recordSyncIds: autoResolvedIds,
-                resolution: error.strategy == SyncConflictStrategy.manual
-                    ? 'server_won'
-                    : error.strategy.storageValue,
+                recordSyncIds: backendAcknowledgedIds,
+                resolution: error.strategy.storageValue,
               );
             }
 
@@ -2094,6 +2094,12 @@ class SyncQueueService {
     required SyncRepository repository,
     required List<String> conflictedIds,
   }) async {
+    if (!allowCloudPull) {
+      _log(
+        'CONFLICT RECOVERY SKIPPED -> scope=$scope motivo=ALLOW_CLOUD_PULL=false',
+      );
+      return;
+    }
     if (_conflictRecoveryDownloadedScopes.contains(scope)) {
       return;
     }

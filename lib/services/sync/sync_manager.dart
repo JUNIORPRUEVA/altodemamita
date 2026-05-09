@@ -113,7 +113,7 @@ class SyncManager extends ChangeNotifier {
       ),
     );
 
-    if (runInitialSync && !manualCloudSyncOnly) {
+    if (runInitialSync && !manualCloudSyncOnly && allowCloudPull) {
       unawaited(syncNow(showAsBusy: false));
     }
   }

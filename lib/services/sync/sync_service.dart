@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import '../../core/config/app_flags.dart';
 import '../../core/config/backend_config.dart';
 import '../../core/database/app_database.dart';
 import '../../core/database/database_schema.dart';
@@ -20,7 +21,7 @@ import 'sync_logger.dart';
 import 'sync_queue_service.dart';
 
 class SyncService {
-  static const bool _downloadFromCloudEnabled = true;
+  static const bool _downloadFromCloudEnabled = allowCloudPull;
   static const Set<String> _tombstoneRepairScopes = {
     'products',
     'sales',
@@ -29,7 +30,7 @@ class SyncService {
   };
   static const String cloudLoginRequiredMessage =
       'Debe iniciar sesión en la nube para sincronizar.';
-    static const String deviceAuthorizationRequiredMessage =
+  static const String deviceAuthorizationRequiredMessage =
       'Esta PC no está autorizada para sincronizar. Actívela desde Configuración.';
 
   SyncService({
@@ -478,6 +479,11 @@ class SyncService {
   }
 
   Future<int> forceFullDownloadFromCloud() async {
+    if (!_downloadFromCloudEnabled) {
+      throw StateError(
+        'Descarga desde la nube deshabilitada (ALLOW_CLOUD_PULL=false).',
+      );
+    }
     _didExecuteCloudDownloadRequest = false;
     final downloaded = await downloadUpdates(forceFullDownload: true);
     if (!_didExecuteCloudDownloadRequest) {

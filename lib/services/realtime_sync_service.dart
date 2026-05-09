@@ -40,7 +40,7 @@ class RealtimeSyncService {
   RealtimeSyncState get state => _state;
 
   Future<void> start() async {
-    if (manualCloudSyncOnly) {
+    if (manualCloudSyncOnly || !allowCloudPull) {
       await stop();
       return;
     }
@@ -265,6 +265,9 @@ class RealtimeSyncService {
   }
 
   Future<int> _syncFromServer() async {
+    if (!allowCloudPull) {
+      return 0;
+    }
     if (_isApplyingRealtimeEvent) {
       return 0;
     }
@@ -328,6 +331,9 @@ class RealtimeSyncService {
   }
 
   Future<void> _handleEvent(String eventName, dynamic payload) async {
+    if (!allowCloudPull) {
+      return;
+    }
     try {
       final deduplicationContext = _buildDeduplicationContext(
         eventName,

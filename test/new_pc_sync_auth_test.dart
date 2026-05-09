@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sistema_solares/core/config/app_flags.dart';
 import 'package:sistema_solares/core/database/app_database.dart';
 import 'package:sistema_solares/repositories/sync_repository.dart';
 import 'package:sistema_solares/services/sync/sync_api_client.dart';
@@ -108,12 +109,19 @@ void main() {
       final firstReport = await syncService.syncNow(forceFullDownload: true);
       final secondReport = await syncService.syncNow(forceFullDownload: true);
 
-      expect(firstReport.wasSkipped, isTrue);
-      expect(firstReport.errorMessage, contains('Inicia sesion en linea'));
-      expect(secondReport.wasSkipped, isTrue);
-      expect(secondReport.errorMessage, SyncService.cloudLoginRequiredMessage);
-      expect(expiredNotifications, 1);
-      expect((await configRepository.loadSettings()).jwtToken, isEmpty);
+      if (!allowCloudPull) {
+        expect(firstReport.wasSkipped, isFalse);
+        expect(secondReport.wasSkipped, isFalse);
+        expect(expiredNotifications, 0);
+        expect((await configRepository.loadSettings()).jwtToken, isNotEmpty);
+      } else {
+        expect(firstReport.wasSkipped, isTrue);
+        expect(firstReport.errorMessage, contains('Inicia sesion en linea'));
+        expect(secondReport.wasSkipped, isTrue);
+        expect(secondReport.errorMessage, SyncService.cloudLoginRequiredMessage);
+        expect(expiredNotifications, 1);
+        expect((await configRepository.loadSettings()).jwtToken, isEmpty);
+      }
     },
   );
 
@@ -124,11 +132,16 @@ void main() {
 
     final report = await syncService.syncNow(forceFullDownload: true);
 
-    expect(report.wasSkipped, isTrue);
-    expect(
-      report.errorMessage,
-      SyncService.deviceAuthorizationRequiredMessage,
-    );
+    if (!allowCloudPull) {
+      expect(report.wasSkipped, isFalse);
+      expect(report.errorMessage, isNull);
+    } else {
+      expect(report.wasSkipped, isTrue);
+      expect(
+        report.errorMessage,
+        SyncService.deviceAuthorizationRequiredMessage,
+      );
+    }
   });
 }
 

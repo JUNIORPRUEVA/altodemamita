@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import '../../../core/config/app_flags.dart';
 import '../../../core/config/backend_config.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_schema.dart';
@@ -17,25 +18,19 @@ import '../../../core/security/password_hasher.dart';
 import '../../../core/security/sensitive_storage.dart';
 import '../../../core/system/system_config_service.dart';
 import '../../../core/utils/sync_id_generator.dart';
-import '../../../features/clients/data/client_repository.dart';
 import '../../../features/settings/data/company_repository.dart';
 import '../../../features/settings/data/settings_repository.dart';
 import '../../../features/settings/domain/company_info.dart';
-import '../../../features/sales/data/seller_repository.dart';
 import '../../../repositories/company_profiles_sync_repository.dart';
-import '../../../repositories/installments_sync_repository.dart';
-import '../../../repositories/payments_sync_repository.dart';
 import '../../../repositories/permissions_sync_repository.dart';
-import '../../../repositories/products_sync_repository.dart';
 import '../../../repositories/role_permissions_sync_repository.dart';
 import '../../../repositories/roles_sync_repository.dart';
-import '../../../repositories/sales_sync_repository.dart';
 import '../../../repositories/users_sync_repository.dart';
 import '../../../repositories/user_roles_sync_repository.dart';
 import '../../../services/sync/sync_config_repository.dart';
 import '../../../services/sync/sync_queue_service.dart';
 import '../../../services/sync/sync_api_client.dart';
-import '../../../services/sync/sync_service.dart';
+import '../../../repositories/sync_repository.dart';
 import '../domain/permission_model.dart';
 import '../domain/user_model.dart';
 
@@ -148,18 +143,32 @@ class AuthService {
       'admin_recovery_code_generated_at';
   static const String _adminRecoverySnapshotKey =
       'admin_recovery_credentials_snapshot';
+    static const String authLastCloudValidationAtKey =
+      'auth.last_cloud_validation_at';
+    static const String authLastCloudValidationStatusKey =
+      'auth.last_cloud_validation_status';
+    static const String noPermissionMessage =
+      'No tienes permiso para acceder a esta sección.';
   static const String adminRecoverySnapshotUnavailableMessage =
       'Los datos visibles del administrador aun no estan disponibles en esta instalacion.';
   static const String firstConnectionRequiredMessage =
-      'Para iniciar por primera vez se requiere conexion a internet.';
+      'Esta PC todavía no ha sido activada. Conéctala a internet e inicia sesión una vez para habilitar el acceso offline.';
   static const String localCredentialsMissingMessage =
       'Este usuario no tiene credenciales locales guardadas. Inicie sesion con internet una vez.';
   static const String localUserInactiveMessage =
       'Tu cuenta esta inactiva. Contacta al administrador.';
   static const String invalidLocalCredentialsMessage =
-      'Correo, usuario o contrasena incorrectos.';
+      'Usuario o contraseña incorrectos.';
   static const String localDatabaseErrorMessage =
       'Ocurrio un error al validar el usuario local. Intenta de nuevo.';
+    static const List<String> _authBootstrapScopes = [
+    'users',
+    'roles',
+    'permissions',
+    'user_roles',
+    'role_permissions',
+    'company_profiles',
+    ];
 
   final AppDatabase _appDatabase;
   final SyncConfigRepository _syncConfigRepository;
@@ -274,9 +283,12 @@ class AuthService {
       try {
         final user = await loginOnline(email: email, password: password);
         debugPrint('[SignIn] login online success para ${user.email}.');
-        final syncTriggered = await _runFullSyncIfPossible();
+        final syncTriggered = await _runAuthOnlySyncIfPossible();
+        final refreshedUser = user.id == null
+            ? user
+            : (await getUserById(user.id!)) ?? user;
         return AuthSignInResult(
-          user: user,
+          user: refreshedUser,
           mode: AuthSignInMode.online,
           syncTriggered: syncTriggered,
         );
@@ -438,6 +450,7 @@ class AuthService {
       '[LoginOnline] jwt saved. Usuario: ${user.email}, '
       'rol: ${user.role.storageValue}',
     );
+    await _recordAuthCloudValidation(status: 'online_login_ok');
     await SystemConfigService.instance.refresh();
     return user;
   }
@@ -1481,15 +1494,18 @@ class AuthService {
         headers: {'Authorization': 'Bearer $jwt'},
       );
       debugPrint('[JWT] /auth/me exitoso para ${payload["email"]}.');
+      await _recordAuthCloudValidation(status: 'jwt_validation_ok');
       return await _refreshLocalUserFromJwtPayload(payload);
     } on AuthException catch (e) {
       debugPrint(
         '[JWT] Token invalido (${e.message}). Eliminando JWT guardado.',
       );
+      await _recordAuthCloudValidation(status: 'jwt_validation_failed');
       await _syncConfigRepository.clearJwtToken();
       return null;
     } catch (e) {
       debugPrint('[JWT] Error al validar token: $e');
+      await _recordAuthCloudValidation(status: 'jwt_validation_error');
       return null;
     }
   }
@@ -1611,10 +1627,9 @@ class AuthService {
         final status = await _probeRemoteSystemStatus(candidate);
         if (status.isReachable) {
           if (candidate != primaryBaseUrl) {
-            await _syncConfigRepository.saveBaseUrl(candidate);
             debugPrint(
               '[Bootstrap] Backend alcanzado via fallback. '
-              'URL local corregida de $primaryBaseUrl a $candidate.',
+              'Se mantiene baseUrl local actual ($primaryBaseUrl) y no se persiste fallback automatico ($candidate).',
             );
           }
           return status;
@@ -2448,10 +2463,15 @@ class AuthService {
       );
 
       if (foundUser == null) {
+        final hasAnyLocalUser = await _hasAnyLocalLoginCapableUser(db);
         _debugAuth(
           '[SignInLocal] usuario_activo=false password_hash_empty=true password_valid=false motivo=falta_usuario_local',
         );
-        throw const AuthException(firstConnectionRequiredMessage);
+        throw AuthException(
+          hasAnyLocalUser
+              ? invalidLocalCredentialsMessage
+              : firstConnectionRequiredMessage,
+        );
       }
 
       if (!foundUser.activo) {
@@ -2570,39 +2590,101 @@ class AuthService {
         normalized.contains('temporariamente no disponible');
   }
 
-  Future<bool> _runFullSyncIfPossible() async {
+  Future<bool> _runAuthOnlySyncIfPossible() async {
+    if (!allowAuthBootstrap) {
+      return false;
+    }
+
     final settings = await _syncConfigRepository.loadSettings();
     if (!settings.isConfigured) {
       return false;
     }
 
-    final syncService = SyncService(
-      repositories: [
-        UsersSyncRepository(appDatabase: _appDatabase),
-        RolesSyncRepository(appDatabase: _appDatabase),
-        UserRolesSyncRepository(appDatabase: _appDatabase),
-        RolePermissionsSyncRepository(appDatabase: _appDatabase),
-        PermissionsSyncRepository(appDatabase: _appDatabase),
-        CompanyProfilesSyncRepository(appDatabase: _appDatabase),
-        ClientRepository(
-          appDatabase: _appDatabase,
-          syncQueueService: _syncQueueService,
-        ),
-        ProductsSyncRepository(appDatabase: _appDatabase),
-        SellerRepository(
-          database: _appDatabase,
-          syncQueueService: _syncQueueService,
-        ),
-        SalesSyncRepository(appDatabase: _appDatabase),
-        InstallmentsSyncRepository(appDatabase: _appDatabase),
-        PaymentsSyncRepository(appDatabase: _appDatabase),
-      ],
-      configRepository: _syncConfigRepository,
-      apiClient: SyncApiClient(httpClient: _httpClient),
-      syncQueueService: _syncQueueService,
+    final repositoriesByScope = <String, SyncRepository>{
+      'users': UsersSyncRepository(appDatabase: _appDatabase),
+      'roles': RolesSyncRepository(appDatabase: _appDatabase),
+      'permissions': PermissionsSyncRepository(appDatabase: _appDatabase),
+      'user_roles': UserRolesSyncRepository(appDatabase: _appDatabase),
+      'role_permissions': RolePermissionsSyncRepository(
+        appDatabase: _appDatabase,
+      ),
+      'company_profiles': CompanyProfilesSyncRepository(
+        appDatabase: _appDatabase,
+      ),
+    };
+    final cursors = <String, DateTime?>{};
+    for (final scope in _authBootstrapScopes) {
+      cursors[scope] = await _syncConfigRepository.loadCursor(scope);
+    }
+
+    final response = await SyncApiClient(
+      httpClient: _httpClient,
+    ).downloadChanges(settings: settings, updatedSinceByScope: cursors);
+
+    var appliedRecords = 0;
+    for (final scope in _authBootstrapScopes) {
+      final repository = repositoriesByScope[scope];
+      if (repository == null || !response.supportsScope(scope)) {
+        continue;
+      }
+
+      final records = response.recordsForScope(scope);
+      if (records.isNotEmpty) {
+        await repository.mergeRemoteRecords(records);
+        appliedRecords += records.length;
+      }
+
+      final nextCursor =
+          response.cursorForScope(scope) ??
+          _findLatestTimestamp(records) ??
+          response.serverTime;
+      if (nextCursor != null) {
+        await _syncConfigRepository.saveCursor(scope, nextCursor);
+      }
+    }
+
+    await _recordAuthCloudValidation(
+      status: appliedRecords > 0 ? 'auth_sync_ok' : 'auth_sync_idle',
     );
-    final report = await syncService.syncNow(forceFullDownload: true);
-    return !report.wasSkipped;
+    return true;
+  }
+
+  Future<void> _recordAuthCloudValidation({required String status}) async {
+    final db = await _appDatabase.database;
+    final now = DateTime.now().toIso8601String();
+    await db.transaction((txn) async {
+      await _upsertSetting(txn, authLastCloudValidationAtKey, now, now);
+      await _upsertSetting(txn, authLastCloudValidationStatusKey, status, now);
+    });
+  }
+
+  DateTime? _findLatestTimestamp(List<Map<String, dynamic>> records) {
+    DateTime? latest;
+    for (final record in records) {
+      final rawValue = record['updated_at'];
+      final parsed = rawValue == null
+          ? null
+          : DateTime.tryParse(rawValue.toString());
+      if (parsed == null) {
+        continue;
+      }
+      if (latest == null || parsed.isAfter(latest)) {
+        latest = parsed;
+      }
+    }
+    return latest;
+  }
+
+  Future<bool> _hasAnyLocalLoginCapableUser(Database db) async {
+    final rows = await db.query(
+      DatabaseSchema.usersTable,
+      columns: ['id'],
+      where:
+          'deleted_at IS NULL AND activo = 1 AND password_reset_required = 0 '
+          "AND TRIM(COALESCE(password_hash, '')) != ''",
+      limit: 1,
+    );
+    return rows.isNotEmpty;
   }
 
   String _normalizeRecoveryCode(String value) {

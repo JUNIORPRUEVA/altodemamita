@@ -1,18 +1,24 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import '../../../core/config/app_flags.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/system/system_config_service.dart';
 import '../../../features/auth/domain/admin_override_scope.dart';
 import '../../../features/auth/domain/permission_model.dart';
 import '../../../features/auth/presentation/admin_override_prompt.dart';
 import '../../../features/auth/presentation/auth_provider.dart';
+import '../../../models/sync/sync_runtime_state.dart';
 import '../../../shared/widgets/base_layout.dart';
 import '../../../shared/widgets/dangerous_action_confirm_dialog.dart';
 import '../../../shared/widgets/device_status_panel.dart';
+import '../../../services/sync/sync_conflict_service.dart';
+import '../../../services/sync/sync_config_repository.dart';
 import '../../backup/data/backup_config_repository.dart';
 import '../../backup/presentation/backup_controller.dart';
 import '../../backup/presentation/backup_page.dart' as backup_feature;
@@ -150,6 +156,11 @@ class _SettingsPageState extends State<SettingsPage> {
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 16),
               child: _SyncStatusBanner(),
+            ),
+            const SizedBox(height: 6),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: _SyncTechnicalDiagnosticsPanel(),
             ),
             const SizedBox(height: 8),
             LayoutBuilder(
@@ -848,6 +859,334 @@ class _BackupSettingCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _SyncTechnicalDiagnosticsPanel extends StatelessWidget {
+  const _SyncTechnicalDiagnosticsPanel();
+
+  Future<_SyncDiagnosticsSnapshot> _loadSnapshot({
+    required SyncQueueState queueState,
+  }) async {
+    final configRepository = SyncConfigRepository();
+    final conflictService = SyncConflictService();
+    final settings = await configRepository.loadSettings();
+    final db = await AppDatabase.instance.database;
+
+    final runtimeState = await configRepository.loadRuntimeState(
+      isSyncing: queueState.isProcessing,
+      pendingCount: queueState.pendingCount,
+    );
+    final unresolvedConflicts = await conflictService.unresolvedConflictCount();
+
+    final usersCount = Sqflite.firstIntValue(
+          await db.rawQuery(
+            'SELECT COUNT(*) AS total FROM usuarios WHERE deleted_at IS NULL',
+          ),
+        ) ??
+        0;
+    final rolesCount = Sqflite.firstIntValue(
+          await db.rawQuery(
+            'SELECT COUNT(*) AS total FROM roles WHERE deleted_at IS NULL',
+          ),
+        ) ??
+        0;
+    final permissionsCount = Sqflite.firstIntValue(
+          await db.rawQuery(
+            'SELECT COUNT(*) AS total FROM permisos WHERE deleted_at IS NULL',
+          ),
+        ) ??
+        0;
+
+    final validationRows = await db.rawQuery(
+      'SELECT valor FROM configuracion WHERE clave = ? LIMIT 1',
+      ['auth.last_cloud_validation_at'],
+    );
+    final validationStatusRows = await db.rawQuery(
+      'SELECT valor FROM configuracion WHERE clave = ? LIMIT 1',
+      ['auth.last_cloud_validation_status'],
+    );
+    final installationRows = await db.rawQuery(
+      'SELECT valor FROM configuracion WHERE clave = ? LIMIT 1',
+      ['sync.device_id_fallback'],
+    );
+
+    final lastAuthValidationAt = validationRows.isEmpty
+        ? null
+        : validationRows.first['valor']?.toString().trim();
+    final lastAuthValidationStatus = validationStatusRows.isEmpty
+        ? null
+        : validationStatusRows.first['valor']?.toString().trim();
+    final installationId = installationRows.isEmpty
+        ? settings.deviceId
+        : (installationRows.first['valor']?.toString().trim().isNotEmpty ??
+              false)
+        ? installationRows.first['valor']!.toString().trim()
+        : settings.deviceId;
+
+    return _SyncDiagnosticsSnapshot(
+      authBootstrapAllowed: allowAuthBootstrap,
+      cloudPullAllowed: allowCloudPull,
+      apiBaseUrl: settings.normalizedBaseUrl,
+      runtimeState: runtimeState,
+      usersLocalCount: usersCount,
+      rolesLocalCount: rolesCount,
+      permissionsLocalCount: permissionsCount,
+      lastAuthCloudValidationAt: lastAuthValidationAt,
+      lastAuthCloudValidationStatus: lastAuthValidationStatus,
+      jwtStatus: _resolveJwtStatus(settings.jwtToken),
+      deviceId: settings.deviceId,
+      installationId: installationId,
+      unresolvedConflictCount: unresolvedConflicts,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: StreamBuilder<SyncQueueState>(
+          stream: SyncQueueService.instance.stateStream,
+          initialData: SyncQueueService.instance.state,
+          builder: (context, queueSnapshot) {
+            final queueState = queueSnapshot.data ?? SyncQueueService.instance.state;
+            return FutureBuilder<_SyncDiagnosticsSnapshot>(
+              future: _loadSnapshot(queueState: queueState),
+              builder: (context, diagSnapshot) {
+                if (!diagSnapshot.hasData) {
+                  return const SizedBox(
+                    width: double.infinity,
+                    child: LinearProgressIndicator(minHeight: 2.5),
+                  );
+                }
+
+                final data = diagSnapshot.data!;
+                final runtime = data.runtimeState;
+                final cloudPullBlocked = !allowCloudPull;
+                final syncMode = manualCloudSyncOnly
+                    ? 'MANUAL_CLOUD_SYNC_ONLY'
+                    : cloudPullBlocked
+                    ? 'LOCAL_TO_CLOUD_ONLY'
+                    : 'BIDIRECTIONAL';
+                final lastUploadText = _formatDateTime(runtime.lastSyncAt);
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Diagnostico tecnico de sincronizacion',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    _SyncDiagLine(
+                      label: 'Auth bootstrap permitido',
+                      value: data.authBootstrapAllowed ? 'Si' : 'No',
+                    ),
+                    _SyncDiagLine(
+                      label: 'Cloud pull permitido',
+                      value: data.cloudPullAllowed ? 'Si' : 'No',
+                    ),
+                    _SyncDiagLine(
+                      label: 'API actual',
+                      value: data.apiBaseUrl,
+                    ),
+                    _SyncDiagLine(label: 'Modo sync', value: syncMode),
+                    _SyncDiagLine(
+                      label: 'Cloud pull bloqueado',
+                      value: cloudPullBlocked ? 'Si' : 'No',
+                    ),
+                    _SyncDiagLine(
+                      label: 'Usuarios locales',
+                      value: data.usersLocalCount.toString(),
+                    ),
+                    _SyncDiagLine(
+                      label: 'Roles locales',
+                      value: data.rolesLocalCount.toString(),
+                    ),
+                    _SyncDiagLine(
+                      label: 'Permisos locales',
+                      value: data.permissionsLocalCount.toString(),
+                    ),
+                    _SyncDiagLine(
+                      label: 'Ultima validacion cloud auth',
+                      value: _resolveAuthValidationLabel(
+                        data.lastAuthCloudValidationAt,
+                        data.lastAuthCloudValidationStatus,
+                      ),
+                    ),
+                    _SyncDiagLine(
+                      label: 'Estado JWT/token',
+                      value: data.jwtStatus,
+                    ),
+                    _SyncDiagLine(label: 'DeviceId', value: data.deviceId),
+                    _SyncDiagLine(
+                      label: 'InstallationId',
+                      value: data.installationId,
+                    ),
+                    _SyncDiagLine(
+                      label: 'Pendientes en cola',
+                      value: queueState.pendingCount.toString(),
+                    ),
+                    _SyncDiagLine(
+                      label: 'Ultimo error',
+                      value:
+                          (queueState.lastError?.trim().isNotEmpty ?? false)
+                          ? queueState.lastError!.trim()
+                          : (runtime.lastError?.trim().isNotEmpty ?? false)
+                          ? runtime.lastError!.trim()
+                          : 'Sin errores',
+                    ),
+                    _SyncDiagLine(
+                      label: 'Ultimo upload/sync registrado',
+                      value: lastUploadText,
+                    ),
+                    _SyncDiagLine(
+                      label: 'Estado runtime',
+                      value: runtime.status.name,
+                    ),
+                    _SyncDiagLine(
+                      label: 'Conflictos pendientes',
+                      value: data.unresolvedConflictCount.toString(),
+                    ),
+                  ],
+                );
+              },
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  String _formatDateTime(DateTime? value) {
+    if (value == null) {
+      return 'Sin registro';
+    }
+
+    final local = value.toLocal();
+    String two(int number) => number.toString().padLeft(2, '0');
+    return '${local.year}-${two(local.month)}-${two(local.day)} '
+        '${two(local.hour)}:${two(local.minute)}:${two(local.second)}';
+  }
+
+  String _resolveAuthValidationLabel(String? at, String? status) {
+    final normalizedAt = at?.trim() ?? '';
+    final normalizedStatus = status?.trim() ?? '';
+    if (normalizedAt.isEmpty && normalizedStatus.isEmpty) {
+      return 'Sin validaciones';
+    }
+    if (normalizedAt.isEmpty) {
+      return normalizedStatus;
+    }
+    if (normalizedStatus.isEmpty) {
+      return normalizedAt;
+    }
+    return '$normalizedStatus ($normalizedAt)';
+  }
+
+  String _resolveJwtStatus(String jwtToken) {
+    final normalized = jwtToken.trim();
+    if (normalized.isEmpty) {
+      return 'Sin token';
+    }
+
+    final parts = normalized.split('.');
+    if (parts.length != 3) {
+      return 'Presente (formato no JWT)';
+    }
+
+    try {
+      final payloadRaw = utf8.decode(base64Url.decode(base64Url.normalize(parts[1])));
+      final payload = jsonDecode(payloadRaw);
+      if (payload is! Map) {
+        return 'Presente';
+      }
+      final expValue = payload['exp'];
+      final expSeconds = expValue is num
+          ? expValue.toInt()
+          : int.tryParse(expValue?.toString() ?? '');
+      if (expSeconds == null) {
+        return 'Presente';
+      }
+
+      final expiresAt = DateTime.fromMillisecondsSinceEpoch(
+        expSeconds * 1000,
+        isUtc: true,
+      ).toLocal();
+      final now = DateTime.now();
+      if (expiresAt.isBefore(now)) {
+        return 'Expirado (${_formatDateTime(expiresAt)})';
+      }
+      return 'Vigente (${_formatDateTime(expiresAt)})';
+    } catch (_) {
+      return 'Presente';
+    }
+  }
+}
+
+class _SyncDiagLine extends StatelessWidget {
+  const _SyncDiagLine({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: RichText(
+        text: TextSpan(
+          style: theme.textTheme.bodySmall,
+          children: [
+            TextSpan(
+              text: '$label: ',
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            TextSpan(text: value),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SyncDiagnosticsSnapshot {
+  const _SyncDiagnosticsSnapshot({
+    required this.authBootstrapAllowed,
+    required this.cloudPullAllowed,
+    required this.apiBaseUrl,
+    required this.runtimeState,
+    required this.usersLocalCount,
+    required this.rolesLocalCount,
+    required this.permissionsLocalCount,
+    required this.lastAuthCloudValidationAt,
+    required this.lastAuthCloudValidationStatus,
+    required this.jwtStatus,
+    required this.deviceId,
+    required this.installationId,
+    required this.unresolvedConflictCount,
+  });
+
+  final bool authBootstrapAllowed;
+  final bool cloudPullAllowed;
+  final String apiBaseUrl;
+  final SyncRuntimeState runtimeState;
+  final int usersLocalCount;
+  final int rolesLocalCount;
+  final int permissionsLocalCount;
+  final String? lastAuthCloudValidationAt;
+  final String? lastAuthCloudValidationStatus;
+  final String jwtStatus;
+  final String deviceId;
+  final String installationId;
+  final int unresolvedConflictCount;
 }
 
 class _BackupInfoPill extends StatelessWidget {

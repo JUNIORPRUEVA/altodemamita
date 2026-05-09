@@ -47,7 +47,9 @@ void main() {
         isA<AuthException>().having(
           (error) => error.message,
           'message',
-          contains('Para iniciar por primera vez se requiere conexion a internet'),
+          contains(
+            'Esta PC todavía no ha sido activada. Conéctala a internet e inicia sesión una vez para habilitar el acceso offline.',
+          ),
         ),
       ),
     );

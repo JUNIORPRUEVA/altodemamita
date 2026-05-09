@@ -23,3 +23,23 @@ const bool manualCloudSyncOnly = bool.fromEnvironment(
   'MANUAL_CLOUD_SYNC_ONLY',
   defaultValue: false,
 );
+
+/// Master switch for cloud -> local downloads.
+///
+/// Default is `false` for safe containment mode (FASE 0): local -> cloud
+/// uploads stay active while any cloud pull is blocked.
+/// Use: `--dart-define=ALLOW_CLOUD_PULL=true`
+const bool allowCloudPull = bool.fromEnvironment(
+  'ALLOW_CLOUD_PULL',
+  defaultValue: false,
+);
+
+/// Allows controlled cloud bootstrap for authentication data only
+/// (users/roles/permissions and related auth scopes).
+///
+/// This is intentionally independent from [allowCloudPull].
+/// Use: `--dart-define=ALLOW_AUTH_BOOTSTRAP=true`
+const bool allowAuthBootstrap = bool.fromEnvironment(
+  'ALLOW_AUTH_BOOTSTRAP',
+  defaultValue: true,
+);
