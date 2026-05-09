@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/database/app_database.dart';
+import '../../core/config/app_flags.dart';
 import '../../core/system/system_config_service.dart';
 import '../../features/auth/domain/user_model.dart';
 import '../../features/auth/presentation/auth_provider.dart';
@@ -646,6 +647,13 @@ class _AppShellState extends State<AppShell> {
   }
 
   Future<String> _runSyncRecoveryFromSettings() async {
+    if (!allowManualCloudRestore) {
+      return 'Operacion bloqueada: ALLOW_MANUAL_CLOUD_RESTORE=false.';
+    }
+    if (isProductionMode) {
+      return 'Operacion bloqueada: disponible solo en modo developer.';
+    }
+
     // Verificar si el JWT está configurado
     final settings = await SyncConfigRepository().loadSettings();
     if (!settings.isConfigured) {
@@ -681,6 +689,13 @@ class _AppShellState extends State<AppShell> {
   }
 
   Future<String> _runPostAuthorizationRecoveryFromSettings() async {
+    if (!allowManualCloudRestore) {
+      return 'Operacion bloqueada: ALLOW_MANUAL_CLOUD_RESTORE=false.';
+    }
+    if (isProductionMode) {
+      return 'Operacion bloqueada: disponible solo en modo developer.';
+    }
+
     final recoverySummary = await _syncService.recoverAfterDeviceAuthorization();
     final downloaded = await _syncService.forceFullDownloadFromCloud();
     return '$recoverySummary Descarga forzada desde la nube: $downloaded registros.';

@@ -247,13 +247,6 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
                     _SettingCard(
                       width: cardWidth,
-                      icon: Icons.sync_problem_rounded,
-                      title: 'Reparar sincronizacion',
-                      description: 'Forzar descarga completa de datos',
-                      onTap: _runSyncRecoveryFromSettings,
-                    ),
-                    _SettingCard(
-                      width: cardWidth,
                       icon: Icons.fingerprint_rounded,
                       title: 'Resetear identificacion de PC',
                       description: 'Generar nuevo ID local para esta PC',
@@ -301,19 +294,6 @@ class _SettingsPageState extends State<SettingsPage> {
       await SystemConfigService.instance.refresh(throwOnFailure: true);
       if (!mounted) return;
       final systemConfig = SystemConfigService.instance;
-      final canRecoverNow =
-          systemConfig.canWrite && systemConfig.isPrimaryDevice;
-      if (canRecoverNow) {
-        final recovery = widget.onRunPostAuthorizationRecovery;
-        if (recovery != null) {
-          final summary = await recovery();
-          if (!mounted) {
-            return;
-          }
-          messenger?.showSnackBar(SnackBar(content: Text(summary)));
-          return;
-        }
-      }
 
       final message = systemConfig.canWrite
           ? 'Estado actualizado. Esta PC esta autorizada para sincronizar.'
@@ -367,6 +347,28 @@ class _SettingsPageState extends State<SettingsPage> {
       return;
     }
 
+    if (!allowManualCloudRestore) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Restauracion manual cloud->local deshabilitada (ALLOW_MANUAL_CLOUD_RESTORE=false).',
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (isProductionMode) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Operacion disponible solo en modo developer.',
+          ),
+        ),
+      );
+      return;
+    }
+
     final callback = widget.onRunSyncRecovery;
     if (callback == null) {
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
@@ -397,6 +399,18 @@ class _SettingsPageState extends State<SettingsPage> {
       confirmLabel: 'Si, reparar sincronizacion',
     );
     if (!confirmed || !mounted) {
+      return;
+    }
+
+    final finalConfirmation = await DangerousActionConfirmDialog.show(
+      context,
+      title: 'Confirmacion final (modo emergencia)',
+      warning:
+          'Solo continuar si ya existe backup verificado y fue autorizado por soporte tecnico.\n\n'
+          'Esta accion puede reintroducir inconsistencias en el modelo LOCAL -> CLOUD.',
+      confirmLabel: 'Entiendo el riesgo y continuar',
+    );
+    if (!finalConfirmation || !mounted) {
       return;
     }
 
@@ -978,7 +992,7 @@ class _SyncTechnicalDiagnosticsPanel extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Diagnostico tecnico de sincronizacion',
+                      'Panel informativo de sincronizacion (LOCAL -> CLOUD)',
                       style: theme.textTheme.titleSmall?.copyWith(
                         fontWeight: FontWeight.w700,
                       ),
@@ -1032,6 +1046,14 @@ class _SyncTechnicalDiagnosticsPanel extends StatelessWidget {
                     _SyncDiagLine(
                       label: 'Pendientes en cola',
                       value: queueState.pendingCount.toString(),
+                    ),
+                    _SyncDiagLine(
+                      label: 'Estado sync_queue',
+                      value: queueState.isProcessing
+                          ? 'Procesando'
+                          : (queueState.pendingCount > 0
+                                ? 'Con pendientes'
+                                : 'Sin pendientes'),
                     ),
                     _SyncDiagLine(
                       label: 'Ultimo error',

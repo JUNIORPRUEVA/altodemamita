@@ -43,3 +43,12 @@ const bool allowAuthBootstrap = bool.fromEnvironment(
   'ALLOW_AUTH_BOOTSTRAP',
   defaultValue: true,
 );
+
+/// Enables manual emergency cloud -> local restore flows.
+///
+/// Defaults to `false` and should remain disabled for normal operation.
+/// Use: `--dart-define=ALLOW_MANUAL_CLOUD_RESTORE=true`
+const bool allowManualCloudRestore = bool.fromEnvironment(
+  'ALLOW_MANUAL_CLOUD_RESTORE',
+  defaultValue: false,
+);
