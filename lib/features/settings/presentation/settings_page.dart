@@ -4,7 +4,6 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../../../core/config/app_flags.dart';
 import '../../../core/database/app_database.dart';
@@ -340,115 +339,6 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
       ),
     );
-  }
-
-  Future<void> _runSyncRecoveryFromSettings() async {
-    if (_isRunningSyncRecovery) {
-      return;
-    }
-
-    if (!allowManualCloudRestore) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Restauracion manual cloud->local deshabilitada (ALLOW_MANUAL_CLOUD_RESTORE=false).',
-          ),
-        ),
-      );
-      return;
-    }
-
-    if (isProductionMode) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Operacion disponible solo en modo developer.',
-          ),
-        ),
-      );
-      return;
-    }
-
-    final callback = widget.onRunSyncRecovery;
-    if (callback == null) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        const SnackBar(
-          content: Text('No hay servicio de sincronizacion disponible.'),
-        ),
-      );
-      return;
-    }
-
-    final allowed = await _ensureSettingsAccess(
-      scope: AdminOverrideScope.settingsSync,
-      title: 'Autorizacion administrativa requerida',
-      message:
-          'Necesitas la clave de un administrador para ejecutar una reparacion completa de sincronizacion.',
-    );
-    if (!allowed || !mounted) {
-      return;
-    }
-
-    final confirmed = await DangerousActionConfirmDialog.show(
-      context,
-      title: 'Reparar sincronizacion de esta PC',
-      warning:
-          'Esta accion borrara los cursores locales de descarga y forzara una descarga completa desde la nube.\n\n'
-          'Usala solo para recuperar datos faltantes en esta PC.\n'
-          'No cierra sesion ni borra registros locales, pero puede tardar varios minutos.',
-      confirmLabel: 'Si, reparar sincronizacion',
-    );
-    if (!confirmed || !mounted) {
-      return;
-    }
-
-    final finalConfirmation = await DangerousActionConfirmDialog.show(
-      context,
-      title: 'Confirmacion final (modo emergencia)',
-      warning:
-          'Solo continuar si ya existe backup verificado y fue autorizado por soporte tecnico.\n\n'
-          'Esta accion puede reintroducir inconsistencias en el modelo LOCAL -> CLOUD.',
-      confirmLabel: 'Entiendo el riesgo y continuar',
-    );
-    if (!finalConfirmation || !mounted) {
-      return;
-    }
-
-    setState(() {
-      _isRunningSyncRecovery = true;
-    });
-
-    final messenger = ScaffoldMessenger.maybeOf(context);
-    messenger?.showSnackBar(
-      const SnackBar(
-        content: Text('Ejecutando reparacion de sincronizacion...'),
-      ),
-    );
-
-    try {
-      final summary = await callback();
-      if (!mounted) {
-        return;
-      }
-      messenger?.showSnackBar(SnackBar(content: Text(summary)));
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-      messenger?.showSnackBar(
-        const SnackBar(
-          content: Text(
-            'No se pudo completar la reparacion de sincronizacion.',
-          ),
-        ),
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isRunningSyncRecovery = false;
-        });
-      }
-    }
   }
 
   Future<void> _resetLocalDeviceIdentity() async {
@@ -878,6 +768,20 @@ class _BackupSettingCard extends StatelessWidget {
 class _SyncTechnicalDiagnosticsPanel extends StatelessWidget {
   const _SyncTechnicalDiagnosticsPanel();
 
+  int _extractCount(List<Map<String, Object?>> rows) {
+    if (rows.isEmpty) {
+      return 0;
+    }
+    final raw = rows.first['total'];
+    if (raw is int) {
+      return raw;
+    }
+    if (raw is num) {
+      return raw.toInt();
+    }
+    return int.tryParse(raw?.toString() ?? '') ?? 0;
+  }
+
   Future<_SyncDiagnosticsSnapshot> _loadSnapshot({
     required SyncQueueState queueState,
   }) async {
@@ -892,24 +796,21 @@ class _SyncTechnicalDiagnosticsPanel extends StatelessWidget {
     );
     final unresolvedConflicts = await conflictService.unresolvedConflictCount();
 
-    final usersCount = Sqflite.firstIntValue(
-          await db.rawQuery(
-            'SELECT COUNT(*) AS total FROM usuarios WHERE deleted_at IS NULL',
-          ),
-        ) ??
-        0;
-    final rolesCount = Sqflite.firstIntValue(
-          await db.rawQuery(
-            'SELECT COUNT(*) AS total FROM roles WHERE deleted_at IS NULL',
-          ),
-        ) ??
-        0;
-    final permissionsCount = Sqflite.firstIntValue(
-          await db.rawQuery(
-            'SELECT COUNT(*) AS total FROM permisos WHERE deleted_at IS NULL',
-          ),
-        ) ??
-        0;
+    final usersCount = _extractCount(
+      await db.rawQuery(
+        'SELECT COUNT(*) AS total FROM usuarios WHERE deleted_at IS NULL',
+      ),
+    );
+    final rolesCount = _extractCount(
+      await db.rawQuery(
+        'SELECT COUNT(*) AS total FROM roles WHERE deleted_at IS NULL',
+      ),
+    );
+    final permissionsCount = _extractCount(
+      await db.rawQuery(
+        'SELECT COUNT(*) AS total FROM permisos WHERE deleted_at IS NULL',
+      ),
+    );
 
     final validationRows = await db.rawQuery(
       'SELECT valor FROM configuracion WHERE clave = ? LIMIT 1',

@@ -17,7 +17,8 @@
     "prisma:studio": "prisma studio",
     "prisma:seed": "tsx prisma/seed.ts",
     "task:cloud-commercial-reset:dry-run": "tsx src/tasks/cloud-commercial-reset.ts --mode=dry-run",
-    "task:cloud-commercial-reset:execute": "tsx src/tasks/cloud-commercial-reset.ts --mode=execute"
+    "task:cloud-commercial-reset:execute": "tsx src/tasks/cloud-commercial-reset.ts --mode=execute",
+    "task:cloud-commercial-reset:controlled": "tsx src/tasks/cloud-commercial-reset-controlled.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.6",
