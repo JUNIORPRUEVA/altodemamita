@@ -159,6 +159,50 @@ class DatabaseSchema {
     await seedDefaults(db);
   }
 
+  static Future<void> ensureConflictLogsSchema(DatabaseExecutor db) async {
+    await _ensureConflictLogsTable(db);
+    final now = DateTime.now().toIso8601String();
+
+    const requiredColumns = <String, String>{
+      'local_version': 'INTEGER',
+      'server_version': 'INTEGER',
+      'strategy': "TEXT NOT NULL DEFAULT 'manual'",
+      'local_payload_json': 'TEXT',
+      'server_payload_json': 'TEXT',
+      'message': 'TEXT',
+      'conflict_reason': 'TEXT',
+      'server_time': 'TEXT',
+      'resolution': 'TEXT',
+      'detected_at': 'TEXT',
+      'resolved_at': 'TEXT',
+    };
+
+    for (final entry in requiredColumns.entries) {
+      if (!await _columnExists(db, conflictLogsTable, entry.key)) {
+        await db.execute(
+          'ALTER TABLE $conflictLogsTable ADD COLUMN ${entry.key} ${entry.value}',
+        );
+      }
+    }
+
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_conflict_logs_scope_record ON $conflictLogsTable(scope, record_sync_id)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_conflict_logs_resolved_at ON $conflictLogsTable(resolved_at)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_conflict_logs_detected_at ON $conflictLogsTable(detected_at)',
+    );
+
+    await db.execute(
+      "UPDATE $conflictLogsTable SET strategy = 'manual' WHERE strategy IS NULL OR TRIM(strategy) = ''",
+    );
+    await db.execute(
+      "UPDATE $conflictLogsTable SET detected_at = '$now' WHERE detected_at IS NULL OR TRIM(detected_at) = ''",
+    );
+  }
+
   static Future<List<String>> missingCriticalTables(DatabaseExecutor db) async {
     final rows = await db.rawQuery(
       "SELECT name FROM sqlite_master WHERE type = 'table'",
@@ -756,19 +800,7 @@ class DatabaseSchema {
 
   /// Agrega metadatos explícitos para conflictos de sincronización manual.
   static Future<void> _migrateToVersion25(DatabaseExecutor db) async {
-    if (!await _tableExists(db, conflictLogsTable)) {
-      await _migrateToVersion18(db);
-    }
-    if (!await _columnExists(db, conflictLogsTable, 'conflict_reason')) {
-      await db.execute(
-        'ALTER TABLE $conflictLogsTable ADD COLUMN conflict_reason TEXT',
-      );
-    }
-    if (!await _columnExists(db, conflictLogsTable, 'server_time')) {
-      await db.execute(
-        'ALTER TABLE $conflictLogsTable ADD COLUMN server_time TEXT',
-      );
-    }
+    await ensureConflictLogsSchema(db);
   }
 
   /// Agrega `monto_apartado_pagado` a la tabla de ventas. Para datos legados
@@ -1270,6 +1302,11 @@ class DatabaseSchema {
       ''');
     }
 
+    await _ensureConflictLogsTable(db);
+    await ensureConflictLogsSchema(db);
+  }
+
+  static Future<void> _ensureConflictLogsTable(DatabaseExecutor db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS $conflictLogsTable (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1288,15 +1325,6 @@ class DatabaseSchema {
         resolved_at TEXT
       )
     ''');
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_conflict_logs_scope_record ON $conflictLogsTable(scope, record_sync_id)',
-    );
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_conflict_logs_resolved_at ON $conflictLogsTable(resolved_at)',
-    );
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_conflict_logs_detected_at ON $conflictLogsTable(detected_at)',
-    );
   }
 
   static Future<void> _migrateToVersion15(DatabaseExecutor db) async {

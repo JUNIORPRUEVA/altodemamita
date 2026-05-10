@@ -580,12 +580,52 @@ export class SyncService {
         const payload = product as Record<string, unknown>;
         const recordSyncId = this.readRecordSyncId(payload);
         const deletedAt = this.readDate(payload, ['deletedAt', 'deleted_at']);
+        const syncStatus = this.readString(payload, ['sync_status'])?.toLowerCase();
+        const explicitOperation = this.readString(payload, ['operation'])?.toLowerCase();
+        const isDeleteMutation =
+          deletedAt != null ||
+          explicitOperation === 'delete' ||
+          syncStatus === 'pending_delete';
         const incomingUpdatedAt =
           this.readDate(payload, ['updatedAt', 'updated_at']) ?? deletedAt;
         const existing = await tx.product.findUnique({
           where: { syncId: recordSyncId },
           select: { id: true, syncId: true, updatedAt: true },
         });
+
+        if (isDeleteMutation && existing && isLocalMaster) {
+          const effectiveDeletedAt = deletedAt ?? incomingUpdatedAt ?? new Date();
+          const persisted = await tx.product.update({
+            where: { id: existing.id },
+            data: {
+              isActive: false,
+              stock: 0,
+              deletedAt: effectiveDeletedAt,
+              updatedAt: incomingUpdatedAt ?? effectiveDeletedAt,
+              syncStatus: SyncStatus.synced,
+            },
+            select: { id: true, syncId: true, updatedAt: true },
+          });
+          this.logger.warn(
+            `[sync-upload][products] local_master_delete_wins syncId=${recordSyncId} deletedAt=${effectiveDeletedAt.toISOString()} localMaster=${isLocalMaster ? 'yes' : 'no'}`,
+          );
+          domainEvents.push({
+            channel: 'entity.updated',
+            id: persisted.id,
+            recordSyncId: persisted.syncId,
+            updatedAt: persisted.updatedAt.toISOString(),
+            payload: {
+              entity: 'product',
+              action: 'deleted',
+              id: persisted.id,
+              record_sync_id: persisted.syncId,
+              sync_id: persisted.syncId,
+              source: 'sync',
+            },
+          });
+          continue;
+        }
+
         if (existing?.updatedAt) {
           if (!incomingUpdatedAt) {
             const server = await tx.product.findUnique({
@@ -647,11 +687,11 @@ export class SyncService {
             });
           }
 
-          if (deletedAt == null && existingMs === incomingMs) {
+          if (!isDeleteMutation && deletedAt == null && existingMs === incomingMs) {
             continue;
           }
         }
-        if (deletedAt != null) {
+        if (isDeleteMutation && deletedAt != null) {
           if (!existing) {
             continue;
           }

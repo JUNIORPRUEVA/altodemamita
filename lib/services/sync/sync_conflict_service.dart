@@ -103,6 +103,7 @@ class SyncConflictService {
   Future<int> unresolvedConflictCount() async {
     try {
       final db = await _appDatabase.database;
+      await DatabaseSchema.ensureConflictLogsSchema(db);
       final rows = await db.rawQuery(
         'SELECT COUNT(*) AS total FROM ${DatabaseSchema.conflictLogsTable} WHERE resolved_at IS NULL',
       );
@@ -129,6 +130,7 @@ class SyncConflictService {
 
   Future<List<SyncConflictRecord>> listOpenConflicts({String? scope}) async {
     final db = await _appDatabase.database;
+    await DatabaseSchema.ensureConflictLogsSchema(db);
     final normalizedScope = scope?.trim();
     final rows = await db.query(
       DatabaseSchema.conflictLogsTable,
@@ -153,6 +155,7 @@ class SyncConflictService {
   }) async {
     try {
       final db = await _appDatabase.database;
+      await DatabaseSchema.ensureConflictLogsSchema(db);
       final detectedAt = DateTime.now().toIso8601String();
       final serverTimeIso = (serverTime ?? exception.serverTime)
           ?.toIso8601String();
@@ -352,6 +355,7 @@ class SyncConflictService {
       }
 
       final db = await _appDatabase.database;
+      await DatabaseSchema.ensureConflictLogsSchema(db);
       final placeholders = List.filled(ids.length, '?').join(', ');
       await db.rawUpdate(
         'UPDATE ${DatabaseSchema.conflictLogsTable} '
