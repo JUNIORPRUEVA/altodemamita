@@ -161,6 +161,8 @@ class AuthService {
       'Usuario o contraseña incorrectos.';
   static const String localDatabaseErrorMessage =
       'Ocurrio un error al validar el usuario local. Intenta de nuevo.';
+    static const String backendAuthRouteUnavailableMessage =
+      'No se pudo iniciar sesion en linea porque el backend no tiene habilitado el endpoint de autenticacion. Verifica despliegue y URL del servidor.';
     static const List<String> _authBootstrapScopes = [
     'users',
     'roles',
@@ -1760,7 +1762,7 @@ class AuthService {
                   decoded.map((key, value) => MapEntry(key.toString(), value)),
                 )
               : const <String, dynamic>{});
-    final backendMessage = responsePayload['message']?.toString() ?? '';
+    final backendMessage = _extractBackendErrorMessage(responsePayload, body);
     if ((response.statusCode == HttpStatus.unauthorized ||
             response.statusCode == HttpStatus.forbidden) &&
         _looksLikeInactiveFailure(backendMessage)) {
@@ -1775,16 +1777,44 @@ class AuthService {
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw AuthException(
-        responsePayload['message']?.toString() ??
-            (body.trim().isEmpty
-                ? 'El backend respondio con ${response.statusCode}.'
-                : body),
+        backendMessage.isNotEmpty
+            ? backendMessage
+            : (body.trim().isEmpty
+                  ? 'El backend respondio con ${response.statusCode}.'
+                  : body),
       );
     }
     if (decoded is! Map && decoded is! Map<String, dynamic>) {
       throw const AuthException('La respuesta del backend no es valida.');
     }
     return responsePayload;
+  }
+
+  String _extractBackendErrorMessage(
+    Map<String, dynamic> responsePayload,
+    String rawBody,
+  ) {
+    String? message = responsePayload['message']?.toString();
+    if ((message == null || message.trim().isEmpty) &&
+        responsePayload['error'] is Map) {
+      final nested = (responsePayload['error'] as Map)
+          .map((key, value) => MapEntry(key.toString(), value));
+      message = nested['message']?.toString();
+    }
+    message = (message ?? '').trim();
+    final normalized = message.toLowerCase();
+
+    // Some legacy backend builds expose a synthetic not-found reporter route.
+    // Do not show that internal path to end users.
+    if (normalized.contains('/api/errors/not-found') ||
+        normalized.contains('route post:/api/errors/not-found')) {
+      return backendAuthRouteUnavailableMessage;
+    }
+
+    if (message.isNotEmpty) {
+      return message;
+    }
+    return rawBody.trim();
   }
 
   Future<void> _bootstrapRemoteSystemIfNeeded({
@@ -2586,6 +2616,8 @@ class AuthService {
         normalized.contains('conexión') ||
         normalized.contains('offline') ||
         normalized.contains('unreachable') ||
+      normalized.contains('/api/errors/not-found') ||
+      normalized.contains('route post:/api/errors/not-found') ||
         normalized.contains('temporarily unavailable') ||
         normalized.contains('temporariamente no disponible');
   }
