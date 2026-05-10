@@ -1,8 +1,8 @@
 const String BASE_URL =
-    'https://altodemanita-altodemamita-backend.onqyr1.easypanel.host/';
+  'https://altodemanita-altodemamita-backent.onqyr1.easypanel.host/';
 
 const String LEGACY_BASE_URL =
-    'https://altodemanita-altodemamita-backent.onqyr1.easypanel.host/';
+  'https://altodemanita-altodemamita-backend.onqyr1.easypanel.host/';
 
 const String serverConnectionErrorMessage = 'Error de conexion con el servidor';
 
