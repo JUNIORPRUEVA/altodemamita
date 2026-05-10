@@ -7,6 +7,7 @@ import '../../core/network/backend_http_client.dart';
 import '../../core/system/system_config_service.dart';
 import '../../models/sync/sync_conflict_strategy.dart';
 import '../../models/sync/sync_settings.dart';
+import 'sync_config_repository.dart';
 
 class SyncConflictItem {
   const SyncConflictItem({
