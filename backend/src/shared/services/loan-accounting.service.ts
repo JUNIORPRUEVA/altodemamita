@@ -55,61 +55,38 @@ export class LoanAccountingService {
       installmentCount: input.termMonths,
     });
     const rateDecimal = this.normalizeRate(input.interestRate);
-    const paymentCents = this.toCents(paymentAmount);
-    let balanceCents = this.toCents(financedAmount);
+    let balance = financedAmount;
 
     for (let index = 1; index <= input.termMonths; index += 1) {
-      const openingBalanceCents = balanceCents;
-      if (openingBalanceCents <= 0) {
+      const openingBalance = balance;
+      if (openingBalance <= 0) {
         break;
       }
 
-      const isLastInstallment = index === input.termMonths;
-      const openingBalance = this.fromCents(openingBalanceCents);
-      let interestCents = this.toCents(openingBalance * rateDecimal);
-      let totalAmountCents = paymentCents;
-      let principalCents = totalAmountCents - interestCents;
-
-      if (principalCents < 0) {
-        principalCents = 0;
-        interestCents = totalAmountCents;
-      }
-
-      if (principalCents >= openingBalanceCents || isLastInstallment) {
-        principalCents = openingBalanceCents;
-        interestCents = totalAmountCents - principalCents;
-        if (interestCents < 0) {
-          interestCents = this.toCents(openingBalance * rateDecimal);
-          totalAmountCents = principalCents + interestCents;
-        }
-      } else {
-        totalAmountCents = principalCents + interestCents;
-      }
-
-      const endingBalanceCents =
-        principalCents >= openingBalanceCents || isLastInstallment
-          ? 0
-          : openingBalanceCents - principalCents;
+      const interestAmount = this.roundCurrency(openingBalance * rateDecimal);
+      const principalAmount = paymentAmount - interestAmount;
+      const rawEndingBalance = openingBalance - principalAmount;
+      const endingBalance = rawEndingBalance < 0.01 ? 0 : rawEndingBalance;
 
       const dueDate = this.addMonths(input.saleDate, index);
 
       installments.push({
         installmentNumber: index,
         dueDate,
-        amount: this.fromCents(totalAmountCents),
-        openingBalance: this.fromCents(openingBalanceCents),
-        endingBalance: this.fromCents(endingBalanceCents),
-        principalAmount: this.fromCents(principalCents),
-        interestAmount: this.fromCents(interestCents),
+        amount: paymentAmount,
+        openingBalance,
+        endingBalance,
+        principalAmount,
+        interestAmount,
         status: this.resolveInstallmentStatus({
           dueDate,
           paidAmount: 0,
-          amount: this.fromCents(totalAmountCents),
+          amount: paymentAmount,
           asOf: new Date(),
         }),
       });
 
-      balanceCents = endingBalanceCents;
+      balance = endingBalance;
     }
 
     const totalInstallments = this.roundCurrency(
@@ -259,17 +236,6 @@ export class LoanAccountingService {
     return (input.financedAmount * rateDecimal) / denominator;
   }
 
-  private calculateFixedMonthlyInterest(input: {
-    financedAmount: number;
-    interestRate: number;
-  }): number {
-    if (input.financedAmount <= 0 || input.interestRate <= 0) {
-      return 0;
-    }
-
-    return this.roundCurrency(input.financedAmount * this.normalizeRate(input.interestRate));
-  }
-
   private calculateTotalFinancingAmount(input: {
     financedAmount: number;
     interestRate: number;
@@ -340,11 +306,4 @@ export class LoanAccountingService {
     return dueDay < today;
   }
 
-  private toCents(value: number): number {
-    return Math.round(value * 100);
-  }
-
-  private fromCents(value: number): number {
-    return value / 100;
-  }
 }

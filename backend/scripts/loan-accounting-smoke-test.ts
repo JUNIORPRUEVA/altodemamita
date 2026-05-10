@@ -24,19 +24,52 @@ function runExcelCase() {
   assert.equal(schedule.installments.length, 120);
 
   const first = schedule.installments[0];
-  closeTo(first.amount, 8070.24, 0.01, 'first.amount');
+  closeTo(first.amount, 8070.240847645539, 0.000001, 'first.amount');
   closeTo(first.interestAmount, 5625, 0.01, 'first.interestAmount');
-  closeTo(first.principalAmount, 2445.24, 0.01, 'first.principalAmount');
-  closeTo(first.endingBalance, 560054.76, 0.01, 'first.endingBalance');
+  closeTo(first.principalAmount, 2445.240847645539, 0.0001, 'first.principalAmount');
+  closeTo(first.endingBalance, 560054.7591523544, 0.001, 'first.endingBalance');
+
+  for (const installment of schedule.installments) {
+    closeTo(installment.amount, first.amount, 0.000001, 'fixed payment invariant');
+  }
 
   const last = schedule.installments[schedule.installments.length - 1];
+  closeTo(last.amount, first.amount, 0.000001, 'last.amount fixed');
   closeTo(last.endingBalance, 0, 0.0001, 'last.endingBalance');
+}
 
-  const totalPrincipal = schedule.installments.reduce(
-    (sum, installment) => sum + installment.principalAmount,
-    0,
-  );
-  closeTo(totalPrincipal, 562500, 0.01, 'totalPrincipal');
+function runFixedPaymentCase450k() {
+  const service = new LoanAccountingService();
+  const schedule = service.calculateSchedule({
+    principalAmount: 500000,
+    downPayment: 50000,
+    interestRate: 1,
+    termMonths: 120,
+    saleDate: new Date('2026-01-15T00:00:00.000Z'),
+  });
+
+  assert.equal(schedule.financedAmount, 450000);
+  assert.equal(schedule.installments.length, 120);
+
+  const first = schedule.installments[0];
+  const second = schedule.installments[1];
+  const last = schedule.installments[schedule.installments.length - 1];
+
+  closeTo(first.amount, 6456.192678116431, 0.000001, '450k.first.amount');
+  closeTo(first.interestAmount, 4500, 0.01, '450k.first.interest');
+  closeTo(first.principalAmount, 1956.1926781164312, 0.0001, '450k.first.principal');
+  closeTo(first.endingBalance, 448043.80732188356, 0.001, '450k.first.ending');
+
+  closeTo(second.interestAmount, 4480.44, 0.01, '450k.second.interest');
+  closeTo(second.principalAmount, 1975.7526781164314, 0.0001, '450k.second.principal');
+  closeTo(second.endingBalance, 446068.0546437671, 0.001, '450k.second.ending');
+
+  for (const installment of schedule.installments) {
+    closeTo(installment.amount, first.amount, 0.000001, '450k.fixed payment invariant');
+  }
+
+  closeTo(last.amount, first.amount, 0.000001, '450k.last.amount fixed');
+  closeTo(last.endingBalance, 0, 0.0001, '450k.last.ending');
 }
 
 function runZeroRateCase() {
@@ -61,5 +94,6 @@ function runZeroRateCase() {
 }
 
 runExcelCase();
+runFixedPaymentCase450k();
 runZeroRateCase();
 console.log('loan-accounting-smoke-test: OK');

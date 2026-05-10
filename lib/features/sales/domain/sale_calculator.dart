@@ -183,55 +183,26 @@ class SaleCalculator {
     }
 
     final rateDecimal = _normalizeRate(monthlyInterest);
-    final fixedPaymentCents = _toCents(
-      calculateEstimatedInstallmentAmount(
-        financedBalance: financedBalance,
-        monthlyInterest: monthlyInterest,
-        installmentCount: dueDates.length,
-      ),
+    final fixedPayment = calculateEstimatedInstallmentAmount(
+      financedBalance: financedBalance,
+      monthlyInterest: monthlyInterest,
+      installmentCount: dueDates.length,
     );
-    var remainingPrincipalCents = _toCents(financedBalance);
+    var remainingPrincipal = financedBalance;
     final installments = <Installment>[];
     final resolvedUpdatedAt = updatedAt ?? createdAt;
     final resolvedStatusAsOf = statusAsOf ?? DateTime.now();
 
     for (var index = 0; index < dueDates.length; index++) {
-      final openingBalanceCents = remainingPrincipalCents;
-      if (openingBalanceCents <= 0) {
+      final openingBalance = remainingPrincipal;
+      if (openingBalance <= 0) {
         break;
       }
 
-      final isLastInstallment = index == dueDates.length - 1;
-      final openingBalance = _fromCents(openingBalanceCents);
-      var interestCents = _toCents(openingBalance * rateDecimal);
-      var totalAmountCents = fixedPaymentCents;
-      var principalCentsForInstallment = totalAmountCents - interestCents;
-
-      if (principalCentsForInstallment < 0) {
-        principalCentsForInstallment = 0;
-        interestCents = totalAmountCents;
-      }
-
-      if (principalCentsForInstallment >= openingBalanceCents || isLastInstallment) {
-        principalCentsForInstallment = openingBalanceCents;
-        interestCents = totalAmountCents - principalCentsForInstallment;
-        if (interestCents < 0) {
-          interestCents = _toCents(openingBalance * rateDecimal);
-          totalAmountCents = principalCentsForInstallment + interestCents;
-        }
-      } else {
-        totalAmountCents = principalCentsForInstallment + interestCents;
-      }
-
-      var endingBalanceCents = (openingBalanceCents - principalCentsForInstallment)
-          .clamp(0, openingBalanceCents);
-
-      if (endingBalanceCents < 1 || isLastInstallment) {
-        principalCentsForInstallment = openingBalanceCents;
-        interestCents = _toCents(openingBalance * rateDecimal);
-        totalAmountCents = principalCentsForInstallment + interestCents;
-        endingBalanceCents = 0;
-      }
+      final interestAmount = _roundCurrency(openingBalance * rateDecimal);
+      final principalAmount = fixedPayment - interestAmount;
+      final rawEndingBalance = openingBalance - principalAmount;
+      final endingBalance = rawEndingBalance < 0.01 ? 0.0 : rawEndingBalance;
 
       installments.add(
         Installment(
@@ -241,18 +212,18 @@ class SaleCalculator {
           saleId: saleId,
           installmentNumber: startingInstallmentNumber + index,
           dueDate: dueDates[index],
-          openingBalance: _fromCents(openingBalanceCents),
-          principalAmount: _fromCents(principalCentsForInstallment),
-          interestAmount: _fromCents(interestCents),
-          totalAmount: _fromCents(totalAmountCents),
+          openingBalance: openingBalance,
+          principalAmount: principalAmount,
+          interestAmount: interestAmount,
+          totalAmount: fixedPayment,
           paidAmount: 0,
           paidPrincipalAmount: 0,
           paidInterestAmount: 0,
-          endingBalance: _fromCents(endingBalanceCents),
+          endingBalance: endingBalance,
           status: resolveInstallmentStatus(
             dueDate: dueDates[index],
             paidAmount: 0,
-            totalAmount: _fromCents(totalAmountCents),
+            totalAmount: fixedPayment,
             asOf: resolvedStatusAsOf,
           ),
           createdAt: createdAt,
@@ -260,7 +231,7 @@ class SaleCalculator {
         ),
       );
 
-      remainingPrincipalCents = endingBalanceCents;
+      remainingPrincipal = endingBalance;
     }
 
     return installments;
@@ -283,44 +254,22 @@ class SaleCalculator {
     }
 
     final rateDecimal = _normalizeRate(monthlyInterest);
-    final fixedPaymentCents = _toCents(fixedPaymentAmount);
-    var balanceCents = _toCents(financedBalance);
+    final fixedPayment = fixedPaymentAmount;
+    var balance = financedBalance;
     final installments = <Installment>[];
     final resolvedUpdatedAt = updatedAt ?? createdAt;
     final resolvedStatusAsOf = statusAsOf ?? DateTime.now();
 
     for (var index = 0; index < dueDates.length; index++) {
-      final openingBalanceCents = balanceCents;
-      if (openingBalanceCents <= 0) {
+      final openingBalance = balance;
+      if (openingBalance <= 0) {
         break;
       }
 
-      final openingBalance = _fromCents(openingBalanceCents);
-      var interestCents = _toCents(openingBalance * rateDecimal);
-      var totalAmountCents = fixedPaymentCents;
-      var principalCents = totalAmountCents - interestCents;
-
-      if (principalCents < 0) {
-        principalCents = 0;
-        interestCents = totalAmountCents;
-      }
-
-      if (principalCents >= openingBalanceCents) {
-        principalCents = openingBalanceCents;
-        totalAmountCents = principalCents + interestCents;
-      }
-
-      var endingBalanceCents = (openingBalanceCents - principalCents).clamp(
-        0,
-        openingBalanceCents,
-      );
-
-      if (endingBalanceCents < 1 || index == dueDates.length - 1) {
-        principalCents = openingBalanceCents;
-        interestCents = _toCents(openingBalance * rateDecimal);
-        totalAmountCents = principalCents + interestCents;
-        endingBalanceCents = 0;
-      }
+      final interestAmount = _roundCurrency(openingBalance * rateDecimal);
+      final principalAmount = fixedPayment - interestAmount;
+      final rawEndingBalance = openingBalance - principalAmount;
+      final endingBalance = rawEndingBalance < 0.01 ? 0.0 : rawEndingBalance;
 
       installments.add(
         Installment(
@@ -330,18 +279,18 @@ class SaleCalculator {
           saleId: saleId,
           installmentNumber: startingInstallmentNumber + index,
           dueDate: dueDates[index],
-          openingBalance: _fromCents(openingBalanceCents),
-          principalAmount: _fromCents(principalCents),
-          interestAmount: _fromCents(interestCents),
-          totalAmount: _fromCents(totalAmountCents),
+          openingBalance: openingBalance,
+          principalAmount: principalAmount,
+          interestAmount: interestAmount,
+          totalAmount: fixedPayment,
           paidAmount: 0,
           paidPrincipalAmount: 0,
           paidInterestAmount: 0,
-          endingBalance: _fromCents(endingBalanceCents),
+          endingBalance: endingBalance,
           status: resolveInstallmentStatus(
             dueDate: dueDates[index],
             paidAmount: 0,
-            totalAmount: _fromCents(totalAmountCents),
+            totalAmount: fixedPayment,
             asOf: resolvedStatusAsOf,
           ),
           createdAt: createdAt,
@@ -349,7 +298,7 @@ class SaleCalculator {
         ),
       );
 
-      balanceCents = endingBalanceCents;
+      balance = endingBalance;
     }
 
     return installments;
@@ -396,14 +345,6 @@ class SaleCalculator {
 
   static double _roundCurrency(double value) {
     return (value * 100).roundToDouble() / 100;
-  }
-
-  static int _toCents(double value) {
-    return (value * 100).round();
-  }
-
-  static double _fromCents(int value) {
-    return value / 100;
   }
 
   static double _normalizeRate(double ratePercent) {

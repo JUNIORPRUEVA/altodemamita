@@ -47,7 +47,9 @@ class ClientDataGuard {
     final doc = payload['document_id']?.toString() ?? payload['cedula']?.toString();
     final syncId = payload['sync_id']?.toString();
     final deletedAt =
-        payload['deleted_at']?.toString() ?? payload['deletedAt']?.toString();
+      payload['deleted_at']?.toString() ??
+      payload['deletedAt']?.toString() ??
+      '';
     final isDelete = deletedAt.trim().isNotEmpty;
 
     // Deletes can carry anonymized document IDs (e.g. __DELETED__123).
