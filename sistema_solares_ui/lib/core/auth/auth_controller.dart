@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+﻿import 'package:flutter/foundation.dart';
 import 'dart:convert';
 import 'dart:developer' as developer;
 import 'package:sistema_solares_ui/core/network/api_client.dart';
@@ -402,3 +402,4 @@ class AuthController extends ChangeNotifier {
     }
   }
 }
+

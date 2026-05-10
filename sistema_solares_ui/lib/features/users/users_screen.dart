@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:sistema_solares_ui/core/auth/auth_controller.dart';
 import 'package:provider/provider.dart';
 import 'package:sistema_solares_ui/core/network/api_client.dart';
@@ -30,7 +30,7 @@ class _UsersScreenState extends State<UsersScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final refreshTick = context.watch<RealtimeController>().refreshTick;
+    final refreshTick = context.select<RealtimeController, int>((realtime) => realtime.refreshTick);
     if (_future == null || refreshTick != _lastTick) {
       _lastTick = refreshTick;
       _future = UsersService(
@@ -862,3 +862,5 @@ class _DetailTile extends StatelessWidget {
     );
   }
 }
+
+

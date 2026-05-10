@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:sistema_solares_ui/core/formatters/app_number_formats.dart';
@@ -33,7 +33,7 @@ class _SalesScreenState extends State<SalesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final refreshTick = context.watch<RealtimeController>().refreshTick;
+    final refreshTick = context.select<RealtimeController, int>((realtime) => realtime.refreshTick);
     final currency = AppNumberFormats.currency;
 
     if (_future == null || refreshTick != _lastTick) {
@@ -558,3 +558,5 @@ class _StatusTag extends StatelessWidget {
     );
   }
 }
+
+

@@ -1,4 +1,4 @@
-
+﻿
 import 'dart:developer' as developer;
 
 import 'package:flutter/material.dart';
@@ -141,7 +141,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final refreshTick = context.watch<RealtimeController>().refreshTick;
+    final refreshTick = context.select<RealtimeController, int>((realtime) => realtime.refreshTick);
     if (_future == null || refreshTick != _lastTick) {
       _lastTick = refreshTick;
       _future = PaymentsService(context.read<ApiClient>()).fetchReadOnly(
@@ -2649,4 +2649,6 @@ String _paymentMethodLabelStatic(String method) {
     _ => method.isEmpty ? 'Metodo no definido' : method,
   };
 }
+
+
 

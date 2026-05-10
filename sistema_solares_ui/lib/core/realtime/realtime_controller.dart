@@ -1,3 +1,4 @@
+﻿import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'package:sistema_solares_ui/core/config/app_config.dart';
@@ -9,6 +10,11 @@ class RealtimeController extends ChangeNotifier {
   int _refreshTick = 0;
   String? _lastEventName;
   DateTime? _lastEventTime;
+  
+  // Throttle: maximo 1 refresh cada 5 segundos para evitar temblor
+  static const int _throttleMs = 5000;
+  DateTime? _lastRefreshTime;
+  Timer? _pendingRefreshTimer;
 
   bool get isConnected => _connected;
   int get refreshTick => _refreshTick;
@@ -55,8 +61,11 @@ class RealtimeController extends ChangeNotifier {
 
         _lastEventName = event;
         _lastEventTime = DateTime.now();
+        
+        // Throttle refreshes: maximo 1 cada 5 segundos
+        // Esto evita que el dashboard tiemble por eventos frecuentes del socket
         if (event != 'realtime.connected' && event != 'pong') {
-          _refreshTick += 1;
+          _scheduleThrottledRefresh();
         }
         notifyListeners();
       })
@@ -68,12 +77,44 @@ class RealtimeController extends ChangeNotifier {
     _socket = null;
     _connected = false;
     _processedEvents.clear();
+    _pendingRefreshTimer?.cancel();
+    _pendingRefreshTimer = null;
     notifyListeners();
+  }
+
+  void _scheduleThrottledRefresh() {
+    final now = DateTime.now();
+    final lastRefresh = _lastRefreshTime;
+    
+    // Si no hay ultimo refresh o ya paso el throttle interval
+    if (lastRefresh == null || now.difference(lastRefresh).inMilliseconds >= _throttleMs) {
+      _lastRefreshTime = now;
+      _refreshTick += 1;
+      _pendingRefreshTimer?.cancel();
+      _pendingRefreshTimer = null;
+      return;
+    }
+    
+    // Si hay un timer pendiente, no crear otro
+    if (_pendingRefreshTimer != null) {
+      return;
+    }
+    
+    // Programar refresh al final del throttle interval
+    final remainingMs = _throttleMs - now.difference(lastRefresh).inMilliseconds;
+    _pendingRefreshTimer = Timer(Duration(milliseconds: remainingMs), () {
+      _lastRefreshTime = DateTime.now();
+      _refreshTick += 1;
+      _pendingRefreshTimer = null;
+      notifyListeners();
+    });
   }
 
   @override
   void dispose() {
     disconnect();
+    _pendingRefreshTimer?.cancel();
+    _pendingRefreshTimer = null;
     super.dispose();
   }
 
@@ -87,3 +128,4 @@ class RealtimeController extends ChangeNotifier {
     return null;
   }
 }
+

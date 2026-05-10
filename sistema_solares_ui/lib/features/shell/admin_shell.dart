@@ -1,4 +1,4 @@
-import 'dart:math' as math;
+﻿import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -58,7 +58,7 @@ class _AdminShellState extends State<AdminShell> {
   Widget build(BuildContext context) {
     final child = widget.child;
     final authController = context.watch<AuthController>();
-    final realtimeController = context.watch<RealtimeController>();
+    final realtimeConnected = context.select<RealtimeController, bool>((realtime) => realtime.isConnected);
     final location = GoRouterState.of(context).uri.path;
     final summaryItems = <_NavItem>[
       const _NavItem(
@@ -195,7 +195,7 @@ class _AdminShellState extends State<AdminShell> {
             backgroundColor: const Color(0xFFF0F3F8),
             appBar: _MobileShellAppBar(
               title: currentItem?.label ?? _companyName,
-              realtimeController: realtimeController,
+              isConnected: realtimeConnected,
             ),
             body: SafeArea(
               top: false,
@@ -243,7 +243,7 @@ class _AdminShellState extends State<AdminShell> {
                         children: [
                           _TopBar(
                             title: currentItem?.label ?? _companyName,
-                            realtimeController: realtimeController,
+                            isConnected: realtimeConnected,
                             onOpenMenu: wide ? _toggleSidebar : null,
                             menuTooltip: wide
                                 ? (sidebarCollapsed
@@ -281,11 +281,11 @@ class _MobileShellAppBar extends StatelessWidget
     implements PreferredSizeWidget {
   const _MobileShellAppBar({
     required this.title,
-    required this.realtimeController,
+    required this.isConnected,
   });
 
   final String title;
-  final RealtimeController realtimeController;
+  final bool isConnected;
 
   @override
   Size get preferredSize => const Size.fromHeight(60);
@@ -371,7 +371,7 @@ class _MobileShellAppBar extends StatelessWidget
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _MobileStatusIcon(isConnected: realtimeController.isConnected),
+              _MobileStatusIcon(isConnected: isConnected),
               const SizedBox(width: 8),
               PopupMenuButton<String>(
                 tooltip: 'Sesion',
@@ -535,13 +535,13 @@ class _ShellContentFrame extends StatelessWidget {
 class _TopBar extends StatelessWidget {
   const _TopBar({
     required this.title,
-    required this.realtimeController,
+    required this.isConnected,
     required this.onOpenMenu,
     this.menuTooltip,
   });
 
   final String title;
-  final RealtimeController realtimeController;
+  final bool isConnected;
   final VoidCallback? onOpenMenu;
   final String? menuTooltip;
 
@@ -645,7 +645,7 @@ class _TopBar extends StatelessWidget {
             Row(
               children: [
                 _ConnectionIndicator(
-                  isConnected: realtimeController.isConnected,
+                  isConnected: isConnected,
                 ),
                 if (!veryCompact) ...[
                   const SizedBox(width: 8),
@@ -1466,3 +1466,6 @@ class _ShellFooter extends StatelessWidget {
     );
   }
 }
+
+
+

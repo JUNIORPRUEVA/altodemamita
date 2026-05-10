@@ -1,4 +1,4 @@
-import 'package:flutter/services.dart';
+﻿import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'secure_token_storage.dart';
@@ -93,3 +93,4 @@ class _PreferencesSecureTokenStorage implements SecureTokenStorage {
 }
 
 SecureTokenStorage createSecureTokenStorage() => _PreferencesSecureTokenStorage();
+

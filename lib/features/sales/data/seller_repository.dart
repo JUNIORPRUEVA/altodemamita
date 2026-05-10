@@ -7,7 +7,6 @@ import '../../../core/network/backend_api_client.dart';
 import '../../../core/network/backend_entity_id_registry.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_schema.dart';
-import '../../../core/errors/active_sales_block_delete_exception.dart';
 import '../../../models/sync/sync_status.dart';
 import '../../../repositories/sync_repository.dart';
 import '../../../services/sync/sync_queue_service.dart';
@@ -213,46 +212,55 @@ class SellerRepository implements SyncRepository {
 
       final db = await _appDatabase.database;
 
-      // Blindaje: no borrar vendedor con ventas activas
-      final activeSaleRows = await db.rawQuery(
-        'SELECT COUNT(*) AS cnt FROM ${DatabaseSchema.salesTable} '
-        'WHERE vendedor_id = ? AND deleted_at IS NULL '
-        "AND LOWER(estado) NOT IN "
-        "('cancelada','cancelado','anulada','anulado','eliminada','eliminado')",
-        [id],
-      );
-      final activeSaleCount =
-          (activeSaleRows.first['cnt'] as num?)?.toInt() ?? 0;
-      if (activeSaleCount > 0) {
-        throw const ActiveSalesBlockDeleteException(
-          'No puedes eliminar este vendedor porque tiene una venta activa '
-          'relacionada. Primero debes ir a Ventas y anular o eliminar esa venta.',
-        );
-      }
-
-      final sellerRow = await db.query(
+      final sellerRows = await db.query(
         DatabaseSchema.sellersTable,
-        columns: ['cedula'],
         where: 'id = ?',
         whereArgs: [id],
         limit: 1,
       );
-      final currentDocument = sellerRow.isEmpty
-          ? ''
-          : (sellerRow.first['cedula']?.toString() ?? '');
+      if (sellerRows.isEmpty) {
+        return;
+      }
+
+      final sellerRow = sellerRows.first;
+      final deletedAt = DateTime.now().toIso8601String();
+      final payload = {
+        'id': sellerRow['id'],
+        'sync_id': sellerRow['sync_id'],
+        'version': ((sellerRow['version'] as int?) ?? 1) + 1,
+        'name': sellerRow['nombre'],
+        'full_name': sellerRow['nombre'],
+        'document_id': sellerRow['cedula'],
+        'phone': sellerRow['telefono'],
+        'created_at': sellerRow['fecha_creacion'],
+        'updated_at': deletedAt,
+        'deleted_at': deletedAt,
+        'sync_status': DatabaseSchema.syncStatusPendingDelete,
+      };
+
+      final currentDocument = (sellerRow['cedula']?.toString() ?? '');
+      final syncId = (sellerRow['sync_id'] as String?)?.trim();
       final deletedDocument = _deletedDocumentPlaceholder(currentDocument, id);
 
       await db.update(
         DatabaseSchema.sellersTable,
         {
           'cedula': deletedDocument,
-          'deleted_at': DateTime.now().toIso8601String(),
+          'deleted_at': deletedAt,
+          'fecha_actualizacion': deletedAt,
           'sync_status': DatabaseSchema.syncStatusPendingDelete,
-          'last_modified_local': DateTime.now().toIso8601String(),
+          'last_modified_local': deletedAt,
         },
         where: 'id = ?',
         whereArgs: [id],
       );
+      if (syncId != null && syncId.isNotEmpty) {
+        await _syncQueueService.enqueueDelete(
+          scope: 'sellers',
+          recordSyncId: syncId,
+          payload: payload,
+        );
+      }
       _log('SELLER LOCAL DELETED -> id=$id');
       _scheduleBackgroundSync('delete-seller:$id');
     } catch (error, stackTrace) {

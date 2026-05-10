@@ -1,4 +1,4 @@
-import 'dart:math' as math;
+﻿import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -25,10 +25,10 @@ const List<String> _spanishMonths = <String>[
 const List<String> _spanishWeekdays = <String>[
   'Lunes',
   'Martes',
-  'Miércoles',
+  'MiÃ©rcoles',
   'Jueves',
   'Viernes',
-  'Sábado',
+  'SÃ¡bado',
   'Domingo',
 ];
 
@@ -41,7 +41,7 @@ String _formatTodayInSpanish(DateTime date) {
 bool _isMeaningfulText(String value) {
   final normalized = value.trim();
   if (normalized.isEmpty) return false;
-  if (normalized == '-' || normalized == '—') return false;
+  if (normalized == '-' || normalized == 'â€”') return false;
   return true;
 }
 
@@ -364,7 +364,7 @@ class _DetailHeader extends StatelessWidget {
             ),
             child: compact
                 ? IconButton(
-                    tooltip: 'Atrás',
+                    tooltip: 'AtrÃ¡s',
                     onPressed: () => Navigator.of(context).pop(),
                     icon: const Icon(Icons.arrow_back, size: 18),
                     style: IconButton.styleFrom(
@@ -784,7 +784,7 @@ class _SalePaymentsPage extends StatelessWidget {
                           icon: Icons.payments_outlined,
                           title: 'Sin pagos registrados',
                           message:
-                              'Esta venta aún no tiene pagos visibles en el backend.',
+                              'Esta venta aÃºn no tiene pagos visibles en el backend.',
                         )
                       : ListView.separated(
                           padding: const EdgeInsets.symmetric(vertical: 8),
@@ -1760,9 +1760,9 @@ class _SaleDetailViewModel {
       clientDocumentId: clientDocumentId,
       lotCodeLabel: lotCodeLabel,
       lotDisplayLabel: lotDisplayLabel,
-      lotAreaLabel: lotArea > 0 ? '${lotArea.toStringAsFixed(2)} m²' : '',
+      lotAreaLabel: lotArea > 0 ? '${lotArea.toStringAsFixed(2)} mÂ²' : '',
       pricePerSquareMeterLabel: pricePerSquareMeter > 0
-          ? '${currency.format(pricePerSquareMeter)} /m²'
+          ? '${currency.format(pricePerSquareMeter)} /mÂ²'
           : '',
       saleDateLabel: saleDateHeaderLabel == '-' ? '' : saleDateHeaderLabel,
       activationDateLabel: _formatDate(activationDate) == '-'
@@ -1926,7 +1926,7 @@ class _SaleDetailViewModel {
     if (normalized == 'cancelled' || normalized == 'cancelada') {
       return 'cancelada';
     }
-    // Date-based overdue check — same logic as the Windows desktop
+    // Date-based overdue check â€” same logic as the Windows desktop
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final due = DateTime(dueDate.year, dueDate.month, dueDate.day);
@@ -2044,3 +2044,4 @@ class _PaymentViewRow {
   final String amountLabel;
   final IconData icon;
 }
+

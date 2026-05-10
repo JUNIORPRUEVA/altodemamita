@@ -1,4 +1,4 @@
-import 'package:sistema_solares_ui/core/network/api_client.dart';
+﻿import 'package:sistema_solares_ui/core/network/api_client.dart';
 import 'package:flutter/foundation.dart';
 
 class ReportsBundle {
@@ -89,3 +89,4 @@ class ReportsService {
     return value;
   }
 }
+

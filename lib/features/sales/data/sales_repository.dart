@@ -443,14 +443,22 @@ class SalesRepository {
             statusAsOf: createdAt,
           );
           _validateInstallmentSequence(installments, saleId: saleId);
-          final deletedInstallments = await txn.delete(
-            DatabaseSchema.installmentsTable,
-            where: 'venta_id = ?',
-            whereArgs: [saleId],
+          final deletedInstallments = await txn.rawUpdate(
+            'UPDATE ${DatabaseSchema.installmentsTable} '
+            'SET version = COALESCE(version, 1) + 1, '
+            'deleted_at = ?, fecha_actualizacion = ?, last_modified_local = ?, sync_status = ? '
+            'WHERE venta_id = ? AND deleted_at IS NULL',
+            [
+              createdAt.toIso8601String(),
+              createdAt.toIso8601String(),
+              createdAt.toIso8601String(),
+              DatabaseSchema.syncStatusPendingDelete,
+              saleId,
+            ],
           );
           if (deletedInstallments > 0) {
             print(
-              '[SALES][DB] createSale deleting stale installments saleId=$saleId count=$deletedInstallments',
+              '[SALES][DB] createSale soft-deleting stale installments saleId=$saleId count=$deletedInstallments',
             );
           }
           for (final installment in installments) {
@@ -768,12 +776,20 @@ class SalesRepository {
 
         if (existingInstallmentRows.isNotEmpty) {
           print(
-            '[SALES][DB] updateSale deleting existing installments saleId=$saleId count=${existingInstallmentRows.length}',
+            '[SALES][DB] updateSale soft-deleting existing installments saleId=$saleId count=${existingInstallmentRows.length}',
           );
-          await txn.delete(
-            DatabaseSchema.installmentsTable,
-            where: 'venta_id = ?',
-            whereArgs: [saleId],
+          await txn.rawUpdate(
+            'UPDATE ${DatabaseSchema.installmentsTable} '
+            'SET version = COALESCE(version, 1) + 1, '
+            'deleted_at = ?, fecha_actualizacion = ?, last_modified_local = ?, sync_status = ? '
+            'WHERE venta_id = ? AND deleted_at IS NULL',
+            [
+              updatedAt.toIso8601String(),
+              updatedAt.toIso8601String(),
+              updatedAt.toIso8601String(),
+              DatabaseSchema.syncStatusPendingDelete,
+              saleId,
+            ],
           );
         }
 
@@ -1252,7 +1268,7 @@ class SalesRepository {
       'created_at': row['fecha_creacion'],
       'updated_at': now,
       'deleted_at': now,
-      'sync_status': DatabaseSchema.syncStatusPending,
+      'sync_status': DatabaseSchema.syncStatusPendingDelete,
     };
   }
 

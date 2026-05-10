@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:sistema_solares_ui/core/formatters/app_number_formats.dart';
@@ -31,7 +31,7 @@ class _SellersScreenState extends State<SellersScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final refreshTick = context.watch<RealtimeController>().refreshTick;
+    final refreshTick = context.select<RealtimeController, int>((realtime) => realtime.refreshTick);
     if (_future == null || refreshTick != _lastTick) {
       _lastTick = refreshTick;
       _future = SellersService(
@@ -533,3 +533,5 @@ String? _readNested(Object? value, List<String> keys) {
   }
   return current?.toString();
 }
+
+

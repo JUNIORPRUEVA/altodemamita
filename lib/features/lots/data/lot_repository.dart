@@ -295,7 +295,8 @@ class LotRepository {
 
       final db = await _appDatabase.database;
 
-      // Blindaje: no borrar solar con ventas activas
+      // Verificar ventas activas pero permitir soft delete (marca como deleted_at)
+      // El soft delete solo marca inactivo, no borra físicamente
       final activeSaleRows = await db.rawQuery(
         'SELECT COUNT(*) AS cnt FROM ${DatabaseSchema.salesTable} '
         'WHERE solar_id = ? AND deleted_at IS NULL '
@@ -305,10 +306,12 @@ class LotRepository {
       );
       final activeSaleCount =
           (activeSaleRows.first['cnt'] as num?)?.toInt() ?? 0;
+      
+      // Log advertencia si intenta borrar con ventas activas
       if (activeSaleCount > 0) {
-        throw const ActiveSalesBlockDeleteException(
-          'No puedes eliminar este solar porque tiene una venta activa '
-          'relacionada. Primero debes ir a Ventas y anular o eliminar esa venta.',
+        _log(
+          '⚠️  ADVERTENCIA LOT DELETE: solar id=$id tiene $activeSaleCount '
+          'venta(s) activa(s), pero se permite soft delete (deleted_at)',
         );
       }
 

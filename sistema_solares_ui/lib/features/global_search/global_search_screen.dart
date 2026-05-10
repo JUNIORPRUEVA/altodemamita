@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -114,7 +114,7 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final refreshTick = context.watch<RealtimeController>().refreshTick;
+    final refreshTick = context.select<RealtimeController, int>((realtime) => realtime.refreshTick);
     if (_future != null &&
         _lastSubmittedQuery.isNotEmpty &&
         refreshTick != _lastTick) {
@@ -636,3 +636,5 @@ String? _readNested(Object? value, List<String> keys) {
   }
   return current?.toString();
 }
+
+

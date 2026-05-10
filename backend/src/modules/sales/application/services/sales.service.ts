@@ -415,7 +415,6 @@ export class SalesService {
       where: { id },
       select: {
         id: true,
-        productId: true,
         deletedAt: true,
         syncId: true,
       },
@@ -425,23 +424,12 @@ export class SalesService {
       throw new NotFoundException('Venta no encontrada.');
     }
 
+    if (sale.deletedAt == null) {
+      await this.remove(id);
+      return { id, removed: true, hardDeleted: false, migratedToSoftDelete: true };
+    }
+
     const deletedAt = new Date();
-    await this.prisma.$transaction(async (tx) => {
-      await tx.payment.deleteMany({ where: { saleId: id } });
-      await tx.installment.deleteMany({ where: { saleId: id } });
-      await tx.sale.delete({ where: { id } });
-
-      if (sale.deletedAt == null) {
-        await tx.product.updateMany({
-          where: { id: sale.productId, deletedAt: null },
-          data: {
-            stock: { increment: 1 },
-            syncStatus: SyncStatus.pending,
-          },
-        });
-      }
-    });
-
     this.realtimeEvents.publishEntityUpdated({
       entity: 'sale',
       action: 'deleted',
@@ -451,13 +439,14 @@ export class SalesService {
         id,
         record_sync_id: sale.syncId,
         sync_id: sale.syncId,
-        hardDeleted: true,
+        hardDeleted: false,
+        migratedToSoftDelete: true,
       },
       source: 'api',
       updatedAt: deletedAt.toISOString(),
     });
 
-    return { id, removed: true, hardDeleted: true };
+    return { id, removed: true, hardDeleted: false, migratedToSoftDelete: true };
   }
 
   private buildWhere(search?: string): Prisma.SaleWhereInput {

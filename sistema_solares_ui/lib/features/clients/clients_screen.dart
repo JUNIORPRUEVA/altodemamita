@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:sistema_solares_ui/core/network/api_client.dart';
 import 'package:sistema_solares_ui/core/realtime/realtime_controller.dart';
@@ -33,7 +33,7 @@ class _ClientsScreenState extends State<ClientsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final refreshTick = context.watch<RealtimeController>().refreshTick;
+    final refreshTick = context.select<RealtimeController, int>((realtime) => realtime.refreshTick);
     if (_future == null || refreshTick != _lastTick) {
       _lastTick = refreshTick;
       _future = ClientsService(
@@ -327,3 +327,5 @@ class _ClientsScreenState extends State<ClientsScreen> {
     );
   }
 }
+
+

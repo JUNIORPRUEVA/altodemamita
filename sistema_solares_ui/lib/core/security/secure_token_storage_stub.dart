@@ -1,4 +1,4 @@
-import 'secure_token_storage.dart';
+﻿import 'secure_token_storage.dart';
 
 class _InMemorySecureTokenStorage implements SecureTokenStorage {
   final Map<String, String> _storage = <String, String>{};

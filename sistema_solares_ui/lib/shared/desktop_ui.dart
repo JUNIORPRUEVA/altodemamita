@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 
 const _desktopInk = Color(0xFF0D2640);
 const _desktopMuted = Color(0xFF6A7684);
@@ -917,3 +917,4 @@ class DesktopPageError extends StatelessWidget {
     );
   }
 }
+

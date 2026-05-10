@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:sistema_solares_ui/core/auth/auth_controller.dart';
@@ -236,7 +236,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final refreshTick = context.watch<RealtimeController>().refreshTick;
+    final refreshTick = context.select<RealtimeController, int>((realtime) => realtime.refreshTick);
     if (_future == null || refreshTick != _lastTick) {
       _lastTick = refreshTick;
       _future = _settingsService.fetchOverview();
@@ -1628,3 +1628,5 @@ class _SettingsMetricTile extends StatelessWidget {
     );
   }
 }
+
+

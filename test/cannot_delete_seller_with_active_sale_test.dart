@@ -5,7 +5,6 @@ import 'package:path/path.dart' as path;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sistema_solares/core/database/app_database.dart';
 import 'package:sistema_solares/core/database/database_schema.dart';
-import 'package:sistema_solares/core/errors/active_sales_block_delete_exception.dart';
 import 'package:sistema_solares/features/sales/data/seller_repository.dart';
 import 'package:sistema_solares/features/sales/domain/seller.dart';
 
@@ -31,7 +30,7 @@ void main() {
     }
   });
 
-  test('cannot_delete_seller_with_active_sale_test', () async {
+  test('can_soft_delete_seller_with_active_sale_test', () async {
     final db = await appDatabase.database;
     final now = DateTime.now().toIso8601String();
 
@@ -95,10 +94,23 @@ void main() {
       'sync_status': DatabaseSchema.syncStatusSynced,
     });
 
-    expect(
-      () => repository.delete(sellerId),
-      throwsA(isA<ActiveSalesBlockDeleteException>()),
+    await expectLater(repository.delete(sellerId), completes);
+
+    final sellerRows = await db.query(
+      DatabaseSchema.sellersTable,
+      where: 'id = ?',
+      whereArgs: [sellerId],
+      limit: 1,
     );
+    expect(sellerRows.single['deleted_at'], isNotNull);
+    expect(sellerRows.single['sync_status'], DatabaseSchema.syncStatusPendingDelete);
+
+    final activeSales = await db.query(
+      DatabaseSchema.salesTable,
+      where: 'vendedor_id = ? AND deleted_at IS NULL',
+      whereArgs: [sellerId],
+    );
+    expect(activeSales, isNotEmpty);
   });
 
   test('can_delete_seller_without_active_sale_test', () async {

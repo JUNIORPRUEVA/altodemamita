@@ -1,4 +1,4 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'dart:developer' as developer;
 
 import 'package:flutter/foundation.dart';
@@ -113,3 +113,4 @@ class AppConfig {
         .replaceAll(RegExp(r'/$'), '');
   }
 }
+

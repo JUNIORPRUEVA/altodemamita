@@ -1,4 +1,4 @@
-import 'dart:html' as html;
+﻿import 'dart:html' as html;
 
 import 'secure_token_storage.dart';
 
@@ -76,3 +76,4 @@ class _PersistentSecureTokenStorage implements SecureTokenStorage {
 
 SecureTokenStorage createSecureTokenStorage() =>
     _PersistentSecureTokenStorage();
+

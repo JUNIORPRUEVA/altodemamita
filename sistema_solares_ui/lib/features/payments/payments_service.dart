@@ -1,4 +1,4 @@
-import 'dart:developer' as developer;
+﻿import 'dart:developer' as developer;
 
 import 'package:sistema_solares_ui/core/network/api_client.dart';
 
@@ -641,3 +641,4 @@ class PaymentsService {
 
   double _max(double left, double right) => left > right ? left : right;
 }
+
