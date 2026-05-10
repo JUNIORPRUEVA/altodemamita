@@ -143,11 +143,11 @@ class AuthService {
       'admin_recovery_code_generated_at';
   static const String _adminRecoverySnapshotKey =
       'admin_recovery_credentials_snapshot';
-    static const String authLastCloudValidationAtKey =
+  static const String authLastCloudValidationAtKey =
       'auth.last_cloud_validation_at';
-    static const String authLastCloudValidationStatusKey =
+  static const String authLastCloudValidationStatusKey =
       'auth.last_cloud_validation_status';
-    static const String noPermissionMessage =
+  static const String noPermissionMessage =
       'No tienes permiso para acceder a esta sección.';
   static const String adminRecoverySnapshotUnavailableMessage =
       'Los datos visibles del administrador aun no estan disponibles en esta instalacion.';
@@ -161,16 +161,14 @@ class AuthService {
       'Usuario o contraseña incorrectos.';
   static const String localDatabaseErrorMessage =
       'Ocurrio un error al validar el usuario local. Intenta de nuevo.';
-    static const String backendAuthRouteUnavailableMessage =
-      'No se pudo iniciar sesion en linea porque el backend no tiene habilitado el endpoint de autenticacion. Verifica despliegue y URL del servidor.';
-    static const List<String> _authBootstrapScopes = [
+  static const List<String> _authBootstrapScopes = [
     'users',
     'roles',
     'permissions',
     'user_roles',
     'role_permissions',
     'company_profiles',
-    ];
+  ];
 
   final AppDatabase _appDatabase;
   final SyncConfigRepository _syncConfigRepository;
@@ -1738,6 +1736,10 @@ class AuthService {
     Map<String, Object?>? payload,
     Map<String, String>? headers,
   }) async {
+    debugPrint(
+      '[auth-http] request method=${method.toUpperCase()} uri=$uri payload=${_redactPayloadForLog(payload)}',
+    );
+
     final request = await _openRequest(method, uri);
     request.headers.contentType = ContentType.json;
     request.headers.set(HttpHeaders.acceptHeader, ContentType.json.mimeType);
@@ -1752,6 +1754,9 @@ class AuthService {
 
     final response = await request.close();
     final body = await utf8.decoder.bind(response).join();
+    debugPrint(
+      '[auth-http] response status=${response.statusCode} uri=$uri body=${_truncateForLog(body)}',
+    );
     final decoded = body.trim().isEmpty
         ? const <String, dynamic>{}
         : jsonDecode(body);
@@ -1797,24 +1802,41 @@ class AuthService {
     String? message = responsePayload['message']?.toString();
     if ((message == null || message.trim().isEmpty) &&
         responsePayload['error'] is Map) {
-      final nested = (responsePayload['error'] as Map)
-          .map((key, value) => MapEntry(key.toString(), value));
+      final nested = (responsePayload['error'] as Map).map(
+        (key, value) => MapEntry(key.toString(), value),
+      );
       message = nested['message']?.toString();
     }
     message = (message ?? '').trim();
-    final normalized = message.toLowerCase();
-
-    // Some legacy backend builds expose a synthetic not-found reporter route.
-    // Do not show that internal path to end users.
-    if (normalized.contains('/api/errors/not-found') ||
-        normalized.contains('route post:/api/errors/not-found')) {
-      return backendAuthRouteUnavailableMessage;
-    }
-
     if (message.isNotEmpty) {
       return message;
     }
     return rawBody.trim();
+  }
+
+  String _redactPayloadForLog(Map<String, Object?>? payload) {
+    if (payload == null || payload.isEmpty) {
+      return '<empty>';
+    }
+
+    final redacted = payload.map((key, value) {
+      final normalizedKey = key.trim().toLowerCase();
+      if (normalizedKey.contains('password') ||
+          normalizedKey.contains('token') ||
+          normalizedKey.contains('secret')) {
+        return MapEntry(key, '[REDACTED]');
+      }
+      return MapEntry(key, value);
+    });
+    return _truncateForLog(jsonEncode(redacted));
+  }
+
+  String _truncateForLog(String value, {int maxLength = 1200}) {
+    final normalized = value.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (normalized.length <= maxLength) {
+      return normalized;
+    }
+    return '${normalized.substring(0, maxLength)}...(truncated)';
   }
 
   Future<void> _bootstrapRemoteSystemIfNeeded({
@@ -2616,8 +2638,6 @@ class AuthService {
         normalized.contains('conexión') ||
         normalized.contains('offline') ||
         normalized.contains('unreachable') ||
-      normalized.contains('/api/errors/not-found') ||
-      normalized.contains('route post:/api/errors/not-found') ||
         normalized.contains('temporarily unavailable') ||
         normalized.contains('temporariamente no disponible');
   }
