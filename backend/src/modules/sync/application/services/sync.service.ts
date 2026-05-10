@@ -56,13 +56,19 @@ export class SyncService {
     private readonly realtimeEvents: RealtimeEventsService,
   ) {}
 
-  async upload(batch: SyncUploadDto) {
+  async upload(batch: SyncUploadDto, context: { isPrimary: boolean } = { isPrimary: false }) {
     const records = this.normalizeRecords(batch.records);
     const counts = this.extractCounts(records);
     this.logger.log(
       `[sync-upload] service_start deviceId=${(batch.device_id ?? '').trim() || '<missing>'} ` +
         `counts=${this.formatCountsForLog(counts)}`,
     );
+    const isLocalMaster = context.isPrimary && process.env['LOCAL_MASTER_MODE'] === 'true';
+    if (isLocalMaster) {
+      this.logger.warn(
+        `[sync-upload] LOCAL_MASTER_MODE activo: conflictos de timestamp en scopes comerciales se resuelven a favor del local. deviceId=${(batch.device_id ?? '').trim() || '<missing>'}`,
+      );
+    }
     if (Object.values(counts).every((value) => value === 0)) {
       throw new BadRequestException('El lote de sincronización está vacío.');
     }
@@ -89,7 +95,7 @@ export class SyncService {
     this.realtimeEvents.publishSyncStarted(jobId);
 
     try {
-      const result = await this.persistBatch(records);
+      const result = await this.persistBatch(records, { isLocalMaster });
       const acknowledgedRecords = await this.buildUploadAckRecords(records);
       job.status = 'completed';
       job.finishedAt = new Date().toISOString();
@@ -165,7 +171,8 @@ export class SyncService {
     };
   }
 
-  private async persistBatch(records: SyncRecordCollections) {
+  private async persistBatch(records: SyncRecordCollections, options: { isLocalMaster: boolean } = { isLocalMaster: false }) {
+    const { isLocalMaster } = options;
     const affectedSales = new Set<string>();
     const domainEvents: SyncDomainEvent[] = [];
     const deletedSaleSyncIds = new Set(
@@ -345,7 +352,7 @@ export class SyncService {
                   'Conflicto de sincronizacion: falta updated_at/deleted_at en el registro entrante.',
               });
             }
-            if (existing.updatedAt.getTime() > incomingUpdatedAt.getTime()) {
+            if (existing.updatedAt.getTime() > incomingUpdatedAt.getTime() && !isLocalMaster) {
               const server = await tx.client.findUnique({
                 where: { id: existing.id },
                 select: {
@@ -471,7 +478,7 @@ export class SyncService {
           }
           const existingMs = existing.updatedAt.getTime();
           const incomingMs = incomingUpdatedAt.getTime();
-          if (existingMs > incomingMs) {
+          if (existingMs > incomingMs && !isLocalMaster) {
             const server = await tx.client.findUnique({
               where: { id: existing.id },
               select: {
@@ -592,7 +599,7 @@ export class SyncService {
 
           const existingMs = existing.updatedAt.getTime();
           const incomingMs = incomingUpdatedAt.getTime();
-          if (existingMs > incomingMs) {
+          if (existingMs > incomingMs && !isLocalMaster) {
             const server = await tx.product.findUnique({
               where: { id: existing.id },
               select: {
@@ -807,7 +814,7 @@ export class SyncService {
 
           const existingMs = existing.updatedAt.getTime();
           const incomingMs = incomingUpdatedAt.getTime();
-          if (existingMs > incomingMs) {
+          if (existingMs > incomingMs && !isLocalMaster) {
             const server = await tx.seller.findUnique({
               where: { id: existing.id },
               select: {
@@ -980,7 +987,8 @@ export class SyncService {
           const incomingMs = incomingUpdatedAt.getTime();
           if (
             existingMs > incomingMs &&
-            !(deletedAt != null && this.canApplySafeSaleDelete(saleDeleteContext))
+            !(deletedAt != null && this.canApplySafeSaleDelete(saleDeleteContext)) &&
+            !isLocalMaster
           ) {
             const server = await tx.sale.findUnique({
               where: { id: existing.id },
@@ -1222,7 +1230,8 @@ export class SyncService {
             !this.canApplyDependentInstallmentDelete(
               installmentDeleteContext,
               deletedSaleSyncIds,
-            )
+            ) &&
+            !isLocalMaster
           ) {
             const server = await tx.installment.findUnique({
               where: { id: existing.id },
@@ -1414,7 +1423,7 @@ export class SyncService {
 
           const existingMs = existing.updatedAt.getTime();
           const incomingMs = incomingUpdatedAt.getTime();
-          if (existingMs > incomingMs) {
+          if (existingMs > incomingMs && !isLocalMaster) {
             const server = await tx.payment.findUnique({
               where: { id: existing.id },
               include: {

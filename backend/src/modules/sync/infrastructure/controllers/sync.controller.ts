@@ -9,6 +9,7 @@ import {
   Param,
   Post,
   Query,
+  Req,
 } from '@nestjs/common';
 
 import { PERMISSIONS } from 'src/shared/constants/permissions.constants';
@@ -35,6 +36,7 @@ export class SyncController {
     @Body() dto: SyncUploadDto,
     @CurrentUser() user: AuthenticatedUser,
     @Headers('x-device-id') headerDeviceId?: string,
+    @Req() req?: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
     assertOperationalAccess(user, 'La sincronizacion operativa');
     const headerValue = (headerDeviceId ?? '').trim();
@@ -56,7 +58,9 @@ export class SyncController {
     );
 
     try {
-      const result = await this.syncService.upload(dto);
+      const deviceAuthState = req?.['deviceAuthState'] as { isPrimary?: boolean } | undefined;
+      const isPrimary = deviceAuthState?.isPrimary === true;
+      const result = await this.syncService.upload(dto, { isPrimary });
       const records =
         result['records'] && typeof result['records'] === 'object'
           ? (result['records'] as Partial<SyncUploadDto['records']>)
