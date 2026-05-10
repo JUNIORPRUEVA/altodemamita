@@ -410,6 +410,10 @@ class AuthService {
   }) async {
     debugPrint('[LoginOnline] Autenticando con backend para $email...');
     final settings = await _syncConfigRepository.loadSettings();
+    final loginUri = Uri.parse('${settings.normalizedBaseUrl}/auth/login');
+    debugPrint(
+      '[LoginOnline] baseUrlFinal=${settings.normalizedBaseUrl} loginUri=$loginUri method=POST',
+    );
 
     final normalizedIdentifier = email.trim().toLowerCase();
     final normalizedPassword = password.trim();
@@ -419,7 +423,7 @@ class AuthService {
 
     final response = await _sendJsonRequest(
       method: 'POST',
-      uri: Uri.parse('${settings.normalizedBaseUrl}/auth/login'),
+      uri: loginUri,
       payload: {
         'identifier': normalizedIdentifier,
         'password': normalizedPassword,
@@ -1808,10 +1812,44 @@ class AuthService {
       message = nested['message']?.toString();
     }
     message = (message ?? '').trim();
+    final mapped = _mapRouteNotFoundError(message);
+    if (mapped != null) {
+      return mapped;
+    }
     if (message.isNotEmpty) {
       return message;
     }
+    final mappedRaw = _mapRouteNotFoundError(rawBody.trim());
+    if (mappedRaw != null) {
+      return mappedRaw;
+    }
     return rawBody.trim();
+  }
+
+  String? _mapRouteNotFoundError(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      return null;
+    }
+
+    final match = RegExp(
+      r'Route\s+([A-Z]+):([^\s]+)\s+not\s+found',
+      caseSensitive: false,
+    ).firstMatch(trimmed);
+    if (match == null) {
+      return null;
+    }
+
+    final method = (match.group(1) ?? '').toUpperCase();
+    final route = (match.group(2) ?? '').trim();
+    final normalizedRoute = route.toLowerCase();
+
+    if (normalizedRoute.contains('/auth/login') ||
+        normalizedRoute.contains('/errors/not-found')) {
+      return 'El backend no tiene disponible el endpoint de autenticacion. Verifica despliegue y URL.';
+    }
+
+    return 'No se pudo iniciar sesion en linea: el backend devolvio 404 para ${method.isEmpty ? 'HTTP' : method} $route. Verifica URL base y rutas de API.';
   }
 
   String _redactPayloadForLog(Map<String, Object?>? payload) {

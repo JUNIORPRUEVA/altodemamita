@@ -49,59 +49,68 @@ class AppIncidentReporter {
       return;
     }
 
-    final incidentLogger = _incidentLogger;
-    if (incidentLogger == null) {
-      return;
-    }
+    try {
+      final incidentLogger = _incidentLogger;
+      if (incidentLogger == null) {
+        return;
+      }
 
-    final code = await incidentLogger.logMessageIncident(
-      category: 'handled_operation',
-      severity: severity,
-      title: title,
-      message: message,
-      details: details,
-      suggestions: suggestions,
-      error: error,
-      stackTrace: stackTrace,
-      module: module,
-      action: action,
-      incidentType: type.name,
-      extra: {'action': action, ...extra},
-    );
-
-    if (!presentToUser) {
-      return;
-    }
-
-    final errorController = _errorController;
-    if (errorController == null) {
-      return;
-    }
-
-    errorController.presentLoggedIncident(
-      code: code,
-      category: 'handled_operation',
-      type: type,
-      severity: severity,
-      friendlyMessage: FriendlyErrorMessage(
+      final code = await incidentLogger.logMessageIncident(
+        category: 'handled_operation',
+        severity: severity,
         title: title,
         message: message,
         details: details,
         suggestions: suggestions,
-      ),
-      error: error,
-      stackTrace: stackTrace,
-      module: module,
-      action: action,
-      onRetry: onRetry,
-      onRepair: onRepair,
-      onContinue: onContinue,
-      onGoBack: onGoBack,
-      onGoHome: onGoHome,
-      canContinue: canContinue,
-      canGoBack: canGoBack,
-      canGoHome: canGoHome,
-      allowRepair: allowRepair,
-    );
+        error: error,
+        stackTrace: stackTrace,
+        module: module,
+        action: action,
+        incidentType: type.name,
+        extra: {'action': action, ...extra},
+      );
+
+      if (!presentToUser) {
+        return;
+      }
+
+      final errorController = _errorController;
+      if (errorController == null) {
+        return;
+      }
+
+      errorController.presentLoggedIncident(
+        code: code,
+        category: 'handled_operation',
+        type: type,
+        severity: severity,
+        friendlyMessage: FriendlyErrorMessage(
+          title: title,
+          message: message,
+          details: details,
+          suggestions: suggestions,
+        ),
+        error: error,
+        stackTrace: stackTrace,
+        module: module,
+        action: action,
+        onRetry: onRetry,
+        onRepair: onRepair,
+        onContinue: onContinue,
+        onGoBack: onGoBack,
+        onGoHome: onGoHome,
+        canContinue: canContinue,
+        canGoBack: canGoBack,
+        canGoHome: canGoHome,
+        allowRepair: allowRepair,
+      );
+    } catch (reportingError, reportingStack) {
+      debugPrint(
+        '[incident-reporter] fallo al reportar incidente action=$action module=${module ?? '<none>'}: $reportingError',
+      );
+      debugPrint(
+        '[incident-reporter] stack=${reportingStack.toString().replaceAll(RegExp(r'\\s+'), ' ').trim()}',
+      );
+    }
   }
 }

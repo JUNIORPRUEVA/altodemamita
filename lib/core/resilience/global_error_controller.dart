@@ -41,16 +41,23 @@ class GlobalErrorController extends ChangeNotifier {
     }
 
     final resolved = friendlyMessage ?? FriendlyErrorMessages.unexpected(error);
-    final code = await _incidentLogger.logIncident(
-      category: category,
-      severity: severity,
-      friendlyMessage: resolved,
-      error: error,
-      stackTrace: stackTrace,
-      module: module,
-      action: action,
-      incidentType: type.name,
-    );
+    String code = 'INC-LOCAL-${DateTime.now().microsecondsSinceEpoch}';
+    try {
+      code = await _incidentLogger.logIncident(
+        category: category,
+        severity: severity,
+        friendlyMessage: resolved,
+        error: error,
+        stackTrace: stackTrace,
+        module: module,
+        action: action,
+        incidentType: type.name,
+      );
+    } catch (loggingError) {
+      debugPrint(
+        '[global-error] fallo al registrar incidente category=$category module=${module ?? '<none>'}: $loggingError',
+      );
+    }
 
     presentLoggedIncident(
       code: code,
