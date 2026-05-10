@@ -23,10 +23,8 @@ import { RealtimeModule } from './modules/realtime/realtime.module';
 import { SyncModule } from './modules/sync/sync.module';
 import { SystemModule } from './modules/system/system.module';
 import { DeviceWriteGuard } from './shared/guards/device-write.guard';
-import { HealthController } from './health.controller';
 
 @Module({
-  controllers: [HealthController],
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
