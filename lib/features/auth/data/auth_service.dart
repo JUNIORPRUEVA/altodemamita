@@ -283,7 +283,13 @@ class AuthService {
       try {
         final user = await loginOnline(email: email, password: password);
         debugPrint('[SignIn] login online success para ${user.email}.');
-        final syncTriggered = await _runAuthOnlySyncIfPossible();
+        bool syncTriggered = false;
+        try {
+          syncTriggered = await _runAuthOnlySyncIfPossible();
+        } catch (error) {
+          debugPrint('[SignIn] auth bootstrap no fatal para $email: $error');
+          syncTriggered = false;
+        }
         final refreshedUser = user.id == null
             ? user
             : (await getUserById(user.id!)) ?? user;
@@ -336,6 +342,22 @@ class AuthService {
           password: password,
         );
         return AuthSignInResult(user: localUser, mode: AuthSignInMode.offline);
+      } catch (error) {
+        debugPrint('[SignIn] error inesperado durante login online: $error');
+        try {
+          final localUser = await _signInLocalValidated(
+            identifier: email,
+            password: password,
+          );
+          return AuthSignInResult(
+            user: localUser,
+            mode: AuthSignInMode.offline,
+          );
+        } on AuthException {
+          throw const AuthException(
+            'El usuario no quedo guardado localmente despues del login online.',
+          );
+        }
       }
     }
 
@@ -456,7 +478,114 @@ class AuthService {
     );
     await _recordAuthCloudValidation(status: 'online_login_ok');
     await SystemConfigService.instance.refresh();
+    await _logOnlineLoginPersistenceSnapshot(user);
     return user;
+  }
+
+  Future<void> _logOnlineLoginPersistenceSnapshot(UserModel user) async {
+    try {
+      final db = await _appDatabase.database;
+      final usersCount = Sqflite.firstIntValue(
+        await db.rawQuery('SELECT COUNT(*) FROM ${DatabaseSchema.usersTable}'),
+      );
+      final rolesCount = Sqflite.firstIntValue(
+        await db.rawQuery('SELECT COUNT(*) FROM ${DatabaseSchema.rolesTable}'),
+      );
+      final permissionsCount = Sqflite.firstIntValue(
+        await db.rawQuery(
+          'SELECT COUNT(*) FROM ${DatabaseSchema.permissionsTable}',
+        ),
+      );
+      final userRolesCount = Sqflite.firstIntValue(
+        await db.rawQuery(
+          'SELECT COUNT(*) FROM ${DatabaseSchema.userRolesTable}',
+        ),
+      );
+      final rolePermissionsCount = Sqflite.firstIntValue(
+        await db.rawQuery(
+          'SELECT COUNT(*) FROM ${DatabaseSchema.rolePermissionsTable}',
+        ),
+      );
+
+      final savedUserRows = user.id == null
+          ? const <Map<String, Object?>>[]
+          : await db.query(
+              DatabaseSchema.usersTable,
+              columns: [
+                'id',
+                'email',
+                'password_hash',
+                'remote_auth_id',
+                'auth_source',
+                'last_online_login_at',
+              ],
+              where: 'id = ?',
+              whereArgs: [user.id],
+              limit: 1,
+            );
+
+      final hasSavedUser = savedUserRows.isNotEmpty;
+      final hasSavedPasswordHash = hasSavedUser
+          ? ((savedUserRows.first['password_hash'] as String? ?? '')
+                .trim()
+                .isNotEmpty)
+          : false;
+      final hasRemoteAuthId = hasSavedUser
+          ? ((savedUserRows.first['remote_auth_id'] as String? ?? '')
+                .trim()
+                .isNotEmpty)
+          : false;
+      final authSource = hasSavedUser
+          ? (savedUserRows.first['auth_source'] as String? ?? '').trim()
+          : '';
+      final lastOnlineLoginAt = hasSavedUser
+          ? (savedUserRows.first['last_online_login_at'] as String? ?? '')
+                .trim()
+          : '';
+
+      final sessionRows = user.id == null
+          ? const <Map<String, Object?>>[]
+          : await db.query(
+              DatabaseSchema.authSessionsTable,
+              columns: ['usuario_id'],
+              where: 'usuario_id = ? AND revoked_at IS NULL',
+              whereArgs: [user.id],
+              limit: 1,
+            );
+      final hasLocalSession = sessionRows.isNotEmpty;
+
+      final settings = await _syncConfigRepository.loadSettings();
+      final hasJwtToken = settings.jwtToken.trim().isNotEmpty;
+      final deviceId = settings.deviceId.trim();
+      final installationId =
+          (await SettingsRepository(appDatabase: _appDatabase).fetchByKeys([
+            'installation_id',
+          ]))['installation_id']?.value.trim() ??
+          '';
+
+      debugPrint(
+        '[LoginOnlineSnapshot] usuario_local_guardado=$hasSavedUser '
+        'password_hash_valido=$hasSavedPasswordHash '
+        'remote_auth_id_guardado=$hasRemoteAuthId '
+        'auth_source=$authSource '
+        'last_online_login_at=${lastOnlineLoginAt.isEmpty ? '<empty>' : lastOnlineLoginAt}',
+      );
+      debugPrint(
+        '[LoginOnlineSnapshot] users_locales=${usersCount ?? 0} '
+        'roles_locales=${rolesCount ?? 0} '
+        'permisos_locales=${permissionsCount ?? 0} '
+        'user_roles_locales=${userRolesCount ?? 0} '
+        'role_permissions_locales=${rolePermissionsCount ?? 0}',
+      );
+      debugPrint(
+        '[LoginOnlineSnapshot] sesion_local_guardada=$hasLocalSession '
+        'token_guardado=$hasJwtToken '
+        'deviceId=${deviceId.isEmpty ? '<empty>' : deviceId} '
+        'installationId=${installationId.isEmpty ? '<empty>' : installationId}',
+      );
+    } catch (error) {
+      debugPrint('[LoginOnlineSnapshot] error_al_diagnosticar=$error');
+    }
   }
 
   /// Autentica SOLO con la nube para obtener un JWT de sincronización,
