@@ -205,6 +205,55 @@ class SyncApiClient {
     );
   }
 
+  Future<Map<String, int>> previewManualRestore({
+    required SyncSettings settings,
+  }) async {
+    final uri = Uri.parse('${settings.normalizedBaseUrl}/sync/restore/preview');
+    final body = await _sendJsonRequest(
+      method: 'POST',
+      uri: uri,
+      jwtToken: settings.jwtToken,
+      deviceId: settings.deviceId,
+      payload: <String, Object?>{'device_id': settings.deviceId},
+    );
+    final rawCounts = body['counts'];
+    if (rawCounts is! Map) {
+      return const <String, int>{};
+    }
+
+    return {
+      for (final entry in rawCounts.entries)
+        entry.key.toString(): _readInt(entry.value) ?? 0,
+    };
+  }
+
+  Future<SyncDownloadResponse> downloadManualRestore({
+    required SyncSettings settings,
+    required String adminPassword,
+    required String confirmationText,
+  }) async {
+    final uri = Uri.parse(
+      '${settings.normalizedBaseUrl}/sync/restore/download',
+    );
+    final body = await _sendJsonRequest(
+      method: 'POST',
+      uri: uri,
+      jwtToken: settings.jwtToken,
+      deviceId: settings.deviceId,
+      payload: <String, Object?>{
+        'device_id': settings.deviceId,
+        'admin_password': adminPassword,
+        'confirmation_text': confirmationText,
+      },
+    );
+
+    return SyncDownloadResponse(
+      recordsByScope: _readRecordsByScope(body['records']),
+      serverTime: _readDate(body['server_time']),
+      scopeCursors: const <String, DateTime?>{},
+    );
+  }
+
   Future<Map<String, dynamic>> _sendJsonRequest({
     required String method,
     required Uri uri,
@@ -338,13 +387,9 @@ class SyncApiClient {
 
     if (response.statusCode == HttpStatus.forbidden) {
       final message = decodedBody['message']?.toString().trim() ?? '';
-      if (
-          message == 'DEVICE_NOT_AUTHORIZED' ||
+      if (message == 'DEVICE_NOT_AUTHORIZED' ||
           message == 'DEVICE_NOT_AUTHORIZED_FOR_WRITE') {
-        throw HttpException(
-          'DEVICE_NOT_AUTHORIZED',
-          uri: uri,
-        );
+        throw HttpException('DEVICE_NOT_AUTHORIZED', uri: uri);
       }
       if (message.contains('No tiene permisos suficientes')) {
         throw HttpException(
@@ -359,6 +404,9 @@ class SyncApiClient {
           'Inicia sesion como Desktop (en la app de escritorio) y vuelve a intentar.',
           uri: uri,
         );
+      }
+      if (message.isNotEmpty) {
+        throw HttpException(message, uri: uri);
       }
     }
 
@@ -386,12 +434,7 @@ class SyncApiClient {
       final request = await _httpClient.postUrl(refreshUri);
       request.headers.contentType = ContentType.json;
       request.headers.set(HttpHeaders.acceptHeader, ContentType.json.mimeType);
-      request.write(
-        jsonEncode({
-          'token': token,
-          'clientType': 'desktop',
-        }),
-      );
+      request.write(jsonEncode({'token': token, 'clientType': 'desktop'}));
 
       final response = await request.close();
       final responseBody = await utf8.decoder.bind(response).join();
@@ -407,7 +450,9 @@ class SyncApiClient {
       }
 
       await SyncConfigRepository().saveJwtToken(newToken);
-      _log('[sync-auth] JWT refresh exitoso tras 401, se reintentara la solicitud.');
+      _log(
+        '[sync-auth] JWT refresh exitoso tras 401, se reintentara la solicitud.',
+      );
       return newToken;
     } catch (_) {
       return null;

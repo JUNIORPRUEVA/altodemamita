@@ -20,6 +20,7 @@ import {
 import { RequirePermissions } from 'src/shared/decorators/permissions.decorator';
 import { assertOperationalAccess } from 'src/shared/utils/panel-access.util';
 import { SyncDownloadDto } from '../../application/dto/sync-download.dto';
+import { SyncRestoreDownloadDto } from '../../application/dto/sync-restore-download.dto';
 import { SyncUploadDto } from '../../application/dto/sync-upload.dto';
 import { SyncService } from '../../application/services/sync.service';
 
@@ -131,5 +132,73 @@ export class SyncController {
       );
       throw error;
     }
+  }
+
+  @Post('restore/preview')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions(PERMISSIONS.syncManage)
+  async previewManualRestore(
+    @Body() dto: SyncDownloadDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Headers('x-device-id') headerDeviceId?: string,
+    @Req() req?: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    assertOperationalAccess(user, 'La restauracion manual de emergencia');
+    const effectiveDeviceId = (headerDeviceId ?? dto.device_id ?? '').trim();
+    const requestIp =
+      (req?.['ip'] as string | undefined)?.trim() ||
+      (req?.['ips'] as string[] | undefined)?.[0]?.trim() ||
+      '<unknown>';
+
+    this.logger.warn(
+      `[sync-restore-preview] request userId=${user.sub} x-device-id=${effectiveDeviceId || '<missing>'} ip=${requestIp}`,
+    );
+
+    const result = await this.syncService.previewManualRestoreExport({
+      adminUserId: user.sub,
+      deviceId: effectiveDeviceId,
+      requestIp,
+    });
+
+    this.logger.warn(
+      `[sync-restore-preview] response userId=${user.sub} x-device-id=${effectiveDeviceId || '<missing>'} counts=${JSON.stringify(result['counts'] ?? {})}`,
+    );
+
+    return result;
+  }
+
+  @Post('restore/download')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions(PERMISSIONS.syncManage)
+  async downloadManualRestore(
+    @Body() dto: SyncRestoreDownloadDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Headers('x-device-id') headerDeviceId?: string,
+    @Req() req?: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    assertOperationalAccess(user, 'La restauracion manual de emergencia');
+    const effectiveDeviceId = (headerDeviceId ?? dto.device_id ?? '').trim();
+    const requestIp =
+      (req?.['ip'] as string | undefined)?.trim() ||
+      (req?.['ips'] as string[] | undefined)?.[0]?.trim() ||
+      '<unknown>';
+
+    this.logger.warn(
+      `[sync-restore-download] request userId=${user.sub} x-device-id=${effectiveDeviceId || '<missing>'} ip=${requestIp}`,
+    );
+
+    const result = await this.syncService.downloadManualRestoreExport({
+      adminUserId: user.sub,
+      adminPassword: dto.admin_password,
+      confirmationText: dto.confirmation_text,
+      deviceId: effectiveDeviceId,
+      requestIp,
+    });
+
+    this.logger.warn(
+      `[sync-restore-download] response userId=${user.sub} x-device-id=${effectiveDeviceId || '<missing>'} counts=${JSON.stringify(result['counts'] ?? {})}`,
+    );
+
+    return result;
   }
 }

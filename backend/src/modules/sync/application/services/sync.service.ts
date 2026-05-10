@@ -1,6 +1,7 @@
 import { BadRequestException, HttpException, HttpStatus, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { InstallmentStatus, Prisma, RoleCode, SaleStatus, SyncStatus } from '@prisma/client';
+import * as bcrypt from 'bcrypt';
 
 import { PrismaService } from 'src/infrastructure/prisma/prisma.service';
 import { PERMISSIONS } from 'src/shared/constants/permissions.constants';
@@ -45,10 +46,28 @@ type SyncDownloadScope =
   | 'installments'
   | 'payments';
 
+type ManualRestoreScope =
+  | 'company_profiles'
+  | 'clients'
+  | 'sellers'
+  | 'products'
+  | 'sales'
+  | 'installments'
+  | 'payments';
+
 @Injectable()
 export class SyncService {
   private readonly jobs = new Map<string, SyncQueuedJob>();
   private readonly logger = new Logger(SyncService.name);
+  private static readonly manualRestoreScopes: ManualRestoreScope[] = [
+    'company_profiles',
+    'clients',
+    'sellers',
+    'products',
+    'sales',
+    'installments',
+    'payments',
+  ];
 
   constructor(
     private readonly prisma: PrismaService,
@@ -1701,6 +1720,131 @@ export class SyncService {
     };
   }
 
+  async previewManualRestoreExport(params: {
+    adminUserId: string;
+    deviceId: string;
+    requestIp?: string;
+  }) {
+    await this.assertManualRestoreAllowed(params.adminUserId);
+
+    const [companyProfilesCount, clientsCount, sellersCount, productsCount, salesCount, installmentsCount, paymentsCount] =
+      await this.prisma.$transaction([
+        this.prisma.companyProfile.count({}),
+        this.prisma.client.count({}),
+        this.prisma.seller.count({}),
+        this.prisma.product.count({}),
+        this.prisma.sale.count({}),
+        this.prisma.installment.count({}),
+        this.prisma.payment.count({}),
+      ]);
+
+    const counts = {
+      company_profiles: companyProfilesCount,
+      clients: clientsCount,
+      sellers: sellersCount,
+      products: productsCount,
+      sales: salesCount,
+      installments: installmentsCount,
+      payments: paymentsCount,
+    };
+
+    this.logger.warn(
+      `[sync-restore-preview] userId=${params.adminUserId} deviceId=${params.deviceId || '<missing>'} ip=${params.requestIp ?? '<unknown>'} counts=${JSON.stringify(counts)}`,
+    );
+
+    return {
+      server_time: new Date().toISOString(),
+      ordered_scopes: SyncService.manualRestoreScopes,
+      counts,
+      has_data: Object.values(counts).some((value) => value > 0),
+      mode: 'manual_emergency_restore',
+    };
+  }
+
+  async downloadManualRestoreExport(params: {
+    adminUserId: string;
+    adminPassword: string;
+    confirmationText: string;
+    deviceId: string;
+    requestIp?: string;
+  }) {
+    await this.assertManualRestoreAllowed(params.adminUserId);
+    await this.assertManualRestoreCredentials(
+      params.adminUserId,
+      params.adminPassword,
+      params.confirmationText,
+    );
+
+    const [companyProfiles, clients, sellers, products, sales, installments, payments] = await this.prisma.$transaction([
+      this.prisma.companyProfile.findMany({ orderBy: { updatedAt: 'asc' } }),
+      this.prisma.client.findMany({ orderBy: { updatedAt: 'asc' } }),
+      this.prisma.seller.findMany({ orderBy: { updatedAt: 'asc' } }),
+      this.prisma.product.findMany({ orderBy: { updatedAt: 'asc' } }),
+      this.prisma.sale.findMany({
+        include: {
+          client: { select: { syncId: true } },
+          product: { select: { syncId: true } },
+          seller: { select: { syncId: true } },
+        },
+        orderBy: { updatedAt: 'asc' },
+      }),
+      this.prisma.installment.findMany({
+        include: {
+          sale: { select: { syncId: true } },
+        },
+        orderBy: { updatedAt: 'asc' },
+      }),
+      this.prisma.payment.findMany({
+        include: {
+          sale: {
+            select: {
+              syncId: true,
+              client: { select: { syncId: true } },
+            },
+          },
+          installment: { select: { syncId: true } },
+        },
+        orderBy: { updatedAt: 'asc' },
+      }),
+    ]);
+
+    const records = {
+      company_profiles: companyProfiles.map((item) =>
+        this.serializeCompanyProfileRecord(item),
+      ),
+      clients: clients.map((item) => this.serializeClientRecord(item)),
+      sellers: sellers.map((item) => this.serializeSellerRecord(item)),
+      products: products.map((item) => this.serializeProductRecord(item)),
+      sales: sales.map((item) => this.serializeSaleRecord(item)),
+      installments: installments.map((item) =>
+        this.serializeInstallmentRecord(item),
+      ),
+      payments: payments.map((item) => this.serializePaymentRecord(item)),
+    };
+
+    const counts = {
+      company_profiles: records.company_profiles.length,
+      clients: records.clients.length,
+      sellers: records.sellers.length,
+      products: records.products.length,
+      sales: records.sales.length,
+      installments: records.installments.length,
+      payments: records.payments.length,
+    };
+
+    this.logger.warn(
+      `[sync-restore-download] exported_by=${params.adminUserId} deviceId=${params.deviceId || '<missing>'} ip=${params.requestIp ?? '<unknown>'} counts=${JSON.stringify(counts)}`,
+    );
+
+    return {
+      server_time: new Date().toISOString(),
+      mode: 'manual_emergency_restore',
+      ordered_scopes: SyncService.manualRestoreScopes,
+      counts,
+      records,
+    };
+  }
+
   private validateBatch(records: SyncRecordCollections): string[] {
     const errors: string[] = [];
     const seenRecordSyncIds = new Map<string, string>();
@@ -1825,6 +1969,155 @@ export class SyncService {
     );
 
     return errors;
+  }
+
+  private async assertManualRestoreAllowed(adminUserId: string): Promise<void> {
+    if (process.env['ALLOW_MANUAL_CLOUD_RESTORE'] !== 'true') {
+      throw new HttpException(
+        'RESTORE_FROM_CLOUD_DISABLED',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: adminUserId },
+      include: {
+        userRoles: {
+          where: { deletedAt: null },
+          include: { role: true },
+        },
+      },
+    });
+
+    if (!user || user.deletedAt != null || user.isActive !== true) {
+      throw new HttpException('USER_NOT_ACTIVE', HttpStatus.FORBIDDEN);
+    }
+
+    const roleCodes = user.userRoles
+      .map((item) => item.role.code)
+      .filter((code) => code != null);
+    const adminRoles = new Set<RoleCode>([RoleCode.SUPER_ADMIN, RoleCode.ADMIN]);
+    const isAdmin = roleCodes.some((code) => adminRoles.has(code));
+
+    if (!isAdmin) {
+      throw new HttpException('RESTORE_ADMIN_REQUIRED', HttpStatus.FORBIDDEN);
+    }
+  }
+
+  private async assertManualRestoreCredentials(
+    adminUserId: string,
+    adminPassword: string,
+    confirmationText: string,
+  ): Promise<void> {
+    const normalizedPassword = adminPassword.trim();
+    if (normalizedPassword.length === 0) {
+      throw new BadRequestException('ADMIN_PASSWORD_REQUIRED');
+    }
+
+    if (confirmationText.trim().toUpperCase() != 'RESTAURAR') {
+      throw new BadRequestException('RESTORE_CONFIRMATION_TEXT_INVALID');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: adminUserId },
+      select: {
+        passwordHash: true,
+      },
+    });
+    if (!user) {
+      throw new HttpException('USER_NOT_FOUND', HttpStatus.FORBIDDEN);
+    }
+
+    const passwordOk = await this.verifyStoredPassword(
+      normalizedPassword,
+      user.passwordHash,
+    );
+    if (!passwordOk) {
+      throw new HttpException('ADMIN_PASSWORD_INVALID', HttpStatus.FORBIDDEN);
+    }
+  }
+
+  private async verifyStoredPassword(
+    password: string,
+    storedHash: string,
+  ): Promise<boolean> {
+    const normalizedHash = storedHash.trim();
+    if (!normalizedHash) {
+      return false;
+    }
+
+    if (normalizedHash.startsWith('$2')) {
+      return bcrypt.compare(password, normalizedHash);
+    }
+
+    if (normalizedHash.startsWith('v2$')) {
+      const parts = normalizedHash.split('$');
+      if (parts.length !== 4) {
+        return false;
+      }
+
+      const iterations = Number(parts[1]);
+      if (!Number.isFinite(iterations) || iterations <= 0) {
+        return false;
+      }
+
+      const expected = this.buildLegacyV2PasswordHash(
+        password,
+        parts[2],
+        iterations,
+      );
+      return this.safeEquals(expected, normalizedHash);
+    }
+
+    const separatorIndex = normalizedHash.indexOf(':');
+    if (separatorIndex <= 0 || separatorIndex >= normalizedHash.length - 1) {
+      return false;
+    }
+
+    const salt = normalizedHash.slice(0, separatorIndex);
+    const digest = createHash('sha256')
+      .update(`${salt}::${password}`)
+      .digest('hex');
+    return this.safeEquals(`${salt}:${digest}`, normalizedHash);
+  }
+
+  private buildLegacyV2PasswordHash(
+    password: string,
+    salt: string,
+    iterations: number,
+  ): string {
+    let bytes = Buffer.from(`${salt}::${password}`, 'utf8');
+    const passwordBytes = Buffer.from(password, 'utf8');
+    const saltBytes = Buffer.from(salt, 'utf8');
+
+    for (let round = 0; round < iterations; round += 1) {
+      bytes = createHash('sha256')
+        .update(
+          Buffer.concat([
+            bytes,
+            passwordBytes,
+            saltBytes,
+            Buffer.from([
+              round & 0xff,
+              (round >> 8) & 0xff,
+              (round >> 16) & 0xff,
+              (round >> 24) & 0xff,
+            ]),
+          ]),
+        )
+        .digest();
+    }
+
+    return `v2$${iterations}$${salt}$${bytes.toString('hex')}`;
+  }
+
+  private safeEquals(left: string, right: string): boolean {
+    const leftBuffer = Buffer.from(left);
+    const rightBuffer = Buffer.from(right);
+    if (leftBuffer.length !== rightBuffer.length) {
+      return false;
+    }
+    return timingSafeEqual(leftBuffer, rightBuffer);
   }
 
   private normalizeRecords(records?: SyncRecordsDto): SyncRecordCollections {
@@ -3008,6 +3301,29 @@ export class SyncService {
       updated_at: permission.updatedAt.toISOString(),
       deleted_at: permission.deletedAt?.toISOString(),
       sync_status: permission.syncStatus,
+    };
+  }
+
+  private serializeCompanyProfileRecord(profile: {
+    id: string;
+    name: string;
+    phone: string | null;
+    address: string | null;
+    logoBase64: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+  }) {
+    return {
+      id: profile.id,
+      sync_id: profile.id,
+      name: profile.name,
+      phone: profile.phone,
+      address: profile.address,
+      logo_base64: profile.logoBase64,
+      created_at: profile.createdAt.toISOString(),
+      updated_at: profile.updatedAt.toISOString(),
+      deleted_at: null,
+      sync_status: SyncStatus.synced,
     };
   }
 

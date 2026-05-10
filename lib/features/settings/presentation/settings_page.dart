@@ -19,6 +19,7 @@ import '../../../shared/widgets/dangerous_action_confirm_dialog.dart';
 import '../../../shared/widgets/device_status_panel.dart';
 import '../../../services/sync/sync_conflict_service.dart';
 import '../../../services/sync/sync_config_repository.dart';
+import '../../../services/sync/emergency_cloud_restore_service.dart';
 import '../../backup/data/backup_config_repository.dart';
 import '../../backup/presentation/backup_controller.dart';
 import '../../backup/presentation/backup_page.dart' as backup_feature;
@@ -40,6 +41,8 @@ class SettingsPage extends StatefulWidget {
     this.onResetLocalDeviceIdentity,
     this.onResetBusinessData,
     this.onResetLocalOnly,
+    this.onPreviewEmergencyCloudRestore,
+    this.onRunEmergencyCloudRestore,
   });
 
   final VoidCallback? onCompanyInfoChanged;
@@ -48,6 +51,13 @@ class SettingsPage extends StatefulWidget {
   final Future<String> Function()? onResetLocalDeviceIdentity;
   final Future<String> Function()? onResetBusinessData;
   final Future<String> Function()? onResetLocalOnly;
+  final Future<EmergencyRestorePreview> Function()?
+  onPreviewEmergencyCloudRestore;
+  final Future<EmergencyRestoreResult> Function({
+    required String adminPassword,
+    required String confirmationText,
+  })?
+  onRunEmergencyCloudRestore;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -58,6 +68,7 @@ class _SettingsPageState extends State<SettingsPage> {
   late final BackupService _backupService;
   late final BackupController _backupController;
   bool _isRunningSyncRecovery = false;
+  bool _isRunningEmergencyRestore = false;
 
   @override
   void initState() {
@@ -278,6 +289,15 @@ class _SettingsPageState extends State<SettingsPage> {
                         },
                       ),
                     ),
+                    if (auth.isAdmin)
+                      _SettingCard(
+                        width: compact ? constraints.maxWidth : 456,
+                        icon: Icons.cloud_download_rounded,
+                        title: 'Restauracion de emergencia',
+                        description:
+                            'Modo rescate nube -> PC (solo admin, con backup)',
+                        onTap: _openEmergencyRestoreDialog,
+                      ),
                   ],
                 );
               },
@@ -310,9 +330,7 @@ class _SettingsPageState extends State<SettingsPage> {
       if (!mounted) return;
       messenger?.showSnackBar(
         SnackBar(
-          content: Text(
-            'No se pudo actualizar el estado de esta PC: $error',
-          ),
+          content: Text('No se pudo actualizar el estado de esta PC: $error'),
           duration: const Duration(seconds: 8),
         ),
       );
@@ -408,6 +426,264 @@ class _SettingsPageState extends State<SettingsPage> {
       }
     }
   }
+
+  Future<void> _openEmergencyRestoreDialog() async {
+    final previewCallback = widget.onPreviewEmergencyCloudRestore;
+    final restoreCallback = widget.onRunEmergencyCloudRestore;
+    if (previewCallback == null || restoreCallback == null) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'No hay servicio de restauracion de emergencia disponible.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final allowed = await _ensureSettingsAccess(
+      scope: AdminOverrideScope.settingsSync,
+      title: 'Autorizacion administrativa requerida',
+      message:
+          'Necesitas la clave de un administrador para usar restauracion de emergencia desde la nube.',
+    );
+    if (!allowed || !mounted) {
+      return;
+    }
+
+    if (_isRunningEmergencyRestore) {
+      return;
+    }
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: !_isRunningEmergencyRestore,
+      builder: (dialogContext) {
+        final passwordController = TextEditingController();
+        final confirmationController = TextEditingController();
+        EmergencyRestorePreview? preview;
+        bool loadingPreview = false;
+        bool runningRestore = false;
+
+        Future<void> runPreview(StateSetter setStateDialog) async {
+          setStateDialog(() => loadingPreview = true);
+          try {
+            final result = await previewCallback();
+            setStateDialog(() => preview = result);
+          } catch (error) {
+            if (!mounted) return;
+            ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+              SnackBar(content: Text('No se pudo previsualizar: $error')),
+            );
+          } finally {
+            setStateDialog(() => loadingPreview = false);
+          }
+        }
+
+        Future<void> runRestore(StateSetter setStateDialog) async {
+          final password = passwordController.text.trim();
+          final confirmation = confirmationController.text.trim();
+          if (password.isEmpty) {
+            ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+              const SnackBar(
+                content: Text('Ingresa la contrasena de administrador.'),
+              ),
+            );
+            return;
+          }
+          if (confirmation.toUpperCase() != 'RESTAURAR') {
+            ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+              const SnackBar(
+                content: Text('Debe escribir RESTAURAR para continuar.'),
+              ),
+            );
+            return;
+          }
+          if (preview != null && preview!.hasLocalCommercialData) {
+            ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Esta PC ya tiene datos comerciales locales. Por seguridad, primero haga backup o use una PC limpia.',
+                ),
+              ),
+            );
+            return;
+          }
+
+          setState(() => _isRunningEmergencyRestore = true);
+          setStateDialog(() => runningRestore = true);
+          try {
+            final result = await restoreCallback(
+              adminPassword: password,
+              confirmationText: confirmation,
+            );
+            if (!mounted) {
+              return;
+            }
+            final summary = [
+              'Restauracion completada.',
+              'Backup: ${result.backupPath}',
+              'Clientes=${result.localCountsAfter['clients'] ?? 0}, '
+                  'Vendedores=${result.localCountsAfter['sellers'] ?? 0}, '
+                  'Solares=${result.localCountsAfter['products'] ?? 0}, '
+                  'Ventas=${result.localCountsAfter['sales'] ?? 0}, '
+                  'Cuotas=${result.localCountsAfter['installments'] ?? 0}, '
+                  'Pagos=${result.localCountsAfter['payments'] ?? 0}.',
+            ].join(' ');
+            ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+              SnackBar(
+                content: Text(summary),
+                duration: const Duration(seconds: 8),
+              ),
+            );
+            if (Navigator.of(dialogContext).canPop()) {
+              Navigator.of(dialogContext).pop();
+            }
+          } catch (error) {
+            if (!mounted) return;
+            ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+              SnackBar(content: Text('No se pudo restaurar: $error')),
+            );
+          } finally {
+            if (mounted) {
+              setState(() => _isRunningEmergencyRestore = false);
+            }
+            setStateDialog(() => runningRestore = false);
+          }
+        }
+
+        return StatefulBuilder(
+          builder: (context, setStateDialog) {
+            final local = preview?.localCounts ?? const <String, int>{};
+            final cloud = preview?.cloudCounts ?? const <String, int>{};
+
+            Widget summaryLine(String label, int localValue, int cloudValue) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  '$label · local=$localValue / nube=$cloudValue',
+                  style: const TextStyle(fontSize: 12.5),
+                ),
+              );
+            }
+
+            return AlertDialog(
+              title: const Text('Restauracion de emergencia'),
+              content: SizedBox(
+                width: 560,
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        'Esta accion descargara los datos comerciales desde la nube y los guardara en esta PC. Usala solo si la PC anterior se perdio, se dano o estas recuperando una instalacion nueva.',
+                      ),
+                      const SizedBox(height: 12),
+                      if (preview != null) ...[
+                        summaryLine(
+                          'Clientes',
+                          local['clients'] ?? 0,
+                          cloud['clients'] ?? 0,
+                        ),
+                        summaryLine(
+                          'Vendedores',
+                          local['sellers'] ?? 0,
+                          cloud['sellers'] ?? 0,
+                        ),
+                        summaryLine(
+                          'Solares',
+                          local['products'] ?? 0,
+                          cloud['products'] ?? 0,
+                        ),
+                        summaryLine(
+                          'Ventas',
+                          local['sales'] ?? 0,
+                          cloud['sales'] ?? 0,
+                        ),
+                        summaryLine(
+                          'Cuotas',
+                          local['installments'] ?? 0,
+                          cloud['installments'] ?? 0,
+                        ),
+                        summaryLine(
+                          'Pagos',
+                          local['payments'] ?? 0,
+                          cloud['payments'] ?? 0,
+                        ),
+                        if (preview!.hasLocalCommercialData)
+                          const Padding(
+                            padding: EdgeInsets.only(top: 8),
+                            child: Text(
+                              'Esta PC ya tiene datos comerciales locales. Por seguridad, primero haga backup o use una PC limpia.',
+                              style: TextStyle(
+                                color: Color(0xFFB42318),
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                      ],
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: passwordController,
+                        obscureText: true,
+                        enabled: !runningRestore,
+                        decoration: const InputDecoration(
+                          labelText: 'Contrasena de administrador',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: confirmationController,
+                        enabled: !runningRestore,
+                        decoration: const InputDecoration(
+                          labelText: 'Escriba RESTAURAR para confirmar',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: runningRestore
+                      ? null
+                      : () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cerrar'),
+                ),
+                FilledButton.tonal(
+                  onPressed: (runningRestore || loadingPreview)
+                      ? null
+                      : () => runPreview(setStateDialog),
+                  child: loadingPreview
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Previsualizar restore'),
+                ),
+                FilledButton(
+                  onPressed: runningRestore
+                      ? null
+                      : () => runRestore(setStateDialog),
+                  child: runningRestore
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Restaurar desde nube'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
 }
 
 class _SettingCard extends StatelessWidget {
@@ -501,14 +777,18 @@ class _SyncStatusBanner extends StatelessWidget {
         }
 
         final isError = error != null;
-        final bgColor =
-            isError ? const Color(0xFFFFF2F0) : const Color(0xFFFFF9E6);
-        final borderColor =
-            isError ? const Color(0xFFF4C7C3) : const Color(0xFFFFE096);
-        final fgColor =
-            isError ? const Color(0xFFB42318) : const Color(0xFF8B6914);
-        final textColor =
-            isError ? const Color(0xFF7A271A) : const Color(0xFF5C4A00);
+        final bgColor = isError
+            ? const Color(0xFFFFF2F0)
+            : const Color(0xFFFFF9E6);
+        final borderColor = isError
+            ? const Color(0xFFF4C7C3)
+            : const Color(0xFFFFE096);
+        final fgColor = isError
+            ? const Color(0xFFB42318)
+            : const Color(0xFF8B6914);
+        final textColor = isError
+            ? const Color(0xFF7A271A)
+            : const Color(0xFF5C4A00);
 
         return Container(
           width: double.infinity,
@@ -547,10 +827,7 @@ class _SyncStatusBanner extends StatelessWidget {
               ),
               if (error != null) ...[
                 const SizedBox(height: 5),
-                Text(
-                  error,
-                  style: TextStyle(fontSize: 12, color: textColor),
-                ),
+                Text(error, style: TextStyle(fontSize: 12, color: textColor)),
               ],
               if (pending > 0 && error == null) ...[
                 const SizedBox(height: 4),
@@ -876,7 +1153,8 @@ class _SyncTechnicalDiagnosticsPanel extends StatelessWidget {
           stream: SyncQueueService.instance.stateStream,
           initialData: SyncQueueService.instance.state,
           builder: (context, queueSnapshot) {
-            final queueState = queueSnapshot.data ?? SyncQueueService.instance.state;
+            final queueState =
+                queueSnapshot.data ?? SyncQueueService.instance.state;
             return FutureBuilder<_SyncDiagnosticsSnapshot>(
               future: _loadSnapshot(queueState: queueState),
               builder: (context, diagSnapshot) {
@@ -907,10 +1185,7 @@ class _SyncTechnicalDiagnosticsPanel extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    _SyncDiagLine(
-                      label: 'buildMode',
-                      value: data.buildMode,
-                    ),
+                    _SyncDiagLine(label: 'buildMode', value: data.buildMode),
                     _SyncDiagLine(
                       label: 'PRODUCTION_MODE',
                       value: data.productionMode ? 'true' : 'false',
@@ -935,10 +1210,7 @@ class _SyncTechnicalDiagnosticsPanel extends StatelessWidget {
                       label: 'Cloud pull permitido',
                       value: data.cloudPullAllowed ? 'Si' : 'No',
                     ),
-                    _SyncDiagLine(
-                      label: 'API actual',
-                      value: data.apiBaseUrl,
-                    ),
+                    _SyncDiagLine(label: 'API actual', value: data.apiBaseUrl),
                     _SyncDiagLine(
                       label: 'database path local',
                       value: data.localDatabasePath,
@@ -994,8 +1266,7 @@ class _SyncTechnicalDiagnosticsPanel extends StatelessWidget {
                     ),
                     _SyncDiagLine(
                       label: 'Ultimo error',
-                      value:
-                          (queueState.lastError?.trim().isNotEmpty ?? false)
+                      value: (queueState.lastError?.trim().isNotEmpty ?? false)
                           ? queueState.lastError!.trim()
                           : (runtime.lastError?.trim().isNotEmpty ?? false)
                           ? runtime.lastError!.trim()
@@ -1071,7 +1342,9 @@ class _SyncTechnicalDiagnosticsPanel extends StatelessWidget {
     }
 
     try {
-      final payloadRaw = utf8.decode(base64Url.decode(base64Url.normalize(parts[1])));
+      final payloadRaw = utf8.decode(
+        base64Url.decode(base64Url.normalize(parts[1])),
+      );
       final payload = jsonDecode(payloadRaw);
       if (payload is! Map) {
         return 'Presente';

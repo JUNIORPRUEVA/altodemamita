@@ -43,6 +43,7 @@ import '../../services/realtime_sync_service.dart';
 import '../../services/cloud_reset_service.dart';
 import '../../services/sync/sync_conflict_service.dart';
 import '../../services/sync/sync_config_repository.dart';
+import '../../services/sync/emergency_cloud_restore_service.dart';
 import '../../services/sync/sync_manager.dart';
 import '../../services/sync/sync_queue_service.dart';
 import '../../services/sync/sync_service.dart';
@@ -150,6 +151,8 @@ class _AppShellState extends State<AppShell> {
     syncQueueService: _syncQueueService,
     onCloudSessionExpired: _handleCloudSessionExpired,
   );
+  late final EmergencyCloudRestoreService _emergencyCloudRestoreService =
+      EmergencyCloudRestoreService(syncService: _syncService);
   late final RealtimeSyncService _realtimeSyncService = RealtimeSyncService(
     syncService: _syncService,
   );
@@ -642,6 +645,9 @@ class _AppShellState extends State<AppShell> {
           onResetLocalDeviceIdentity: _resetLocalDeviceIdentityFromSettings,
           onResetBusinessData: _resetBusinessDataFromSettings,
           onResetLocalOnly: _resetLocalOnlyFromSettings,
+          onPreviewEmergencyCloudRestore:
+              _previewEmergencyCloudRestoreFromSettings,
+          onRunEmergencyCloudRestore: _runEmergencyCloudRestoreFromSettings,
         );
     }
   }
@@ -696,7 +702,8 @@ class _AppShellState extends State<AppShell> {
       return 'Operacion bloqueada: disponible solo en modo developer.';
     }
 
-    final recoverySummary = await _syncService.recoverAfterDeviceAuthorization();
+    final recoverySummary = await _syncService
+        .recoverAfterDeviceAuthorization();
     final downloaded = await _syncService.forceFullDownloadFromCloud();
     return '$recoverySummary Descarga forzada desde la nube: $downloaded registros.';
   }
@@ -744,6 +751,41 @@ class _AppShellState extends State<AppShell> {
       );
     } finally {
       cloudResetService.dispose();
+    }
+  }
+
+  Future<EmergencyRestorePreview> _previewEmergencyCloudRestoreFromSettings() {
+    return _emergencyCloudRestoreService.preview();
+  }
+
+  Future<EmergencyRestoreResult> _runEmergencyCloudRestoreFromSettings({
+    required String adminPassword,
+    required String confirmationText,
+  }) async {
+    final auth = context.read<AuthProvider>();
+    final user = auth.currentUser;
+    if (user == null || !user.isAdmin) {
+      throw Exception(
+        'Solo un administrador puede ejecutar restauracion de emergencia.',
+      );
+    }
+
+    final settings = await SyncConfigRepository().loadSettings();
+    final installationId = settings.deviceId;
+
+    await _syncManager.stop(
+      reason: 'Restauracion manual de emergencia en progreso.',
+    );
+    try {
+      return await _emergencyCloudRestoreService.restoreOnCleanPc(
+        adminPassword: adminPassword,
+        confirmationText: confirmationText,
+        adminUser: user.email,
+        deviceId: settings.deviceId,
+        installationId: installationId,
+      );
+    } finally {
+      await _syncManager.start(runInitialSync: false);
     }
   }
 
@@ -2170,24 +2212,18 @@ class _DeviceWriteBlockedBanner extends StatelessWidget {
     final reason = systemConfig.deviceWriteReason.trim();
     final message = reason.isNotEmpty
         ? reason
-      : 'Esta PC no está autorizada para sincronizar. Actívela desde Configuración.';
+        : 'Esta PC no está autorizada para sincronizar. Actívela desde Configuración.';
 
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: const BoxDecoration(
         color: Color(0xFFFFF3CD),
-        border: Border(
-          bottom: BorderSide(color: Color(0xFFFFCF66), width: 1),
-        ),
+        border: Border(bottom: BorderSide(color: Color(0xFFFFCF66), width: 1)),
       ),
       child: Row(
         children: [
-          const Icon(
-            Icons.lock_outlined,
-            size: 16,
-            color: Color(0xFF92600A),
-          ),
+          const Icon(Icons.lock_outlined, size: 16, color: Color(0xFF92600A)),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
@@ -2205,7 +2241,10 @@ class _DeviceWriteBlockedBanner extends StatelessWidget {
               onPressed: onGoToSettings,
               style: TextButton.styleFrom(
                 foregroundColor: const Color(0xFF92600A),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 minimumSize: Size.zero,
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 textStyle: const TextStyle(
