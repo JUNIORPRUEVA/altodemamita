@@ -150,6 +150,12 @@ class SyncQueueService {
   Stream<SyncQueueState> get stateStream => _stateController.stream;
   SyncQueueState get state => _state;
 
+  bool get isWorkerActive =>
+      !_isDisposed &&
+      !manualCloudSyncOnly &&
+      _retryTimer != null &&
+      _connectivitySubscription != null;
+
   void _log(String message) {
     developer.log(message, name: 'SistemaSolares.SyncQueue');
   }

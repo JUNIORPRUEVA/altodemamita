@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -838,10 +839,17 @@ class _SyncTechnicalDiagnosticsPanel extends StatelessWidget {
         ? installationRows.first['valor']!.toString().trim()
         : settings.deviceId;
 
+    final databasePath = await AppDatabase.instance.databasePath;
+
     return _SyncDiagnosticsSnapshot(
+      buildMode: _resolveBuildModeLabel(),
+      productionMode: isProductionMode,
+      manualCloudSyncOnly: manualCloudSyncOnly,
       authBootstrapAllowed: allowAuthBootstrap,
       cloudPullAllowed: allowCloudPull,
       apiBaseUrl: settings.normalizedBaseUrl,
+      localDatabasePath: databasePath,
+      syncWorkerActive: SyncQueueService.instance.isWorkerActive,
       runtimeState: runtimeState,
       usersLocalCount: usersCount,
       rolesLocalCount: rolesCount,
@@ -900,6 +908,26 @@ class _SyncTechnicalDiagnosticsPanel extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     _SyncDiagLine(
+                      label: 'buildMode',
+                      value: data.buildMode,
+                    ),
+                    _SyncDiagLine(
+                      label: 'PRODUCTION_MODE',
+                      value: data.productionMode ? 'true' : 'false',
+                    ),
+                    _SyncDiagLine(
+                      label: 'MANUAL_CLOUD_SYNC_ONLY',
+                      value: data.manualCloudSyncOnly ? 'true' : 'false',
+                    ),
+                    _SyncDiagLine(
+                      label: 'ALLOW_CLOUD_PULL',
+                      value: data.cloudPullAllowed ? 'true' : 'false',
+                    ),
+                    _SyncDiagLine(
+                      label: 'ALLOW_AUTH_BOOTSTRAP',
+                      value: data.authBootstrapAllowed ? 'true' : 'false',
+                    ),
+                    _SyncDiagLine(
                       label: 'Auth bootstrap permitido',
                       value: data.authBootstrapAllowed ? 'Si' : 'No',
                     ),
@@ -910,6 +938,14 @@ class _SyncTechnicalDiagnosticsPanel extends StatelessWidget {
                     _SyncDiagLine(
                       label: 'API actual',
                       value: data.apiBaseUrl,
+                    ),
+                    _SyncDiagLine(
+                      label: 'database path local',
+                      value: data.localDatabasePath,
+                    ),
+                    _SyncDiagLine(
+                      label: 'sync worker activo',
+                      value: data.syncWorkerActive ? 'Si' : 'No',
                     ),
                     _SyncDiagLine(label: 'Modo sync', value: syncMode),
                     _SyncDiagLine(
@@ -1013,6 +1049,16 @@ class _SyncTechnicalDiagnosticsPanel extends StatelessWidget {
     return '$normalizedStatus ($normalizedAt)';
   }
 
+  String _resolveBuildModeLabel() {
+    if (kReleaseMode) {
+      return 'release';
+    }
+    if (kProfileMode) {
+      return 'profile';
+    }
+    return 'debug';
+  }
+
   String _resolveJwtStatus(String jwtToken) {
     final normalized = jwtToken.trim();
     if (normalized.isEmpty) {
@@ -1082,9 +1128,14 @@ class _SyncDiagLine extends StatelessWidget {
 
 class _SyncDiagnosticsSnapshot {
   const _SyncDiagnosticsSnapshot({
+    required this.buildMode,
+    required this.productionMode,
+    required this.manualCloudSyncOnly,
     required this.authBootstrapAllowed,
     required this.cloudPullAllowed,
     required this.apiBaseUrl,
+    required this.localDatabasePath,
+    required this.syncWorkerActive,
     required this.runtimeState,
     required this.usersLocalCount,
     required this.rolesLocalCount,
@@ -1097,9 +1148,14 @@ class _SyncDiagnosticsSnapshot {
     required this.unresolvedConflictCount,
   });
 
+  final String buildMode;
+  final bool productionMode;
+  final bool manualCloudSyncOnly;
   final bool authBootstrapAllowed;
   final bool cloudPullAllowed;
   final String apiBaseUrl;
+  final String localDatabasePath;
+  final bool syncWorkerActive;
   final SyncRuntimeState runtimeState;
   final int usersLocalCount;
   final int rolesLocalCount;
