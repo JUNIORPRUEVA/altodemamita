@@ -133,9 +133,11 @@ class SaleAmortizationPdfBuilder {
         : detail.installments.first;
     final estimatedInstallment =
         firstInstallment?.totalAmount ??
-        (sale.installmentCount > 0
-            ? sale.financedBalance / sale.installmentCount
-            : 0.0);
+      SaleCalculator.calculateEstimatedInstallmentAmount(
+        financedBalance: sale.financedBalance,
+        monthlyInterest: sale.monthlyInterest,
+        installmentCount: sale.installmentCount,
+      );
 
     return FinancialPdfTheme.card(
       title: 'Resumen de la venta',

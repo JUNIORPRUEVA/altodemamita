@@ -2,57 +2,59 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sistema_solares/features/sales/domain/sale_calculator.dart';
 
 void main() {
-  test('genera cuota fija con interes simple sobre el capital original', () {
-    const financedBalance = 450000.0;
+  test('calcula cuota PMT y amortizacion sobre saldo insoluto (caso Excel)', () {
+    const financedBalance = 562500.0;
+    const monthlyInterest = 1.0;
+    const installmentCount = 120;
+
+    final estimatedInstallment = SaleCalculator.calculateEstimatedInstallmentAmount(
+      financedBalance: financedBalance,
+      monthlyInterest: monthlyInterest,
+      installmentCount: installmentCount,
+    );
+
     final schedule = SaleCalculator.buildInstallmentSchedule(
       saleId: 1,
       saleDate: DateTime(2026, 3, 31),
       financedBalance: financedBalance,
-      monthlyInterest: 1,
-      installmentCount: 120,
+      monthlyInterest: monthlyInterest,
+      installmentCount: installmentCount,
       createdAt: DateTime(2026, 3, 31),
     );
 
+    expect(estimatedInstallment, closeTo(8070.240847645539, 0.000001));
     expect(schedule, hasLength(120));
 
-    final fixedInstallmentAmount = schedule.first.totalAmount;
-    for (final installment in schedule) {
-      expect(installment.totalAmount, fixedInstallmentAmount);
-      expect(installment.interestAmount, 4500);
-    }
+    final first = schedule.first;
+    expect(first.totalAmount, 8070.24);
+    expect(first.openingBalance, 562500);
+    expect(first.interestAmount, 5625);
+    expect(first.principalAmount, 2445.24);
+    expect(first.endingBalance, 560054.76);
 
-    for (var index = 1; index < schedule.length; index++) {
-      expect(
-        schedule[index].principalAmount,
-        schedule[index - 1].principalAmount,
-      );
-      expect(
-        schedule[index].openingBalance,
-        schedule[index - 1].endingBalance,
-      );
-    }
+    final last = schedule.last;
+    expect(last.endingBalance, 0);
+    expect(last.totalAmount, greaterThan(0));
 
-    final principalSum = schedule.fold<double>(
+    final totalPrincipal = schedule.fold<double>(
       0,
       (sum, installment) => sum + installment.principalAmount,
     );
-    final interestSum = schedule.fold<double>(
-      0,
-      (sum, installment) => sum + installment.interestAmount,
-    );
-    final totalPayments = schedule.fold<double>(
+    expect(totalPrincipal, closeTo(financedBalance, 0.01));
+
+    final totalAmount = schedule.fold<double>(
       0,
       (sum, installment) => sum + installment.totalAmount,
     );
-
-    expect(fixedInstallmentAmount, 8250);
-    expect(principalSum, closeTo(financedBalance, 0.0001));
-    expect(interestSum, closeTo(540000, 0.0001));
-    expect(totalPayments, closeTo(990000, 0.0001));
-    expect(schedule.last.endingBalance, 0);
+    final totalInterest = schedule.fold<double>(
+      0,
+      (sum, installment) => sum + installment.interestAmount,
+    );
+    expect(totalAmount, closeTo(totalPrincipal + totalInterest, 0.01));
+    expect(schedule.every((item) => item.endingBalance >= 0), isTrue);
   });
 
-  test('puede recalcular con cuota fija simple y menos cuotas futuras', () {
+  test('recalculo con pago fijo mantiene interes sobre saldo insoluto', () {
     const financedBalance = 450000.0;
     const monthlyInterest = 1.0;
     const installmentCount = 120;
@@ -80,28 +82,16 @@ void main() {
 
     expect(schedule, isNotEmpty);
     expect(schedule.length, lessThan(dueDates.length));
-
-    for (var index = 0; index < schedule.length; index++) {
-      final installment = schedule[index];
-      if (index < schedule.length - 1) {
-        expect(installment.totalAmount, fixedPayment);
-      } else {
-        expect(installment.totalAmount, lessThanOrEqualTo(fixedPayment));
-      }
-
-      if (index == 0) {
-        continue;
-      }
-
-      final previousInstallment = schedule[index - 1];
-      expect(installment.openingBalance, previousInstallment.endingBalance);
-      expect(installment.interestAmount, previousInstallment.interestAmount);
-    }
-
+    expect(schedule.first.interestAmount, 3000);
+    expect(
+      schedule[1].interestAmount,
+      lessThan(schedule.first.interestAmount),
+    );
     expect(schedule.last.endingBalance, 0);
+    expect(schedule.every((item) => item.totalAmount >= 0), isTrue);
   });
 
-  test('calcula resumen contractual con interes fijo simple', () {
+  test('calcula resumen contractual con PMT (sin interes fijo simple)', () {
     expect(
       SaleCalculator.calculateFixedMonthlyInterestAmount(
         financedBalance: 450000,
@@ -115,7 +105,7 @@ void main() {
         monthlyInterest: 1,
         installmentCount: 120,
       ),
-      540000,
+      closeTo(324743.12, 0.01),
     );
     expect(
       SaleCalculator.calculateTotalFinancingAmount(
@@ -123,7 +113,7 @@ void main() {
         monthlyInterest: 1,
         installmentCount: 120,
       ),
-      990000,
+      closeTo(774743.12, 0.01),
     );
   });
 
@@ -157,5 +147,25 @@ void main() {
       closeTo(100000, 0.0001),
     );
     expect(schedule.last.endingBalance, 0);
+    expect(schedule.every((item) => item.endingBalance >= 0), isTrue);
+  });
+
+  test('monto pequeno no deja residuos ni saldos negativos', () {
+    final schedule = SaleCalculator.buildInstallmentSchedule(
+      saleId: 99,
+      saleDate: DateTime(2026, 1, 1),
+      financedBalance: 100,
+      monthlyInterest: 1,
+      installmentCount: 12,
+      createdAt: DateTime(2026, 1, 1),
+    );
+
+    expect(schedule, hasLength(12));
+    expect(schedule.last.endingBalance, 0);
+    expect(schedule.every((item) => item.endingBalance >= 0), isTrue);
+    expect(
+      schedule.fold<double>(0, (sum, item) => sum + item.principalAmount),
+      closeTo(100, 0.01),
+    );
   });
 }

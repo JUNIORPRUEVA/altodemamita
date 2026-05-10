@@ -21,6 +21,8 @@ interface InstallmentDraft {
   installmentNumber: number;
   dueDate: Date;
   amount: number;
+  openingBalance: number;
+  endingBalance: number;
   principalAmount: number;
   interestAmount: number;
   status: InstallmentStatus;
@@ -52,35 +54,20 @@ export class LoanAccountingService {
       interestRate: input.interestRate,
       installmentCount: input.termMonths,
     });
-    const fixedInterestAmount = this.calculateFixedMonthlyInterest({
-      financedAmount,
-      interestRate: input.interestRate,
-    });
+    const rateDecimal = this.normalizeRate(input.interestRate);
     const paymentCents = this.toCents(paymentAmount);
     let balanceCents = this.toCents(financedAmount);
-    let remainingPlanCents = this.toCents(
-      this.calculateTotalFinancingAmount({
-        financedAmount,
-        interestRate: input.interestRate,
-        installmentCount: input.termMonths,
-      }),
-    );
 
     for (let index = 1; index <= input.termMonths; index += 1) {
       const openingBalanceCents = balanceCents;
-      if (openingBalanceCents <= 0 || remainingPlanCents <= 0) {
+      if (openingBalanceCents <= 0) {
         break;
       }
 
       const isLastInstallment = index === input.termMonths;
-      let totalAmountCents = isLastInstallment
-        ? remainingPlanCents
-        : paymentCents;
-      if (totalAmountCents > remainingPlanCents) {
-        totalAmountCents = remainingPlanCents;
-      }
-
-      let interestCents = this.toCents(fixedInterestAmount);
+      const openingBalance = this.fromCents(openingBalanceCents);
+      let interestCents = this.toCents(openingBalance * rateDecimal);
+      let totalAmountCents = paymentCents;
       let principalCents = totalAmountCents - interestCents;
 
       if (principalCents < 0) {
@@ -92,9 +79,11 @@ export class LoanAccountingService {
         principalCents = openingBalanceCents;
         interestCents = totalAmountCents - principalCents;
         if (interestCents < 0) {
-          interestCents = 0;
-          totalAmountCents = principalCents;
+          interestCents = this.toCents(openingBalance * rateDecimal);
+          totalAmountCents = principalCents + interestCents;
         }
+      } else {
+        totalAmountCents = principalCents + interestCents;
       }
 
       const endingBalanceCents =
@@ -108,6 +97,8 @@ export class LoanAccountingService {
         installmentNumber: index,
         dueDate,
         amount: this.fromCents(totalAmountCents),
+        openingBalance: this.fromCents(openingBalanceCents),
+        endingBalance: this.fromCents(endingBalanceCents),
         principalAmount: this.fromCents(principalCents),
         interestAmount: this.fromCents(interestCents),
         status: this.resolveInstallmentStatus({
@@ -119,7 +110,6 @@ export class LoanAccountingService {
       });
 
       balanceCents = endingBalanceCents;
-      remainingPlanCents = Math.max(remainingPlanCents - totalAmountCents, 0);
     }
 
     const totalInstallments = this.roundCurrency(
@@ -256,9 +246,17 @@ export class LoanAccountingService {
       return 0;
     }
 
-    return this.roundCurrency(
-      this.calculateTotalFinancingAmount(input) / input.installmentCount,
-    );
+    const rateDecimal = this.normalizeRate(input.interestRate);
+    if (rateDecimal <= 0) {
+      return input.financedAmount / input.installmentCount;
+    }
+
+    const denominator = 1 - Math.pow(1 + rateDecimal, -input.installmentCount);
+    if (Math.abs(denominator) < Number.EPSILON) {
+      return input.financedAmount / input.installmentCount;
+    }
+
+    return (input.financedAmount * rateDecimal) / denominator;
   }
 
   private calculateFixedMonthlyInterest(input: {
@@ -269,9 +267,7 @@ export class LoanAccountingService {
       return 0;
     }
 
-    return this.roundCurrency(
-      input.financedAmount * (input.interestRate / 100),
-    );
+    return this.roundCurrency(input.financedAmount * this.normalizeRate(input.interestRate));
   }
 
   private calculateTotalFinancingAmount(input: {
@@ -283,10 +279,17 @@ export class LoanAccountingService {
       return 0;
     }
 
-    const totalInterest = this.roundCurrency(
-      this.calculateFixedMonthlyInterest(input) * input.installmentCount,
+    return this.roundCurrency(
+      this.calculateFixedPayment(input) * input.installmentCount,
     );
-    return this.roundCurrency(input.financedAmount + totalInterest);
+  }
+
+  private normalizeRate(ratePercent: number): number {
+    if (ratePercent <= 0) {
+      return 0;
+    }
+
+    return ratePercent / 100;
   }
 
   private addMonths(date: Date, monthsToAdd: number): Date {

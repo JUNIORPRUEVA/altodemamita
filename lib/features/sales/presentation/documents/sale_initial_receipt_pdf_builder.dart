@@ -5,6 +5,7 @@ import 'package:pdf/widgets.dart' as pw;
 
 import '../../../../shared/pdf/financial_pdf_theme.dart';
 import '../../../settings/domain/company_info.dart';
+import '../../domain/sale_calculator.dart';
 import '../../domain/sale_detail.dart';
 
 class SaleInitialReceiptPdfBuilder {
@@ -48,9 +49,11 @@ class SaleInitialReceiptPdfBuilder {
         : detail.installments.first;
     final estimatedInstallment =
         firstInstallment?.totalAmount ??
-        (sale.installmentCount > 0
-            ? sale.financedBalance / sale.installmentCount
-            : 0.0);
+      SaleCalculator.calculateEstimatedInstallmentAmount(
+        financedBalance: sale.financedBalance,
+        monthlyInterest: sale.monthlyInterest,
+        installmentCount: sale.installmentCount,
+      );
     final initialStatus = _initialStatusLabel(sale);
 
     return pw.Column(
