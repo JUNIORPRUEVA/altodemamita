@@ -281,13 +281,26 @@ class SyncManager extends ChangeNotifier {
     List<String> syncIssues = const [],
   }) {
     return <String>{
-      if (queueError != null && queueError.trim().isNotEmpty) queueError.trim(),
-      if (realtimeError != null && realtimeError.trim().isNotEmpty)
+      if (queueError != null && _shouldSurfaceGlobalError(queueError))
+        queueError.trim(),
+      if (realtimeError != null && _shouldSurfaceGlobalError(realtimeError))
         realtimeError.trim(),
       ...syncIssues
-          .where((issue) => issue.trim().isNotEmpty)
+          .where(_shouldSurfaceGlobalError)
           .map((issue) => issue.trim()),
     }.toList(growable: false);
+  }
+
+  bool _shouldSurfaceGlobalError(String message) {
+    final normalized = message.trim().toLowerCase();
+    if (normalized.isEmpty) {
+      return false;
+    }
+
+    return !normalized.contains('conflicto de sincronizacion') &&
+        !normalized.contains('conflicto de sincronización') &&
+        !normalized.contains('version mas reciente') &&
+        !normalized.contains('versión más reciente');
   }
 
   void _setState(SyncManagerState nextState) {

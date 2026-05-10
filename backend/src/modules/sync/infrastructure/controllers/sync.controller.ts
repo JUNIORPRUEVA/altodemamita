@@ -59,7 +59,9 @@ export class SyncController {
     );
 
     try {
-      const deviceAuthState = req?.['deviceAuthState'] as { isPrimary?: boolean } | undefined;
+      const deviceAuthState = req?.['deviceAuthState'] as
+        | { canWrite?: boolean; isPrimary?: boolean }
+        | undefined;
       const isPrimary = deviceAuthState?.isPrimary === true;
       const result = await this.syncService.upload(dto, { isPrimary });
       const records =
@@ -78,8 +80,16 @@ export class SyncController {
 
       return result;
     } catch (error) {
+      const deviceAuthState = req?.['deviceAuthState'] as
+        | { canWrite?: boolean; isPrimary?: boolean }
+        | undefined;
+      const authorizedLabel = deviceAuthState == null
+        ? 'unknown'
+        : deviceAuthState.canWrite == true
+        ? 'yes'
+        : 'no';
       this.logger.error(
-        `[sync-upload] failed userId=${user.sub} x-device-id=${effectiveDeviceId || '<missing>'} autorizado=no error=${error}`,
+        `[sync-upload] failed userId=${user.sub} x-device-id=${effectiveDeviceId || '<missing>'} autorizado=${authorizedLabel} isPrimary=${deviceAuthState?.isPrimary === true ? 'yes' : 'no'} error=${error}`,
       );
       throw error;
     }

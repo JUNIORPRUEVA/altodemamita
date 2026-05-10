@@ -7,7 +7,7 @@ import '../security/password_hasher.dart';
 
 class DatabaseSchema {
   static const String databaseName = 'sistema_solares.db';
-  static const int databaseVersion = 24;
+  static const int databaseVersion = 25;
   static const String defaultSyncBaseUrl = BASE_URL;
 
   static const String clientsTable = 'clientes';
@@ -129,6 +129,7 @@ class DatabaseSchema {
     await _migrateToVersion22(db);
     await _migrateToVersion23(db);
     await _migrateToVersion24(db);
+    await _migrateToVersion25(db);
   }
 
   static Future<void> ensureCoreStructures(DatabaseExecutor db) async {
@@ -154,6 +155,7 @@ class DatabaseSchema {
     await _migrateToVersion22(db);
     await _migrateToVersion23(db);
     await _migrateToVersion24(db);
+    await _migrateToVersion25(db);
     await seedDefaults(db);
   }
 
@@ -388,6 +390,10 @@ class DatabaseSchema {
 
     if (oldVersion < 24 && newVersion >= 24) {
       await _migrateToVersion24(db);
+    }
+
+    if (oldVersion < 25 && newVersion >= 25) {
+      await _migrateToVersion25(db);
     }
 
     await seedDefaults(db);
@@ -744,6 +750,23 @@ class DatabaseSchema {
         "WHERE deleted_at IS NOT NULL "
         "AND COALESCE(TRIM(cedula), '') <> '' "
         "AND cedula NOT LIKE '__DELETED__%'",
+      );
+    }
+  }
+
+  /// Agrega metadatos explícitos para conflictos de sincronización manual.
+  static Future<void> _migrateToVersion25(DatabaseExecutor db) async {
+    if (!await _tableExists(db, conflictLogsTable)) {
+      await _migrateToVersion18(db);
+    }
+    if (!await _columnExists(db, conflictLogsTable, 'conflict_reason')) {
+      await db.execute(
+        'ALTER TABLE $conflictLogsTable ADD COLUMN conflict_reason TEXT',
+      );
+    }
+    if (!await _columnExists(db, conflictLogsTable, 'server_time')) {
+      await db.execute(
+        'ALTER TABLE $conflictLogsTable ADD COLUMN server_time TEXT',
       );
     }
   }
@@ -1258,6 +1281,8 @@ class DatabaseSchema {
         local_payload_json TEXT,
         server_payload_json TEXT,
         message TEXT,
+        conflict_reason TEXT,
+        server_time TEXT,
         resolution TEXT,
         detected_at TEXT NOT NULL,
         resolved_at TEXT

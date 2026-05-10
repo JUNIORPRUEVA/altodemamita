@@ -811,6 +811,10 @@ class SyncQueueService {
             // Cursors must only move forward from download payloads to avoid
             // skipping historical records on first sync of a new device.
           } on SyncConflictException catch (error) {
+            final isManualProductConflict = scope == 'products';
+            final effectiveStrategy = isManualProductConflict
+                ? SyncConflictStrategy.manual
+                : error.strategy;
             _log(
               '[sync-upload] CONFLICT '
               'scope=$scope recordSyncId=${entryItems.single.recordSyncId} '
@@ -823,7 +827,9 @@ class SyncQueueService {
               error: error.message,
               extra: {'type': 'conflict'},
             );
-            if (allowCloudPull && error.returnedRecords.isNotEmpty) {
+            if (!isManualProductConflict &&
+                allowCloudPull &&
+                error.returnedRecords.isNotEmpty) {
               await repository.mergeRemoteRecords(error.returnedRecords);
             }
             // Keep download cursors untouched on upload-conflict responses.
@@ -850,19 +856,27 @@ class SyncQueueService {
                 .where((id) => !returnedSyncIds.contains(id))
                 .toList(growable: false);
 
-            if (stillConflictedIds.isNotEmpty) {
-              await repository.markAsConflict(stillConflictedIds);
+            final idsToMarkAsConflict = isManualProductConflict
+                ? affectedIds
+                : stillConflictedIds;
+
+            if (idsToMarkAsConflict.isNotEmpty) {
+              await repository.markAsConflict(idsToMarkAsConflict);
             }
 
             await _conflictService.logUploadConflicts(
               scope: scope,
               queuedItems: entryItems,
               exception: error,
+              strategyOverride: effectiveStrategy.storageValue,
+              serverTime: error.serverTime,
+              conflictReason: error.message,
             );
 
             // FASE 0 containment: never auto-download cloud state during
             // conflict handling while cloud pull is blocked.
-            if (allowCloudPull &&
+            if (!isManualProductConflict &&
+                allowCloudPull &&
                 stillConflictedIds.isNotEmpty &&
                 error.returnedRecords.isEmpty) {
               await _attemptConflictRecoveryDownload(
@@ -874,12 +888,12 @@ class SyncQueueService {
             }
 
             if (backendAcknowledgedIds.isNotEmpty &&
-                error.strategy != SyncConflictStrategy.manual) {
+                effectiveStrategy != SyncConflictStrategy.manual) {
               await repository.markAsSynced(backendAcknowledgedIds);
               await _conflictService.resolveConflicts(
                 scope: scope,
                 recordSyncIds: backendAcknowledgedIds,
-                resolution: error.strategy.storageValue,
+                resolution: effectiveStrategy.storageValue,
               );
             }
 
@@ -891,6 +905,24 @@ class SyncQueueService {
             }
 
             await _deleteQueuedRecords(scope, affectedIds);
+
+            if (isManualProductConflict) {
+              _log(
+                '[sync-upload] PRODUCT_CONFLICT_STORED '
+                'scope=$scope count=${affectedIds.length} '
+                'recordSyncIds=${affectedIds.join(',')}',
+              );
+              await _syncLogger.log(
+                action: 'upload-conflict',
+                entity: scope,
+                result: 'pending',
+                error: '1 conflicto de sincronizacion',
+                extra: {'count': affectedIds.length, 'scope': scope},
+              );
+              await _refreshState(clearLastError: true);
+              batchProcessedCount += affectedIds.length;
+              continue;
+            }
 
             final retryIds = entryItems
                 .map((item) => item.recordSyncId)
