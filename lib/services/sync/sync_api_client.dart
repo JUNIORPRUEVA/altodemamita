@@ -210,6 +210,7 @@ class SyncApiClient {
     required String jwtToken,
     required String deviceId,
     Map<String, Object?>? payload,
+    bool isRetry = false,
   }) async {
     final normalizedToken = jwtToken.trim();
     if (normalizedToken.isEmpty) {
@@ -309,6 +310,23 @@ class SyncApiClient {
     }
 
     if (response.statusCode == HttpStatus.unauthorized) {
+      if (!isRetry) {
+        final refreshedToken = await _tryRefreshJwtToken(
+          baseUrl: uri.origin,
+          jwtToken: normalizedToken,
+        );
+        if (refreshedToken != null && refreshedToken.isNotEmpty) {
+          return _sendJsonRequest(
+            method: method,
+            uri: uri,
+            jwtToken: refreshedToken,
+            deviceId: normalizedDeviceId,
+            payload: payload,
+            isRetry: true,
+          );
+        }
+      }
+
       final message = decodedBody['message']?.toString().trim();
       throw HttpException(
         'El backend rechazo la sesion (401). '
@@ -348,6 +366,51 @@ class SyncApiClient {
     }
 
     return decodedBody;
+  }
+
+  Future<String?> _tryRefreshJwtToken({
+    required String baseUrl,
+    required String jwtToken,
+  }) async {
+    final token = jwtToken.trim();
+    if (token.isEmpty) {
+      return null;
+    }
+
+    final normalizedBaseUrl = baseUrl.endsWith('/')
+        ? baseUrl.substring(0, baseUrl.length - 1)
+        : baseUrl;
+    final refreshUri = Uri.parse('$normalizedBaseUrl/auth/refresh');
+    try {
+      final request = await _httpClient.postUrl(refreshUri);
+      request.headers.contentType = ContentType.json;
+      request.headers.set(HttpHeaders.acceptHeader, ContentType.json.mimeType);
+      request.write(
+        jsonEncode({
+          'token': token,
+          'clientType': 'desktop',
+        }),
+      );
+
+      final response = await request.close();
+      final responseBody = await utf8.decoder.bind(response).join();
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        return null;
+      }
+
+      final decoded = _decodeJsonObject(responseBody);
+      final unwrapped = _unwrapResponseEnvelope(decoded);
+      final newToken = unwrapped['accessToken']?.toString().trim() ?? '';
+      if (newToken.isEmpty) {
+        return null;
+      }
+
+      await SyncConfigRepository().saveJwtToken(newToken);
+      _log('[sync-auth] JWT refresh exitoso tras 401, se reintentara la solicitud.');
+      return newToken;
+    } catch (_) {
+      return null;
+    }
   }
 
   Map<String, dynamic> _unwrapErrorEnvelope(Map<String, dynamic> payload) {
