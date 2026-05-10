@@ -485,26 +485,23 @@ class AuthService {
   Future<void> _logOnlineLoginPersistenceSnapshot(UserModel user) async {
     try {
       final db = await _appDatabase.database;
-      final usersCount = Sqflite.firstIntValue(
-        await db.rawQuery('SELECT COUNT(*) FROM ${DatabaseSchema.usersTable}'),
+      Future<int> countTableRows(String tableName) async {
+        final rows = await db.rawQuery(
+          'SELECT COUNT(*) AS total FROM $tableName',
+        );
+        return rows.isEmpty ? 0 : (rows.first['total'] as int? ?? 0);
+      }
+
+      final usersCount = await countTableRows(DatabaseSchema.usersTable);
+      final rolesCount = await countTableRows(DatabaseSchema.rolesTable);
+      final permissionsCount = await countTableRows(
+        DatabaseSchema.permissionsTable,
       );
-      final rolesCount = Sqflite.firstIntValue(
-        await db.rawQuery('SELECT COUNT(*) FROM ${DatabaseSchema.rolesTable}'),
+      final userRolesCount = await countTableRows(
+        DatabaseSchema.userRolesTable,
       );
-      final permissionsCount = Sqflite.firstIntValue(
-        await db.rawQuery(
-          'SELECT COUNT(*) FROM ${DatabaseSchema.permissionsTable}',
-        ),
-      );
-      final userRolesCount = Sqflite.firstIntValue(
-        await db.rawQuery(
-          'SELECT COUNT(*) FROM ${DatabaseSchema.userRolesTable}',
-        ),
-      );
-      final rolePermissionsCount = Sqflite.firstIntValue(
-        await db.rawQuery(
-          'SELECT COUNT(*) FROM ${DatabaseSchema.rolePermissionsTable}',
-        ),
+      final rolePermissionsCount = await countTableRows(
+        DatabaseSchema.rolePermissionsTable,
       );
 
       final savedUserRows = user.id == null
@@ -571,11 +568,11 @@ class AuthService {
         'last_online_login_at=${lastOnlineLoginAt.isEmpty ? '<empty>' : lastOnlineLoginAt}',
       );
       debugPrint(
-        '[LoginOnlineSnapshot] users_locales=${usersCount ?? 0} '
-        'roles_locales=${rolesCount ?? 0} '
-        'permisos_locales=${permissionsCount ?? 0} '
-        'user_roles_locales=${userRolesCount ?? 0} '
-        'role_permissions_locales=${rolePermissionsCount ?? 0}',
+        '[LoginOnlineSnapshot] users_locales=$usersCount '
+        'roles_locales=$rolesCount '
+        'permisos_locales=$permissionsCount '
+        'user_roles_locales=$userRolesCount '
+        'role_permissions_locales=$rolePermissionsCount',
       );
       debugPrint(
         '[LoginOnlineSnapshot] sesion_local_guardada=$hasLocalSession '
