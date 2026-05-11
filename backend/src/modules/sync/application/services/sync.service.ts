@@ -116,14 +116,26 @@ export class SyncService {
     try {
       const result = await this.persistBatch(records, { isLocalMaster });
       const acknowledgedRecords = await this.buildUploadAckRecords(records);
+      const acknowledgedCounts = this.extractCounts(acknowledgedRecords);
+      const ackDiscrepancies = this.buildAckDiscrepancies(
+        records,
+        acknowledgedRecords,
+      );
       job.status = 'completed';
       job.finishedAt = new Date().toISOString();
       job.result = result;
       this.logger.log(
         `[sync-upload] service_completed jobId=${jobId} ` +
+          `input=${this.formatCountsForLog(counts)} ` +
+          `acked=${this.formatCountsForLog(acknowledgedCounts)} ` +
           `uploaded=${this.formatCountsForLog(result.uploaded)} ` +
           `affectedSales=${result.affectedSales.length}`,
       );
+      if (ackDiscrepancies.length > 0) {
+        this.logger.warn(
+          `[sync-upload] ack_discrepancy jobId=${jobId} ${ackDiscrepancies.join(' | ')}`,
+        );
+      }
       this.realtimeEvents.publishSyncCompleted(jobId, result);
 
       return {
@@ -275,6 +287,9 @@ export class SyncService {
 
         if (deletedAt != null) {
           if (!existing) {
+            this.logger.warn(
+              `[sync-upload][users] delete_ignored_not_found sync_id=${recordSyncId}`,
+            );
             continue;
           }
 
@@ -413,6 +428,9 @@ export class SyncService {
             }
           }
           if (!existing) {
+            this.logger.warn(
+              `[sync-upload][clients] delete_ignored_not_found sync_id=${recordSyncId}`,
+            );
             continue;
           }
 
@@ -707,6 +725,9 @@ export class SyncService {
         }
         if (isDeleteMutation && deletedAt != null) {
           if (!existing) {
+            this.logger.warn(
+              `[sync-upload][products] delete_ignored_not_found sync_id=${recordSyncId}`,
+            );
             continue;
           }
 
@@ -882,6 +903,9 @@ export class SyncService {
         }
         if (deletedAt != null) {
           if (!existing) {
+            this.logger.warn(
+              `[sync-upload][sellers] delete_ignored_not_found sync_id=${recordSyncId}`,
+            );
             continue;
           }
 
@@ -1016,6 +1040,9 @@ export class SyncService {
         }
         if (deletedAt != null) {
           if (!existing) {
+            this.logger.warn(
+              `[sync-upload][sales] delete_ignored_not_found sync_id=${recordSyncId}`,
+            );
             continue;
           }
 
@@ -1261,6 +1288,9 @@ export class SyncService {
         }
         if (deletedAt != null) {
           if (!existing) {
+            this.logger.warn(
+              `[sync-upload][installments] delete_ignored_not_found sync_id=${recordSyncId}`,
+            );
             continue;
           }
 
@@ -1456,6 +1486,9 @@ export class SyncService {
         }
         if (deletedAt != null) {
           if (!existing) {
+            this.logger.warn(
+              `[sync-upload][payments] delete_ignored_not_found sync_id=${recordSyncId}`,
+            );
             continue;
           }
 
@@ -2340,6 +2373,39 @@ export class SyncService {
           .filter((value): value is string => Boolean(value)),
       ),
     );
+  }
+
+  private buildAckDiscrepancies(
+    inputRecords: SyncRecordCollections,
+    acknowledgedRecords: SyncRecordCollections,
+  ): string[] {
+    const scopes: Array<keyof SyncRecordCollections> = [
+      'users',
+      'clients',
+      'products',
+      'sellers',
+      'sales',
+      'installments',
+      'payments',
+    ];
+    const details: string[] = [];
+
+    for (const scope of scopes) {
+      const inputIds = new Set(this.collectInputSyncIds(inputRecords[scope]));
+      const ackIds = new Set(this.collectInputSyncIds(acknowledgedRecords[scope]));
+      const missingIds = [...inputIds].filter((syncId) => !ackIds.has(syncId));
+      if (missingIds.length === 0) {
+        continue;
+      }
+
+      const preview = missingIds.slice(0, 5).join(',');
+      const suffix = missingIds.length > 5 ? ',...' : '';
+      details.push(
+        `scope=${scope} missing=${missingIds.length} sync_ids=[${preview}${suffix}]`,
+      );
+    }
+
+    return details;
   }
 
   private mergeAcknowledgedRecords(

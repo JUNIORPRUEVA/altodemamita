@@ -2085,6 +2085,14 @@ class SyncQueueService {
     SyncRepository repository,
   ) async {
     final pendingRecords = await repository.getPendingRecords();
+    // Conservative guard for sales: avoid dropping queued upserts when the
+    // repository temporarily returns an empty set due to reference timing.
+    if (scope == 'sales' && pendingRecords.isEmpty) {
+      _log(
+        '[sync-upload] ORPHAN_PRUNE_SKIPPED scope=sales reason=pending_records_empty',
+      );
+      return entryItems;
+    }
     final validUpsertIds = pendingRecords
         .map((record) => record['sync_id']?.toString().trim() ?? '')
         .where((value) => value.isNotEmpty)
