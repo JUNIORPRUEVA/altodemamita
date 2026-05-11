@@ -1608,66 +1608,6 @@ export class SyncService {
         });
       }
 
-      // Process user-specific permissions from desktop upload
-      for (const permissionRecord of records.permissions) {
-        const payload = permissionRecord as Record<string, unknown>;
-        const usuarioId = this.readRequiredNumber(payload, ['usuario_id', 'userId']);
-        const modulo = this.readRequiredString(payload, ['modulo', 'module']);
-        const acciones = this.readRequiredString(payload, ['acciones', 'actions']);
-        const syncStatus = this.readString(payload, ['sync_status', 'syncStatus']) ?? 'synced';
-
-        // Soft-delete: mark permission as pending_delete
-        if (syncStatus === 'pending_delete') {
-          await tx.userPermission.updateMany({
-            where: {
-              user: { syncId: usuarioId.toString() },
-              module: modulo,
-            },
-            data: { deletedAt: new Date(), syncStatus: SyncStatus.synced },
-          });
-          continue;
-        }
-
-        // Find user by syncId
-        const user = await tx.user.findFirst({
-          where: { syncId: usuarioId.toString() },
-        });
-
-        if (!user) {
-          this.logger.warn(
-            `[sync-upload][permissions] user_not_found usuario_sync_id=${usuarioId} module=${modulo}`,
-          );
-          continue;
-        }
-
-        // Upsert user permission
-        const existingPerm = await tx.userPermission.findFirst({
-          where: {
-            userId: user.id,
-            module: modulo,
-          },
-        });
-
-        if (existingPerm) {
-          await tx.userPermission.update({
-            where: { id: existingPerm.id },
-            data: {
-              actions: acciones,
-              deletedAt: null,
-              syncStatus: SyncStatus.synced,
-            },
-          });
-        } else {
-          await tx.userPermission.create({
-            data: {
-              userId: user.id,
-              module: modulo,
-              actions: acciones,
-              syncStatus: SyncStatus.synced,
-            },
-          });
-        }
-      }
     });
 
     for (const saleId of affectedSales) {
@@ -1719,6 +1659,68 @@ export class SyncService {
         source: 'sync',
         updatedAt: event.updatedAt,
       });
+    }
+
+    return {
+      uploaded: {
+        users: records.users.length,
+        clients: records.clients.length,
+        products: records.products.length,
+        sellers: records.sellers.length,
+        sales: records.sales.length,
+        installments: records.installments.length,
+        payments: records.payments.length,
+      },
+      affectedSales: Array.from(affectedSales),
+    };
+  }
+
+  async download(query: SyncDownloadDto) {
+    const requestStartedAt = new Date();
+    const scopeCursorDates = this.parseScopeCursorDates(
+      query.scope_cursors,
+      query.updatedSince,
+    );
+
+    const [users, roles, userRoles, rolePermissions, permissions, clients, products, sellers, sales, installments, payments] = await this.prisma.$transaction([
+      this.prisma.user.findMany({
+        where: this.buildDownloadWhere(scopeCursorDates.users),
+        include: {
+          userRoles: {
+            where: { deletedAt: null },
+            include: {
+              role: {
+                include: {
+                  rolePermissions: {
+                    where: { deletedAt: null },
+                    include: { permission: true },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }),
+      this.prisma.role.findMany({
+        where: this.buildDownloadWhere(scopeCursorDates.roles),
+      }),
+      this.prisma.userRole.findMany({
+        where: this.buildDownloadWhere(scopeCursorDates.user_roles),
+        include: {
+          user: { select: { syncId: true } },
+          role: { select: { syncId: true } },
+        },
+      }),
+      this.prisma.rolePermission.findMany({
+        where: this.buildDownloadWhere(scopeCursorDates.role_permissions),
+        include: {
+          role: { select: { syncId: true } },
+          permission: { select: { syncId: true, code: true } },
+        },
+      }),
+      this.prisma.permission.findMany({
+        where: this.buildDownloadWhere(scopeCursorDates.permissions),
+      }),
       this.prisma.client.findMany({
         where: this.buildDownloadWhere(scopeCursorDates.clients),
       }),
