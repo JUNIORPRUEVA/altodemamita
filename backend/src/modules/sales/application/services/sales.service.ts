@@ -385,13 +385,32 @@ export class SalesService {
           syncStatus: SyncStatus.pending,
         },
       });
-      await tx.product.update({
-        where: { id: sale.productId },
-        data: {
-          stock: { increment: 1 },
-          syncStatus: SyncStatus.pending,
+      const remainingActiveSales = await tx.sale.count({
+        where: {
+          productId: sale.productId,
+          deletedAt: null,
+          status: { not: SaleStatus.cancelled },
         },
       });
+
+      if (remainingActiveSales <= 0) {
+        await tx.product.update({
+          where: { id: sale.productId },
+          data: {
+            deletedAt,
+            isActive: false,
+            syncStatus: SyncStatus.pending,
+          },
+        });
+      } else {
+        await tx.product.update({
+          where: { id: sale.productId },
+          data: {
+            stock: { increment: 1 },
+            syncStatus: SyncStatus.pending,
+          },
+        });
+      }
     });
     this.realtimeEvents.publishEntityUpdated({
       entity: "sale",

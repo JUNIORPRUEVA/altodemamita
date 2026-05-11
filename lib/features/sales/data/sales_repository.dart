@@ -1047,17 +1047,64 @@ class SalesRepository {
       );
 
       if (lotId != null) {
-        await txn.update(
-          DatabaseSchema.lotsTable,
-          {
-            'estado': 'disponible',
-            'fecha_actualizacion': deletedAt,
-            'last_modified_local': deletedAt,
-            'sync_status': DatabaseSchema.syncStatusPendingUpdate,
-          },
-          where: 'id = ?',
-          whereArgs: [lotId],
+        final activeSaleRows = await txn.rawQuery(
+          'SELECT COUNT(*) AS cnt FROM ${DatabaseSchema.salesTable} '
+          'WHERE solar_id = ? AND id <> ? AND deleted_at IS NULL '
+          "AND LOWER(estado) NOT IN "
+          "('cancelada','cancelado','anulada','anulado','eliminada','eliminado')",
+          [lotId, saleId],
         );
+        final activeSaleCount =
+            (activeSaleRows.first['cnt'] as num?)?.toInt() ?? 0;
+
+        if (activeSaleCount <= 0) {
+          final lotRows = await txn.query(
+            DatabaseSchema.lotsTable,
+            where: 'id = ?',
+            whereArgs: [lotId],
+            limit: 1,
+          );
+          if (lotRows.isNotEmpty) {
+            final lotRow = lotRows.first;
+            final lotSyncId = (lotRow['sync_id'] as String?)?.trim();
+            final lotDeletePayload = _buildLotDeletePayload(
+              lotRow,
+              deletedAt: deletedAt,
+            );
+
+            await txn.update(
+              DatabaseSchema.lotsTable,
+              {
+                'deleted_at': deletedAt,
+                'fecha_actualizacion': deletedAt,
+                'last_modified_local': deletedAt,
+                'sync_status': DatabaseSchema.syncStatusPendingDelete,
+              },
+              where: 'id = ?',
+              whereArgs: [lotId],
+            );
+
+            if (lotSyncId != null && lotSyncId.isNotEmpty) {
+              deleteQueue.add((
+                scope: 'products',
+                syncId: lotSyncId,
+                payload: lotDeletePayload,
+              ));
+            }
+          }
+        } else {
+          await txn.update(
+            DatabaseSchema.lotsTable,
+            {
+              'estado': 'disponible',
+              'fecha_actualizacion': deletedAt,
+              'last_modified_local': deletedAt,
+              'sync_status': DatabaseSchema.syncStatusPendingUpdate,
+            },
+            where: 'id = ?',
+            whereArgs: [lotId],
+          );
+        }
       }
     });
 
@@ -1281,6 +1328,26 @@ class SalesRepository {
       'created_at': row['fecha_creacion'],
       'updated_at': now,
       'deleted_at': now,
+      'sync_status': DatabaseSchema.syncStatusPendingDelete,
+    };
+  }
+
+  Map<String, Object?> _buildLotDeletePayload(
+    Map<String, Object?> row, {
+    required String deletedAt,
+  }) {
+    return {
+      'id': row['id'],
+      'sync_id': row['sync_id'],
+      'version': ((row['version'] as int?) ?? 1) + 1,
+      'block_number': row['manzana_numero'],
+      'lot_number': row['solar_numero'],
+      'area': row['metros_cuadrados'],
+      'price_per_square_meter': row['precio_por_metro'],
+      'status': row['estado'],
+      'created_at': row['fecha_creacion'],
+      'updated_at': deletedAt,
+      'deleted_at': deletedAt,
       'sync_status': DatabaseSchema.syncStatusPendingDelete,
     };
   }

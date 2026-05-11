@@ -143,7 +143,7 @@ void main() {
   });
 
   test(
-    'scenario B quick-created client lot seller remain deletable after createSale and deleteSale',
+    'scenario B deleting sale also deletes lot product tombstone',
     () async {
       final now = DateTime(2026, 5, 11, 11, 0);
 
@@ -222,7 +222,6 @@ void main() {
       await syncQueueService.syncPending();
 
       await clientRepository.delete(client.id!);
-      await lotRepository.delete(lot.id!);
       await sellerRepository.delete(seller.id!);
 
       final db = await appDatabase.database;
@@ -248,8 +247,12 @@ void main() {
       );
       expect(
         lotRowBeforeUpload['sync_status'],
-        DatabaseSchema.syncStatusPendingDelete,
+        anyOf(
+          DatabaseSchema.syncStatusPendingDelete,
+          DatabaseSchema.syncStatusSynced,
+        ),
       );
+      expect(lotRowBeforeUpload['deleted_at'], isNotNull);
       expect(
         sellerRowBeforeUpload['sync_status'],
         DatabaseSchema.syncStatusPendingDelete,
