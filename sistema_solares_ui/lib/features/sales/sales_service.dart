@@ -55,11 +55,11 @@ class SalesService {
   }
 
   Future<void> forceDeleteFromCloud({
-    required String _saleId,
-    required String _adminPassword,
+    required String saleId,
+    required String adminPassword,
   }) async {
-    void _saleId;
-    void _adminPassword;
+    void saleId;
+    void adminPassword;
     throw ApiException(
       'Operacion deshabilitada por CONSISTENCY_LOCKDOWN: solo se permite soft-delete.',
       statusCode: 403,
