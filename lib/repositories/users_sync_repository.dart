@@ -333,21 +333,22 @@ Future<void> _replacePermissionsFromRemoteRecord(
   required int userId,
   required Map<String, dynamic> record,
 }) async {
-  final permissionCodes = _readRemotePermissionCodes(record['permissions']);
-  if (permissionCodes == null) {
-    return;
-  }
-
+  // Always replace permissions from server, even if empty
+  // This ensures local permissions are synchronized with server state
+  final permissionCodes = _readRemotePermissionCodes(record['permissions']) ?? [];
+  
   final now = DateTime.now().toIso8601String();
   final updatedAt = _readNullableDate(record['updated_at']) ?? now;
   final permissions = _permissionModelsFromCodes(permissionCodes);
 
+  // Always delete existing permissions for this user to ensure clean sync
   await txn.delete(
     DatabaseSchema.permissionsTable,
     where: 'usuario_id = ?',
     whereArgs: [userId],
   );
 
+  // Reinsert permissions from server (could be empty list)
   for (final permission in permissions) {
     await txn.insert(DatabaseSchema.permissionsTable, {
       'sync_id': 'user-permission-$userId-${permission.module}',

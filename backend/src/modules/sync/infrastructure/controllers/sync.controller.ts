@@ -32,7 +32,6 @@ export class SyncController {
 
   @Post('upload')
   @HttpCode(HttpStatus.OK)
-  @RequirePermissions(PERMISSIONS.syncManage)
   async upload(
     @Body() dto: SyncUploadDto,
     @CurrentUser() user: AuthenticatedUser,
@@ -96,7 +95,6 @@ export class SyncController {
   }
 
   @Get('jobs/:jobId')
-  @RequirePermissions(PERMISSIONS.syncManage)
   getJob(
     @Param('jobId') jobId: string,
     @CurrentUser() user: { type: 'desktop' | 'panel'; roles: string[] },
@@ -106,7 +104,6 @@ export class SyncController {
   }
 
   @Get('download')
-  @RequirePermissions(PERMISSIONS.syncManage)
   async download(
     @Query() dto: SyncDownloadDto,
     @CurrentUser() user: AuthenticatedUser,
@@ -146,7 +143,6 @@ export class SyncController {
 
   @Post('restore/preview')
   @HttpCode(HttpStatus.OK)
-  @RequirePermissions(PERMISSIONS.syncManage)
   async previewManualRestore(
     @Body() dto: SyncDownloadDto,
     @CurrentUser() user: AuthenticatedUser,
@@ -179,7 +175,6 @@ export class SyncController {
 
   @Post('restore/download')
   @HttpCode(HttpStatus.OK)
-  @RequirePermissions(PERMISSIONS.syncManage)
   async downloadManualRestore(
     @Body() dto: SyncRestoreDownloadDto,
     @CurrentUser() user: AuthenticatedUser,
