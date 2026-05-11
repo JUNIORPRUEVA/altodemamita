@@ -58,9 +58,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Activar nueva PC'),
+        title: const Text('Autorizar este dispositivo'),
         content: const Text(
-          'Esta accion revocara automaticamente la PC activa anterior y dejara solo este ID autorizado para escritura.\n\n¿Deseas continuar?',
+          'Una vez autorizado, TODOS los usuarios de este dispositivo podran editar.\n\n¿Deseas continuar?',
         ),
         actions: [
           TextButton(
@@ -69,7 +69,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Activar esta PC'),
+            child: const Text('Autorizar este dispositivo'),
           ),
         ],
       ),
@@ -96,7 +96,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       messenger?.showSnackBar(
         const SnackBar(
           content: Text(
-            'PC autorizada correctamente. En la app desktop presiona "Actualizar estado" para activar la sincronizacion.',
+            'Dispositivo autorizado correctamente. Otros usuarios en este dispositivo ya pueden editar sin repetir este paso.',
           ),
           duration: Duration(seconds: 8),
         ),
@@ -469,7 +469,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         }
 
         final deviceControlCard = _SettingsCard(
-          title: 'PC autorizada para sincronizacion',
+          title: 'Dispositivo autorizado para edicion',
           icon: Icons.computer_rounded,
           accentColor: const Color(0xFF6E4B21),
           child: Column(
@@ -519,14 +519,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       )
                     : const Icon(Icons.verified_rounded),
                 label: Text(
-                  _isActivatingDevice ? 'Activando...' : 'Activar esta PC',
+                  _isActivatingDevice ? 'Autorizando...' : 'Autorizar este dispositivo',
                 ),
               ),
               const SizedBox(height: 10),
               const Text(
-                '1. En la app desktop, ve a Configuracion y copia el ID.\n'
-                '2. Pegalo arriba y presiona "Activar esta PC".\n'
-                '3. Vuelve a la app desktop y presiona "Actualizar estado".',
+                '1. Copia el ID del dispositivo desde configuracion del dispositivo actual.\n'
+                '2. Pegalo arriba y presiona "Autorizar este dispositivo".\n'
+                '3. Otros usuarios en este dispositivo ya podran editar automaticamente.\n'
+                '(Nota: Solo se necesita hacer una vez por dispositivo)',
                 style: TextStyle(
                   fontSize: 12.5,
                   height: 1.5,

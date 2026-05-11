@@ -99,7 +99,8 @@ export class DeviceAuthorizationService {
       });
     }
 
-    const activePrimary = await this.prisma.authorizedDevice.findFirst({
+    // Check if THIS SPECIFIC USER has an active device
+    const usersPrimaryDevice = await this.prisma.authorizedDevice.findFirst({
       where: {
         userId: options.userId,
         revokedAt: null,
@@ -109,6 +110,17 @@ export class DeviceAuthorizationService {
       orderBy: { updatedAt: 'desc' },
     });
 
+    // Check if device is GLOBALLY AUTHORIZED (activated by ANY user) - device-wide check
+    const globallyAuthorizedDevice = await this.prisma.authorizedDevice.findFirst({
+      where: {
+        deviceId,
+        revokedAt: null,
+        isPrimary: true,
+        canWrite: true,
+      },
+    });
+
+    // Check if THIS user has a record for this device
     let device = await this.prisma.authorizedDevice.findFirst({
       where: {
         userId: options.userId,
@@ -128,8 +140,8 @@ export class DeviceAuthorizationService {
           deviceId,
           deviceName,
           platform,
-          isPrimary: activePrimary == null,
-          canWrite: activePrimary == null,
+          isPrimary: usersPrimaryDevice == null,
+          canWrite: usersPrimaryDevice == null,
           lastSeenAt: now,
         },
       });
@@ -144,13 +156,34 @@ export class DeviceAuthorizationService {
         canWrite: device.canWrite,
         revokedAt: device.revokedAt?.toISOString() ?? null,
         now,
-        reason: activePrimary == null
+        reason: usersPrimaryDevice == null
             ? 'auto_registered_primary'
             : 'registered_secondary',
       });
     }
 
     if (device == null) {
+      // Device not found for this specific user, but check if it's GLOBALLY AUTHORIZED
+      if (globallyAuthorizedDevice != null && globallyAuthorizedDevice.canWrite) {
+        this.logger.log(
+          `[current] DEVICE_NOT_REGISTERED_BUT_GLOBALLY_AUTHORIZED — ` +
+          `user=${options.userId} deviceId="${deviceId}" canWrite=true (device-wide)`,
+        );
+        // Device is authorized globally, grant access without per-user record
+        return this.buildState({
+          userId: options.userId,
+          clientType,
+          deviceId,
+          deviceName: globallyAuthorizedDevice.deviceName,
+          platform: globallyAuthorizedDevice.platform,
+          isPrimary: false, // This user didn't activate it
+          canWrite: true, // But they can write because device is authorized globally
+          revokedAt: null,
+          now,
+          reason: 'authorized', // Device-wide authorization
+        });
+      }
+
       this.logger.warn(
         `[current] DEVICE_NOT_REGISTERED — user=${options.userId} deviceId="${deviceId}"`,
       );
@@ -168,7 +201,7 @@ export class DeviceAuthorizationService {
       });
     }
 
-    if (activePrimary == null && options.autoRegisterDesktop == true) {
+    if (usersPrimaryDevice == null && options.autoRegisterDesktop == true) {
       device = await this.prisma.authorizedDevice.update({
         where: { id: device.id },
         data: {
@@ -222,9 +255,16 @@ export class DeviceAuthorizationService {
       });
     }
 
-    const canWrite = device.isPrimary && device.canWrite;
+    // DEVICE-WIDE AUTHORIZATION CHECK:
+    // If device is globally authorized (by ANY user), grant write access
+    const isGloballyAuthorized = globallyAuthorizedDevice != null;
+    const userHasWriteAccess = device.isPrimary && device.canWrite;
+    const canWrite = isGloballyAuthorized || userHasWriteAccess;
+
     this.logger.log(
-      `Device access resolved: user=${options.userId}, deviceId=${deviceId}, canWrite=${canWrite}, isPrimary=${device.isPrimary}, reason=${canWrite ? 'authorized' : 'device_not_primary'}`,
+      `Device access resolved: user=${options.userId}, deviceId=${deviceId}, ` +
+      `canWrite=${canWrite} (globallyAuthorized=${isGloballyAuthorized}, userAccess=${userHasWriteAccess}), ` +
+      `isPrimary=${device.isPrimary}`,
     );
     return this.buildState({
       userId: options.userId,
@@ -311,11 +351,12 @@ export class DeviceAuthorizationService {
     let upsertMode: 'created' | 'updated' = 'created';
 
     await this.prisma.$transaction(async (tx) => {
+      // DEVICE-WIDE: Revoke ALL instances of this device (from ANY user)
+      // This makes it so when this device is re-activated, it's globally authorized
       const revokeResult = await tx.authorizedDevice.updateMany({
         where: {
-          userId: options.userId,
+          deviceId: normalizedDeviceId,
           revokedAt: null,
-          deviceId: { not: normalizedDeviceId },
         },
         data: {
           isPrimary: false,
@@ -326,6 +367,7 @@ export class DeviceAuthorizationService {
       });
       revokedCount = revokeResult.count;
 
+      // Find if THIS user already has a record for this device
       const existing = await tx.authorizedDevice.findFirst({
         where: {
           userId: options.userId,

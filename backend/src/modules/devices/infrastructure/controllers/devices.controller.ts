@@ -75,7 +75,6 @@ export class DevicesController {
 
   @Post('activate')
   @AllowDeviceWriteBypass()
-  @RequirePermissions(PERMISSIONS.systemConfig)
   @HttpCode(HttpStatus.OK)
   activate(@CurrentUser() user: AuthenticatedUser, @Body() dto: ActivateDeviceDto) {
     const resolvedDeviceId = dto.resolvedDeviceId;
