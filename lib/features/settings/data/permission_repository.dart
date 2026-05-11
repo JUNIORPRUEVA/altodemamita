@@ -44,6 +44,7 @@ class PermissionRepository {
     SystemConfigService.instance.ensureWritable();
 
     final existing = await getPermission(permission.usuarioId, permission.modulo);
+    final now = DateTime.now().toIso8601String();
 
     // Mark permission as pending sync when modified
     final permissionMap = permission.toMap();
@@ -56,12 +57,14 @@ class PermissionRepository {
         where: 'usuario_id = ? AND modulo = ?',
         whereArgs: [permission.usuarioId, permission.modulo],
       );
+      await _markUserPendingUpdate(permission.usuarioId, now);
       return permission.copyWith(id: existing.id);
     } else {
       final id = await database.insert(
         DatabaseSchema.permissionsTable,
         permissionMap,
       );
+      await _markUserPendingUpdate(permission.usuarioId, now);
       return permission.copyWith(id: id);
     }
   }
@@ -79,6 +82,20 @@ class PermissionRepository {
       },
       where: 'usuario_id = ? AND sync_status != ?',
       whereArgs: [usuarioId, 'pending_delete'],
+    );
+    await _markUserPendingUpdate(usuarioId, now);
+  }
+
+  Future<void> _markUserPendingUpdate(int usuarioId, String now) async {
+    await database.update(
+      DatabaseSchema.usersTable,
+      {
+        'sync_status': DatabaseSchema.syncStatusPendingUpdate,
+        'fecha_actualizacion': now,
+        'last_modified_local': now,
+      },
+      where: 'id = ? AND deleted_at IS NULL',
+      whereArgs: [usuarioId],
     );
   }
 

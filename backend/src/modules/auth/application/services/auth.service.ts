@@ -25,13 +25,16 @@ const salesAgentPermissions = [
   'clients.read',
   'clients.write',
   'products.read',
+  'products.write',
   'sellers.read',
+  'sellers.write',
   'sales.read',
   'sales.write',
   'payments.read',
   'payments.write',
   'installments.read',
   'installments.write',
+  'reports.read',
 ];
 
 const REFRESH_GRACE_SECONDS = 30 * 24 * 60 * 60; // 30 days

@@ -1115,7 +1115,7 @@ class AuthService {
       return id;
     });
 
-    _scheduleUserSync('create-user:$userId');
+    await _syncUsersNowOrThrow('create-user:$userId');
 
     return (await getUserById(userId))!;
   }
@@ -1217,7 +1217,7 @@ class AuthService {
       );
     });
 
-    _scheduleUserSync('update-user:$userId');
+    await _syncUsersNowOrThrow('update-user:$userId');
 
     return (await getUserById(userId))!;
   }
@@ -1253,7 +1253,7 @@ class AuthService {
       );
     });
 
-    _scheduleUserSync('delete-user:$userId');
+    await _syncUsersNowOrThrow('delete-user:$userId');
   }
 
   Future<UserModel> setUserActive({
@@ -1286,7 +1286,7 @@ class AuthService {
         whereArgs: [userId],
       );
     });
-    _scheduleUserSync('set-user-active:$userId');
+    await _syncUsersNowOrThrow('set-user-active:$userId');
     return (await getUserById(userId))!;
   }
 
@@ -1348,7 +1348,7 @@ class AuthService {
       );
     }
 
-    _scheduleUserSync('change-password:$userId');
+    await _syncUsersNowOrThrow('change-password:$userId');
 
     return (await getUserById(userId))!;
   }
@@ -3050,6 +3050,28 @@ class AuthService {
       return;
     }
     unawaited(_runUserSync(operationLabel));
+  }
+
+  Future<void> _syncUsersNowOrThrow(String operationLabel) async {
+    if (!_shouldRunBackgroundSync) {
+      return;
+    }
+
+    try {
+      await _syncQueueService.syncScopesNowOrThrow(
+        const ['users'],
+        operationLabel: operationLabel,
+      );
+    } on SyncOperationPendingException catch (error) {
+      // Keep local pending state and let background retries continue.
+      _scheduleUserSync(operationLabel);
+      throw AuthException(
+        'El cambio se guardo localmente, pero no se confirmo en la nube. ${error.message}',
+      );
+    } catch (_) {
+      _scheduleUserSync(operationLabel);
+      rethrow;
+    }
   }
 
   Future<void> _runUserSync(String operationLabel) async {

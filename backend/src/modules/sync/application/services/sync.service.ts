@@ -2830,6 +2830,7 @@ export class SyncService {
             PERMISSIONS.clientsRead,
             PERMISSIONS.clientsWrite,
             PERMISSIONS.productsRead,
+            PERMISSIONS.productsWrite,
             PERMISSIONS.sellersRead,
             PERMISSIONS.sellersWrite,
             PERMISSIONS.salesRead,
