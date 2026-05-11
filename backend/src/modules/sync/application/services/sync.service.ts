@@ -1830,11 +1830,23 @@ export class SyncService {
     );
 
     const [companyProfiles, clients, sellers, products, sales, installments, payments] = await this.prisma.$transaction([
-      this.prisma.companyProfile.findMany({ orderBy: { updatedAt: 'asc' } }),
-      this.prisma.client.findMany({ orderBy: { updatedAt: 'asc' } }),
-      this.prisma.seller.findMany({ orderBy: { updatedAt: 'asc' } }),
-      this.prisma.product.findMany({ orderBy: { updatedAt: 'asc' } }),
+      this.prisma.companyProfile.findMany({ 
+        orderBy: { updatedAt: 'asc' } 
+      }),
+      this.prisma.client.findMany({ 
+        where: { deletedAt: null },
+        orderBy: { updatedAt: 'asc' } 
+      }),
+      this.prisma.seller.findMany({ 
+        where: { deletedAt: null },
+        orderBy: { updatedAt: 'asc' } 
+      }),
+      this.prisma.product.findMany({ 
+        where: { deletedAt: null },
+        orderBy: { updatedAt: 'asc' } 
+      }),
       this.prisma.sale.findMany({
+        where: { deletedAt: null },
         include: {
           client: { select: { syncId: true } },
           product: { select: { syncId: true } },
@@ -1843,12 +1855,14 @@ export class SyncService {
         orderBy: { updatedAt: 'asc' },
       }),
       this.prisma.installment.findMany({
+        where: { deletedAt: null },
         include: {
           sale: { select: { syncId: true } },
         },
         orderBy: { updatedAt: 'asc' },
       }),
       this.prisma.payment.findMany({
+        where: { deletedAt: null },
         include: {
           sale: {
             select: {
