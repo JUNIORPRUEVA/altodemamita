@@ -1655,9 +1655,7 @@ class AuthService {
 
     final db = await _appDatabase.database;
     final role = _mapRemoteRole(payload['roles']);
-    final permissions = role == UserRole.admin
-        ? _fullPermissions()
-        : _mapRemotePermissions(payload['permissions']);
+    final hasPermissionsInPayload = payload.containsKey('permissions');
     final fullName = payload['fullName']?.toString().trim();
     final username = payload['username']?.toString().trim();
     final now = DateTime.now();
@@ -1694,6 +1692,13 @@ class AuthService {
       }
 
       final userId = existing['id'] as int;
+      final localPermissions = await _fetchPermissionsForUser(txn, userId);
+      final permissions = _resolvePermissionsForAuthPayload(
+        role: role,
+        rawPermissions: payload['permissions'],
+        hasPermissionsInPayload: hasPermissionsInPayload,
+        fallback: localPermissions,
+      );
       await txn.update(
         DatabaseSchema.usersTable,
         {
@@ -2073,9 +2078,7 @@ class AuthService {
     }
 
     final role = _mapRemoteRole(payload['roles']);
-    final permissions = role == UserRole.admin
-        ? _fullPermissions()
-        : _mapRemotePermissions(payload['permissions']);
+    final hasPermissionsInPayload = payload.containsKey('permissions');
     final now = DateTime.now();
     final passwordHash = BCrypt.hashpw(plaintextPassword, BCrypt.gensalt());
 
@@ -2152,6 +2155,13 @@ class AuthService {
         );
       }
 
+      final localPermissions = await _fetchPermissionsForUser(txn, userId);
+      final permissions = _resolvePermissionsForAuthPayload(
+        role: role,
+        rawPermissions: payload['permissions'],
+        hasPermissionsInPayload: hasPermissionsInPayload,
+        fallback: localPermissions,
+      );
       await _replacePermissions(txn, userId, permissions);
       await txn.delete(
         DatabaseSchema.syncQueueTable,
@@ -2545,6 +2555,21 @@ class AuthService {
           );
         })
         .toList(growable: false);
+  }
+
+  List<PermissionModel> _resolvePermissionsForAuthPayload({
+    required UserRole role,
+    required Object? rawPermissions,
+    required bool hasPermissionsInPayload,
+    required List<PermissionModel> fallback,
+  }) {
+    if (role == UserRole.admin) {
+      return _fullPermissions();
+    }
+    if (!hasPermissionsInPayload) {
+      return fallback;
+    }
+    return _mapRemotePermissions(rawPermissions);
   }
 
   Future<_LocalUserLookupResult?> _findLocalUserForLogin(
@@ -2957,7 +2982,7 @@ class AuthService {
   }
 
   Future<List<PermissionModel>> _fetchPermissionsForUser(
-    Database db,
+    DatabaseExecutor db,
     int userId,
   ) async {
     final rows = await db.query(

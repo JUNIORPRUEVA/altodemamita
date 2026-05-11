@@ -44,8 +44,7 @@ class PermissionRepository {
     SystemConfigService.instance.ensureWritable();
 
     final existing = await getPermission(permission.usuarioId, permission.modulo);
-    final now = DateTime.now().toIso8601String();
-    
+
     // Mark permission as pending sync when modified
     final permissionMap = permission.toMap();
     permissionMap['sync_status'] = existing != null ? 'pending_update' : 'pending_create';
