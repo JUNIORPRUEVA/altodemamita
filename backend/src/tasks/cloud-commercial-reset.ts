@@ -79,8 +79,8 @@ const DELETE_PLAN: DeleteGroup[] = [
   },
   {
     step: 6,
-    label: 'Lotes y productos comerciales',
-    tables: ['lots', 'products'],
+    label: 'Productos comerciales',
+    tables: ['products'],
   },
   {
     step: 7,
