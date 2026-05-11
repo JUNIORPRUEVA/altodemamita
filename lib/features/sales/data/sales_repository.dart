@@ -19,6 +19,24 @@ import '../domain/sale_draft.dart';
 import '../domain/sale_summary.dart';
 
 class SalesRepository {
+  static const List<String> createSaleSyncScopes = [
+    'clients',
+    'products',
+    'sellers',
+    'sales',
+    'installments',
+    'payments',
+  ];
+
+  static const List<String> saleMutationSyncScopes = [
+    'clients',
+    'products',
+    'sellers',
+    'sales',
+    'installments',
+    'payments',
+  ];
+
   SalesRepository({
     AppDatabase? appDatabase,
     SyncQueueService? syncQueueService,
@@ -893,12 +911,10 @@ class SalesRepository {
       _log(
         'Guardado en local -> scope=sales operation=update saleId=$saleId sync_status=${DatabaseSchema.syncStatusPending}',
       );
-      _scheduleSaleMutationSync('update-sale:$saleId', const [
-        'products',
-        'sales',
-        'installments',
-        'payments',
-      ]);
+      _scheduleSaleMutationSync(
+        'update-sale:$saleId',
+        saleMutationSyncScopes,
+      );
     } catch (error, stack) {
       print('[SALES][DB] updateSale ERROR $error');
       print(stack);
@@ -1061,12 +1077,10 @@ class SalesRepository {
     _log(
       'Guardado en local -> scope=sales operation=delete saleId=$saleId sync_status=${DatabaseSchema.syncStatusPendingDelete}',
     );
-    _scheduleSaleMutationSync('delete-sale:$saleId', const [
-      'products',
-      'sales',
-      'installments',
-      'payments',
-    ]);
+    _scheduleSaleMutationSync(
+      'delete-sale:$saleId',
+      saleMutationSyncScopes,
+    );
   }
 
   Future<void> _ensureReferencedRowsExist(
@@ -1169,14 +1183,13 @@ class SalesRepository {
     required int saleId,
     required String saleSyncId,
   }) async {
-    const scopes = ['products', 'sales', 'installments', 'payments'];
     _log(
-      'Intentando sync -> scope=sales saleId=$saleId syncId=$saleSyncId scopes=${scopes.join(',')}',
+      'Intentando sync -> scope=sales saleId=$saleId syncId=$saleSyncId scopes=${createSaleSyncScopes.join(',')}',
     );
 
     try {
       await Future.wait(
-        scopes.map((scope) => _syncQueueService.refreshScope(scope)),
+        createSaleSyncScopes.map((scope) => _syncQueueService.refreshScope(scope)),
       );
 
       final processed = await _syncQueueService.processQueue(
