@@ -7,7 +7,7 @@ import '../security/password_hasher.dart';
 
 class DatabaseSchema {
   static const String databaseName = 'sistema_solares.db';
-  static const int databaseVersion = 25;
+  static const int databaseVersion = 26;
   static const String defaultSyncBaseUrl = BASE_URL;
 
   static const String clientsTable = 'clientes';
@@ -130,6 +130,7 @@ class DatabaseSchema {
     await _migrateToVersion23(db);
     await _migrateToVersion24(db);
     await _migrateToVersion25(db);
+    await _migrateToVersion26(db);
   }
 
   static Future<void> ensureCoreStructures(DatabaseExecutor db) async {
@@ -156,6 +157,7 @@ class DatabaseSchema {
     await _migrateToVersion23(db);
     await _migrateToVersion24(db);
     await _migrateToVersion25(db);
+    await _migrateToVersion26(db);
     await seedDefaults(db);
   }
 
@@ -801,6 +803,22 @@ class DatabaseSchema {
   /// Agrega metadatos explícitos para conflictos de sincronización manual.
   static Future<void> _migrateToVersion25(DatabaseExecutor db) async {
     await ensureConflictLogsSchema(db);
+  }
+
+  /// Adds sync_status column to permisos table for permission synchronization
+  static Future<void> _migrateToVersion26(DatabaseExecutor db) async {
+    if (!await _tableExists(db, permissionsTable)) {
+      return;
+    }
+    if (!await _columnExists(db, permissionsTable, 'sync_status')) {
+      await db.execute(
+        'ALTER TABLE $permissionsTable ADD COLUMN sync_status TEXT NOT NULL DEFAULT \'$syncStatusSynced\'',
+      );
+    }
+    // Create index for sync_status to speed up permission sync queries
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_permisos_sync_status ON $permissionsTable(sync_status)',
+    );
   }
 
   /// Agrega `monto_apartado_pagado` a la tabla de ventas. Para datos legados

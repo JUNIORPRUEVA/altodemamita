@@ -44,11 +44,16 @@ class PermissionRepository {
     SystemConfigService.instance.ensureWritable();
 
     final existing = await getPermission(permission.usuarioId, permission.modulo);
+    final now = DateTime.now().toIso8601String();
+    
+    // Mark permission as pending sync when modified
+    final permissionMap = permission.toMap();
+    permissionMap['sync_status'] = existing != null ? 'pending_update' : 'pending_create';
 
     if (existing != null) {
       await database.update(
         DatabaseSchema.permissionsTable,
-        permission.toMap(),
+        permissionMap,
         where: 'usuario_id = ? AND modulo = ?',
         whereArgs: [permission.usuarioId, permission.modulo],
       );
@@ -56,7 +61,7 @@ class PermissionRepository {
     } else {
       final id = await database.insert(
         DatabaseSchema.permissionsTable,
-        permission.toMap(),
+        permissionMap,
       );
       return permission.copyWith(id: id);
     }
@@ -65,10 +70,16 @@ class PermissionRepository {
   Future<void> deletePermissionsForUser(int usuarioId) async {
     SystemConfigService.instance.ensureWritable();
 
-    await database.delete(
+    final now = DateTime.now().toIso8601String();
+    // Soft-delete: mark as pending deletion for sync instead of hard-deleting
+    await database.update(
       DatabaseSchema.permissionsTable,
-      where: 'usuario_id = ?',
-      whereArgs: [usuarioId],
+      {
+        'sync_status': 'pending_delete',
+        'fecha_actualizacion': now,
+      },
+      where: 'usuario_id = ? AND sync_status != ?',
+      whereArgs: [usuarioId, 'pending_delete'],
     );
   }
 

@@ -29,6 +29,7 @@ export class SyncRecordsDto {
   @IsOptional()
   @IsArray()
   payments?: Record<string, unknown>[];
+
 }
 
 export class SyncUploadDto {
