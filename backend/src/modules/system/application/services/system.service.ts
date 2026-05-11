@@ -139,13 +139,15 @@ export class SystemService {
     const password = SystemService.resetAdminPassword;
     const username = this.normalizeUsername('admin', email, fullName);
     const passwordHash = await bcrypt.hash(password, 10);
+    const now = new Date();
 
     return this.prisma.$transaction(async (tx) => {
-      await tx.payment.deleteMany({});
-      await tx.installment.deleteMany({});
-      await tx.sale.deleteMany({});
-      await tx.client.deleteMany({});
-      await tx.product.deleteMany({});
+      // Soft-delete all commercial data instead of hard-delete
+      await tx.payment.updateMany({ data: { deletedAt: now, syncStatus: 'synced' } });
+      await tx.installment.updateMany({ data: { deletedAt: now, syncStatus: 'synced' } });
+      await tx.sale.updateMany({ data: { deletedAt: now, syncStatus: 'synced' } });
+      await tx.client.updateMany({ data: { deletedAt: now, syncStatus: 'synced' } });
+      await tx.product.updateMany({ data: { deletedAt: now, syncStatus: 'synced' } });
       await tx.userRole.deleteMany({});
       await tx.user.deleteMany({});
       await tx.companyProfile.deleteMany({});

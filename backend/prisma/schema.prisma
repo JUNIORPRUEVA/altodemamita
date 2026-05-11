@@ -243,10 +243,10 @@ model Sale {
   createdAt           DateTime           @default(now()) @map("created_at")
   updatedAt           DateTime           @updatedAt @map("updated_at")
   deletedAt           DateTime?          @map("deleted_at")
-  client              Client             @relation(fields: [clientId], references: [id])
-  user                User               @relation(fields: [userId], references: [id])
-  product             Product            @relation(fields: [productId], references: [id])
-  seller              Seller?            @relation(fields: [sellerId], references: [id])
+  client              Client             @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  user                User               @relation(fields: [userId], references: [id], onDelete: Restrict)
+  product             Product            @relation(fields: [productId], references: [id], onDelete: Restrict)
+  seller              Seller?            @relation(fields: [sellerId], references: [id], onDelete: Restrict)
   payments            Payment[]
   installments        Installment[]
 
@@ -275,8 +275,8 @@ model Payment {
   createdAt         DateTime      @default(now()) @map("created_at")
   updatedAt         DateTime      @updatedAt @map("updated_at")
   deletedAt         DateTime?     @map("deleted_at")
-  sale              Sale          @relation(fields: [saleId], references: [id])
-  installment       Installment?  @relation(fields: [installmentId], references: [id])
+  sale              Sale          @relation(fields: [saleId], references: [id], onDelete: Restrict)
+  installment       Installment?  @relation(fields: [installmentId], references: [id], onDelete: Restrict)
 
   @@index([saleId])
   @@index([installmentId])
@@ -299,7 +299,7 @@ model Installment {
   createdAt         DateTime           @default(now()) @map("created_at")
   updatedAt         DateTime           @updatedAt @map("updated_at")
   deletedAt         DateTime?          @map("deleted_at")
-  sale              Sale               @relation(fields: [saleId], references: [id])
+  sale              Sale               @relation(fields: [saleId], references: [id], onDelete: Restrict)
   payments          Payment[]
 
   @@unique([saleId, installmentNumber])

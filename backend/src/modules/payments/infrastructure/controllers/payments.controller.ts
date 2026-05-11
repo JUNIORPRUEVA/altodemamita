@@ -1,4 +1,14 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  ForbiddenException,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 
 import { PERMISSIONS } from 'src/shared/constants/permissions.constants';
 import { CurrentUser } from 'src/shared/decorators/current-user.decorator';
@@ -65,7 +75,10 @@ export class PaymentsController {
     @Param('id') id: string,
     @CurrentUser() user: { type: 'desktop' | 'panel'; roles: string[] },
   ) {
-    assertOperationalAccess(user, 'La eliminacion de pagos');
-    return this.paymentsService.remove(id);
+    void id;
+    void user;
+    throw new ForbiddenException(
+      'Operacion deshabilitada por CONSISTENCY_LOCKDOWN: pagos append-only.',
+    );
   }
 }

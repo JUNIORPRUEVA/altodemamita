@@ -5,6 +5,8 @@ import 'package:path/path.dart' as path;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sistema_solares/core/database/app_database.dart';
 import 'package:sistema_solares/core/database/database_schema.dart';
+import 'package:sistema_solares/features/payments/data/payments_repository.dart';
+import 'package:sistema_solares/features/payments/domain/payment_draft.dart';
 import 'package:sistema_solares/features/sales/data/sales_repository.dart';
 import 'package:sistema_solares/features/sales/domain/sale_draft.dart';
 import 'package:sistema_solares/services/sync/sync_api_client.dart';
@@ -19,6 +21,7 @@ void main() {
   late AppDatabase appDatabase;
   late SyncQueueService syncQueueService;
   late SalesRepository salesRepository;
+  late PaymentsRepository paymentsRepository;
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
@@ -39,6 +42,10 @@ void main() {
       appDatabase: appDatabase,
       syncQueueService: syncQueueService,
     );
+    paymentsRepository = PaymentsRepository(
+      appDatabase: appDatabase,
+      syncQueueService: syncQueueService,
+    );
   });
 
   tearDown(() async {
@@ -52,6 +59,24 @@ void main() {
   test('sales_delete_preserves_financial_history_test', () async {
     final saleId = await _createSampleSale(salesRepository, appDatabase);
     final db = await appDatabase.database;
+
+    await paymentsRepository.registerPayment(
+      PaymentDraft(
+        saleId: saleId,
+        paymentDate: DateTime(2026, 5, 3, 10, 0),
+        amountPaid: 1200,
+        paymentMethod: 'efectivo',
+      ),
+    );
+
+    final saleBefore = await db.query(
+      DatabaseSchema.salesTable,
+      columns: ['sync_id'],
+      where: 'id = ?',
+      whereArgs: [saleId],
+      limit: 1,
+    );
+    final saleSyncId = saleBefore.single['sync_id'] as String;
 
     final installmentsBefore = await db.query(
       DatabaseSchema.installmentsTable,
@@ -97,6 +122,35 @@ void main() {
       isTrue,
     );
     expect(paymentsAfter.every((row) => row['deleted_at'] != null), isTrue);
+
+    final queueRows = await db.query(
+      DatabaseSchema.syncQueueTable,
+      columns: ['scope', 'record_sync_id', 'operation'],
+      where: 'scope IN (?, ?, ?)',
+      whereArgs: ['sales', 'installments', 'payments'],
+    );
+
+    expect(
+      queueRows.any(
+        (row) =>
+            row['scope'] == 'sales' &&
+            row['record_sync_id'] == saleSyncId &&
+            row['operation'] == 'delete',
+      ),
+      isTrue,
+    );
+    expect(
+      queueRows.any(
+        (row) => row['scope'] == 'installments' && row['operation'] == 'delete',
+      ),
+      isTrue,
+    );
+    expect(
+      queueRows.any(
+        (row) => row['scope'] == 'payments' && row['operation'] == 'delete',
+      ),
+      isTrue,
+    );
   });
 
   test('sales_update_soft_deletes_previous_installments_test', () async {

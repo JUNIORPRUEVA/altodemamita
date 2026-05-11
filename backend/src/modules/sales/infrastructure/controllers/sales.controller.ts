@@ -76,14 +76,16 @@ export class SalesController {
   @Delete('force-delete/:id')
   @Public()
   @AllowInReadOnly()
-  @HttpCode(HttpStatus.OK)
+  @HttpCode(HttpStatus.FORBIDDEN)
   forceDelete(
     @Param('id') id: string,
     @Headers('x-admin-key') adminKey: string,
   ) {
-    if (!adminKey || adminKey.trim() !== ADMIN_KEY.trim()) {
-      throw new ForbiddenException('Clave de administrador invalida.');
-    }
-    return this.salesService.forceDeletePermanently(id);
+    void id;
+    void adminKey;
+    void ADMIN_KEY;
+    throw new ForbiddenException(
+      'El borrado físico de ventas está deshabilitado. Use cancelación lógica.',
+    );
   }
 }

@@ -55,22 +55,14 @@ class SalesService {
   }
 
   Future<void> forceDeleteFromCloud({
-    required String saleId,
-    required String adminPassword,
+    required String _saleId,
+    required String _adminPassword,
   }) async {
-    final normalizedId = saleId.trim();
-    final normalizedPassword = adminPassword.trim();
-    if (normalizedId.isEmpty) {
-      throw ApiException('La venta no tiene un ID valido.');
-    }
-    if (normalizedPassword.isEmpty) {
-      throw ApiException('Debes ingresar la contrasena de administrador.');
-    }
-
-    await _apiClient.delete(
-      '/sales/force-delete/$normalizedId',
-      authorized: false,
-      customHeaders: {'x-admin-key': normalizedPassword},
+    void _saleId;
+    void _adminPassword;
+    throw ApiException(
+      'Operacion deshabilitada por CONSISTENCY_LOCKDOWN: solo se permite soft-delete.',
+      statusCode: 403,
     );
   }
 

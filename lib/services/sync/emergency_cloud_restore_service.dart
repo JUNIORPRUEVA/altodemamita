@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:path/path.dart' as path;
 
@@ -134,7 +135,7 @@ class EmergencyCloudRestoreService {
       };
 
       await _replaceLocalCommercialData(payload.recordsByScope);
-      await _clearSyncQueueForRestoreScopes();
+      final syncQueueBackupPath = await _clearSyncQueueForRestoreScopes();
 
       final localCountsAfter = await _readLocalCommercialCounts();
       _validatePostRestoreCounts(
@@ -155,6 +156,7 @@ class EmergencyCloudRestoreService {
           'durationMs': duration.inMilliseconds,
           'downloadedCounts': downloadedCounts,
           'localCountsAfter': localCountsAfter,
+          'syncQueueBackupPath': syncQueueBackupPath,
         },
       );
 
@@ -251,14 +253,47 @@ class EmergencyCloudRestoreService {
     }
   }
 
-  Future<void> _clearSyncQueueForRestoreScopes() async {
+  Future<String?> _clearSyncQueueForRestoreScopes() async {
     final db = await _appDatabase.database;
     final scopes = <String>['company_profiles', ...commercialScopes];
+    final backupPath = await _backupSyncQueueForScopes(scopes);
     final placeholders = List.filled(scopes.length, '?').join(', ');
     await db.rawDelete(
       'DELETE FROM ${DatabaseSchema.syncQueueTable} WHERE scope IN ($placeholders)',
       scopes,
     );
+    return backupPath;
+  }
+
+  Future<String?> _backupSyncQueueForScopes(List<String> scopes) async {
+    final db = await _appDatabase.database;
+    final placeholders = List.filled(scopes.length, '?').join(', ');
+    final rows = await db.rawQuery(
+      'SELECT * FROM ${DatabaseSchema.syncQueueTable} WHERE scope IN ($placeholders) ORDER BY created_at ASC, id ASC',
+      scopes,
+    );
+    if (rows.isEmpty) {
+      return null;
+    }
+
+    await _appPaths.ensureCriticalDirectories();
+    final restoreDir = Directory(path.join(_appPaths.backupsDirectory, 'Restore'));
+    await restoreDir.create(recursive: true);
+
+    final now = DateTime.now();
+    final twoDigits = (int value) => value.toString().padLeft(2, '0');
+    final backupFileName =
+        'restore_sync_queue_backup_${now.year}_${twoDigits(now.month)}_${twoDigits(now.day)}_${twoDigits(now.hour)}_${twoDigits(now.minute)}_${twoDigits(now.second)}.json';
+    final backupPath = path.join(restoreDir.path, backupFileName);
+
+    final payload = {
+      'created_at': now.toIso8601String(),
+      'reason': 'manual-cloud-restore-pre-clear-sync-queue',
+      'scopes': scopes,
+      'rows': rows,
+    };
+    await File(backupPath).writeAsString(jsonEncode(payload));
+    return backupPath;
   }
 
   void _validatePostRestoreCounts({

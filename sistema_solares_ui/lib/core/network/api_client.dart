@@ -19,7 +19,6 @@ class ApiClient {
 
   static const List<String> _panelWriteAllowedPathPrefixes = <String>[
     '/reset-database',
-    '/sales/force-delete/',
   ];
 
   static const List<String> _blockedPanelWritePaths = <String>[

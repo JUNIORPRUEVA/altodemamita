@@ -165,13 +165,26 @@ export class SyncService {
   }
 
   async resetDatabase() {
+    const now = new Date();
     const result = await this.prisma.$transaction(async (tx) => {
-      const payments = await tx.payment.deleteMany({});
-      const installments = await tx.installment.deleteMany({});
-      const sales = await tx.sale.deleteMany({});
-      const clients = await tx.client.deleteMany({});
-      const sellers = await tx.seller.deleteMany({});
-      const products = await tx.product.deleteMany({});
+      const payments = await tx.payment.updateMany({
+        data: { deletedAt: now, syncStatus: 'synced' },
+      });
+      const installments = await tx.installment.updateMany({
+        data: { deletedAt: now, syncStatus: 'synced' },
+      });
+      const sales = await tx.sale.updateMany({
+        data: { deletedAt: now, syncStatus: 'synced' },
+      });
+      const clients = await tx.client.updateMany({
+        data: { deletedAt: now, syncStatus: 'synced' },
+      });
+      const sellers = await tx.seller.updateMany({
+        data: { deletedAt: now, syncStatus: 'synced' },
+      });
+      const products = await tx.product.updateMany({
+        data: { deletedAt: now, syncStatus: 'synced' },
+      });
 
       return {
         payments: payments.count,
@@ -184,9 +197,10 @@ export class SyncService {
     });
 
     return {
-      message: 'Base de datos nube reseteada correctamente.',
-      deleted: result,
+      message: 'Base de datos nube reseteada correctamente (soft-delete aplicado).',
+      softDeleted: result,
       reset_at: new Date().toISOString(),
+      recovery_note: 'Todos los registros han sido marcados como eliminados pero pueden ser recuperados si es necesario.',
     };
   }
 
@@ -3168,7 +3182,11 @@ export class SyncService {
   }
 
   private buildDownloadWhere(updatedSince?: Date) {
-    return updatedSince ? { updatedAt: { gt: updatedSince } } : {};
+    const where: any = { deletedAt: null };
+    if (updatedSince) {
+      where.updatedAt = { gt: updatedSince };
+    }
+    return where;
   }
 
   private resolveDownloadCursor<T extends { updatedAt: Date }>(

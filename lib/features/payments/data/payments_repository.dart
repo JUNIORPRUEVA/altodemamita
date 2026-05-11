@@ -257,6 +257,9 @@ class PaymentsRepository {
   }
 
   Future<void> deletePayment(int paymentId) async {
+    throw StateError(
+      'Operacion bloqueada por CONSISTENCY_LOCKDOWN: los pagos son append-only y no se pueden anular desde esta pantalla.',
+    );
     SystemConfigService.instance.ensureWritable();
     final deleteQueue =
         <({String scope, String syncId, Map<String, Object?> payload})>[];

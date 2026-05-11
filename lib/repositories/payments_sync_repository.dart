@@ -494,10 +494,15 @@ bool _shouldKeepLocal(
     return false;
   }
   final local = existingRows.first;
+  final localDeletedAt = local['deleted_at']?.toString().trim() ?? '';
+  final remoteDeleted = _isDeleted(remoteRecord['deleted_at']);
+  // Never revive a locally tombstoned commercial record from a non-deleted remote payload.
+  if (localDeletedAt.isNotEmpty && !remoteDeleted) {
+    return true;
+  }
   final localSyncStatus = (local['sync_status'] as String? ?? '')
       .trim()
       .toLowerCase();
-  final remoteDeleted = _isDeleted(remoteRecord['deleted_at']);
   if (localSyncStatus == DatabaseSchema.syncStatusPendingDelete &&
       !remoteDeleted) {
     return true;

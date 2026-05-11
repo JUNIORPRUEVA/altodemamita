@@ -18,6 +18,8 @@ class ProductsService {
     bool includeInactive = true,
     bool includeDeleted = false,
   }) async {
+    // CONSISTENCY_LOCKDOWN: panel must never request soft-deleted products.
+    final effectiveIncludeDeleted = false;
     final response = await _apiClient.get(
       '/products',
       queryParameters: {
@@ -25,7 +27,7 @@ class ProductsService {
         'limit': '20',
         'search': search,
         'includeInactive': '$includeInactive',
-        'includeDeleted': '$includeDeleted',
+        'includeDeleted': '$effectiveIncludeDeleted',
       },
     ) as Map<String, dynamic>;
 
