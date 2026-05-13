@@ -77,6 +77,23 @@ class DominicanValidators {
     return null;
   }
 
+  static String? validateFlexibleDocumentId(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return 'La cédula es obligatoria.';
+    }
+
+    if (_containsLetters(value)) {
+      return 'Digite solo números. Puede ser cédula, pasaporte u otro documento numérico.';
+    }
+
+    final digits = digitsOnly(value);
+    if (digits.isEmpty) {
+      return 'Digite solo números. Puede ser cédula, pasaporte u otro documento numérico.';
+    }
+
+    return null;
+  }
+
   /// Formatear cédula al formato dominicano: XXX-XXXXXXX-X
   static String formatDominicanId(String value) {
     final cleaned = _normalizeDominicanIdDigits(value);
@@ -146,6 +163,27 @@ class DominicanValidators {
     return null;
   }
 
+  static String? validateFlexiblePhone(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return null;
+    }
+
+    if (_containsLetters(value)) {
+      return 'Digite solo números. Puede ser un número local o extranjero.';
+    }
+
+    final digits = digitsOnly(value);
+    if (digits.isEmpty) {
+      return 'Digite solo números. Puede ser un número local o extranjero.';
+    }
+
+    if (digits.length < 10) {
+      return 'El teléfono debe tener al menos 10 dígitos.';
+    }
+
+    return null;
+  }
+
   /// Formatear teléfono dominicano al formato: (XXX) XXX-XXXX
   static String formatDominicanPhone(String value) {
     final cleaned = _normalizeDominicanPhoneDigits(value);
@@ -169,6 +207,14 @@ class DominicanValidators {
   /// Limpiar número telefónico removiendo caracteres especiales
   static String _cleanPhoneNumber(String value) {
     return value.replaceAll(RegExp(r'\D'), '').trim();
+  }
+
+  static String digitsOnly(String value) {
+    return value.replaceAll(RegExp(r'\D'), '').trim();
+  }
+
+  static bool _containsLetters(String value) {
+    return RegExp(r'[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]').hasMatch(value);
   }
 
   static String? _normalizeDominicanPhoneDigits(String value) {

@@ -1218,7 +1218,10 @@ class SyncQueueService {
   static Future<bool> _defaultConnectivityProbe(SyncSettings settings) async {
     try {
       final connectivityResults = await Connectivity().checkConnectivity();
-      if (connectivityResults.contains(ConnectivityResult.none)) {
+      final hasNetworkInterface = connectivityResults.any(
+        (result) => result != ConnectivityResult.none,
+      );
+      if (!hasNetworkInterface) {
         return false;
       }
 

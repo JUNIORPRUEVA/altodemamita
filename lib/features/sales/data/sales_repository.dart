@@ -554,6 +554,8 @@ class SalesRepository {
         '[SALES][DB] createSale success -> saleId=$saleId syncId=$saleSyncId',
       );
       _scheduleCreateSaleSync(saleId: saleId, saleSyncId: saleSyncId);
+      // Garantizar sync inmediato tras crear venta para todos los usuarios
+      _scheduleExplicitCreateSaleSync(saleId: saleId, saleSyncId: saleSyncId);
       return saleId;
     } catch (error, stack) {
       print('[SALES][DB] createSale ERROR $error');
@@ -1216,6 +1218,18 @@ class SalesRepository {
     if (!_shouldRunBackgroundSync) {
       return;
     }
+    unawaited(_runCreateSaleSync(saleId: saleId, saleSyncId: saleSyncId));
+  }
+
+  void _scheduleExplicitCreateSaleSync({
+    required int saleId,
+    required String saleSyncId,
+  }) {
+    if (!_shouldRunBackgroundSync) {
+      return;
+    }
+    // Intenta sincronizar inmediatamente sin esperar (fire-and-forget)
+    // para garantizar que cambios se suban a la nube SIEMPRE, no solo en background
     unawaited(_runCreateSaleSync(saleId: saleId, saleSyncId: saleSyncId));
   }
 

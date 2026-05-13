@@ -252,28 +252,3 @@ class DominicanPhoneFormatter extends TextInputFormatter {
   }
 }
 
-/// Formatter para nombre (solo letras y espacios)
-class NameFormatter extends TextInputFormatter {
-  @override
-  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
-    // Permitir solo letras, acentos y espacios
-    final allowedChars = RegExp(r"[a-záéíóúñ\s]", caseSensitive: false);
-    
-    String filtered = '';
-    for (int i = 0; i < newValue.text.length; i++) {
-      final char = newValue.text[i];
-      if (allowedChars.hasMatch(char)) {
-        filtered += char;
-      }
-    }
-
-    if (filtered != newValue.text) {
-      return TextEditingValue(
-        text: filtered,
-        selection: TextSelection.collapsed(offset: filtered.length),
-      );
-    }
-
-    return newValue;
-  }
-}

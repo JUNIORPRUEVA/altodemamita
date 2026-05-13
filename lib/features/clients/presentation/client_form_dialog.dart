@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
-import '../../../core/utils/dominican_formatters.dart';
 import '../../../core/utils/dominican_validators.dart';
 import '../domain/client.dart';
 
@@ -81,7 +81,6 @@ class _ClientFormDialogState extends State<ClientFormDialog> {
                   decoration: const InputDecoration(
                     labelText: 'Nombre',
                   ),
-                  inputFormatters: [NameFormatter()],
                   validator: DominicanValidators.validateName,
                 ),
                 const SizedBox(height: 12),
@@ -89,18 +88,23 @@ class _ClientFormDialogState extends State<ClientFormDialog> {
                   controller: _documentIdController,
                   decoration: const InputDecoration(
                     labelText: 'Cédula',
+                    helperText:
+                        'Digite solo números. Puede ser cédula, pasaporte u otro documento numérico.',
                   ),
-                  inputFormatters: [DominicanIdFormatter()],
-                  validator: DominicanValidators.validateDominicanIdLengthOnly,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  validator: DominicanValidators.validateFlexibleDocumentId,
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _phoneController,
                   decoration: const InputDecoration(
                     labelText: 'Teléfono',
+                    helperText:
+                        'Digite solo números. Puede ser un número local o extranjero.',
                   ),
-                  inputFormatters: [DominicanPhoneFormatter()],
-                  validator: DominicanValidators.validateDominicanPhone,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  validator: DominicanValidators.validateFlexiblePhone,
                   keyboardType: TextInputType.phone,
                 ),
                 const SizedBox(height: 12),
@@ -136,22 +140,26 @@ class _ClientFormDialogState extends State<ClientFormDialog> {
     }
 
     final baseClient = widget.initialClient ?? Client.empty();
+    final documentId = DominicanValidators.digitsOnly(
+      _documentIdController.text,
+    );
     final client = baseClient.copyWith(
       fullName: _fullNameController.text.trim(),
-      documentId: DominicanValidators.formatDominicanId(_documentIdController.text),
-      phone: _formatPhone(_phoneController.text),
+      documentId: documentId,
+      phone: _normalizePhone(_phoneController.text),
       address: _formatAddress(_addressController.text),
     );
 
     Navigator.of(context).pop(client);
   }
 
-  String? _formatPhone(String value) {
+  String? _normalizePhone(String value) {
     final trimmed = value.trim();
     if (trimmed.isEmpty) {
       return null;
     }
-    return DominicanValidators.formatDominicanPhone(trimmed);
+    final digits = DominicanValidators.digitsOnly(trimmed);
+    return digits.isEmpty ? null : digits;
   }
 
   String? _formatAddress(String value) {

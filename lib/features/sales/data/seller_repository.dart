@@ -135,6 +135,8 @@ class SellerRepository implements SyncRepository {
       }, conflictAlgorithm: ConflictAlgorithm.abort);
       _log('SELLER LOCAL CREATED -> id=$id documentId=${seller.documentId}');
       _scheduleBackgroundSync('create-seller:$id');
+      // Garantizar sync inmediato tras crear vendedor para todos los usuarios
+      _scheduleExplicitSync('create-seller:$id');
       return id;
     } catch (error, stackTrace) {
       print('💥 ERROR SQLITE: $error');
@@ -189,6 +191,8 @@ class SellerRepository implements SyncRepository {
         'SELLER LOCAL UPDATED -> id=${seller.id} documentId=${seller.documentId}',
       );
       _scheduleBackgroundSync('update-seller:${seller.id}');
+      // Garantizar sync inmediato tras actualizar vendedor para todos los usuarios
+      _scheduleExplicitSync('update-seller:${seller.id}');
     } catch (error, stackTrace) {
       print('💥 ERROR SQLITE: $error');
       print(stackTrace);
@@ -275,6 +279,15 @@ class SellerRepository implements SyncRepository {
     if (!_shouldRunBackgroundSync) {
       return;
     }
+    unawaited(_runBackgroundSync(operationLabel));
+  }
+
+  void _scheduleExplicitSync(String operationLabel) {
+    if (!_shouldRunBackgroundSync) {
+      return;
+    }
+    // Intenta sincronizar inmediatamente sin esperar (fire-and-forget)
+    // para garantizar que cambios se suban a la nube SIEMPRE, no solo en background
     unawaited(_runBackgroundSync(operationLabel));
   }
 

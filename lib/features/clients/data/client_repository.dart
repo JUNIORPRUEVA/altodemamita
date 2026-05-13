@@ -202,6 +202,8 @@ class ClientRepository implements SyncRepository {
           'Guardado en local -> scope=clients operation=create id=$insertedId sync_status=${SyncStatus.pending.storageValue}',
         );
         _scheduleBackgroundSync('create-client');
+        // Garantizar sync inmediato tras crear cliente para todos los usuarios
+        _scheduleExplicitSync('create-client:$insertedId');
         return;
       }
 
@@ -221,6 +223,8 @@ class ClientRepository implements SyncRepository {
         'Guardado en local -> scope=clients operation=update id=${normalizedClient.id} sync_status=${SyncStatus.pending.storageValue}',
       );
       _scheduleBackgroundSync('update-client:${normalizedClient.id}');
+      // Garantizar sync inmediato tras actualizar cliente para todos los usuarios
+      _scheduleExplicitSync('update-client:${normalizedClient.id}');
     } catch (error, stackTrace) {
       print('💥 ERROR SQLITE: $error');
       print(stackTrace);
@@ -292,6 +296,8 @@ class ClientRepository implements SyncRepository {
         'Guardado en local -> scope=clients operation=delete id=$id sync_status=${SyncStatus.pending.storageValue}',
       );
       _scheduleBackgroundSync('delete-client:$id');
+      // Garantizar sync inmediato tras eliminar cliente para todos los usuarios
+      _scheduleExplicitSync('delete-client:$id');
     } catch (error, stackTrace) {
       print('💥 ERROR SQLITE: $error');
       print(stackTrace);
@@ -304,6 +310,15 @@ class ClientRepository implements SyncRepository {
     if (!_shouldRunBackgroundSync) {
       return;
     }
+    unawaited(_runBackgroundSync(operationLabel));
+  }
+
+  void _scheduleExplicitSync(String operationLabel) {
+    if (!_shouldRunBackgroundSync) {
+      return;
+    }
+    // Intenta sincronizar inmediatamente sin esperar (fire-and-forget)
+    // para garantizar que cambios se suban a la nube SIEMPRE, no solo en background
     unawaited(_runBackgroundSync(operationLabel));
   }
 

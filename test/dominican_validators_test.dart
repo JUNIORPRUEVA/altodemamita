@@ -62,4 +62,40 @@ void main() {
       );
     });
   });
+
+  group('DominicanValidators.validateFlexibleDocumentId', () {
+    test('accepts numeric documents with separators', () {
+      expect(
+        DominicanValidators.validateFlexibleDocumentId('402-1234567-8'),
+        isNull,
+      );
+    });
+
+    test('accepts numeric documents longer than 11 digits', () {
+      expect(
+        DominicanValidators.validateFlexibleDocumentId('123456789012345'),
+        isNull,
+      );
+    });
+  });
+
+  group('DominicanValidators.validateFlexiblePhone', () {
+    test('accepts numbers with 10 or more digits', () {
+      expect(
+        DominicanValidators.validateFlexiblePhone('8091234567'),
+        isNull,
+      );
+      expect(
+        DominicanValidators.validateFlexiblePhone('18095550199'),
+        isNull,
+      );
+    });
+
+    test('rejects numbers shorter than 10 digits', () {
+      expect(
+        DominicanValidators.validateFlexiblePhone('123456789'),
+        'El teléfono debe tener al menos 10 dígitos.',
+      );
+    });
+  });
 }

@@ -254,6 +254,13 @@ class PaymentsRepository {
       'installments',
       'payments',
     ]);
+    // Garantizar sync inmediato tras registrar pago para todos los usuarios
+    _scheduleExplicitSync('register-payment:${draft.saleId}', const [
+      'products',
+      'sales',
+      'installments',
+      'payments',
+    ]);
   }
 
   Future<void> deletePayment(int paymentId) async {
@@ -631,6 +638,13 @@ class PaymentsRepository {
       'Guardado en local -> scope=payments operation=delete paymentId=$paymentId sync_status=${DatabaseSchema.syncStatusPending}',
     );
     _scheduleBackgroundSync('refund-payment:$paymentId', const [
+      'products',
+      'sales',
+      'installments',
+      'payments',
+    ]);
+    // Garantizar sync inmediato tras reembolsar pago para todos los usuarios
+    _scheduleExplicitSync('refund-payment:$paymentId', const [
       'products',
       'sales',
       'installments',
@@ -1131,6 +1145,15 @@ class PaymentsRepository {
     if (!_shouldRunBackgroundSync) {
       return;
     }
+    unawaited(_runBackgroundSync(operationLabel, scopes));
+  }
+
+  void _scheduleExplicitSync(String operationLabel, List<String> scopes) {
+    if (!_shouldRunBackgroundSync) {
+      return;
+    }
+    // Intenta sincronizar inmediatamente sin esperar (fire-and-forget)
+    // para garantizar que cambios se suban a la nube SIEMPRE, no solo en background
     unawaited(_runBackgroundSync(operationLabel, scopes));
   }
 

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
-import '../../../core/utils/dominican_formatters.dart';
 import '../../../core/utils/dominican_validators.dart';
 import '../domain/seller.dart';
 
@@ -29,19 +29,6 @@ class _SellerFormDialogState extends State<SellerFormDialog> {
   late final TextEditingController _phoneController;
 
   bool get _isEditing => widget.initialSeller != null;
-
-  String? _validateDocumentId(String? value) {
-    if (value == null || value.trim().isEmpty) {
-      return 'La cédula es obligatoria.';
-    }
-
-    final digits = value.replaceAll(RegExp(r'[^0-9]'), '');
-    if (digits.length != 11) {
-      return 'La cédula debe tener 11 caracteres.';
-    }
-
-    return null;
-  }
 
   @override
   void initState() {
@@ -87,23 +74,30 @@ class _SellerFormDialogState extends State<SellerFormDialog> {
                 TextFormField(
                   controller: _nameController,
                   decoration: const InputDecoration(labelText: 'Nombre'),
-                  inputFormatters: [NameFormatter()],
                   validator: _validateName,
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _documentIdController,
-                  decoration: const InputDecoration(labelText: 'Cédula'),
+                  decoration: const InputDecoration(
+                    labelText: 'Cédula',
+                    helperText:
+                        'Digite solo números. Puede ser cédula, pasaporte u otro documento numérico.',
+                  ),
                   keyboardType: TextInputType.number,
-                  inputFormatters: [DominicanIdFormatter()],
-                  validator: _validateDocumentId,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  validator: DominicanValidators.validateFlexibleDocumentId,
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _phoneController,
-                  decoration: const InputDecoration(labelText: 'Teléfono'),
-                  inputFormatters: [DominicanPhoneFormatter()],
-                  validator: DominicanValidators.validateDominicanPhone,
+                  decoration: const InputDecoration(
+                    labelText: 'Teléfono',
+                    helperText:
+                        'Digite solo números. Puede ser un número local o extranjero.',
+                  ),
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  validator: DominicanValidators.validateFlexiblePhone,
                 ),
               ],
             ),
@@ -132,8 +126,8 @@ class _SellerFormDialogState extends State<SellerFormDialog> {
     final seller = Seller(
       id: widget.initialSeller?.id,
       name: _nameController.text.trim(),
-      phone: _phoneController.text.trim(),
-      documentId: _documentIdController.text.trim(),
+      phone: DominicanValidators.digitsOnly(_phoneController.text),
+      documentId: DominicanValidators.digitsOnly(_documentIdController.text),
       createdAt: widget.initialSeller?.createdAt ?? now,
       updatedAt: now,
     );

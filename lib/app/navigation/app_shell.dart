@@ -175,6 +175,7 @@ class _AppShellState extends State<AppShell> {
   bool _hasInternet = true;
   int _internetProbeFailures = 0;
   StreamSubscription<List<ConnectivityResult>>? _internetSubscription;
+  Timer? _internetHeartbeatTimer;
   Timer? _sidebarAutoCollapseTimer;
   AuthProvider? _authProvider;
   bool _lastAuthIsAuthenticated = false;
@@ -186,6 +187,10 @@ class _AppShellState extends State<AppShell> {
     _restoreNavigationPreferences();
     _loadCompanyDisplayName();
     _internetSubscription = Connectivity().onConnectivityChanged.listen((_) {
+      unawaited(_refreshInternetStatus());
+    });
+    _internetHeartbeatTimer?.cancel();
+    _internetHeartbeatTimer = Timer.periodic(const Duration(minutes: 5), (_) {
       unawaited(_refreshInternetStatus());
     });
     unawaited(_refreshInternetStatus());
@@ -213,6 +218,8 @@ class _AppShellState extends State<AppShell> {
   void dispose() {
     _sidebarAutoCollapseTimer?.cancel();
     _sidebarAutoCollapseTimer = null;
+    _internetHeartbeatTimer?.cancel();
+    _internetHeartbeatTimer = null;
     unawaited(_internetSubscription?.cancel());
     _internetSubscription = null;
     _syncQueueService.setCloudSessionExpiredHandler(null);
@@ -300,9 +307,15 @@ class _AppShellState extends State<AppShell> {
     if (!mounted || _hasInternet == value) {
       return;
     }
+    final recoveredInternet = !_hasInternet && value;
     setState(() {
       _hasInternet = value;
     });
+    final auth = _authProvider;
+    if (recoveredInternet && auth != null && auth.isAuthenticated) {
+      // Al recuperar internet, reanuda y drena cola pendiente de inmediato.
+      unawaited(_resumeSyncPipelineAfterAuth());
+    }
   }
 
   Future<void> _restoreNavigationPreferences() async {
@@ -591,6 +604,24 @@ class _AppShellState extends State<AppShell> {
     authProvider.markCloudSessionExpired();
   }
 
+  Future<void> _triggerManualSyncNudge() async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final report = await _syncManager.syncNow(showAsBusy: true);
+    if (!mounted) {
+      return;
+    }
+
+    final hadIssues =
+        report.pendingRecords > 0 ||
+        report.hadConnectivityError ||
+        (report.errorMessage?.trim().isNotEmpty ?? false);
+
+    final message = hadIssues
+        ? 'Sincronizacion en progreso. Pendientes: ${report.pendingRecords}.'
+        : 'Sincronizacion completada.';
+    messenger?.showSnackBar(SnackBar(content: Text(message)));
+  }
+
   Widget _buildCurrentPage(AppModule module) {
     switch (module) {
       case AppModule.dashboard:
@@ -792,6 +823,11 @@ class _AppShellState extends State<AppShell> {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
+    final syncState = _syncManager.state;
+    final showManualSyncNudge =
+        syncState.pendingCount > 0 ||
+        syncState.hasErrors ||
+        syncState.hasConflicts;
     final accessibleModules = _accessibleModules(auth);
     final resolvedModule = _resolveSelectedModule(accessibleModules);
     final primaryModules = _primarySidebarModules
@@ -828,6 +864,14 @@ class _AppShellState extends State<AppShell> {
                   const Padding(
                     padding: EdgeInsets.only(right: 8),
                     child: Center(child: _SyncStatusBadge(compact: true)),
+                  ),
+                if (showManualSyncNudge)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 2),
+                    child: _ManualSyncNudgeButton(
+                      isSyncing: syncState.isSyncing,
+                      onTap: _triggerManualSyncNudge,
+                    ),
                   ),
                 if (user != null)
                   Padding(
@@ -936,6 +980,9 @@ class _AppShellState extends State<AppShell> {
                               selectedModule: resolvedModule,
                               currentUser: user,
                               hasInternet: _hasInternet,
+                              showManualSyncNudge: showManualSyncNudge,
+                              isSyncing: syncState.isSyncing,
+                              onManualSync: _triggerManualSyncNudge,
                               onOpenProfile: _openProfile,
                               onRefreshDeviceAccess: _refreshDeviceAccess,
                             ),
@@ -966,6 +1013,9 @@ class _ShellHeader extends StatelessWidget {
     required this.selectedModule,
     required this.currentUser,
     required this.hasInternet,
+    required this.showManualSyncNudge,
+    required this.isSyncing,
+    required this.onManualSync,
     required this.onOpenProfile,
     required this.onRefreshDeviceAccess,
   });
@@ -973,6 +1023,9 @@ class _ShellHeader extends StatelessWidget {
   final AppModule selectedModule;
   final UserModel? currentUser;
   final bool hasInternet;
+  final bool showManualSyncNudge;
+  final bool isSyncing;
+  final Future<void> Function() onManualSync;
   final Future<void> Function() onOpenProfile;
   final Future<void> Function({bool claimPrimary}) onRefreshDeviceAccess;
 
@@ -1025,6 +1078,14 @@ class _ShellHeader extends StatelessWidget {
                 const Padding(
                   padding: EdgeInsets.only(right: 10),
                   child: _SyncStatusBadge(),
+                ),
+              if (showManualSyncNudge)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: _ManualSyncNudgeButton(
+                    isSyncing: isSyncing,
+                    onTap: onManualSync,
+                  ),
                 ),
               if (user != null) ...[
                 Column(
@@ -1106,6 +1167,36 @@ class _SyncStatusBadge extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ManualSyncNudgeButton extends StatelessWidget {
+  const _ManualSyncNudgeButton({
+    required this.isSyncing,
+    required this.onTap,
+  });
+
+  final bool isSyncing;
+  final Future<void> Function() onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 28,
+      height: 28,
+      child: IconButton(
+        tooltip: isSyncing ? 'Sincronizando...' : 'Sincronizar ahora',
+        padding: EdgeInsets.zero,
+        visualDensity: const VisualDensity(horizontal: -4, vertical: -4),
+        constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+        onPressed: isSyncing ? null : () => unawaited(onTap()),
+        iconSize: 15,
+        icon: Icon(
+          isSyncing ? Icons.sync : Icons.sync_outlined,
+          color: const Color(0xFF7D8EA3),
+        ),
       ),
     );
   }
