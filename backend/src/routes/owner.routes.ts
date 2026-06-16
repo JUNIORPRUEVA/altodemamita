@@ -1,9 +1,12 @@
 import { Router } from 'express';
+import { resolveCompanyForRequest } from '../companyIdentity';
 import { prisma } from '../prisma';
 
 export const ownerRouter = Router();
 
-ownerRouter.get('/dashboard', async (_req, res) => {
+ownerRouter.get('/dashboard', async (req, res) => {
+  const company = await resolveCompanyForRequest(req);
+  const where = { companyId: company.id, deletedAt: null };
   const [
     clients,
     sellers,
@@ -15,25 +18,29 @@ ownerRouter.get('/dashboard', async (_req, res) => {
     paymentTotals,
     lastBatch,
   ] = await Promise.all([
-    prisma.client.count({ where: { deletedAt: null } }),
-    prisma.seller.count({ where: { deletedAt: null } }),
-    prisma.lot.count({ where: { deletedAt: null } }),
-    prisma.sale.count({ where: { deletedAt: null } }),
-    prisma.installment.count({ where: { deletedAt: null } }),
-    prisma.payment.count({ where: { deletedAt: null } }),
+    prisma.client.count({ where }),
+    prisma.seller.count({ where }),
+    prisma.lot.count({ where }),
+    prisma.sale.count({ where }),
+    prisma.installment.count({ where }),
+    prisma.payment.count({ where }),
     prisma.sale.aggregate({
-      where: { deletedAt: null },
+      where,
       _sum: { total: true, balance: true },
     }),
     prisma.payment.aggregate({
-      where: { deletedAt: null },
+      where,
       _sum: { amount: true },
     }),
-    prisma.syncBatch.findFirst({ orderBy: { createdAt: 'desc' } }),
+    prisma.syncBatch.findFirst({
+      where: { companyId: company.id },
+      orderBy: { createdAt: 'desc' },
+    }),
   ]);
 
   return res.json({
     data: {
+      company: { id: company.id, tenantKey: company.tenantKey, name: company.name },
       counts: { clients, sellers, lots, sales, installments, payments },
       totals: {
         sold: saleTotals._sum.total?.toString() ?? '0',
@@ -57,12 +64,20 @@ ownerRouter.get('/cuotas', async (req, res) => list(req, res, 'installment'));
 ownerRouter.get('/payments', async (req, res) => list(req, res, 'payment'));
 ownerRouter.get('/pagos', async (req, res) => list(req, res, 'payment'));
 
-ownerRouter.get('/sync-status', async (_req, res) => {
+ownerRouter.get('/sync-status', async (req, res) => {
+  const company = await resolveCompanyForRequest(req);
   const batches = await prisma.syncBatch.findMany({
+    where: { companyId: company.id },
     orderBy: { createdAt: 'desc' },
     take: 20,
   });
-  return res.json({ data: { batches, serverTime: new Date().toISOString() } });
+  return res.json({
+    data: {
+      company: { id: company.id, tenantKey: company.tenantKey, name: company.name },
+      batches,
+      serverTime: new Date().toISOString(),
+    },
+  });
 });
 
 async function list(
@@ -75,7 +90,10 @@ async function list(
   const includeDeleted = String(req.query.includeDeleted ?? 'false') === 'true';
   const skip = (page - 1) * pageSize;
   const delegate = prisma[model] as any;
-  const where = includeDeleted ? {} : { deletedAt: null };
+  const company = await resolveCompanyForRequest(req);
+  const where = includeDeleted
+    ? { companyId: company.id }
+    : { companyId: company.id, deletedAt: null };
 
   const [items, total] = await Promise.all([
     delegate.findMany({
@@ -87,5 +105,13 @@ async function list(
     delegate.count({ where }),
   ]);
 
-  return res.json({ data: { items, page, pageSize, total } });
+  return res.json({
+    data: {
+      company: { id: company.id, tenantKey: company.tenantKey, name: company.name },
+      items,
+      page,
+      pageSize,
+      total,
+    },
+  });
 }

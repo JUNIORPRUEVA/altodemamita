@@ -156,6 +156,7 @@ class SyncApiClient {
     );
     final payload = <String, Object?>{
       'device_id': settings.deviceId,
+      'companyTenantKey': companyTenantKey,
       'records': normalizedRecords,
     };
     final body = await _sendJsonRequest(
@@ -179,6 +180,7 @@ class SyncApiClient {
   }) async {
     final queryParameters = <String, String>{
       'device_id': settings.deviceId,
+      'companyTenantKey': companyTenantKey,
       if (updatedSince != null)
         'updatedSince': updatedSince.toUtc().toIso8601String(),
       if (updatedSinceByScope != null && updatedSinceByScope.isNotEmpty)
@@ -291,6 +293,7 @@ class SyncApiClient {
       );
     }
     request.headers.set('x-device-id', normalizedDeviceId);
+    request.headers.set('x-company-tenant-key', companyTenantKey);
 
     if (payload != null) {
       request.write(jsonEncode(payload));

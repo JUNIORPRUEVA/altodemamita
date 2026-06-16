@@ -24,9 +24,28 @@ model User {
   updatedAt    DateTime @updatedAt
 }
 
+model Company {
+  id         String        @id @default(uuid())
+  tenantKey String        @unique
+  name       String
+  active     Boolean       @default(true)
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  clients      Client[]
+  sellers      Seller[]
+  lots         Lot[]
+  sales        Sale[]
+  installments Installment[]
+  payments     Payment[]
+  syncBatches  SyncBatch[]
+}
+
 model Client {
   id        String   @id @default(uuid())
-  syncId    String   @unique
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id])
+  syncId    String
   name      String
   document  String?
   phone     String?
@@ -36,11 +55,16 @@ model Client {
   deletedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@unique([companyId, syncId])
+  @@index([companyId, updatedAt])
 }
 
 model Seller {
   id        String   @id @default(uuid())
-  syncId    String   @unique
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id])
+  syncId    String
   name      String
   document  String?
   phone     String?
@@ -50,11 +74,16 @@ model Seller {
   deletedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@unique([companyId, syncId])
+  @@index([companyId, updatedAt])
 }
 
 model Lot {
   id        String   @id @default(uuid())
-  syncId    String   @unique
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id])
+  syncId    String
   block     String?
   number    String?
   status    String?
@@ -65,11 +94,16 @@ model Lot {
   deletedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@unique([companyId, syncId])
+  @@index([companyId, updatedAt])
 }
 
 model Sale {
   id           String   @id @default(uuid())
-  syncId       String   @unique
+  companyId    String
+  company      Company  @relation(fields: [companyId], references: [id])
+  syncId       String
   clientSyncId String?
   lotSyncId    String?
   sellerSyncId String?
@@ -83,11 +117,16 @@ model Sale {
   deletedAt    DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+
+  @@unique([companyId, syncId])
+  @@index([companyId, updatedAt])
 }
 
 model Installment {
   id                  String   @id @default(uuid())
-  syncId              String   @unique
+  companyId           String
+  company             Company  @relation(fields: [companyId], references: [id])
+  syncId              String
   saleSyncId          String?
   installmentNumber   Int?
   dueDate             DateTime?
@@ -105,11 +144,16 @@ model Installment {
   deletedAt           DateTime?
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
+
+  @@unique([companyId, syncId])
+  @@index([companyId, updatedAt])
 }
 
 model Payment {
   id                String   @id @default(uuid())
-  syncId            String   @unique
+  companyId         String
+  company           Company  @relation(fields: [companyId], references: [id])
+  syncId            String
   saleSyncId        String?
   clientSyncId      String?
   installmentSyncId String?
@@ -124,12 +168,19 @@ model Payment {
   deletedAt         DateTime?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+
+  @@unique([companyId, syncId])
+  @@index([companyId, updatedAt])
 }
 
 model SyncBatch {
   id            String   @id @default(uuid())
+  companyId     String
+  company       Company  @relation(fields: [companyId], references: [id])
   deviceId      String
   receivedCounts Json
   appliedCounts  Json
   createdAt      DateTime @default(now())
+
+  @@index([companyId, createdAt])
 }

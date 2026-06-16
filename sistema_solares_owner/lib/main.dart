@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 
 const String backendBaseUrl =
     'https://altodemanita-altodemamita-backent.onqyr1.easypanel.host';
+const String companyTenantKey = 'alto-dona-mamita-sistema-solares';
+const Duration ownerRefreshInterval = Duration(seconds: 3);
 
 void main() {
   runApp(const OwnerApp());
@@ -50,7 +52,7 @@ class _OwnerShellState extends State<OwnerShell> {
     super.initState();
     _refresh();
     _timer = Timer.periodic(
-      const Duration(seconds: 10),
+      ownerRefreshInterval,
       (_) => _refresh(silent: true),
     );
   }
@@ -211,7 +213,7 @@ class OwnerDrawer extends StatelessWidget {
             const Padding(
               padding: EdgeInsets.all(12),
               child: Text(
-                'Los datos se actualizan automaticamente cada 10 segundos.',
+                'Los datos se actualizan automaticamente cada 3 segundos.',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 12, color: Color(0xFF667085)),
               ),
@@ -763,11 +765,18 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> _get(String path) async {
-    final uri = Uri.parse('$baseUrl$path');
+    final parsed = Uri.parse('$baseUrl$path');
+    final uri = parsed.replace(
+      queryParameters: {
+        ...parsed.queryParameters,
+        'companyTenantKey': companyTenantKey,
+      },
+    );
     final client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 15);
     try {
       final request = await client.getUrl(uri);
+      request.headers.set('x-company-tenant-key', companyTenantKey);
       request.headers.set(HttpHeaders.acceptHeader, ContentType.json.mimeType);
       final response = await request.close();
       final responseBody = await utf8.decoder.bind(response).join();

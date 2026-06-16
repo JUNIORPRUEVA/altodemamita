@@ -144,26 +144,10 @@ class SyncService {
 
       await _refreshJwtTokenIfNeeded(settings);
       final refreshedSettings = await _configRepository.loadSettings();
-      if (refreshedSettings.jwtToken.trim().isEmpty) {
-        debugPrint('[Sync] sync blocked because no jwt after refresh check.');
-        final skipped = SyncReport(
-          startedAt: startedAt,
-          finishedAt: DateTime.now(),
-          wasSkipped: true,
-          errorMessage: cloudLoginRequiredMessage,
-        );
-        await _configRepository.saveLastRun(
-          errorMessage: skipped.errorMessage,
-          status: SyncRuntimeStatus.pending,
-        );
-        _lastReport = skipped;
-        final notify = _onSyncFinished;
-        if (notify != null) {
-          unawaited(notify(skipped));
-        }
-        return skipped;
-      }
-      debugPrint('[Sync] sync started with valid jwt.');
+      debugPrint(
+        '[Sync] sync started. '
+        'jwtPresent=${refreshedSettings.jwtToken.trim().isNotEmpty}',
+      );
 
       final shouldRunPreUploadFullDownload =
           _downloadFromCloudEnabled &&
@@ -574,7 +558,9 @@ class SyncService {
     };
 
     debugPrint('[sync-download] START');
-    debugPrint('[sync-download] URL=${settings.normalizedBaseUrl}/sync/download');
+    debugPrint(
+      '[sync-download] URL=${settings.normalizedBaseUrl}/sync/download',
+    );
     debugPrint(
       '[sync-download] x-device-id=${settings.deviceId.trim().isEmpty ? '<empty>' : settings.deviceId.trim()}',
     );
@@ -775,7 +761,10 @@ class SyncService {
         continue;
       }
 
-      final prepared = _prepareScopeRecordsForApply(repository.scope, tombstones);
+      final prepared = _prepareScopeRecordsForApply(
+        repository.scope,
+        tombstones,
+      );
       await repository.mergeRemoteRecords(prepared);
       repairedRecords += prepared.length;
 
@@ -783,7 +772,9 @@ class SyncService {
           response.cursorForScope(repository.scope) ??
           _findLatestTimestamp(tombstones);
       if (repairCursor != null) {
-        final currentCursor = await _configRepository.loadCursor(repository.scope);
+        final currentCursor = await _configRepository.loadCursor(
+          repository.scope,
+        );
         if (currentCursor == null || repairCursor.isAfter(currentCursor)) {
           await _configRepository.saveCursor(repository.scope, repairCursor);
         }
@@ -896,7 +887,8 @@ class SyncService {
   }
 
   Future<String> recoverAfterDeviceAuthorization() async {
-    final unlockedJobs = await _syncQueueService.resetDeferredJobsForDeviceSwitch();
+    final unlockedJobs = await _syncQueueService
+        .resetDeferredJobsForDeviceSwitch();
     await _configRepository.clearSyncRuntimeState();
     final report = await syncNow(forceFullDownload: true);
     final downloaded = report.downloadedRecords;
@@ -907,7 +899,8 @@ class SyncService {
   Future<String> resetLocalDeviceIdentityForAdmin() async {
     final previousSettings = await _configRepository.loadSettings();
     final oldDeviceId = previousSettings.deviceId;
-    final unlockedJobs = await _syncQueueService.resetDeferredJobsForDeviceSwitch();
+    final unlockedJobs = await _syncQueueService
+        .resetDeferredJobsForDeviceSwitch();
     final newDeviceId = await _configRepository.rotateDeviceId();
     await _configRepository.saveDeviceWriteState(
       const DeviceWriteState(
@@ -976,16 +969,9 @@ class SyncService {
 
   String _buildMissingConfigurationMessage(SyncSettings settings) {
     final hasBaseUrl = settings.baseUrl.trim().isNotEmpty;
-    final hasJwtToken = settings.jwtToken.trim().isNotEmpty;
 
-    if (!hasBaseUrl && !hasJwtToken) {
-      return 'Inicia sesion en linea para activar la sincronizacion.';
-    }
     if (!hasBaseUrl) {
       return serverConnectionErrorMessage;
-    }
-    if (!hasJwtToken) {
-      return cloudLoginRequiredMessage;
     }
     return 'La sincronizacion no esta configurada correctamente.';
   }
@@ -1027,10 +1013,7 @@ class SyncService {
       }
     }
 
-    final ordered = <Map<String, dynamic>>[
-      ...deletes,
-      ...upserts,
-    ];
+    final ordered = <Map<String, dynamic>>[...deletes, ...upserts];
     _logPreparedScopeRecords(scope, ordered);
     return ordered;
   }
@@ -1120,7 +1103,12 @@ class SyncService {
     Map<String, DateTime?> cursorBeforeByScope,
   ) {
     final incompleteScopes = <String>{};
-    for (final scope in const ['clients', 'products', 'sales', 'installments']) {
+    for (final scope in const [
+      'clients',
+      'products',
+      'sales',
+      'installments',
+    ]) {
       if (!targetScopes.contains(scope)) {
         continue;
       }

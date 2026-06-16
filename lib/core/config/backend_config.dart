@@ -3,6 +3,8 @@ const String BASE_URL =
 
 const String LEGACY_BASE_URL = '';
 
+const String companyTenantKey = 'alto-dona-mamita-sistema-solares';
+
 const String serverConnectionErrorMessage = 'Servicio cloud no configurado';
 
 String normalizeBackendBaseUrl(String baseUrl) {

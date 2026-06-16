@@ -37,6 +37,8 @@ class SyncConfigRepository {
   static const syncDeviceCanWriteKey = 'sync.device_can_write';
   static const syncDeviceLastValidatedAtKey = 'sync.device_last_validated_at';
   static const syncDeviceReasonKey = 'sync.device_reason';
+  static const syncLocalUploadBootstrapCompletedKey =
+      'sync.local_upload_bootstrap_completed';
 
   static const _jwtTokenPreferenceKey = 'sync.jwt_token';
   static const _deviceIdPreferenceKey = 'sync.device_id';
@@ -176,6 +178,16 @@ class SyncConfigRepository {
     }
   }
 
+  Future<bool> isLocalUploadBootstrapCompleted() async {
+    final prefs = await _tryPreferences();
+    return prefs?.getBool(syncLocalUploadBootstrapCompletedKey) ?? false;
+  }
+
+  Future<void> markLocalUploadBootstrapCompleted() async {
+    final prefs = await _tryPreferences();
+    await prefs?.setBool(syncLocalUploadBootstrapCompletedKey, true);
+  }
+
   Future<void> saveLastRun({
     String? errorMessage,
     SyncRuntimeStatus status = SyncRuntimeStatus.ok,
@@ -249,8 +261,7 @@ class SyncConfigRepository {
     return DeviceWriteState(
       isPrimary:
           (prefs.getString(syncDeviceIsPrimaryKey) ?? '').trim() == 'true',
-      canWrite:
-          (prefs.getString(syncDeviceCanWriteKey) ?? '').trim() == 'true',
+      canWrite: (prefs.getString(syncDeviceCanWriteKey) ?? '').trim() == 'true',
       lastValidatedAt: DateTime.tryParse(
         prefs.getString(syncDeviceLastValidatedAtKey) ?? '',
       ),
@@ -296,10 +307,9 @@ class SyncConfigRepository {
       return current;
     }
 
-    final fallback =
-        (await _settingsRepository.fetchByKeys([_deviceIdFallbackKey]))[_deviceIdFallbackKey]
-            ?.value
-            .trim();
+    final fallback = (await _settingsRepository.fetchByKeys([
+      _deviceIdFallbackKey,
+    ]))[_deviceIdFallbackKey]?.value.trim();
     if (fallback != null && fallback.isNotEmpty) {
       debugPrint('[device-id] source=SQLite fallback value=$fallback');
       await prefs?.setString(_deviceIdPreferenceKey, fallback);
@@ -331,6 +341,7 @@ class SyncConfigRepository {
       await prefs.remove(syncDeviceCanWriteKey);
       await prefs.remove(syncDeviceLastValidatedAtKey);
       await prefs.remove(syncDeviceReasonKey);
+      await prefs.remove(syncLocalUploadBootstrapCompletedKey);
     }
 
     await _settingsRepository.saveMultiple({

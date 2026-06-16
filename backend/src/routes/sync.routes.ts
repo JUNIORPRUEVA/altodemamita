@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { Router } from 'express';
 import { z } from 'zod';
+import { resolveCompanyForRequest } from '../companyIdentity';
 import { prisma } from '../prisma';
 
 const rowSchema = z.record(z.unknown()).and(
@@ -36,6 +37,7 @@ syncRouter.post('/upload', async (req, res) => {
 
   const records = parsed.data.records;
   const deviceId = stringValue(parsed.data.device_id, parsed.data.deviceId) ?? 'unknown-device';
+  const company = await resolveCompanyForRequest(req);
 
   const uploaded = {
     clients: records.clients ?? [],
@@ -47,12 +49,12 @@ syncRouter.post('/upload', async (req, res) => {
   };
 
   const ack = {
-    clients: await upsertClients(uploaded.clients),
-    sellers: await upsertSellers(uploaded.sellers),
-    products: await upsertLots(uploaded.products),
-    sales: await upsertSales(uploaded.sales),
-    installments: await upsertInstallments(uploaded.installments),
-    payments: await upsertPayments(uploaded.payments),
+    clients: await upsertClients(company.id, uploaded.clients),
+    sellers: await upsertSellers(company.id, uploaded.sellers),
+    products: await upsertLots(company.id, uploaded.products),
+    sales: await upsertSales(company.id, uploaded.sales),
+    installments: await upsertInstallments(company.id, uploaded.installments),
+    payments: await upsertPayments(company.id, uploaded.payments),
   };
 
   const receivedCounts = {
@@ -69,6 +71,7 @@ syncRouter.post('/upload', async (req, res) => {
 
   await prisma.syncBatch.create({
     data: {
+      companyId: company.id,
       deviceId,
       receivedCounts,
       appliedCounts,
@@ -76,6 +79,7 @@ syncRouter.post('/upload', async (req, res) => {
   });
 
   return res.json({
+    company: { id: company.id, tenantKey: company.tenantKey, name: company.name },
     records: ack,
     server_time: new Date().toISOString(),
     applied: appliedCounts,
@@ -86,19 +90,21 @@ syncRouter.get('/download', handleDownload);
 syncRouter.get('/changes', handleDownload);
 
 async function handleDownload(req: any, res: any) {
+  const company = await resolveCompanyForRequest(req);
   const scopeCursors = parseScopeCursors(req.query.scope_cursors);
   const updatedSince = dateValue(req.query.updatedSince);
   const records = {
-    clients: await listClients(scopeCursors.clients ?? updatedSince),
-    sellers: await listSellers(scopeCursors.sellers ?? updatedSince),
-    products: await listLots(scopeCursors.products ?? scopeCursors.lots ?? updatedSince),
-    sales: await listSales(scopeCursors.sales ?? updatedSince),
-    installments: await listInstallments(scopeCursors.installments ?? scopeCursors.cuotas ?? updatedSince),
-    payments: await listPayments(scopeCursors.payments ?? updatedSince),
+    clients: await listClients(company.id, scopeCursors.clients ?? updatedSince),
+    sellers: await listSellers(company.id, scopeCursors.sellers ?? updatedSince),
+    products: await listLots(company.id, scopeCursors.products ?? scopeCursors.lots ?? updatedSince),
+    sales: await listSales(company.id, scopeCursors.sales ?? updatedSince),
+    installments: await listInstallments(company.id, scopeCursors.installments ?? scopeCursors.cuotas ?? updatedSince),
+    payments: await listPayments(company.id, scopeCursors.payments ?? updatedSince),
   };
   const serverTime = new Date().toISOString();
 
   return res.json({
+    company: { id: company.id, tenantKey: company.tenantKey, name: company.name },
     records,
     server_time: serverTime,
     scope_cursors: {
@@ -112,18 +118,24 @@ async function handleDownload(req: any, res: any) {
   });
 }
 
-syncRouter.get('/status', async (_req, res) => {
-  const lastBatch = await prisma.syncBatch.findFirst({ orderBy: { createdAt: 'desc' } });
+syncRouter.get('/status', async (req, res) => {
+  const company = await resolveCompanyForRequest(req);
+  const where = { companyId: company.id, deletedAt: null };
+  const lastBatch = await prisma.syncBatch.findFirst({
+    where: { companyId: company.id },
+    orderBy: { createdAt: 'desc' },
+  });
   const [clients, sellers, products, sales, installments, payments] = await Promise.all([
-    prisma.client.count({ where: { deletedAt: null } }),
-    prisma.seller.count({ where: { deletedAt: null } }),
-    prisma.lot.count({ where: { deletedAt: null } }),
-    prisma.sale.count({ where: { deletedAt: null } }),
-    prisma.installment.count({ where: { deletedAt: null } }),
-    prisma.payment.count({ where: { deletedAt: null } }),
+    prisma.client.count({ where }),
+    prisma.seller.count({ where }),
+    prisma.lot.count({ where }),
+    prisma.sale.count({ where }),
+    prisma.installment.count({ where }),
+    prisma.payment.count({ where }),
   ]);
   return res.json({
     ok: true,
+    company: { id: company.id, tenantKey: company.tenantKey, name: company.name },
     lastBatch,
     counts: { clients, sellers, products, sales, installments, payments },
     server_time: new Date().toISOString(),
@@ -174,8 +186,8 @@ function rawJson(row: Row): Prisma.InputJsonObject {
   return row as Prisma.InputJsonObject;
 }
 
-function whereUpdatedSince(updatedSince?: Date | null) {
-  return updatedSince ? { updatedAt: { gt: updatedSince } } : {};
+function whereUpdatedSince(companyId: string, updatedSince?: Date | null) {
+  return updatedSince ? { companyId, updatedAt: { gt: updatedSince } } : { companyId };
 }
 
 function parseScopeCursors(value: unknown): Record<string, Date | null> {
@@ -200,7 +212,7 @@ function latestCursor(rows: Row[], fallback: string) {
   return latest.toISOString();
 }
 
-async function upsertClients(rows: Row[]) {
+async function upsertClients(companyId: string, rows: Row[]) {
   const ack: Row[] = [];
   for (const row of rows) {
     const id = syncId(row);
@@ -215,8 +227,8 @@ async function upsertClients(rows: Row[]) {
       deletedAt: deletedAt(row),
     };
     const saved = await prisma.client.upsert({
-      where: { syncId: id },
-      create: { syncId: id, ...data },
+      where: { companyId_syncId: { companyId, syncId: id } },
+      create: { companyId, syncId: id, ...data },
       update: data,
     });
     ack.push(clientRecord(saved));
@@ -224,7 +236,7 @@ async function upsertClients(rows: Row[]) {
   return ack;
 }
 
-async function upsertSellers(rows: Row[]) {
+async function upsertSellers(companyId: string, rows: Row[]) {
   const ack: Row[] = [];
   for (const row of rows) {
     const id = syncId(row);
@@ -239,8 +251,8 @@ async function upsertSellers(rows: Row[]) {
       deletedAt: deletedAt(row),
     };
     const saved = await prisma.seller.upsert({
-      where: { syncId: id },
-      create: { syncId: id, ...data },
+      where: { companyId_syncId: { companyId, syncId: id } },
+      create: { companyId, syncId: id, ...data },
       update: data,
     });
     ack.push(sellerRecord(saved));
@@ -248,7 +260,7 @@ async function upsertSellers(rows: Row[]) {
   return ack;
 }
 
-async function upsertLots(rows: Row[]) {
+async function upsertLots(companyId: string, rows: Row[]) {
   const ack: Row[] = [];
   for (const row of rows) {
     const id = syncId(row);
@@ -264,8 +276,8 @@ async function upsertLots(rows: Row[]) {
       deletedAt: deletedAt(row),
     };
     const saved = await prisma.lot.upsert({
-      where: { syncId: id },
-      create: { syncId: id, ...data },
+      where: { companyId_syncId: { companyId, syncId: id } },
+      create: { companyId, syncId: id, ...data },
       update: data,
     });
     ack.push(lotRecord(saved));
@@ -273,7 +285,7 @@ async function upsertLots(rows: Row[]) {
   return ack;
 }
 
-async function upsertSales(rows: Row[]) {
+async function upsertSales(companyId: string, rows: Row[]) {
   const ack: Row[] = [];
   for (const row of rows) {
     const id = syncId(row);
@@ -292,8 +304,8 @@ async function upsertSales(rows: Row[]) {
       deletedAt: deletedAt(row),
     };
     const saved = await prisma.sale.upsert({
-      where: { syncId: id },
-      create: { syncId: id, ...data },
+      where: { companyId_syncId: { companyId, syncId: id } },
+      create: { companyId, syncId: id, ...data },
       update: data,
     });
     ack.push(saleRecord(saved));
@@ -301,7 +313,7 @@ async function upsertSales(rows: Row[]) {
   return ack;
 }
 
-async function upsertInstallments(rows: Row[]) {
+async function upsertInstallments(companyId: string, rows: Row[]) {
   const ack: Row[] = [];
   for (const row of rows) {
     const id = syncId(row);
@@ -324,8 +336,8 @@ async function upsertInstallments(rows: Row[]) {
       deletedAt: deletedAt(row),
     };
     const saved = await prisma.installment.upsert({
-      where: { syncId: id },
-      create: { syncId: id, ...data },
+      where: { companyId_syncId: { companyId, syncId: id } },
+      create: { companyId, syncId: id, ...data },
       update: data,
     });
     ack.push(installmentRecord(saved));
@@ -333,7 +345,7 @@ async function upsertInstallments(rows: Row[]) {
   return ack;
 }
 
-async function upsertPayments(rows: Row[]) {
+async function upsertPayments(companyId: string, rows: Row[]) {
   const ack: Row[] = [];
   for (const row of rows) {
     const id = syncId(row);
@@ -353,8 +365,8 @@ async function upsertPayments(rows: Row[]) {
       deletedAt: deletedAt(row),
     };
     const saved = await prisma.payment.upsert({
-      where: { syncId: id },
-      create: { syncId: id, ...data },
+      where: { companyId_syncId: { companyId, syncId: id } },
+      create: { companyId, syncId: id, ...data },
       update: data,
     });
     ack.push(paymentRecord(saved));
@@ -362,28 +374,28 @@ async function upsertPayments(rows: Row[]) {
   return ack;
 }
 
-async function listClients(updatedSince?: Date | null) {
-  return (await prisma.client.findMany({ where: whereUpdatedSince(updatedSince), orderBy: { updatedAt: 'asc' } })).map(clientRecord);
+async function listClients(companyId: string, updatedSince?: Date | null) {
+  return (await prisma.client.findMany({ where: whereUpdatedSince(companyId, updatedSince), orderBy: { updatedAt: 'asc' } })).map(clientRecord);
 }
 
-async function listSellers(updatedSince?: Date | null) {
-  return (await prisma.seller.findMany({ where: whereUpdatedSince(updatedSince), orderBy: { updatedAt: 'asc' } })).map(sellerRecord);
+async function listSellers(companyId: string, updatedSince?: Date | null) {
+  return (await prisma.seller.findMany({ where: whereUpdatedSince(companyId, updatedSince), orderBy: { updatedAt: 'asc' } })).map(sellerRecord);
 }
 
-async function listLots(updatedSince?: Date | null) {
-  return (await prisma.lot.findMany({ where: whereUpdatedSince(updatedSince), orderBy: { updatedAt: 'asc' } })).map(lotRecord);
+async function listLots(companyId: string, updatedSince?: Date | null) {
+  return (await prisma.lot.findMany({ where: whereUpdatedSince(companyId, updatedSince), orderBy: { updatedAt: 'asc' } })).map(lotRecord);
 }
 
-async function listSales(updatedSince?: Date | null) {
-  return (await prisma.sale.findMany({ where: whereUpdatedSince(updatedSince), orderBy: { updatedAt: 'asc' } })).map(saleRecord);
+async function listSales(companyId: string, updatedSince?: Date | null) {
+  return (await prisma.sale.findMany({ where: whereUpdatedSince(companyId, updatedSince), orderBy: { updatedAt: 'asc' } })).map(saleRecord);
 }
 
-async function listInstallments(updatedSince?: Date | null) {
-  return (await prisma.installment.findMany({ where: whereUpdatedSince(updatedSince), orderBy: { updatedAt: 'asc' } })).map(installmentRecord);
+async function listInstallments(companyId: string, updatedSince?: Date | null) {
+  return (await prisma.installment.findMany({ where: whereUpdatedSince(companyId, updatedSince), orderBy: { updatedAt: 'asc' } })).map(installmentRecord);
 }
 
-async function listPayments(updatedSince?: Date | null) {
-  return (await prisma.payment.findMany({ where: whereUpdatedSince(updatedSince), orderBy: { updatedAt: 'asc' } })).map(paymentRecord);
+async function listPayments(companyId: string, updatedSince?: Date | null) {
+  return (await prisma.payment.findMany({ where: whereUpdatedSince(companyId, updatedSince), orderBy: { updatedAt: 'asc' } })).map(paymentRecord);
 }
 
 function clientRecord(row: any): Row {

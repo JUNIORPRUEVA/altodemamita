@@ -20,12 +20,12 @@ const bool allowLegacyMigration = bool.fromEnvironment(
 /// When true, no background polling, queue retry loop, or startup sync runs.
 /// Explicit manual sync actions remain available.
 ///
-/// Default is true while the legacy cloud/PWA backend is being replaced.
-/// The next cloud implementation must opt in explicitly once the clean
-/// Solares Owner sync API exists.
+/// The clean Solares Owner backend is upload-only from the desktop app by
+/// default, so the client PC can push its local data to the cloud
+/// automatically without enabling cloud -> local restore.
 const bool manualCloudSyncOnly = bool.fromEnvironment(
   'MANUAL_CLOUD_SYNC_ONLY',
-  defaultValue: true,
+  defaultValue: false,
 );
 
 /// Master switch for cloud -> local downloads.

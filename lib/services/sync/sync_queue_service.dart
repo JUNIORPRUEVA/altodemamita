@@ -139,6 +139,22 @@ class SyncQueueService {
     'installments',
     'payments',
   };
+  static const Set<String> _businessUploadScopes = {
+    'clients',
+    'sellers',
+    'products',
+    'sales',
+    'installments',
+    'payments',
+  };
+  static const Map<String, String> _businessBootstrapTables = {
+    'clients': DatabaseSchema.clientsTable,
+    'sellers': DatabaseSchema.sellersTable,
+    'products': DatabaseSchema.lotsTable,
+    'sales': DatabaseSchema.salesTable,
+    'installments': DatabaseSchema.installmentsTable,
+    'payments': DatabaseSchema.paymentsTable,
+  };
   static const int _maxRetryAttempts = 12;
 
   Timer? _retryTimer;
@@ -199,6 +215,8 @@ class SyncQueueService {
     });
     await _refreshState();
 
+    unawaited(_bootstrapLocalBusinessDataForCloud());
+
     // Recovery: records marked as conflict are not enqueued by refreshScope()
     // (only pending records are). If the backend conflict payload is now
     // parseable, we can safely re-queue these so the queue can attempt upload
@@ -206,6 +224,74 @@ class SyncQueueService {
     unawaited(requeueUnresolvedConflicts());
 
     unawaited(processQueue());
+  }
+
+  Future<void> _bootstrapLocalBusinessDataForCloud() async {
+    if (_isDisposed || SystemConfigService.instance.isReadOnly) {
+      return;
+    }
+    if (await _configRepository.isLocalUploadBootstrapCompleted()) {
+      unawaited(syncPending(scopes: _businessUploadScopes));
+      return;
+    }
+
+    final db = await _appDatabase.database;
+    final marked = <String, int>{};
+    await db.transaction((txn) async {
+      for (final entry in _businessBootstrapTables.entries) {
+        marked[entry.key] = await _markTableForInitialUpload(txn, entry.value);
+      }
+    });
+
+    await _configRepository.markLocalUploadBootstrapCompleted();
+    await _syncLogger.log(
+      action: 'local-upload-bootstrap',
+      entity: 'sync',
+      result: 'ok',
+      extra: marked,
+    );
+    await syncPending(scopes: _businessUploadScopes);
+  }
+
+  Future<int> _markTableForInitialUpload(
+    DatabaseExecutor txn,
+    String tableName,
+  ) async {
+    final now = DateTime.now().toIso8601String();
+    final columns = await txn.rawQuery('PRAGMA table_info($tableName)');
+    final columnNames = columns
+        .map((row) => row['name'])
+        .whereType<String>()
+        .toSet();
+    if (!columnNames.contains('sync_id') ||
+        !columnNames.contains('sync_status') ||
+        !columnNames.contains('deleted_at')) {
+      return 0;
+    }
+
+    final assignments = <String>[
+      'sync_status = ?',
+      if (columnNames.contains('last_modified_local'))
+        'last_modified_local = COALESCE(last_modified_local, ?)',
+    ];
+    final args = <Object?>[
+      DatabaseSchema.syncStatusPendingUpdate,
+      if (columnNames.contains('last_modified_local')) now,
+      DatabaseSchema.syncStatusPendingCreate,
+      DatabaseSchema.syncStatusPendingUpdate,
+      DatabaseSchema.syncStatusPendingDelete,
+      DatabaseSchema.syncStatusPendingSync,
+      DatabaseSchema.syncStatusFailed,
+    ];
+
+    return txn.rawUpdate(
+      'UPDATE $tableName '
+      'SET ${assignments.join(', ')} '
+      'WHERE deleted_at IS NULL '
+      "AND TRIM(COALESCE(sync_id, '')) != '' "
+      'AND sync_status NOT IN (?, ?, ?, ?, ?)',
+      args,
+    );
   }
 
   Future<void> stop() async {

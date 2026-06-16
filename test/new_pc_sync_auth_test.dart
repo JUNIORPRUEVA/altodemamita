@@ -57,17 +57,14 @@ void main() {
     );
   }
 
-  test('login local sin JWT bloquea sync con mensaje claro', () async {
+  test('login local sin JWT permite sync con backend owner', () async {
     final syncService = buildSyncService(repositories: [_FakeSyncRepository()]);
 
     final report = await syncService.syncNow();
 
-    expect(report.wasSkipped, isTrue);
-    expect(report.errorMessage, SyncService.cloudLoginRequiredMessage);
-    expect(
-      await syncService.startupBlockReason(),
-      SyncService.cloudLoginRequiredMessage,
-    );
+    expect(report.wasSkipped, isFalse);
+    expect(report.errorMessage, isNull);
+    expect(await syncService.startupBlockReason(), isNull);
   });
 
   test('JWT guardado permite iniciar sync', () async {
@@ -118,31 +115,39 @@ void main() {
         expect(firstReport.wasSkipped, isTrue);
         expect(firstReport.errorMessage, contains('Inicia sesion en linea'));
         expect(secondReport.wasSkipped, isTrue);
-        expect(secondReport.errorMessage, SyncService.cloudLoginRequiredMessage);
+        expect(
+          secondReport.errorMessage,
+          SyncService.cloudLoginRequiredMessage,
+        );
         expect(expiredNotifications, 1);
         expect((await configRepository.loadSettings()).jwtToken, isEmpty);
       }
     },
   );
 
-  test('sync se bloquea con mensaje claro si la PC no esta autorizada', () async {
-    await configRepository.saveJwtToken('jwt-test-token');
-    backendState.rejectSyncDownloadForDeviceUnauthorized = true;
-    final syncService = buildSyncService(repositories: [_FakeSyncRepository()]);
-
-    final report = await syncService.syncNow(forceFullDownload: true);
-
-    if (!allowCloudPull) {
-      expect(report.wasSkipped, isFalse);
-      expect(report.errorMessage, isNull);
-    } else {
-      expect(report.wasSkipped, isTrue);
-      expect(
-        report.errorMessage,
-        SyncService.deviceAuthorizationRequiredMessage,
+  test(
+    'sync se bloquea con mensaje claro si la PC no esta autorizada',
+    () async {
+      await configRepository.saveJwtToken('jwt-test-token');
+      backendState.rejectSyncDownloadForDeviceUnauthorized = true;
+      final syncService = buildSyncService(
+        repositories: [_FakeSyncRepository()],
       );
-    }
-  });
+
+      final report = await syncService.syncNow(forceFullDownload: true);
+
+      if (!allowCloudPull) {
+        expect(report.wasSkipped, isFalse);
+        expect(report.errorMessage, isNull);
+      } else {
+        expect(report.wasSkipped, isTrue);
+        expect(
+          report.errorMessage,
+          SyncService.deviceAuthorizationRequiredMessage,
+        );
+      }
+    },
+  );
 }
 
 class _FakeSyncRepository implements SyncRepository {

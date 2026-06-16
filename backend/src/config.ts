@@ -11,6 +11,9 @@ export const config = {
   techEmail: process.env.TECH_EMAIL ?? '',
   techPassword: process.env.TECH_PASSWORD ?? '',
   techName: process.env.TECH_NAME ?? 'Tecnico',
+  companyTenantKey:
+    process.env.COMPANY_TENANT_KEY ?? 'alto-dona-mamita-sistema-solares',
+  companyName: process.env.COMPANY_NAME ?? 'EL ALTO DE DONA MAMITA',
 };
 
 export function validateConfig() {
