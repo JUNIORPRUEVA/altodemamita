@@ -120,7 +120,7 @@ class SellerRepository implements SyncRepository {
         "UPDATE ${DatabaseSchema.sellersTable} "
         "SET cedula = '__DELETED__' || CAST(id AS TEXT) "
         'WHERE deleted_at IS NOT NULL '
-        'AND TRIM(cedula) = ?',
+        'AND LOWER(TRIM(cedula)) = LOWER(TRIM(?))',
         [seller.documentId],
       );
 
@@ -592,7 +592,9 @@ class SellerRepository implements SyncRepository {
     }
 
     final db = await _appDatabase.database;
-    final where = StringBuffer('deleted_at IS NULL AND TRIM(cedula) = ?');
+    final where = StringBuffer(
+      'deleted_at IS NULL AND LOWER(TRIM(cedula)) = LOWER(TRIM(?))',
+    );
     final whereArgs = <Object>[normalized];
     if (excludeId != null) {
       where.write(' AND id <> ?');

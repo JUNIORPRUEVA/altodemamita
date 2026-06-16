@@ -7,7 +7,7 @@ import '../security/password_hasher.dart';
 
 class DatabaseSchema {
   static const String databaseName = 'sistema_solares.db';
-  static const int databaseVersion = 26;
+  static const int databaseVersion = 27;
   static const String defaultSyncBaseUrl = BASE_URL;
 
   static const String clientsTable = 'clientes';
@@ -131,6 +131,7 @@ class DatabaseSchema {
     await _migrateToVersion24(db);
     await _migrateToVersion25(db);
     await _migrateToVersion26(db);
+    await _migrateToVersion27(db);
   }
 
   static Future<void> ensureCoreStructures(DatabaseExecutor db) async {
@@ -158,6 +159,7 @@ class DatabaseSchema {
     await _migrateToVersion24(db);
     await _migrateToVersion25(db);
     await _migrateToVersion26(db);
+    await _migrateToVersion27(db);
     await seedDefaults(db);
   }
 
@@ -440,6 +442,14 @@ class DatabaseSchema {
 
     if (oldVersion < 25 && newVersion >= 25) {
       await _migrateToVersion25(db);
+    }
+
+    if (oldVersion < 26 && newVersion >= 26) {
+      await _migrateToVersion26(db);
+    }
+
+    if (oldVersion < 27 && newVersion >= 27) {
+      await _migrateToVersion27(db);
     }
 
     await seedDefaults(db);
@@ -819,6 +829,212 @@ class DatabaseSchema {
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_permisos_sync_status ON $permissionsTable(sync_status)',
     );
+  }
+
+  /// Bloquea duplicados activos desde SQLite para clientes, vendedores y solares.
+  static Future<void> _migrateToVersion27(DatabaseExecutor db) async {
+    await _softDeleteSafeActiveDuplicates(db);
+    await _createActiveDuplicateGuards(db);
+  }
+
+  static Future<void> _softDeleteSafeActiveDuplicates(
+    DatabaseExecutor db,
+  ) async {
+    final now = DateTime.now().toIso8601String();
+
+    if (await _tableExists(db, lotsTable) &&
+        await _tableExists(db, salesTable)) {
+      await db.rawUpdate(
+        '''
+        UPDATE $lotsTable
+        SET deleted_at = ?,
+            fecha_actualizacion = ?,
+            last_modified_local = ?,
+            sync_status = ?
+        WHERE deleted_at IS NULL
+          AND id NOT IN (
+            SELECT MIN(id)
+            FROM $lotsTable
+            WHERE deleted_at IS NULL
+            GROUP BY LOWER(TRIM(solar_numero))
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM $salesTable v
+            WHERE v.solar_id = $lotsTable.id
+              AND v.deleted_at IS NULL
+              AND LOWER(v.estado) NOT IN (
+                'cancelada','cancelado','anulada','anulado','eliminada','eliminado'
+              )
+          )
+      ''',
+        [now, now, now, syncStatusPendingDelete],
+      );
+    }
+
+    if (await _tableExists(db, clientsTable) &&
+        await _tableExists(db, salesTable)) {
+      await db.rawUpdate(
+        '''
+        UPDATE $clientsTable
+        SET cedula = '__DELETED__' || id,
+            deleted_at = ?,
+            fecha_actualizacion = ?,
+            last_modified_local = ?,
+            sync_status = ?
+        WHERE deleted_at IS NULL
+          AND id NOT IN (
+            SELECT MIN(id)
+            FROM $clientsTable
+            WHERE deleted_at IS NULL
+            GROUP BY LOWER(TRIM(cedula))
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM $salesTable v
+            WHERE v.cliente_id = $clientsTable.id
+              AND v.deleted_at IS NULL
+              AND LOWER(v.estado) NOT IN (
+                'cancelada','cancelado','anulada','anulado','eliminada','eliminado'
+              )
+          )
+      ''',
+        [now, now, now, syncStatusPendingDelete],
+      );
+    }
+
+    if (await _tableExists(db, sellersTable) &&
+        await _tableExists(db, salesTable)) {
+      await db.rawUpdate(
+        '''
+        UPDATE $sellersTable
+        SET cedula = '__DELETED__' || id,
+            deleted_at = ?,
+            fecha_actualizacion = ?,
+            last_modified_local = ?,
+            sync_status = ?
+        WHERE deleted_at IS NULL
+          AND id NOT IN (
+            SELECT MIN(id)
+            FROM $sellersTable
+            WHERE deleted_at IS NULL
+            GROUP BY LOWER(TRIM(cedula))
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM $salesTable v
+            WHERE v.vendedor_id = $sellersTable.id
+              AND v.deleted_at IS NULL
+              AND LOWER(v.estado) NOT IN (
+                'cancelada','cancelado','anulada','anulado','eliminada','eliminado'
+              )
+          )
+      ''',
+        [now, now, now, syncStatusPendingDelete],
+      );
+    }
+  }
+
+  static Future<void> _createActiveDuplicateGuards(DatabaseExecutor db) async {
+    if (await _tableExists(db, lotsTable)) {
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_solares_active_key_normalized '
+        'ON $lotsTable(LOWER(TRIM(solar_numero))) '
+        'WHERE deleted_at IS NULL',
+      );
+      await db.execute('''
+        CREATE TRIGGER IF NOT EXISTS trg_solares_no_duplicate_active_insert
+        BEFORE INSERT ON $lotsTable
+        WHEN NEW.deleted_at IS NULL
+          AND EXISTS (
+            SELECT 1 FROM $lotsTable
+            WHERE deleted_at IS NULL
+              AND LOWER(TRIM(solar_numero)) = LOWER(TRIM(NEW.solar_numero))
+          )
+        BEGIN
+          SELECT RAISE(ABORT, 'DUPLICATE_ACTIVE_LOT');
+        END
+      ''');
+      await db.execute('''
+        CREATE TRIGGER IF NOT EXISTS trg_solares_no_duplicate_active_update
+        BEFORE UPDATE OF manzana_numero, solar_numero, deleted_at ON $lotsTable
+        WHEN NEW.deleted_at IS NULL
+          AND EXISTS (
+            SELECT 1 FROM $lotsTable
+            WHERE id <> NEW.id
+              AND deleted_at IS NULL
+              AND LOWER(TRIM(solar_numero)) = LOWER(TRIM(NEW.solar_numero))
+          )
+        BEGIN
+          SELECT RAISE(ABORT, 'DUPLICATE_ACTIVE_LOT');
+        END
+      ''');
+    }
+
+    if (await _tableExists(db, clientsTable)) {
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_clientes_active_cedula_normalized '
+        'ON $clientsTable(LOWER(TRIM(cedula))) WHERE deleted_at IS NULL',
+      );
+      await db.execute('''
+        CREATE TRIGGER IF NOT EXISTS trg_clientes_no_duplicate_active_insert
+        BEFORE INSERT ON $clientsTable
+        WHEN NEW.deleted_at IS NULL
+          AND EXISTS (
+            SELECT 1 FROM $clientsTable
+            WHERE deleted_at IS NULL
+              AND LOWER(TRIM(cedula)) = LOWER(TRIM(NEW.cedula))
+          )
+        BEGIN
+          SELECT RAISE(ABORT, 'DUPLICATE_ACTIVE_CLIENT');
+        END
+      ''');
+      await db.execute('''
+        CREATE TRIGGER IF NOT EXISTS trg_clientes_no_duplicate_active_update
+        BEFORE UPDATE OF cedula, deleted_at ON $clientsTable
+        WHEN NEW.deleted_at IS NULL
+          AND EXISTS (
+            SELECT 1 FROM $clientsTable
+            WHERE id <> NEW.id
+              AND deleted_at IS NULL
+              AND LOWER(TRIM(cedula)) = LOWER(TRIM(NEW.cedula))
+          )
+        BEGIN
+          SELECT RAISE(ABORT, 'DUPLICATE_ACTIVE_CLIENT');
+        END
+      ''');
+    }
+
+    if (await _tableExists(db, sellersTable)) {
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_vendedores_active_cedula_normalized '
+        'ON $sellersTable(LOWER(TRIM(cedula))) WHERE deleted_at IS NULL',
+      );
+      await db.execute('''
+        CREATE TRIGGER IF NOT EXISTS trg_vendedores_no_duplicate_active_insert
+        BEFORE INSERT ON $sellersTable
+        WHEN NEW.deleted_at IS NULL
+          AND EXISTS (
+            SELECT 1 FROM $sellersTable
+            WHERE deleted_at IS NULL
+              AND LOWER(TRIM(cedula)) = LOWER(TRIM(NEW.cedula))
+          )
+        BEGIN
+          SELECT RAISE(ABORT, 'DUPLICATE_ACTIVE_SELLER');
+        END
+      ''');
+      await db.execute('''
+        CREATE TRIGGER IF NOT EXISTS trg_vendedores_no_duplicate_active_update
+        BEFORE UPDATE OF cedula, deleted_at ON $sellersTable
+        WHEN NEW.deleted_at IS NULL
+          AND EXISTS (
+            SELECT 1 FROM $sellersTable
+            WHERE id <> NEW.id
+              AND deleted_at IS NULL
+              AND LOWER(TRIM(cedula)) = LOWER(TRIM(NEW.cedula))
+          )
+        BEGIN
+          SELECT RAISE(ABORT, 'DUPLICATE_ACTIVE_SELLER');
+        END
+      ''');
+    }
   }
 
   /// Agrega `monto_apartado_pagado` a la tabla de ventas. Para datos legados

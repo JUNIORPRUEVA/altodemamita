@@ -15,9 +15,8 @@ export const config = {
 
 export function validateConfig() {
   const missing = [];
-  if (!config.jwtSecret || config.jwtSecret.length < 24) missing.push('JWT_SECRET');
-  if (!config.syncDeviceToken || config.syncDeviceToken.length < 16) {
-    missing.push('SYNC_DEVICE_TOKEN');
+  if (!process.env.DATABASE_URL || process.env.DATABASE_URL.trim().length === 0) {
+    missing.push('DATABASE_URL');
   }
   if (missing.length > 0) {
     throw new Error(`Variables requeridas invalidas: ${missing.join(', ')}`);

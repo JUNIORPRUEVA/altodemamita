@@ -239,10 +239,15 @@ class _SellersPageState extends State<SellersPage> {
 
     if (error is DatabaseException) {
       final normalized = error.toString();
+      if (normalized.contains('DUPLICATE_ACTIVE_SELLER')) {
+        return 'Ya existe un vendedor activo con esta cédula o documento. Verifica los datos antes de continuar.';
+      }
       if (normalized.contains('UNIQUE constraint failed: vendedores.cedula')) {
         return 'Ya existe un vendedor activo con esta cédula. Verifica los datos antes de continuar.';
       }
-      if (normalized.contains('NOT NULL constraint failed: vendedores.cedula')) {
+      if (normalized.contains(
+        'NOT NULL constraint failed: vendedores.cedula',
+      )) {
         return 'La cédula es obligatoria.';
       }
     }
@@ -287,11 +292,9 @@ class _SellersPageState extends State<SellersPage> {
     return Container(
       decoration: const BoxDecoration(
         color: Colors.white,
-        border: Border(
-            bottom: BorderSide(color: Color(0xFFE4EAF2))),
+        border: Border(bottom: BorderSide(color: Color(0xFFE4EAF2))),
       ),
-      padding:
-          const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
       child: LayoutBuilder(
         builder: (context, constraints) {
           final compact = constraints.maxWidth < 920;
@@ -305,17 +308,14 @@ class _SellersPageState extends State<SellersPage> {
                 hintText: 'Buscar por nombre, cédula o teléfono…',
                 prefixIcon: const Icon(Icons.search, size: 18),
                 isDense: true,
-                contentPadding:
-                    const EdgeInsets.symmetric(vertical: 10),
+                contentPadding: const EdgeInsets.symmetric(vertical: 10),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
-                  borderSide:
-                      const BorderSide(color: Color(0xFFD0D7E4)),
+                  borderSide: const BorderSide(color: Color(0xFFD0D7E4)),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
-                  borderSide:
-                      const BorderSide(color: Color(0xFFD0D7E4)),
+                  borderSide: const BorderSide(color: Color(0xFFD0D7E4)),
                 ),
               ),
               onSubmitted: (_) => _runSearch(),
@@ -329,37 +329,33 @@ class _SellersPageState extends State<SellersPage> {
                 FilledButton.icon(
                   style: FilledButton.styleFrom(
                     minimumSize: const Size(0, 38),
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 16),
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
                   ),
                   onPressed: _createSeller,
-                  icon: const Icon(Icons.person_add_alt_1_outlined,
-                      size: 18),
-                  label: const Text('Nuevo vendedor',
-                      style: TextStyle(fontSize: 14)),
+                  icon: const Icon(Icons.person_add_alt_1_outlined, size: 18),
+                  label: const Text(
+                    'Nuevo vendedor',
+                    style: TextStyle(fontSize: 14),
+                  ),
                 ),
                 const SizedBox(width: 8),
               ],
               OutlinedButton(
                 style: OutlinedButton.styleFrom(
                   minimumSize: const Size(0, 38),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14),
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
                 ),
                 onPressed: _runSearch,
-                child: const Text('Buscar',
-                    style: TextStyle(fontSize: 14)),
+                child: const Text('Buscar', style: TextStyle(fontSize: 14)),
               ),
               const SizedBox(width: 6),
               OutlinedButton(
                 style: OutlinedButton.styleFrom(
                   minimumSize: const Size(0, 38),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14),
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
                 ),
                 onPressed: _clearSearch,
-                child: const Text('Limpiar',
-                    style: TextStyle(fontSize: 14)),
+                child: const Text('Limpiar', style: TextStyle(fontSize: 14)),
               ),
             ],
           );
@@ -367,11 +363,7 @@ class _SellersPageState extends State<SellersPage> {
           if (compact) {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                searchField,
-                const SizedBox(height: 10),
-                actions,
-              ],
+              children: [searchField, const SizedBox(height: 10), actions],
             );
           }
 
@@ -447,8 +439,7 @@ class _SellersPageState extends State<SellersPage> {
                 const SizedBox(height: 10),
                 const Text(
                   'Agrega vendedores para tenerlos disponibles en el proceso de ventas y seguimiento comercial.',
-                  style: TextStyle(
-                      fontSize: 14, color: Color(0xFF6B7494)),
+                  style: TextStyle(fontSize: 14, color: Color(0xFF6B7494)),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 20),
@@ -469,8 +460,7 @@ class _SellersPageState extends State<SellersPage> {
       color: Colors.white,
       child: ListView.separated(
         itemCount: _sellers.length,
-        separatorBuilder: (_, _) =>
-            const Divider(height: 1, indent: 64),
+        separatorBuilder: (_, _) => const Divider(height: 1, indent: 64),
         itemBuilder: (context, index) {
           final seller = _sellers[index];
           final initials = seller.name.isEmpty
@@ -486,8 +476,7 @@ class _SellersPageState extends State<SellersPage> {
             child: SizedBox(
               height: 62,
               child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Row(
                   children: [
                     CircleAvatar(
@@ -521,8 +510,9 @@ class _SellersPageState extends State<SellersPage> {
                             Text(
                               meta,
                               style: const TextStyle(
-                                  fontSize: 12,
-                                  color: Color(0xFF8893AA)),
+                                fontSize: 12,
+                                color: Color(0xFF8893AA),
+                              ),
                               overflow: TextOverflow.ellipsis,
                             ),
                         ],
@@ -531,15 +521,13 @@ class _SellersPageState extends State<SellersPage> {
                     const SizedBox(width: 8),
                     if (canUpdate)
                       IconButton(
-                        icon: const Icon(Icons.edit_outlined,
-                            size: 18),
+                        icon: const Icon(Icons.edit_outlined, size: 18),
                         color: const Color(0xFF6B7494),
                         onPressed: () => _editSeller(seller),
                       ),
                     if (canDelete)
                       IconButton(
-                        icon: const Icon(Icons.delete_outline,
-                            size: 18),
+                        icon: const Icon(Icons.delete_outline, size: 18),
                         color: const Color(0xFF6B7494),
                         onPressed: () => _confirmDelete(seller),
                       ),

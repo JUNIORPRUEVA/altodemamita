@@ -17,8 +17,7 @@ class SyncSettings {
   final SyncConflictStrategy conflictStrategy;
   final String deviceId;
 
-  bool get isConfigured =>
-      baseUrl.trim().isNotEmpty && jwtToken.trim().isNotEmpty;
+  bool get isConfigured => baseUrl.trim().isNotEmpty;
 
   String get normalizedBaseUrl {
     final normalized = baseUrl.trim();

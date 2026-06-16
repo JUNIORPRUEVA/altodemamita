@@ -78,9 +78,7 @@ class _ClientFormDialogState extends State<ClientFormDialog> {
                 const SizedBox(height: 16),
                 TextFormField(
                   controller: _fullNameController,
-                  decoration: const InputDecoration(
-                    labelText: 'Nombre',
-                  ),
+                  decoration: const InputDecoration(labelText: 'Nombre'),
                   validator: DominicanValidators.validateName,
                 ),
                 const SizedBox(height: 12),
@@ -89,10 +87,11 @@ class _ClientFormDialogState extends State<ClientFormDialog> {
                   decoration: const InputDecoration(
                     labelText: 'Cédula',
                     helperText:
-                        'Digite solo números. Puede ser cédula, pasaporte u otro documento numérico.',
+                        'Puede usar cédula, pasaporte u otro documento. Máximo 30 caracteres.',
                   ),
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  keyboardType: TextInputType.text,
+                  maxLength: 30,
+                  inputFormatters: [LengthLimitingTextInputFormatter(30)],
                   validator: DominicanValidators.validateFlexibleDocumentId,
                 ),
                 const SizedBox(height: 12),
@@ -101,18 +100,17 @@ class _ClientFormDialogState extends State<ClientFormDialog> {
                   decoration: const InputDecoration(
                     labelText: 'Teléfono',
                     helperText:
-                        'Digite solo números. Puede ser un número local o extranjero.',
+                        'Puede usar números, letras o símbolos. Máximo 30 caracteres.',
                   ),
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  maxLength: 30,
+                  inputFormatters: [LengthLimitingTextInputFormatter(30)],
                   validator: DominicanValidators.validateFlexiblePhone,
-                  keyboardType: TextInputType.phone,
+                  keyboardType: TextInputType.text,
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _addressController,
-                  decoration: const InputDecoration(
-                    labelText: 'Dirección',
-                  ),
+                  decoration: const InputDecoration(labelText: 'Dirección'),
                   maxLines: 2,
                   validator: DominicanValidators.validateAddress,
                 ),
@@ -140,26 +138,23 @@ class _ClientFormDialogState extends State<ClientFormDialog> {
     }
 
     final baseClient = widget.initialClient ?? Client.empty();
-    final documentId = DominicanValidators.digitsOnly(
-      _documentIdController.text,
-    );
+    final documentId = _documentIdController.text.trim();
     final client = baseClient.copyWith(
       fullName: _fullNameController.text.trim(),
       documentId: documentId,
-      phone: _normalizePhone(_phoneController.text),
+      phone: _normalizeOptionalText(_phoneController.text),
       address: _formatAddress(_addressController.text),
     );
 
     Navigator.of(context).pop(client);
   }
 
-  String? _normalizePhone(String value) {
+  String? _normalizeOptionalText(String value) {
     final trimmed = value.trim();
     if (trimmed.isEmpty) {
       return null;
     }
-    final digits = DominicanValidators.digitsOnly(trimmed);
-    return digits.isEmpty ? null : digits;
+    return trimmed;
   }
 
   String? _formatAddress(String value) {

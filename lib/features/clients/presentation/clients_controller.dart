@@ -100,6 +100,9 @@ class ClientsController extends ChangeNotifier {
 
     if (error is DatabaseException) {
       final normalized = error.toString();
+      if (normalized.contains('DUPLICATE_ACTIVE_CLIENT')) {
+        return 'Ya existe un cliente activo con esta cédula o documento. Verifica los datos antes de continuar.';
+      }
       if (normalized.contains('UNIQUE constraint failed: clientes.cedula')) {
         return 'Ya existe un cliente activo con esta cédula. Verifica los datos antes de continuar.';
       }

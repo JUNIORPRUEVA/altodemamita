@@ -19,8 +19,13 @@ export function createApp() {
   });
 
   app.use('/api/auth', authRouter);
+  app.use('/auth', authRouter);
   app.use('/api/owner', ownerRouter);
+  app.use('/owner', ownerRouter);
+  app.use('/api/sync', syncRouter);
+  app.use('/sync', syncRouter);
   app.use('/api/pos-sync', syncRouter);
+  app.use('/pos-sync', syncRouter);
 
   app.use((_req, res) => {
     res.status(404).json({ error: { message: 'Ruta no encontrada.' } });

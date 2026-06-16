@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../features/auth/domain/permission_model.dart';
@@ -78,11 +78,9 @@ class _LotsPageState extends State<LotsPage> {
     return Container(
       decoration: const BoxDecoration(
         color: Colors.white,
-        border: Border(
-            bottom: BorderSide(color: Color(0xFFE4EAF2))),
+        border: Border(bottom: BorderSide(color: Color(0xFFE4EAF2))),
       ),
-      padding:
-          const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
       child: Row(
         children: [
           Expanded(
@@ -95,17 +93,14 @@ class _LotsPageState extends State<LotsPage> {
                   hintText: 'Buscar por manzana, solar o estado…',
                   prefixIcon: const Icon(Icons.search, size: 18),
                   isDense: true,
-                  contentPadding:
-                      const EdgeInsets.symmetric(vertical: 10),
+                  contentPadding: const EdgeInsets.symmetric(vertical: 10),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
-                    borderSide:
-                        const BorderSide(color: Color(0xFFD0D7E4)),
+                    borderSide: const BorderSide(color: Color(0xFFD0D7E4)),
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
-                    borderSide:
-                        const BorderSide(color: Color(0xFFD0D7E4)),
+                    borderSide: const BorderSide(color: Color(0xFFD0D7E4)),
                   ),
                 ),
                 onSubmitted: (_) => _runSearch(),
@@ -117,37 +112,30 @@ class _LotsPageState extends State<LotsPage> {
             FilledButton.icon(
               style: FilledButton.styleFrom(
                 minimumSize: const Size(0, 38),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
               ),
               onPressed: _createLot,
-              icon: const Icon(Icons.add_location_alt_outlined,
-                  size: 18),
-              label: const Text('Nuevo solar',
-                  style: TextStyle(fontSize: 14)),
+              icon: const Icon(Icons.add_location_alt_outlined, size: 18),
+              label: const Text('Nuevo solar', style: TextStyle(fontSize: 14)),
             ),
             const SizedBox(width: 8),
           ],
           OutlinedButton(
             style: OutlinedButton.styleFrom(
               minimumSize: const Size(0, 38),
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 14),
+              padding: const EdgeInsets.symmetric(horizontal: 14),
             ),
             onPressed: _runSearch,
-            child:
-                const Text('Buscar', style: TextStyle(fontSize: 14)),
+            child: const Text('Buscar', style: TextStyle(fontSize: 14)),
           ),
           const SizedBox(width: 6),
           OutlinedButton(
             style: OutlinedButton.styleFrom(
               minimumSize: const Size(0, 38),
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 14),
+              padding: const EdgeInsets.symmetric(horizontal: 14),
             ),
             onPressed: _clearSearch,
-            child: const Text('Limpiar',
-                style: TextStyle(fontSize: 14)),
+            child: const Text('Limpiar', style: TextStyle(fontSize: 14)),
           ),
         ],
       ),
@@ -209,8 +197,7 @@ class _LotsPageState extends State<LotsPage> {
                 const SizedBox(height: 10),
                 const Text(
                   'Agrega solares al inventario para asociarlos a ventas y realizar seguimiento de disponibilidad.',
-                  style: TextStyle(
-                      fontSize: 14, color: Color(0xFF6B7494)),
+                  style: TextStyle(fontSize: 14, color: Color(0xFF6B7494)),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 20),
@@ -231,8 +218,7 @@ class _LotsPageState extends State<LotsPage> {
       color: Colors.white,
       child: ListView.separated(
         itemCount: _controller.lots.length,
-        separatorBuilder: (_, _) =>
-            const Divider(height: 1, indent: 64),
+        separatorBuilder: (_, _) => const Divider(height: 1, indent: 64),
         itemBuilder: (context, index) {
           final lot = _controller.lots[index];
           final statusColor = _lotStatusColor(lot.status);
@@ -245,8 +231,7 @@ class _LotsPageState extends State<LotsPage> {
             child: SizedBox(
               height: 72,
               child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Row(
                   children: [
                     Container(
@@ -285,8 +270,9 @@ class _LotsPageState extends State<LotsPage> {
                           Text(
                             'Manz. ${lot.blockNumber}  ·  Solar ${lot.lotNumber}',
                             style: const TextStyle(
-                                fontSize: 12,
-                                color: Color(0xFF8893AA)),
+                              fontSize: 12,
+                              color: Color(0xFF8893AA),
+                            ),
                           ),
                         ],
                       ),
@@ -308,14 +294,16 @@ class _LotsPageState extends State<LotsPage> {
                           Text(
                             'RD\$${_formatPrice(lot.pricePerSquareMeter)} /m²',
                             style: const TextStyle(
-                                fontSize: 12,
-                                color: Color(0xFF8893AA)),
+                              fontSize: 12,
+                              color: Color(0xFF8893AA),
+                            ),
                           ),
                           Text(
                             'Total RD\$${_formatPrice(lot.totalPrice)}',
                             style: const TextStyle(
-                                fontSize: 12,
-                                color: Color(0xFF8893AA)),
+                              fontSize: 12,
+                              color: Color(0xFF8893AA),
+                            ),
                           ),
                         ],
                       ),
@@ -323,7 +311,9 @@ class _LotsPageState extends State<LotsPage> {
                     const SizedBox(width: 12),
                     Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 4),
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: statusColor.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(20),
@@ -346,8 +336,7 @@ class _LotsPageState extends State<LotsPage> {
                       ),
                     if (canDelete)
                       IconButton(
-                        icon:
-                            const Icon(Icons.delete_outline, size: 18),
+                        icon: const Icon(Icons.delete_outline, size: 18),
                         color: const Color(0xFF6B7494),
                         onPressed: () => _confirmDelete(lot),
                       ),
@@ -381,7 +370,18 @@ class _LotsPageState extends State<LotsPage> {
 
   Future<void> _saveLot(Lot lot, {required bool created}) async {
     final error = await _controller.save(lot);
-    if (!mounted || error != null) {
+    if (!mounted) {
+      return;
+    }
+
+    if (error != null) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          content: Text(error),
+          backgroundColor: Theme.of(context).colorScheme.error,
+          duration: const Duration(seconds: 6),
+        ),
+      );
       return;
     }
 
@@ -451,10 +451,10 @@ class _LotsPageState extends State<LotsPage> {
   }
 
   Color _lotStatusColor(String status) => switch (status) {
-        'disponible' => const Color(0xFF2E7D32),
-        'reservado' => const Color(0xFFE67E00),
-        _ => const Color(0xFF1565C0),
-      };
+    'disponible' => const Color(0xFF2E7D32),
+    'reservado' => const Color(0xFFE67E00),
+    _ => const Color(0xFF1565C0),
+  };
 
   String _formatPrice(double price) {
     final formatter = RegExp(r'\B(?=(\d{3})+(?!\d))');

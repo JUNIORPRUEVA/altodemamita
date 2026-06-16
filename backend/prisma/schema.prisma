@@ -41,6 +41,7 @@ model Seller {
   id        String   @id @default(uuid())
   syncId    String   @unique
   name      String
+  document  String?
   phone     String?
   active    Boolean  @default(true)
   raw       Json?
@@ -83,19 +84,45 @@ model Sale {
   updatedAt    DateTime @updatedAt
 }
 
+model Installment {
+  id                  String   @id @default(uuid())
+  syncId              String   @unique
+  saleSyncId          String?
+  installmentNumber   Int?
+  dueDate             DateTime?
+  openingBalance      Decimal  @default(0) @db.Decimal(14, 2)
+  principalAmount     Decimal  @default(0) @db.Decimal(14, 2)
+  interestAmount      Decimal  @default(0) @db.Decimal(14, 2)
+  totalAmount         Decimal  @default(0) @db.Decimal(14, 2)
+  paidAmount          Decimal  @default(0) @db.Decimal(14, 2)
+  paidPrincipalAmount Decimal  @default(0) @db.Decimal(14, 2)
+  paidInterestAmount  Decimal  @default(0) @db.Decimal(14, 2)
+  endingBalance       Decimal  @default(0) @db.Decimal(14, 2)
+  status              String?
+  raw                 Json?
+  version             Int      @default(1)
+  deletedAt           DateTime?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
 model Payment {
-  id         String   @id @default(uuid())
-  syncId     String   @unique
-  saleSyncId String?
-  clientSyncId String?
-  paidAt     DateTime?
-  amount     Decimal  @default(0) @db.Decimal(14, 2)
-  method     String?
-  raw        Json?
-  version    Int      @default(1)
-  deletedAt  DateTime?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id                String   @id @default(uuid())
+  syncId            String   @unique
+  saleSyncId        String?
+  clientSyncId      String?
+  installmentSyncId String?
+  paidAt            DateTime?
+  amount            Decimal  @default(0) @db.Decimal(14, 2)
+  method            String?
+  paymentType       String?
+  reference         String?
+  yearToPay         Int?
+  raw               Json?
+  version           Int      @default(1)
+  deletedAt         DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 }
 
 model SyncBatch {

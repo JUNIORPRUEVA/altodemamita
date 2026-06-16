@@ -1,85 +1,158 @@
-import { Router } from 'express';
 import { Prisma } from '@prisma/client';
+import { Router } from 'express';
 import { z } from 'zod';
-import { syncGuard } from '../auth';
 import { prisma } from '../prisma';
 
 const rowSchema = z.record(z.unknown()).and(
-  z.object({
-    sync_id: z.string().optional(),
-    syncId: z.string().optional(),
-    version: z.coerce.number().int().optional(),
-    deleted_at: z.string().nullable().optional(),
-    deletedAt: z.string().nullable().optional(),
-  }).passthrough(),
+  z
+    .object({
+      sync_id: z.string().optional(),
+      syncId: z.string().optional(),
+      version: z.coerce.number().int().optional(),
+      deleted_at: z.string().nullable().optional(),
+      deletedAt: z.string().nullable().optional(),
+    })
+    .passthrough(),
 );
 
 const uploadSchema = z.object({
-  deviceId: z.string().min(1),
-  records: z.object({
-    clients: z.array(rowSchema).optional(),
-    sellers: z.array(rowSchema).optional(),
-    lots: z.array(rowSchema).optional(),
-    solares: z.array(rowSchema).optional(),
-    sales: z.array(rowSchema).optional(),
-    payments: z.array(rowSchema).optional(),
-  }),
+  device_id: z.string().optional(),
+  deviceId: z.string().optional(),
+  records: z.record(z.array(rowSchema).optional()),
 });
+
+type Row = Record<string, unknown>;
 
 export const syncRouter = Router();
 
-syncRouter.post('/upload', syncGuard, async (req, res) => {
+syncRouter.post('/upload', async (req, res) => {
   const parsed = uploadSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: { message: 'Payload de sync invalido.' } });
+    return res.status(400).json({
+      message: 'Payload de sync invalido.',
+      error: { message: 'Payload de sync invalido.' },
+    });
   }
 
-  const { deviceId, records } = parsed.data;
-  const counts = {
-    clients: await upsertClients(records.clients ?? []),
-    sellers: await upsertSellers(records.sellers ?? []),
-    lots: await upsertLots([...(records.lots ?? []), ...(records.solares ?? [])]),
-    sales: await upsertSales(records.sales ?? []),
-    payments: await upsertPayments(records.payments ?? []),
+  const records = parsed.data.records;
+  const deviceId = stringValue(parsed.data.device_id, parsed.data.deviceId) ?? 'unknown-device';
+
+  const uploaded = {
+    clients: records.clients ?? [],
+    sellers: records.sellers ?? [],
+    products: [...(records.products ?? []), ...(records.lots ?? []), ...(records.solares ?? [])],
+    sales: records.sales ?? [],
+    installments: [...(records.installments ?? []), ...(records.cuotas ?? [])],
+    payments: records.payments ?? [],
   };
+
+  const ack = {
+    clients: await upsertClients(uploaded.clients),
+    sellers: await upsertSellers(uploaded.sellers),
+    products: await upsertLots(uploaded.products),
+    sales: await upsertSales(uploaded.sales),
+    installments: await upsertInstallments(uploaded.installments),
+    payments: await upsertPayments(uploaded.payments),
+  };
+
+  const receivedCounts = {
+    clients: uploaded.clients.length,
+    sellers: uploaded.sellers.length,
+    products: uploaded.products.length,
+    sales: uploaded.sales.length,
+    installments: uploaded.installments.length,
+    payments: uploaded.payments.length,
+  };
+  const appliedCounts = Object.fromEntries(
+    Object.entries(ack).map(([scope, rows]) => [scope, rows.length]),
+  );
 
   await prisma.syncBatch.create({
     data: {
       deviceId,
-      receivedCounts: {
-        clients: records.clients?.length ?? 0,
-        sellers: records.sellers?.length ?? 0,
-        lots: (records.lots?.length ?? 0) + (records.solares?.length ?? 0),
-        sales: records.sales?.length ?? 0,
-        payments: records.payments?.length ?? 0,
-      },
-      appliedCounts: counts,
+      receivedCounts,
+      appliedCounts,
     },
   });
 
-  return res.json({ data: { applied: counts, serverTime: new Date().toISOString() } });
+  return res.json({
+    records: ack,
+    server_time: new Date().toISOString(),
+    applied: appliedCounts,
+  });
 });
 
-syncRouter.get('/status', syncGuard, async (_req, res) => {
+syncRouter.get('/download', handleDownload);
+syncRouter.get('/changes', handleDownload);
+
+async function handleDownload(req: any, res: any) {
+  const scopeCursors = parseScopeCursors(req.query.scope_cursors);
+  const updatedSince = dateValue(req.query.updatedSince);
+  const records = {
+    clients: await listClients(scopeCursors.clients ?? updatedSince),
+    sellers: await listSellers(scopeCursors.sellers ?? updatedSince),
+    products: await listLots(scopeCursors.products ?? scopeCursors.lots ?? updatedSince),
+    sales: await listSales(scopeCursors.sales ?? updatedSince),
+    installments: await listInstallments(scopeCursors.installments ?? scopeCursors.cuotas ?? updatedSince),
+    payments: await listPayments(scopeCursors.payments ?? updatedSince),
+  };
+  const serverTime = new Date().toISOString();
+
+  return res.json({
+    records,
+    server_time: serverTime,
+    scope_cursors: {
+      clients: latestCursor(records.clients, serverTime),
+      sellers: latestCursor(records.sellers, serverTime),
+      products: latestCursor(records.products, serverTime),
+      sales: latestCursor(records.sales, serverTime),
+      installments: latestCursor(records.installments, serverTime),
+      payments: latestCursor(records.payments, serverTime),
+    },
+  });
+}
+
+syncRouter.get('/status', async (_req, res) => {
   const lastBatch = await prisma.syncBatch.findFirst({ orderBy: { createdAt: 'desc' } });
-  return res.json({ data: { lastBatch } });
+  const [clients, sellers, products, sales, installments, payments] = await Promise.all([
+    prisma.client.count({ where: { deletedAt: null } }),
+    prisma.seller.count({ where: { deletedAt: null } }),
+    prisma.lot.count({ where: { deletedAt: null } }),
+    prisma.sale.count({ where: { deletedAt: null } }),
+    prisma.installment.count({ where: { deletedAt: null } }),
+    prisma.payment.count({ where: { deletedAt: null } }),
+  ]);
+  return res.json({
+    ok: true,
+    lastBatch,
+    counts: { clients, sellers, products, sales, installments, payments },
+    server_time: new Date().toISOString(),
+  });
 });
 
-function syncId(row: Record<string, unknown>) {
+function syncId(row: Row) {
   return String(row.sync_id ?? row.syncId ?? '').trim();
 }
 
-function deletedAt(row: Record<string, unknown>) {
-  const value = row.deleted_at ?? row.deletedAt;
-  if (value == null || String(value).trim() === '') return null;
-  const parsed = new Date(String(value));
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
+function versionValue(row: Row) {
+  const value = Number(row.version ?? 1);
+  return Number.isFinite(value) && value > 0 ? Math.trunc(value) : 1;
+}
+
+function deletedAt(row: Row) {
+  return dateValue(row.deleted_at ?? row.deletedAt);
 }
 
 function dateValue(value: unknown) {
   if (value == null || String(value).trim() === '') return null;
   const parsed = new Date(String(value));
   return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function intValue(value: unknown) {
+  if (value == null || String(value).trim() === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
 }
 
 function stringValue(...values: unknown[]) {
@@ -90,130 +163,335 @@ function stringValue(...values: unknown[]) {
   return null;
 }
 
-function decimalValue(value: unknown) {
-  const text = String(value ?? '').trim();
-  if (!text) return new Prisma.Decimal(0);
-  const normalized = text.replace(',', '.');
+function decimalValue(...values: unknown[]) {
+  const value = stringValue(...values);
+  if (!value) return new Prisma.Decimal(0);
+  const normalized = value.replace(/,/g, '');
   return new Prisma.Decimal(Number.isFinite(Number(normalized)) ? normalized : 0);
 }
 
-function rawJson(row: Record<string, unknown>): Prisma.InputJsonObject {
+function rawJson(row: Row): Prisma.InputJsonObject {
   return row as Prisma.InputJsonObject;
 }
 
-async function upsertClients(rows: Record<string, unknown>[]) {
-  let count = 0;
-  for (const row of rows) {
-    const id = syncId(row);
-    if (!id) continue;
-    await prisma.client.upsert({
-      where: { syncId: id },
-      create: {
-        syncId: id,
-        name: stringValue(row.nombre, row.name) ?? 'Sin nombre',
-        document: stringValue(row.cedula, row.documento, row.document),
-        phone: stringValue(row.telefono, row.phone),
-        address: stringValue(row.direccion, row.address),
-        raw: rawJson(row),
-        version: Number(row.version ?? 1),
-        deletedAt: deletedAt(row),
-      },
-      update: {
-        name: stringValue(row.nombre, row.name) ?? 'Sin nombre',
-        document: stringValue(row.cedula, row.documento, row.document),
-        phone: stringValue(row.telefono, row.phone),
-        address: stringValue(row.direccion, row.address),
-        raw: rawJson(row),
-        version: Number(row.version ?? 1),
-        deletedAt: deletedAt(row),
-      },
-    });
-    count += 1;
-  }
-  return count;
+function whereUpdatedSince(updatedSince?: Date | null) {
+  return updatedSince ? { updatedAt: { gt: updatedSince } } : {};
 }
 
-async function upsertSellers(rows: Record<string, unknown>[]) {
-  let count = 0;
+function parseScopeCursors(value: unknown): Record<string, Date | null> {
+  if (value == null || String(value).trim() === '') return {};
+  try {
+    const decoded = JSON.parse(String(value));
+    if (!decoded || typeof decoded !== 'object') return {};
+    return Object.fromEntries(
+      Object.entries(decoded as Record<string, unknown>).map(([scope, date]) => [scope, dateValue(date)]),
+    );
+  } catch {
+    return {};
+  }
+}
+
+function latestCursor(rows: Row[], fallback: string) {
+  let latest = dateValue(fallback) ?? new Date();
+  for (const row of rows) {
+    const value = dateValue(row.updated_at ?? row.updatedAt);
+    if (value && value > latest) latest = value;
+  }
+  return latest.toISOString();
+}
+
+async function upsertClients(rows: Row[]) {
+  const ack: Row[] = [];
   for (const row of rows) {
     const id = syncId(row);
     if (!id) continue;
     const data = {
-      name: stringValue(row.nombre, row.name) ?? 'Sin nombre',
+      name: stringValue(row.nombre, row.name, row.full_name) ?? 'Sin nombre',
+      document: stringValue(row.cedula, row.document_id, row.document),
+      phone: stringValue(row.telefono, row.phone),
+      address: stringValue(row.direccion, row.address),
+      raw: rawJson(row),
+      version: versionValue(row),
+      deletedAt: deletedAt(row),
+    };
+    const saved = await prisma.client.upsert({
+      where: { syncId: id },
+      create: { syncId: id, ...data },
+      update: data,
+    });
+    ack.push(clientRecord(saved));
+  }
+  return ack;
+}
+
+async function upsertSellers(rows: Row[]) {
+  const ack: Row[] = [];
+  for (const row of rows) {
+    const id = syncId(row);
+    if (!id) continue;
+    const data = {
+      name: stringValue(row.nombre, row.name, row.full_name) ?? 'Sin nombre',
+      document: stringValue(row.cedula, row.document_id, row.document),
       phone: stringValue(row.telefono, row.phone),
       active: String(row.activo ?? row.active ?? 'true') !== 'false',
       raw: rawJson(row),
-      version: Number(row.version ?? 1),
+      version: versionValue(row),
       deletedAt: deletedAt(row),
     };
-    await prisma.seller.upsert({ where: { syncId: id }, create: { syncId: id, ...data }, update: data });
-    count += 1;
+    const saved = await prisma.seller.upsert({
+      where: { syncId: id },
+      create: { syncId: id, ...data },
+      update: data,
+    });
+    ack.push(sellerRecord(saved));
   }
-  return count;
+  return ack;
 }
 
-async function upsertLots(rows: Record<string, unknown>[]) {
-  let count = 0;
+async function upsertLots(rows: Row[]) {
+  const ack: Row[] = [];
   for (const row of rows) {
     const id = syncId(row);
     if (!id) continue;
     const data = {
-      block: stringValue(row.manzana_numero, row.block, row.manzana),
-      number: stringValue(row.solar_numero, row.number, row.numero),
-      status: stringValue(row.estado, row.status),
-      area: decimalValue(row.metros_cuadrados ?? row.area),
-      price: decimalValue(row.precio_por_metro ?? row.price),
+      block: stringValue(row.block_number, row.manzana_numero, row.block, row.manzana),
+      number: stringValue(row.lot_number, row.solar_numero, row.number, row.numero),
+      status: stringValue(row.status, row.estado),
+      area: decimalValue(row.area, row.metros_cuadrados),
+      price: decimalValue(row.price_per_square_meter, row.precio_por_metro, row.price),
       raw: rawJson(row),
-      version: Number(row.version ?? 1),
+      version: versionValue(row),
       deletedAt: deletedAt(row),
     };
-    await prisma.lot.upsert({ where: { syncId: id }, create: { syncId: id, ...data }, update: data });
-    count += 1;
+    const saved = await prisma.lot.upsert({
+      where: { syncId: id },
+      create: { syncId: id, ...data },
+      update: data,
+    });
+    ack.push(lotRecord(saved));
   }
-  return count;
+  return ack;
 }
 
-async function upsertSales(rows: Record<string, unknown>[]) {
-  let count = 0;
+async function upsertSales(rows: Row[]) {
+  const ack: Row[] = [];
   for (const row of rows) {
     const id = syncId(row);
     if (!id) continue;
     const data = {
       clientSyncId: stringValue(row.client_sync_id, row.cliente_sync_id),
-      lotSyncId: stringValue(row.lot_sync_id, row.solar_sync_id, row.product_sync_id),
+      lotSyncId: stringValue(row.product_sync_id, row.lot_sync_id, row.solar_sync_id),
       sellerSyncId: stringValue(row.seller_sync_id, row.vendedor_sync_id),
-      saleDate: dateValue(row.fecha_venta ?? row.saleDate),
-      status: stringValue(row.estado, row.status),
-      total: decimalValue(row.precio_total ?? row.total),
-      initialPaid: decimalValue(row.inicial ?? row.initialPaid),
-      balance: decimalValue(row.saldo_pendiente ?? row.balance),
+      saleDate: dateValue(row.sale_date ?? row.fecha_venta),
+      status: stringValue(row.status, row.estado),
+      total: decimalValue(row.sale_price, row.precio_venta, row.total),
+      initialPaid: decimalValue(row.paid_initial_payment, row.inicial, row.initialPaid),
+      balance: decimalValue(row.saldo_pendiente, row.balance),
       raw: rawJson(row),
-      version: Number(row.version ?? 1),
+      version: versionValue(row),
       deletedAt: deletedAt(row),
     };
-    await prisma.sale.upsert({ where: { syncId: id }, create: { syncId: id, ...data }, update: data });
-    count += 1;
+    const saved = await prisma.sale.upsert({
+      where: { syncId: id },
+      create: { syncId: id, ...data },
+      update: data,
+    });
+    ack.push(saleRecord(saved));
   }
-  return count;
+  return ack;
 }
 
-async function upsertPayments(rows: Record<string, unknown>[]) {
-  let count = 0;
+async function upsertInstallments(rows: Row[]) {
+  const ack: Row[] = [];
+  for (const row of rows) {
+    const id = syncId(row);
+    if (!id) continue;
+    const data = {
+      saleSyncId: stringValue(row.sale_sync_id, row.venta_sync_id),
+      installmentNumber: intValue(row.installment_number ?? row.numero_cuota),
+      dueDate: dateValue(row.due_date ?? row.fecha_vencimiento),
+      openingBalance: decimalValue(row.opening_balance, row.saldo_inicial),
+      principalAmount: decimalValue(row.principal_amount, row.capital_cuota),
+      interestAmount: decimalValue(row.interest_amount, row.interes_cuota),
+      totalAmount: decimalValue(row.total_amount, row.monto_cuota),
+      paidAmount: decimalValue(row.paid_amount, row.monto_pagado),
+      paidPrincipalAmount: decimalValue(row.paid_principal_amount, row.capital_pagado),
+      paidInterestAmount: decimalValue(row.paid_interest_amount, row.interes_pagado),
+      endingBalance: decimalValue(row.ending_balance, row.saldo_final),
+      status: stringValue(row.status, row.estado),
+      raw: rawJson(row),
+      version: versionValue(row),
+      deletedAt: deletedAt(row),
+    };
+    const saved = await prisma.installment.upsert({
+      where: { syncId: id },
+      create: { syncId: id, ...data },
+      update: data,
+    });
+    ack.push(installmentRecord(saved));
+  }
+  return ack;
+}
+
+async function upsertPayments(rows: Row[]) {
+  const ack: Row[] = [];
   for (const row of rows) {
     const id = syncId(row);
     if (!id) continue;
     const data = {
       saleSyncId: stringValue(row.sale_sync_id, row.venta_sync_id),
       clientSyncId: stringValue(row.client_sync_id, row.cliente_sync_id),
-      paidAt: dateValue(row.fecha_pago ?? row.paidAt),
-      amount: decimalValue(row.monto ?? row.amount),
-      method: stringValue(row.metodo_pago, row.method),
+      installmentSyncId: stringValue(row.installment_sync_id, row.cuota_sync_id),
+      paidAt: dateValue(row.payment_date ?? row.fecha_pago ?? row.paidAt),
+      amount: decimalValue(row.amount_paid, row.monto_pagado, row.amount),
+      method: stringValue(row.payment_method, row.metodo_pago, row.method),
+      paymentType: stringValue(row.payment_type, row.tipo_pago),
+      reference: stringValue(row.reference, row.referencia),
+      yearToPay: intValue(row.year_to_pay ?? row.ano_a_pagar),
       raw: rawJson(row),
-      version: Number(row.version ?? 1),
+      version: versionValue(row),
       deletedAt: deletedAt(row),
     };
-    await prisma.payment.upsert({ where: { syncId: id }, create: { syncId: id, ...data }, update: data });
-    count += 1;
+    const saved = await prisma.payment.upsert({
+      where: { syncId: id },
+      create: { syncId: id, ...data },
+      update: data,
+    });
+    ack.push(paymentRecord(saved));
   }
-  return count;
+  return ack;
+}
+
+async function listClients(updatedSince?: Date | null) {
+  return (await prisma.client.findMany({ where: whereUpdatedSince(updatedSince), orderBy: { updatedAt: 'asc' } })).map(clientRecord);
+}
+
+async function listSellers(updatedSince?: Date | null) {
+  return (await prisma.seller.findMany({ where: whereUpdatedSince(updatedSince), orderBy: { updatedAt: 'asc' } })).map(sellerRecord);
+}
+
+async function listLots(updatedSince?: Date | null) {
+  return (await prisma.lot.findMany({ where: whereUpdatedSince(updatedSince), orderBy: { updatedAt: 'asc' } })).map(lotRecord);
+}
+
+async function listSales(updatedSince?: Date | null) {
+  return (await prisma.sale.findMany({ where: whereUpdatedSince(updatedSince), orderBy: { updatedAt: 'asc' } })).map(saleRecord);
+}
+
+async function listInstallments(updatedSince?: Date | null) {
+  return (await prisma.installment.findMany({ where: whereUpdatedSince(updatedSince), orderBy: { updatedAt: 'asc' } })).map(installmentRecord);
+}
+
+async function listPayments(updatedSince?: Date | null) {
+  return (await prisma.payment.findMany({ where: whereUpdatedSince(updatedSince), orderBy: { updatedAt: 'asc' } })).map(paymentRecord);
+}
+
+function clientRecord(row: any): Row {
+  return {
+    id: row.id,
+    sync_id: row.syncId,
+    version: row.version,
+    name: row.name,
+    document_id: row.document,
+    cedula: row.document,
+    phone: row.phone,
+    address: row.address,
+    created_at: row.createdAt?.toISOString(),
+    updated_at: row.updatedAt?.toISOString(),
+    deleted_at: row.deletedAt?.toISOString() ?? null,
+  };
+}
+
+function sellerRecord(row: any): Row {
+  return {
+    id: row.id,
+    sync_id: row.syncId,
+    version: row.version,
+    name: row.name,
+    document_id: row.document,
+    cedula: row.document,
+    phone: row.phone,
+    active: row.active,
+    created_at: row.createdAt?.toISOString(),
+    updated_at: row.updatedAt?.toISOString(),
+    deleted_at: row.deletedAt?.toISOString() ?? null,
+  };
+}
+
+function lotRecord(row: any): Row {
+  return {
+    id: row.id,
+    sync_id: row.syncId,
+    version: row.version,
+    block_number: row.block,
+    lot_number: row.number,
+    area: row.area?.toString() ?? '0',
+    price_per_square_meter: row.price?.toString() ?? '0',
+    status: row.status,
+    created_at: row.createdAt?.toISOString(),
+    updated_at: row.updatedAt?.toISOString(),
+    deleted_at: row.deletedAt?.toISOString() ?? null,
+  };
+}
+
+function saleRecord(row: any): Row {
+  return {
+    id: row.id,
+    sync_id: row.syncId,
+    version: row.version,
+    client_sync_id: row.clientSyncId,
+    product_sync_id: row.lotSyncId,
+    seller_sync_id: row.sellerSyncId,
+    sale_date: row.saleDate?.toISOString() ?? null,
+    status: row.status,
+    sale_price: row.total?.toString() ?? '0',
+    paid_initial_payment: row.initialPaid?.toString() ?? '0',
+    saldo_pendiente: row.balance?.toString() ?? '0',
+    created_at: row.createdAt?.toISOString(),
+    updated_at: row.updatedAt?.toISOString(),
+    deleted_at: row.deletedAt?.toISOString() ?? null,
+  };
+}
+
+function installmentRecord(row: any): Row {
+  return {
+    id: row.id,
+    sync_id: row.syncId,
+    version: row.version,
+    sale_sync_id: row.saleSyncId,
+    installment_number: row.installmentNumber,
+    due_date: row.dueDate?.toISOString() ?? null,
+    opening_balance: row.openingBalance?.toString() ?? '0',
+    principal_amount: row.principalAmount?.toString() ?? '0',
+    interest_amount: row.interestAmount?.toString() ?? '0',
+    total_amount: row.totalAmount?.toString() ?? '0',
+    paid_amount: row.paidAmount?.toString() ?? '0',
+    paid_principal_amount: row.paidPrincipalAmount?.toString() ?? '0',
+    paid_interest_amount: row.paidInterestAmount?.toString() ?? '0',
+    ending_balance: row.endingBalance?.toString() ?? '0',
+    status: row.status,
+    created_at: row.createdAt?.toISOString(),
+    updated_at: row.updatedAt?.toISOString(),
+    deleted_at: row.deletedAt?.toISOString() ?? null,
+  };
+}
+
+function paymentRecord(row: any): Row {
+  return {
+    id: row.id,
+    sync_id: row.syncId,
+    version: row.version,
+    sale_sync_id: row.saleSyncId,
+    client_sync_id: row.clientSyncId,
+    installment_sync_id: row.installmentSyncId,
+    payment_date: row.paidAt?.toISOString() ?? null,
+    amount_paid: row.amount?.toString() ?? '0',
+    payment_method: row.method,
+    payment_type: row.paymentType,
+    reference: row.reference,
+    year_to_pay: row.yearToPay,
+    created_at: row.createdAt?.toISOString(),
+    updated_at: row.updatedAt?.toISOString(),
+    deleted_at: row.deletedAt?.toISOString() ?? null,
+  };
 }

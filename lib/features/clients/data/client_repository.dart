@@ -114,7 +114,7 @@ class ClientRepository implements SyncRepository {
     if (rows.isEmpty) {
       rows = await db.query(
         DatabaseSchema.clientsTable,
-        where: 'TRIM(cedula) = ? AND deleted_at IS NULL',
+        where: 'LOWER(TRIM(cedula)) = LOWER(TRIM(?)) AND deleted_at IS NULL',
         whereArgs: [normalizedDocumentId],
         limit: 1,
       );
@@ -183,7 +183,7 @@ class ClientRepository implements SyncRepository {
           "UPDATE ${DatabaseSchema.clientsTable} "
           "SET cedula = '__DELETED__' || CAST(id AS TEXT) "
           'WHERE deleted_at IS NOT NULL '
-          'AND TRIM(cedula) = ?',
+          'AND LOWER(TRIM(cedula)) = LOWER(TRIM(?))',
           [normalizedClient.documentId],
         );
 
@@ -424,14 +424,14 @@ class ClientRepository implements SyncRepository {
           if (existingRows.isEmpty && rawDocumentId.trim().isNotEmpty) {
             existingRows = await txn.query(
               DatabaseSchema.clientsTable,
-              where: 'cedula = ?',
+              where: 'LOWER(TRIM(cedula)) = LOWER(TRIM(?))',
               whereArgs: [rawDocumentId.trim()],
             );
 
             if (existingRows.isEmpty) {
               existingRows = await txn.query(
                 DatabaseSchema.clientsTable,
-                where: 'TRIM(cedula) = ?',
+                where: 'LOWER(TRIM(cedula)) = LOWER(TRIM(?))',
                 whereArgs: [rawDocumentId.trim()],
               );
             }
@@ -476,7 +476,7 @@ class ClientRepository implements SyncRepository {
         if (existingRows.isEmpty && remoteClient.documentId.trim().isNotEmpty) {
           existingRows = await txn.query(
             DatabaseSchema.clientsTable,
-            where: 'cedula = ?',
+            where: 'LOWER(TRIM(cedula)) = LOWER(TRIM(?))',
             whereArgs: [remoteClient.documentId.trim()],
             limit: 1,
           );
@@ -484,7 +484,7 @@ class ClientRepository implements SyncRepository {
           if (existingRows.isEmpty) {
             existingRows = await txn.query(
               DatabaseSchema.clientsTable,
-              where: 'TRIM(cedula) = ?',
+              where: 'LOWER(TRIM(cedula)) = LOWER(TRIM(?))',
               whereArgs: [remoteClient.documentId.trim()],
               limit: 1,
             );
@@ -594,7 +594,9 @@ class ClientRepository implements SyncRepository {
     }
 
     final db = await _appDatabase.database;
-    final where = StringBuffer('deleted_at IS NULL AND TRIM(cedula) = ?');
+    final where = StringBuffer(
+      'deleted_at IS NULL AND LOWER(TRIM(cedula)) = LOWER(TRIM(?))',
+    );
     final whereArgs = <Object>[normalized];
     if (excludeId != null) {
       where.write(' AND id <> ?');

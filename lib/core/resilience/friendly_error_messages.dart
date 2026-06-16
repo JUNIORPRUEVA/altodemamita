@@ -42,11 +42,11 @@ class FriendlyErrorMessages {
       return FriendlyErrorMessage(
         title: 'PC no autorizada para cambios',
         message:
-            'Esta PC no está autorizada para realizar cambios. Actívala desde Configuración.',
+            'La escritura local esta habilitada. Si ves este mensaje, reinicia la app.',
         details: error.message,
         suggestions: const [
           'Abre Configuración y valida el estado de autorización de este equipo.',
-          'Si eres administrador, registra esta PC en el backend cloud nuevo.',
+          'Reinicia la app y vuelve a intentar.',
         ],
       );
     }
@@ -222,11 +222,11 @@ class FriendlyErrorMessages {
       return FriendlyErrorMessage(
         title: 'PC no autorizada para cambios',
         message:
-            'Esta PC no está autorizada para realizar cambios. Actívala desde Configuración.',
+            'La escritura local esta habilitada. Si ves este mensaje, reinicia la app.',
         details: error.message,
         suggestions: const [
           'Puedes seguir consultando información y reportes.',
-          'Si eres administrador, registra esta PC en el backend cloud nuevo.',
+          'Reinicia la app y vuelve a intentar.',
         ],
       );
     }

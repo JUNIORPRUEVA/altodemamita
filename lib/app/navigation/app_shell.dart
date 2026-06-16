@@ -7,8 +7,6 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/database/app_database.dart';
-import '../../core/config/app_flags.dart';
-import '../../core/system/system_config_service.dart';
 import '../../features/auth/domain/user_model.dart';
 import '../../features/auth/presentation/auth_provider.dart';
 import '../../features/auth/presentation/profile_screen.dart';
@@ -41,13 +39,10 @@ import '../../repositories/users_sync_repository.dart';
 import '../../repositories/user_roles_sync_repository.dart';
 import '../../services/realtime_sync_service.dart';
 import '../../services/sync/sync_conflict_service.dart';
-import '../../services/sync/sync_config_repository.dart';
-import '../../services/sync/emergency_cloud_restore_service.dart';
 import '../../services/sync/sync_manager.dart';
 import '../../services/sync/sync_queue_service.dart';
 import '../../services/sync/sync_service.dart';
 import '../../shared/widgets/base_layout.dart';
-import '../../shared/widgets/dangerous_action_confirm_dialog.dart';
 import 'app_module.dart';
 import 'sync_visual_state.dart';
 
@@ -150,8 +145,6 @@ class _AppShellState extends State<AppShell> {
     syncQueueService: _syncQueueService,
     onCloudSessionExpired: _handleCloudSessionExpired,
   );
-  late final EmergencyCloudRestoreService _emergencyCloudRestoreService =
-      EmergencyCloudRestoreService(syncService: _syncService);
   late final RealtimeSyncService _realtimeSyncService = RealtimeSyncService(
     syncService: _syncService,
   );
@@ -486,97 +479,6 @@ class _AppShellState extends State<AppShell> {
     await context.read<AuthProvider>().refreshCurrentUser();
   }
 
-  Future<void> _refreshDeviceAccess({bool claimPrimary = false}) async {
-    final messenger = ScaffoldMessenger.maybeOf(context);
-
-    if (claimPrimary) {
-      // Acción peligrosa: requiere confirmación expresa + contraseña.
-      final confirmed = await DangerousActionConfirmDialog.show(
-        context,
-        title: 'Reclamar esta PC como principal',
-        warning:
-            'Esta acción es PELIGROSA y puede dañar el sistema si se ejecuta '
-            'sin preparación. Antes de continuar:\n\n'
-            '• Debes haber contactado al desarrollador para coordinar el '
-            'traslado de la PC principal y entender los pasos a seguir.\n'
-            '• La otra PC dejará de tener permiso de escritura.\n'
-            '• Para que el traslado funcione correctamente, primero hay que '
-            'restablecer (reset completo) la app local en la otra PC, de lo '
-            'contrario podrías generar conflictos de sincronización y '
-            'pérdida de datos.\n'
-            '• Si no estás seguro de lo que haces, cancela y consulta antes.',
-        confirmLabel: 'Sí, reclamar esta PC',
-      );
-      if (!mounted || !confirmed) {
-        return;
-      }
-
-      final password = await showDialog<String>(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => const _PrimaryEditorPasswordDialog(),
-      );
-      if (!mounted || password == null) {
-        return;
-      }
-
-      final authService = context.read<AuthProvider>().authService;
-      final isValid = await authService.verifyAdminPassword(password: password);
-      if (!mounted) {
-        return;
-      }
-      if (!isValid) {
-        messenger?.showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Contrasena invalida. Solo un editor principal puede autorizar esta accion.',
-            ),
-          ),
-        );
-        return;
-      }
-    }
-
-    try {
-      if (claimPrimary) {
-        await SystemConfigService.instance.registerCurrentDevice(
-          claimPrimary: true,
-        );
-      }
-      await SystemConfigService.instance.refresh();
-
-      if (!mounted) {
-        return;
-      }
-
-      final systemConfig = SystemConfigService.instance;
-      final message = systemConfig.canWrite
-          ? (claimPrimary
-                ? 'Esta PC quedo autorizada para escribir.'
-                : 'Estado del dispositivo actualizado.')
-          : (systemConfig.deviceWriteReason.isEmpty
-                ? 'Esta PC sigue sin permiso de escritura.'
-                : systemConfig.deviceWriteReason);
-
-      messenger?.showSnackBar(SnackBar(content: Text(message)));
-
-      // Si se acaba de ganar permiso de escritura, forzar sync inmediato
-      // para vaciar la cola de items que estaban bloqueados por WRITE_BLOCKED.
-      if (systemConfig.canWrite && claimPrimary) {
-        unawaited(_syncService.syncNow());
-      }
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-      messenger?.showSnackBar(
-        const SnackBar(
-          content: Text('No se pudo actualizar el estado de esta PC.'),
-        ),
-      );
-    }
-  }
-
   Future<void> _signOut() async {
     final authProvider = context.read<AuthProvider>();
     await _syncManager.stop(reason: 'Sesion cerrada.');
@@ -601,24 +503,6 @@ class _AppShellState extends State<AppShell> {
     // Marcar la sesión de nube como expirada SIN cerrar la sesión local.
     // El usuario permanece autenticado localmente; solo la sync queda pendiente.
     authProvider.markCloudSessionExpired();
-  }
-
-  Future<void> _triggerManualSyncNudge() async {
-    final messenger = ScaffoldMessenger.maybeOf(context);
-    final report = await _syncManager.syncNow(showAsBusy: true);
-    if (!mounted) {
-      return;
-    }
-
-    final hadIssues =
-        report.pendingRecords > 0 ||
-        report.hadConnectivityError ||
-        (report.errorMessage?.trim().isNotEmpty ?? false);
-
-    final message = hadIssues
-        ? 'Sincronizacion en progreso. Pendientes: ${report.pendingRecords}.'
-        : 'Sincronizacion completada.';
-    messenger?.showSnackBar(SnackBar(content: Text(message)));
   }
 
   Widget _buildCurrentPage(AppModule module) {
@@ -669,77 +553,10 @@ class _AppShellState extends State<AppShell> {
       case AppModule.settings:
         return SettingsPage(
           onCompanyInfoChanged: _loadCompanyDisplayName,
-          onRunSyncRecovery: _runSyncRecoveryFromSettings,
-          onRunPostAuthorizationRecovery:
-              _runPostAuthorizationRecoveryFromSettings,
-          onResetLocalDeviceIdentity: _resetLocalDeviceIdentityFromSettings,
           onResetBusinessData: null,
           onResetLocalOnly: _resetLocalOnlyFromSettings,
-          onPreviewEmergencyCloudRestore:
-              _previewEmergencyCloudRestoreFromSettings,
-          onRunEmergencyCloudRestore: _runEmergencyCloudRestoreFromSettings,
         );
     }
-  }
-
-  Future<String> _runSyncRecoveryFromSettings() async {
-    if (!allowManualCloudRestore) {
-      return 'Operacion bloqueada: ALLOW_MANUAL_CLOUD_RESTORE=false.';
-    }
-    if (isProductionMode) {
-      return 'Operacion bloqueada: disponible solo en modo developer.';
-    }
-
-    // Verificar si el JWT está configurado
-    final settings = await SyncConfigRepository().loadSettings();
-    if (!settings.isConfigured) {
-      if (settings.baseUrl.trim().isEmpty) {
-        return 'No hay URL de servidor configurada. Contacta al administrador del sistema.';
-      }
-      return 'No hay sesion de nube activa (JWT vacio). '
-          'Cierra sesion, asegurate de tener internet y vuelve a iniciar sesion '
-          'para que el sistema guarde tus credenciales de nube.';
-    }
-
-    // Intentar sincronizacion completa (subidas + descargas)
-    final report = await _syncService.syncNow(forceFullDownload: true);
-
-    if (report.wasSkipped) {
-      return 'Sincronizacion bloqueada: ${report.errorMessage ?? 'razon desconocida'}. '
-          'Si el error dice "no autorizada", registra esta PC en el backend cloud nuevo.';
-    }
-
-    if (report.hadConnectivityError) {
-      return 'Error de conexion con el servidor. Verifica que el backend este en linea '
-          'y que esta PC tenga acceso a internet. '
-          '${report.pendingRecords > 0 ? "${report.pendingRecords} registros siguen en espera." : ""}';
-    }
-
-    final writeStateMessage = SystemConfigService.instance.canWrite
-        ? ''
-        : ' Esta PC no esta autorizada para subir datos.';
-    return 'Sincronizacion completada. '
-        'Subidos: ${report.uploadedRecords}, descargados: ${report.downloadedRecords}'
-        '${report.pendingRecords > 0 ? ", pendientes: ${report.pendingRecords}" : ""}'
-        '.$writeStateMessage';
-  }
-
-  Future<String> _runPostAuthorizationRecoveryFromSettings() async {
-    if (!allowManualCloudRestore) {
-      return 'Operacion bloqueada: ALLOW_MANUAL_CLOUD_RESTORE=false.';
-    }
-    if (isProductionMode) {
-      return 'Operacion bloqueada: disponible solo en modo developer.';
-    }
-
-    final recoverySummary = await _syncService
-        .recoverAfterDeviceAuthorization();
-    final downloaded = await _syncService.forceFullDownloadFromCloud();
-    return '$recoverySummary Descarga forzada desde la nube: $downloaded registros.';
-  }
-
-  Future<String> _resetLocalDeviceIdentityFromSettings() async {
-    return _syncService.resetLocalDeviceIdentityForAdmin();
   }
 
   Future<String> _resetLocalOnlyFromSettings() async {
@@ -755,49 +572,9 @@ class _AppShellState extends State<AppShell> {
     return 'Borrado local completado: $localSummary. La nube NO fue modificada.';
   }
 
-  Future<EmergencyRestorePreview> _previewEmergencyCloudRestoreFromSettings() {
-    return _emergencyCloudRestoreService.preview();
-  }
-
-  Future<EmergencyRestoreResult> _runEmergencyCloudRestoreFromSettings({
-    required String adminPassword,
-    required String confirmationText,
-  }) async {
-    final auth = context.read<AuthProvider>();
-    final user = auth.currentUser;
-    if (user == null || !user.isAdmin) {
-      throw Exception(
-        'Solo un administrador puede ejecutar restauracion de emergencia.',
-      );
-    }
-
-    final settings = await SyncConfigRepository().loadSettings();
-    final installationId = settings.deviceId;
-
-    await _syncManager.stop(
-      reason: 'Restauracion manual de emergencia en progreso.',
-    );
-    try {
-      return await _emergencyCloudRestoreService.restoreOnCleanPc(
-        adminPassword: adminPassword,
-        confirmationText: confirmationText,
-        adminUser: user.email,
-        deviceId: settings.deviceId,
-        installationId: installationId,
-      );
-    } finally {
-      await _syncManager.start(runInitialSync: false);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
-    final syncState = _syncManager.state;
-    final showManualSyncNudge =
-        syncState.pendingCount > 0 ||
-        syncState.hasErrors ||
-        syncState.hasConflicts;
     final accessibleModules = _accessibleModules(auth);
     final resolvedModule = _resolveSelectedModule(accessibleModules);
     final primaryModules = _primarySidebarModules
@@ -835,14 +612,6 @@ class _AppShellState extends State<AppShell> {
                     padding: EdgeInsets.only(right: 8),
                     child: Center(child: _SyncStatusBadge(compact: true)),
                   ),
-                if (showManualSyncNudge)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 2),
-                    child: _ManualSyncNudgeButton(
-                      isSyncing: syncState.isSyncing,
-                      onTap: _triggerManualSyncNudge,
-                    ),
-                  ),
                 if (user != null)
                   Padding(
                     padding: const EdgeInsets.only(right: 6),
@@ -876,11 +645,6 @@ class _AppShellState extends State<AppShell> {
             ),
             body: Column(
               children: [
-                _DeviceWriteBlockedBanner(
-                  onGoToSettings: canAccessSettings
-                      ? () => _openModule(AppModule.settings)
-                      : null,
-                ),
                 Expanded(child: currentPage),
                 _ShellFooter(companyName: _companyDisplayName),
               ],
@@ -950,16 +714,7 @@ class _AppShellState extends State<AppShell> {
                               selectedModule: resolvedModule,
                               currentUser: user,
                               hasInternet: _hasInternet,
-                              showManualSyncNudge: showManualSyncNudge,
-                              isSyncing: syncState.isSyncing,
-                              onManualSync: _triggerManualSyncNudge,
                               onOpenProfile: _openProfile,
-                              onRefreshDeviceAccess: _refreshDeviceAccess,
-                            ),
-                            _DeviceWriteBlockedBanner(
-                              onGoToSettings: canAccessSettings
-                                  ? () => _openModule(AppModule.settings)
-                                  : null,
                             ),
                             Expanded(child: currentPage),
                             _ShellFooter(companyName: _companyDisplayName),
@@ -983,21 +738,13 @@ class _ShellHeader extends StatelessWidget {
     required this.selectedModule,
     required this.currentUser,
     required this.hasInternet,
-    required this.showManualSyncNudge,
-    required this.isSyncing,
-    required this.onManualSync,
     required this.onOpenProfile,
-    required this.onRefreshDeviceAccess,
   });
 
   final AppModule selectedModule;
   final UserModel? currentUser;
   final bool hasInternet;
-  final bool showManualSyncNudge;
-  final bool isSyncing;
-  final Future<void> Function() onManualSync;
   final Future<void> Function() onOpenProfile;
-  final Future<void> Function({bool claimPrimary}) onRefreshDeviceAccess;
 
   @override
   Widget build(BuildContext context) {
@@ -1049,14 +796,6 @@ class _ShellHeader extends StatelessWidget {
                   padding: EdgeInsets.only(right: 10),
                   child: _SyncStatusBadge(),
                 ),
-              if (showManualSyncNudge)
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: _ManualSyncNudgeButton(
-                    isSyncing: isSyncing,
-                    onTap: onManualSync,
-                  ),
-                ),
               if (user != null) ...[
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
@@ -1085,10 +824,6 @@ class _ShellHeader extends StatelessWidget {
               ],
             ],
           ),
-          const SizedBox(height: 10),
-          // (Antes aquí se mostraban los badges de PC principal / permiso de
-          // escritura. Se movieron al módulo de Configuración para reducir
-          // ruido en el header global.)
         ],
       ),
     );
@@ -1138,120 +873,6 @@ class _SyncStatusBadge extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _ManualSyncNudgeButton extends StatelessWidget {
-  const _ManualSyncNudgeButton({
-    required this.isSyncing,
-    required this.onTap,
-  });
-
-  final bool isSyncing;
-  final Future<void> Function() onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 28,
-      height: 28,
-      child: IconButton(
-        tooltip: isSyncing ? 'Sincronizando...' : 'Sincronizar ahora',
-        padding: EdgeInsets.zero,
-        visualDensity: const VisualDensity(horizontal: -4, vertical: -4),
-        constraints: const BoxConstraints.tightFor(width: 28, height: 28),
-        onPressed: isSyncing ? null : () => unawaited(onTap()),
-        iconSize: 15,
-        icon: Icon(
-          isSyncing ? Icons.sync : Icons.sync_outlined,
-          color: const Color(0xFF7D8EA3),
-        ),
-      ),
-    );
-  }
-}
-
-class _PrimaryEditorPasswordDialog extends StatefulWidget {
-  const _PrimaryEditorPasswordDialog();
-
-  @override
-  State<_PrimaryEditorPasswordDialog> createState() =>
-      _PrimaryEditorPasswordDialogState();
-}
-
-class _PrimaryEditorPasswordDialogState
-    extends State<_PrimaryEditorPasswordDialog> {
-  final TextEditingController _passwordController = TextEditingController();
-  bool _obscurePassword = true;
-  String? _error;
-
-  @override
-  void dispose() {
-    _passwordController.dispose();
-    super.dispose();
-  }
-
-  void _submit() {
-    final value = _passwordController.text.trim();
-    if (value.isEmpty) {
-      setState(() {
-        _error = 'Ingresa la contrasena del editor principal.';
-      });
-      return;
-    }
-    Navigator.of(context).pop(value);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      icon: const Icon(Icons.lock_open_rounded),
-      title: const Text('Autorizar editor principal'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Para habilitar escritura en esta PC, confirma con la contrasena del editor principal.',
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _passwordController,
-            autofocus: true,
-            obscureText: _obscurePassword,
-            onSubmitted: (_) => _submit(),
-            decoration: InputDecoration(
-              labelText: 'Contrasena',
-              errorText: _error,
-              suffixIcon: IconButton(
-                tooltip: _obscurePassword ? 'Mostrar' : 'Ocultar',
-                onPressed: () {
-                  setState(() {
-                    _obscurePassword = !_obscurePassword;
-                  });
-                },
-                icon: Icon(
-                  _obscurePassword
-                      ? Icons.visibility_off_outlined
-                      : Icons.visibility_outlined,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancelar'),
-        ),
-        FilledButton.icon(
-          onPressed: _submit,
-          icon: const Icon(Icons.check_circle_outline),
-          label: const Text('Validar y reclamar'),
-        ),
-      ],
     );
   }
 }
@@ -2243,81 +1864,6 @@ class _HeaderProfileButton extends StatelessWidget {
       context: context,
       message: 'Mi perfil',
       child: profileButton,
-    );
-  }
-}
-
-/// Banner visible que aparece cuando el dispositivo actual no tiene permiso de
-/// escritura en la nube (PC secundaria). Guía al usuario hacia Configuración
-/// para que pueda reclamar la PC como principal.
-class _DeviceWriteBlockedBanner extends StatelessWidget {
-  const _DeviceWriteBlockedBanner({this.onGoToSettings});
-
-  final VoidCallback? onGoToSettings;
-
-  @override
-  Widget build(BuildContext context) {
-    final systemConfig = context.watch<SystemConfigService>();
-    final auth = context.watch<AuthProvider>();
-
-    final shouldShow =
-        auth.currentUser != null &&
-        !systemConfig.isReadOnly &&
-        !systemConfig.canWrite &&
-        systemConfig.lastDeviceValidatedAt != null;
-
-    if (!shouldShow) {
-      return const SizedBox.shrink();
-    }
-
-    final reason = systemConfig.deviceWriteReason.trim();
-    final message = reason.isNotEmpty
-        ? reason
-        : 'Esta PC no está autorizada para sincronizar. Actívela desde Configuración.';
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: const BoxDecoration(
-        color: Color(0xFFFFF3CD),
-        border: Border(bottom: BorderSide(color: Color(0xFFFFCF66), width: 1)),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.lock_outlined, size: 16, color: Color(0xFF92600A)),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              message,
-              style: const TextStyle(
-                color: Color(0xFF7D4E00),
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-          if (onGoToSettings != null) ...[
-            const SizedBox(width: 8),
-            TextButton(
-              onPressed: onGoToSettings,
-              style: TextButton.styleFrom(
-                foregroundColor: const Color(0xFF92600A),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
-                ),
-                minimumSize: Size.zero,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                textStyle: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              child: const Text('Ir a Configuración →'),
-            ),
-          ],
-        ],
-      ),
     );
   }
 }

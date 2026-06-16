@@ -111,7 +111,7 @@ class BackendApiClient {
       final deviceId = settings.deviceId.trim();
       if (deviceId.isEmpty) {
         throw const BackendApiException(
-          'Esta PC no esta autorizada (falta x-device-id local).',
+          'No hay ID local de dispositivo configurado.',
         );
       }
       headers['Authorization'] = 'Bearer $token';

@@ -82,13 +82,9 @@ class DominicanValidators {
       return 'La cédula es obligatoria.';
     }
 
-    if (_containsLetters(value)) {
-      return 'Digite solo números. Puede ser cédula, pasaporte u otro documento numérico.';
-    }
-
-    final digits = digitsOnly(value);
-    if (digits.isEmpty) {
-      return 'Digite solo números. Puede ser cédula, pasaporte u otro documento numérico.';
+    final trimmed = value.trim();
+    if (trimmed.length > 30) {
+      return 'La cédula o documento no puede exceder 30 caracteres.';
     }
 
     return null;
@@ -168,17 +164,9 @@ class DominicanValidators {
       return null;
     }
 
-    if (_containsLetters(value)) {
-      return 'Digite solo números. Puede ser un número local o extranjero.';
-    }
-
-    final digits = digitsOnly(value);
-    if (digits.isEmpty) {
-      return 'Digite solo números. Puede ser un número local o extranjero.';
-    }
-
-    if (digits.length < 10) {
-      return 'El teléfono debe tener al menos 10 dígitos.';
+    final trimmed = value.trim();
+    if (trimmed.length > 30) {
+      return 'El teléfono no puede exceder 30 caracteres.';
     }
 
     return null;
@@ -211,10 +199,6 @@ class DominicanValidators {
 
   static String digitsOnly(String value) {
     return value.replaceAll(RegExp(r'\D'), '').trim();
-  }
-
-  static bool _containsLetters(String value) {
-    return RegExp(r'[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]').hasMatch(value);
   }
 
   static String? _normalizeDominicanPhoneDigits(String value) {

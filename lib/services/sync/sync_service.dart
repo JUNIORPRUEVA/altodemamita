@@ -31,7 +31,7 @@ class SyncService {
   static const String cloudLoginRequiredMessage =
       'Debe iniciar sesión en la nube para sincronizar.';
   static const String deviceAuthorizationRequiredMessage =
-      'Esta PC no está autorizada para sincronizar. Actívela desde Configuración.';
+      'La sincronizacion cloud anterior esta desactivada.';
 
   SyncService({
     required List<SyncRepository> repositories,
@@ -911,10 +911,10 @@ class SyncService {
     final newDeviceId = await _configRepository.rotateDeviceId();
     await _configRepository.saveDeviceWriteState(
       const DeviceWriteState(
-        isPrimary: false,
-        canWrite: false,
+        isPrimary: true,
+        canWrite: true,
         lastValidatedAt: null,
-        reason: 'device_not_registered',
+        reason: '',
       ),
     );
     await SystemConfigService.instance.refresh();

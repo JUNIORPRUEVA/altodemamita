@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:developer' as developer;
 
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -264,9 +264,6 @@ class PaymentsRepository {
   }
 
   Future<void> deletePayment(int paymentId) async {
-    throw StateError(
-      'Operacion bloqueada por CONSISTENCY_LOCKDOWN: los pagos son append-only y no se pueden anular desde esta pantalla.',
-    );
     SystemConfigService.instance.ensureWritable();
     final deleteQueue =
         <({String scope, String syncId, Map<String, Object?> payload})>[];
@@ -1412,8 +1409,9 @@ class PaymentsRepository {
           _toDouble(paymentSumRows.first['paid_total']),
         );
         // Cap to totalAmount to prevent over-payment display from duplicate pagos.
-        final paidAmount =
-            rawPaid > totalAmount ? _roundCurrency(totalAmount) : rawPaid;
+        final paidAmount = rawPaid > totalAmount
+            ? _roundCurrency(totalAmount)
+            : rawPaid;
         final currentMontoPagado = _toDouble(row['monto_pagado']);
 
         if ((currentMontoPagado - paidAmount).abs() <= 0.009) continue;

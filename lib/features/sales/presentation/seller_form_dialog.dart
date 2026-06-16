@@ -82,10 +82,11 @@ class _SellerFormDialogState extends State<SellerFormDialog> {
                   decoration: const InputDecoration(
                     labelText: 'Cédula',
                     helperText:
-                        'Digite solo números. Puede ser cédula, pasaporte u otro documento numérico.',
+                        'Puede usar cédula, pasaporte u otro documento. Máximo 30 caracteres.',
                   ),
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  keyboardType: TextInputType.text,
+                  maxLength: 30,
+                  inputFormatters: [LengthLimitingTextInputFormatter(30)],
                   validator: DominicanValidators.validateFlexibleDocumentId,
                 ),
                 const SizedBox(height: 12),
@@ -94,10 +95,12 @@ class _SellerFormDialogState extends State<SellerFormDialog> {
                   decoration: const InputDecoration(
                     labelText: 'Teléfono',
                     helperText:
-                        'Digite solo números. Puede ser un número local o extranjero.',
+                        'Puede usar números, letras o símbolos. Máximo 30 caracteres.',
                   ),
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  maxLength: 30,
+                  inputFormatters: [LengthLimitingTextInputFormatter(30)],
                   validator: DominicanValidators.validateFlexiblePhone,
+                  keyboardType: TextInputType.text,
                 ),
               ],
             ),
@@ -126,8 +129,8 @@ class _SellerFormDialogState extends State<SellerFormDialog> {
     final seller = Seller(
       id: widget.initialSeller?.id,
       name: _nameController.text.trim(),
-      phone: DominicanValidators.digitsOnly(_phoneController.text),
-      documentId: DominicanValidators.digitsOnly(_documentIdController.text),
+      phone: _phoneController.text.trim(),
+      documentId: _documentIdController.text.trim(),
       createdAt: widget.initialSeller?.createdAt ?? now,
       updatedAt: now,
     );

@@ -621,7 +621,7 @@ class SyncQueueService {
       final settings = await _configRepository.loadSettings();
       if (!settings.isConfigured) {
         const message =
-            'No se ejecuto subida hacia la nube. Falta configuracion de sincronizacion (JWT/baseUrl).';
+            'No se ejecuto subida hacia la nube. Falta configurar la URL del backend.';
         _log('[sync-upload] SKIPPED -> $message');
         await _configRepository.saveLastRun(
           errorMessage: message,
@@ -981,7 +981,7 @@ class SyncQueueService {
             }
             if (_isDeviceWriteUnauthorizedError(error)) {
               final reason =
-                  'Esta PC no está autorizada para sincronizar. Actívela desde Configuración.';
+                  'La sincronizacion cloud anterior esta desactivada.';
               await _syncLogger.log(
                 action: 'upload',
                 entity: scope,

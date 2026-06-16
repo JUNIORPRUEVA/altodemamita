@@ -1,9 +1,5 @@
-import 'dart:convert';
-import 'dart:io';
-
 import 'package:flutter/foundation.dart';
 
-import '../network/backend_http_client.dart';
 import '../../services/sync/sync_config_repository.dart';
 
 class ReadOnlyModeException implements Exception {
@@ -35,55 +31,35 @@ bool isReadOnlyModeError(Object? error) {
 }
 
 class SystemConfigService extends ChangeNotifier {
-  SystemConfigService._({
-    SyncConfigRepository? syncConfigRepository,
-    HttpClient? httpClient,
-  }) : _syncConfigRepository = syncConfigRepository ?? SyncConfigRepository(),
-       _httpClient = httpClient ?? createBackendHttpClient() {
-    _httpClient.connectionTimeout = const Duration(seconds: 8);
-    _httpClient.idleTimeout = const Duration(seconds: 10);
-  }
+  SystemConfigService._({SyncConfigRepository? syncConfigRepository})
+    : _syncConfigRepository = syncConfigRepository ?? SyncConfigRepository();
 
   @visibleForTesting
   factory SystemConfigService.test({
     SyncConfigRepository? syncConfigRepository,
-    HttpClient? httpClient,
   }) {
-    return SystemConfigService._(
-      syncConfigRepository: syncConfigRepository,
-      httpClient: httpClient,
-    );
+    return SystemConfigService._(syncConfigRepository: syncConfigRepository);
   }
 
   static final SystemConfigService instance = SystemConfigService._();
 
   final SyncConfigRepository _syncConfigRepository;
-  final HttpClient _httpClient;
 
-  bool _isReadOnly = false;
   bool _isLoading = false;
   DateTime? _lastFetchedAt;
-  bool _isPrimaryDevice = false;
-  bool _canWrite = true;
-  DateTime? _lastDeviceValidatedAt;
-  String _deviceWriteReason = '';
   String _currentDeviceId = '';
-  String _lastRefreshError = '';
 
-  bool get isReadOnly => _isReadOnly;
+  bool get isReadOnly => false;
   bool get isLoading => _isLoading;
   DateTime? get lastFetchedAt => _lastFetchedAt;
-  bool get isPrimaryDevice => _isPrimaryDevice;
-  bool get canWrite => _canWrite;
-  DateTime? get lastDeviceValidatedAt => _lastDeviceValidatedAt;
-  String get deviceWriteReason => _deviceWriteReason;
+  bool get isPrimaryDevice => true;
+  bool get canWrite => true;
+  DateTime? get lastDeviceValidatedAt => _lastFetchedAt;
+  String get deviceWriteReason => '';
   String get currentDeviceId => _currentDeviceId;
-  String get lastRefreshError => _lastRefreshError;
+  String get lastRefreshError => '';
 
-  Future<void> initialize() async {
-    _applyDeviceState(await _syncConfigRepository.loadDeviceWriteState());
-    await refresh();
-  }
+  Future<void> initialize() => refresh();
 
   Future<void> refresh({bool throwOnFailure = false}) async {
     if (_isLoading) {
@@ -91,56 +67,17 @@ class SystemConfigService extends ChangeNotifier {
     }
 
     _isLoading = true;
-    _lastRefreshError = '';
     notifyListeners();
 
     try {
       final settings = await _syncConfigRepository.loadSettings();
       _currentDeviceId = settings.deviceId;
-      debugPrint(
-        '[device-refresh] baseUrl=${settings.normalizedBaseUrl} '
-        'deviceId=${settings.deviceId} '
-        'jwtPresent=${settings.jwtToken.trim().isNotEmpty}',
-      );
-      if (!settings.isConfigured) {
-        _updateState(readOnly: false);
-        _lastRefreshError =
-            'Sync no configurado: falta JWT o URL base. Inicie sesion online.';
-        if (_lastDeviceValidatedAt == null) {
-          _applyDeviceState(
-            DeviceWriteState(
-              isPrimary: false,
-              canWrite: true,
-              lastValidatedAt: null,
-              reason: '',
-            ),
-          );
-        }
-        return;
-      }
-
-      await _refreshReadOnlyState(settings.normalizedBaseUrl);
-
-      if (settings.jwtToken.trim().isNotEmpty) {
-        final deviceState = await _resolveDeviceState(
-          baseUrl: settings.normalizedBaseUrl,
-          jwtToken: settings.jwtToken,
-          deviceId: settings.deviceId,
-        );
-        _applyDeviceState(deviceState);
-        await _syncConfigRepository.saveDeviceWriteState(deviceState);
-        debugPrint(
-          '[device-refresh] applied state isPrimary=${deviceState.isPrimary} '
-          'canWrite=${deviceState.canWrite}',
-        );
-      }
+      _lastFetchedAt = DateTime.now();
     } catch (error) {
-      _lastRefreshError = error.toString();
-      debugPrint('[device-refresh] error=$error');
       if (throwOnFailure) {
         rethrow;
       }
-      // Preserve the last known state if the backend is temporarily unreachable.
+      debugPrint('[system-config] local refresh skipped: $error');
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -148,168 +85,10 @@ class SystemConfigService extends ChangeNotifier {
   }
 
   void ensureWritable() {
-    if (_isReadOnly) {
-      throw const ReadOnlyModeException();
-    }
-    if (!_canWrite) {
-      throw DeviceWriteBlockedException(
-        _deviceWriteReason.isEmpty
-            ? 'Este dispositivo no esta autorizado para escribir.'
-            : _deviceWriteReason,
-      );
-    }
+    return;
   }
 
   Future<void> registerCurrentDevice({bool claimPrimary = false}) async {
-    // Manual device policy enabled: backend admin activates device IDs explicitly.
-    // Keep method for backward compatibility with existing call sites.
-    if (claimPrimary) {
-      // Intentionally ignored. Local claim is disabled.
-    }
     await refresh();
-  }
-
-  Future<void> _refreshReadOnlyState(String baseUrl) async {
-    final uri = Uri.parse('$baseUrl/system/config');
-    if (uri.host.trim().isEmpty) {
-      _updateState(readOnly: false);
-      return;
-    }
-
-    final request = await _httpClient.getUrl(uri);
-    request.headers.set(HttpHeaders.acceptHeader, ContentType.json.mimeType);
-    final response = await request.close();
-    final body = await utf8.decoder.bind(response).join();
-    final decoded = body.trim().isEmpty
-        ? const <String, dynamic>{}
-        : jsonDecode(body);
-    final payload = decoded is Map<String, dynamic>
-        ? _unwrapEnvelope(decoded)
-        : (decoded is Map
-              ? _unwrapEnvelope(
-                  decoded.map((key, value) => MapEntry(key.toString(), value)),
-                )
-              : const <String, dynamic>{});
-
-    if (response.statusCode >= 200 && response.statusCode < 300) {
-      _updateState(readOnly: payload['readOnly'] == true);
-    }
-  }
-
-  Future<DeviceWriteState> _resolveDeviceState({
-    required String baseUrl,
-    required String jwtToken,
-    required String deviceId,
-  }) async {
-    return _fetchDeviceState(
-      baseUrl: baseUrl,
-      jwtToken: jwtToken,
-      deviceId: deviceId,
-    );
-  }
-
-  Map<String, dynamic> _unwrapEnvelope(Map<String, dynamic> payload) {
-    final data = payload['data'];
-    if (data is Map<String, dynamic>) {
-      return data;
-    }
-    if (data is Map) {
-      return data.map((key, value) => MapEntry(key.toString(), value));
-    }
-    return payload;
-  }
-
-  void _updateState({required bool readOnly}) {
-    _isReadOnly = readOnly;
-    _lastFetchedAt = DateTime.now();
-  }
-
-  Future<DeviceWriteState> _fetchDeviceState({
-    required String baseUrl,
-    required String jwtToken,
-    required String deviceId,
-  }) async {
-    final uri = Uri.parse('$baseUrl/devices/current');
-    final normalizedDeviceId = deviceId.trim();
-    final normalizedJwt = jwtToken.trim();
-    final request = await _httpClient.getUrl(uri);
-    request.headers.set(HttpHeaders.acceptHeader, ContentType.json.mimeType);
-    request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache, no-store');
-    request.headers.set('pragma', 'no-cache');
-    request.headers.set(
-      HttpHeaders.authorizationHeader,
-      'Bearer $normalizedJwt',
-    );
-    request.headers.set('x-device-id', normalizedDeviceId);
-
-    debugPrint('[device-refresh] GET $uri');
-    debugPrint('[device-refresh] header x-device-id=$normalizedDeviceId');
-    debugPrint(
-      '[device-refresh] header Authorization=Bearer '
-      '${normalizedJwt.isEmpty ? '<EMPTY>' : '<SET>'}',
-    );
-
-    final response = await request.close();
-    final body = await utf8.decoder.bind(response).join();
-    debugPrint('[device-refresh] status=${response.statusCode}');
-    debugPrint('[device-refresh] body=$body');
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw HttpException(
-        'device current failed: ${response.statusCode}; body=$body',
-      );
-    }
-
-    final decoded = body.trim().isEmpty
-        ? const <String, dynamic>{}
-        : jsonDecode(body);
-    final payload = decoded is Map<String, dynamic>
-        ? _unwrapEnvelope(decoded)
-        : const <String, dynamic>{};
-    final state = _deviceStateFromPayload(payload);
-    debugPrint(
-      '[device-refresh] parsed isPrimary=${state.isPrimary} '
-      'canWrite=${state.canWrite}',
-    );
-    return state;
-  }
-
-  DeviceWriteState _deviceStateFromPayload(Map<String, dynamic> payload) {
-    final canWrite = payload['canWrite'] == true;
-    final isPrimary = payload['isPrimary'] == true;
-    final reason = payload['reason']?.toString().trim() ?? '';
-    return DeviceWriteState(
-      isPrimary: isPrimary,
-      canWrite: canWrite,
-      lastValidatedAt: DateTime.now(),
-      reason: _humanizeDeviceReason(reason, canWrite: canWrite),
-    );
-  }
-
-  void _applyDeviceState(DeviceWriteState state) {
-    _isPrimaryDevice = state.isPrimary;
-    _canWrite = state.canWrite;
-    _lastDeviceValidatedAt = state.lastValidatedAt;
-    _deviceWriteReason = state.reason;
-  }
-
-  String _humanizeDeviceReason(String reason, {required bool canWrite}) {
-    if (canWrite) {
-      return '';
-    }
-
-    switch (reason) {
-      case 'panel_read_only':
-        return 'Este cliente esta limitado a solo lectura.';
-      case 'device_revoked':
-        return 'Este equipo fue revocado y ya no puede escribir.';
-      case 'device_not_primary':
-      case 'registered_secondary':
-        return 'Esta PC no está autorizada para sincronizar. Actívela desde Configuración.';
-      case 'device_not_registered':
-      case 'missing_device_id':
-        return 'Esta PC no está autorizada para sincronizar. Actívela desde Configuración.';
-      default:
-        return 'Este dispositivo no esta autorizado para escribir.';
-    }
   }
 }

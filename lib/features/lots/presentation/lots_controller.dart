@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../../../core/errors/active_sales_block_delete_exception.dart';
 import '../../../core/resilience/friendly_error_messages.dart';
@@ -42,6 +43,13 @@ class LotsController extends ChangeNotifier {
       return null;
     } on DuplicateLotException catch (error) {
       return error.message;
+    } on DatabaseException catch (error) {
+      return _decodeLotWriteError(error) ??
+          FriendlyErrorMessages.forOperation(
+            'guardar el solar',
+            error,
+            module: 'solares',
+          );
     } catch (error) {
       return FriendlyErrorMessages.forOperation(
         'guardar el solar',
@@ -65,5 +73,14 @@ class LotsController extends ChangeNotifier {
         module: 'solares',
       );
     }
+  }
+
+  String? _decodeLotWriteError(Object error) {
+    final normalized = error.toString();
+    if (normalized.contains('DUPLICATE_ACTIVE_LOT') ||
+        normalized.contains('uq_solares_manzana_solar_active')) {
+      return 'Ya existe un solar activo con este número. No se permiten solares repetidos.';
+    }
+    return null;
   }
 }

@@ -5,7 +5,6 @@ import '../../../core/network/backend_api_client.dart';
 import '../../../core/network/backend_entity_id_registry.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_schema.dart';
-import '../../../core/errors/active_sales_block_delete_exception.dart';
 import '../../../core/system/system_config_service.dart';
 import '../../../services/sync/sync_queue_service.dart';
 import '../domain/lot.dart';
@@ -112,8 +111,10 @@ class LotRepository {
     final db = await _appDatabase.database;
     final rows = await db.query(
       DatabaseSchema.lotsTable,
-      where: 'manzana_numero = ? AND solar_numero = ? AND deleted_at IS NULL',
-      whereArgs: [blockNumber.trim(), lotNumber.trim()],
+      where:
+          'LOWER(TRIM(solar_numero)) = LOWER(TRIM(?)) '
+          'AND deleted_at IS NULL',
+      whereArgs: [lotNumber.trim()],
       limit: 1,
     );
 
@@ -306,7 +307,7 @@ class LotRepository {
       );
       final activeSaleCount =
           (activeSaleRows.first['cnt'] as num?)?.toInt() ?? 0;
-      
+
       // Log advertencia si intenta borrar con ventas activas
       if (activeSaleCount > 0) {
         _log(

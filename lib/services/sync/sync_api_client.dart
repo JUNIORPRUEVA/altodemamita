@@ -263,24 +263,16 @@ class SyncApiClient {
     bool isRetry = false,
   }) async {
     final normalizedToken = jwtToken.trim();
-    if (normalizedToken.isEmpty) {
-      throw HttpException(
-        'No hay una sesion online activa para sincronizar. '
-        'Inicia sesion en linea para generar el token y vuelve a intentar.',
-        uri: uri,
-      );
-    }
-
     final normalizedDeviceId = deviceId.trim();
     if (normalizedDeviceId.isEmpty) {
       throw HttpException(
-        'Esta PC no esta autorizada (falta x-device-id local).',
+        'No hay ID local de dispositivo configurado.',
         uri: uri,
       );
     }
     _log(
       'REQUEST -> ${method.toUpperCase()} $uri '
-      '[device_id=$normalizedDeviceId, has_jwt=true]',
+      '[device_id=$normalizedDeviceId, has_jwt=${normalizedToken.isNotEmpty}]',
     );
 
     final HttpClientRequest request;
@@ -292,10 +284,12 @@ class SyncApiClient {
     }
     request.headers.contentType = ContentType.json;
     request.headers.set(HttpHeaders.acceptHeader, ContentType.json.mimeType);
-    request.headers.set(
-      HttpHeaders.authorizationHeader,
-      'Bearer $normalizedToken',
-    );
+    if (normalizedToken.isNotEmpty) {
+      request.headers.set(
+        HttpHeaders.authorizationHeader,
+        'Bearer $normalizedToken',
+      );
+    }
     request.headers.set('x-device-id', normalizedDeviceId);
 
     if (payload != null) {
