@@ -14,9 +14,13 @@ export function createApp() {
   app.use(express.json({ limit: '10mb' }));
   app.use(morgan('combined'));
 
-  app.get('/health', (_req, res) => {
+  const healthHandler = (_req: express.Request, res: express.Response) => {
     res.json({ ok: true, service: 'sistema-solares-backend' });
-  });
+  };
+
+  app.get('/', healthHandler);
+  app.get('/health', healthHandler);
+  app.get('/api/health', healthHandler);
 
   app.use('/api/auth', authRouter);
   app.use('/auth', authRouter);

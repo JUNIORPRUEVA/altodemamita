@@ -1,4 +1,5 @@
-const String BASE_URL = '';
+const String BASE_URL =
+    'https://altodemanita-altodemamita-backent.onqyr1.easypanel.host';
 
 const String LEGACY_BASE_URL = '';
 
