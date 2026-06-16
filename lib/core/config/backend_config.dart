@@ -1,10 +1,8 @@
-const String BASE_URL =
-  'https://altodemanita-altodemamita-backent.onqyr1.easypanel.host/';
+const String BASE_URL = '';
 
-const String LEGACY_BASE_URL =
-  'https://altodemanita-altodemamita-backend.onqyr1.easypanel.host/';
+const String LEGACY_BASE_URL = '';
 
-const String serverConnectionErrorMessage = 'Error de conexion con el servidor';
+const String serverConnectionErrorMessage = 'Servicio cloud no configurado';
 
 String normalizeBackendBaseUrl(String baseUrl) {
   final trimmed = baseUrl.trim();
@@ -31,23 +29,5 @@ String normalizeBackendBaseUrl(String baseUrl) {
 }
 
 bool isOfficialBackendHost(String hostOrUrl) {
-  final value = hostOrUrl.trim().toLowerCase();
-  if (value.isEmpty) {
-    return false;
-  }
-
-  final parsed = Uri.tryParse(value);
-  final host = parsed?.host.trim().toLowerCase().isNotEmpty == true
-      ? parsed!.host.trim().toLowerCase()
-      : value
-            .replaceFirst(RegExp(r'^https?://'), '')
-            .split('/')
-            .first
-            .split(':')
-            .first
-            .trim()
-            .toLowerCase();
-
-  return host == 'altodemanita-altodemamita-backend.onqyr1.easypanel.host' ||
-      host == 'altodemanita-altodemamita-backent.onqyr1.easypanel.host';
+  return false;
 }

@@ -1,42 +1,23 @@
-FROM node:20-alpine AS builder
-
+FROM node:20-alpine AS deps
 WORKDIR /app
-
-RUN apk add --no-cache openssl
-
 COPY package*.json ./
 RUN npm ci
 
+FROM deps AS build
 COPY prisma ./prisma
-RUN npx prisma generate
-
-COPY nest-cli.json tsconfig*.json prisma.config.ts ./
+COPY tsconfig.json ./
 COPY src ./src
+RUN npx prisma generate
 RUN npm run build
-RUN npm prune --omit=dev
-RUN npm cache clean --force
 
-
-FROM node:20-alpine AS production
-
+FROM node:20-alpine AS runner
 WORKDIR /app
-
 ENV NODE_ENV=production
-ENV PORT=3000
-
-RUN apk add --no-cache openssl \
-	&& apk add --no-cache su-exec \
-	&& addgroup -S nodejs \
-	&& adduser -S nestjs -G nodejs
-
-COPY --chown=nestjs:nodejs --from=builder /app/package*.json ./
-COPY --chown=nestjs:nodejs --from=builder /app/node_modules ./node_modules
-COPY --chown=nestjs:nodejs --from=builder /app/dist ./dist
-COPY --chown=nestjs:nodejs --from=builder /app/prisma ./prisma
-
-COPY docker-entrypoint.sh /docker-entrypoint.sh
-RUN chmod +x /docker-entrypoint.sh
-
+COPY package*.json ./
+RUN npm ci --omit=dev
+COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=build /app/node_modules/@prisma ./node_modules/@prisma
+COPY --from=build /app/prisma ./prisma
+COPY --from=build /app/dist ./dist
 EXPOSE 3000
-
-ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD ["node", "dist/server.js"]

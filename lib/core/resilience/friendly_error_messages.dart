@@ -46,7 +46,7 @@ class FriendlyErrorMessages {
         details: error.message,
         suggestions: const [
           'Abre Configuración y valida el estado de autorización de este equipo.',
-          'Si eres administrador, activa esta PC desde el panel web.',
+          'Si eres administrador, registra esta PC en el backend cloud nuevo.',
         ],
       );
     }
@@ -226,7 +226,7 @@ class FriendlyErrorMessages {
         details: error.message,
         suggestions: const [
           'Puedes seguir consultando información y reportes.',
-          'Si eres administrador, activa esta PC desde el panel web.',
+          'Si eres administrador, registra esta PC en el backend cloud nuevo.',
         ],
       );
     }

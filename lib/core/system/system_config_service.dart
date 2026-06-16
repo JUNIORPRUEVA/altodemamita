@@ -299,7 +299,7 @@ class SystemConfigService extends ChangeNotifier {
 
     switch (reason) {
       case 'panel_read_only':
-        return 'El panel/PWA esta limitado a solo lectura.';
+        return 'Este cliente esta limitado a solo lectura.';
       case 'device_revoked':
         return 'Este equipo fue revocado y ya no puede escribir.';
       case 'device_not_primary':

@@ -94,7 +94,7 @@ class DeviceStatusPanel extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Usa "Copiar ID de PC" y pegalo en el panel web para autorizar esta computadora.',
+              'Usa "Copiar ID de PC" y registralo en el backend cloud nuevo cuando este disponible.',
               style: TextStyle(
                 color: Color(0xFF8F2436),
                 fontSize: 12,

@@ -318,8 +318,8 @@ class _SettingsPageState extends State<SettingsPage> {
       final message = systemConfig.canWrite
           ? 'Estado actualizado. Esta PC esta autorizada para sincronizar.'
           : (systemConfig.deviceWriteReason.isEmpty
-                ? 'Esta PC aun no esta autorizada. Copia el ID y activala en el panel web.'
-                : '${systemConfig.deviceWriteReason} Copia el ID y activalo en el panel web.');
+                ? 'Esta PC aun no esta autorizada. Copia el ID y registralo en el backend cloud nuevo.'
+                : '${systemConfig.deviceWriteReason} Copia el ID y registralo en el backend cloud nuevo.');
       messenger?.showSnackBar(
         SnackBar(
           content: Text(message),
@@ -354,7 +354,7 @@ class _SettingsPageState extends State<SettingsPage> {
     messenger?.showSnackBar(
       const SnackBar(
         content: Text(
-          'ID de esta PC copiado. Pegalo en el panel web para autorizarla.',
+          'ID de esta PC copiado. Registralo en el backend cloud nuevo cuando este disponible.',
         ),
       ),
     );
@@ -391,7 +391,7 @@ class _SettingsPageState extends State<SettingsPage> {
       warning:
           'Esta accion genera un nuevo ID local para esta PC y limpia el estado tecnico de sincronizacion (cursores, bloqueos y reintentos).\n\n'
           'No borra ventas, pagos, clientes ni cuotas.\n'
-          'Despues debes copiar el nuevo ID y activarlo en Configuracion del panel web.',
+          'Despues debes copiar el nuevo ID y registrarlo en el backend cloud nuevo.',
       confirmLabel: 'Si, resetear ID local',
     );
     if (!confirmed || !mounted) {

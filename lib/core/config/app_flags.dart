@@ -19,9 +19,13 @@ const bool allowLegacyMigration = bool.fromEnvironment(
 
 /// When true, no background polling, queue retry loop, or startup sync runs.
 /// Explicit manual sync actions remain available.
+///
+/// Default is true while the legacy cloud/PWA backend is being replaced.
+/// The next cloud implementation must opt in explicitly once the clean
+/// Solares Owner sync API exists.
 const bool manualCloudSyncOnly = bool.fromEnvironment(
   'MANUAL_CLOUD_SYNC_ONLY',
-  defaultValue: false,
+  defaultValue: true,
 );
 
 /// Master switch for cloud -> local downloads.
@@ -41,7 +45,7 @@ const bool allowCloudPull = bool.fromEnvironment(
 /// Use: `--dart-define=ALLOW_AUTH_BOOTSTRAP=true`
 const bool allowAuthBootstrap = bool.fromEnvironment(
   'ALLOW_AUTH_BOOTSTRAP',
-  defaultValue: true,
+  defaultValue: false,
 );
 
 /// Enables manual emergency cloud -> local restore flows.

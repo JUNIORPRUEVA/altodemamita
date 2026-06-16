@@ -40,7 +40,6 @@ import '../../repositories/sales_sync_repository.dart';
 import '../../repositories/users_sync_repository.dart';
 import '../../repositories/user_roles_sync_repository.dart';
 import '../../services/realtime_sync_service.dart';
-import '../../services/cloud_reset_service.dart';
 import '../../services/sync/sync_conflict_service.dart';
 import '../../services/sync/sync_config_repository.dart';
 import '../../services/sync/emergency_cloud_restore_service.dart';
@@ -674,7 +673,7 @@ class _AppShellState extends State<AppShell> {
           onRunPostAuthorizationRecovery:
               _runPostAuthorizationRecoveryFromSettings,
           onResetLocalDeviceIdentity: _resetLocalDeviceIdentityFromSettings,
-          onResetBusinessData: _resetBusinessDataFromSettings,
+          onResetBusinessData: null,
           onResetLocalOnly: _resetLocalOnlyFromSettings,
           onPreviewEmergencyCloudRestore:
               _previewEmergencyCloudRestoreFromSettings,
@@ -707,7 +706,7 @@ class _AppShellState extends State<AppShell> {
 
     if (report.wasSkipped) {
       return 'Sincronizacion bloqueada: ${report.errorMessage ?? 'razon desconocida'}. '
-          'Si el error dice "no autorizada", activa esta PC desde el panel web.';
+          'Si el error dice "no autorizada", registra esta PC en el backend cloud nuevo.';
     }
 
     if (report.hadConnectivityError) {
@@ -718,7 +717,7 @@ class _AppShellState extends State<AppShell> {
 
     final writeStateMessage = SystemConfigService.instance.canWrite
         ? ''
-        : ' Esta PC no esta autorizada para subir datos: activa su ID desde el panel web.';
+        : ' Esta PC no esta autorizada para subir datos.';
     return 'Sincronizacion completada. '
         'Subidos: ${report.uploadedRecords}, descargados: ${report.downloadedRecords}'
         '${report.pendingRecords > 0 ? ", pendientes: ${report.pendingRecords}" : ""}'
@@ -754,35 +753,6 @@ class _AppShellState extends State<AppShell> {
       'cola=${local['sync_queue'] ?? 0}',
     ].join(' | ');
     return 'Borrado local completado: $localSummary. La nube NO fue modificada.';
-  }
-
-  Future<String> _resetBusinessDataFromSettings() async {
-    final cloudResetService = CloudResetService();
-    try {
-      final cloud = await cloudResetService.resetCloudDatabase();
-      final local = await _syncService.resetLocalBusinessDataForAdmin();
-      final localSummary = [
-        'ventas=${local['sales'] ?? 0}',
-        'clientes=${local['clients'] ?? 0}',
-        'vendedores=${local['sellers'] ?? 0}',
-        'cuotas=${local['installments'] ?? 0}',
-        'pagos=${local['payments'] ?? 0}',
-        'cola=${local['sync_queue'] ?? 0}',
-      ].join(' | ');
-      return 'Reseteo nube+local completado. Nube: ${cloud.summary}. Local: $localSummary';
-    } on CloudResetException catch (error) {
-      throw Exception(
-        'Error al borrar la nube: ${error.message}. '
-        'Si no tienes conexion usa "Borrar solo esta PC" en su lugar.',
-      );
-    } on SocketException {
-      throw Exception(
-        'Sin conexion con el servidor. '
-        'Usa "Borrar solo esta PC" para borrar solo el almacenamiento local sin necesitar internet.',
-      );
-    } finally {
-      cloudResetService.dispose();
-    }
   }
 
   Future<EmergencyRestorePreview> _previewEmergencyCloudRestoreFromSettings() {
