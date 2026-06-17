@@ -2,15 +2,42 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Flutter Windows (Hot Reload)",
+      "name": "App Local DEV",
       "request": "launch",
       "type": "dart",
-      "program": "C:/dev/sistema_solares_ascii/lib/main.dart",
-      "cwd": "C:/dev/sistema_solares_ascii",
+      "cwd": "app_local",
       "flutterMode": "debug",
       "deviceId": "windows",
-      "args": ["-d", "windows"],
-      "preLaunchTask": "Flutter Windows Setup (Hot Reload)"
+      "args": [
+        "-d",
+        "windows",
+        "--dart-define=SYNC_API_BASE_URL=http://localhost:3000"
+      ]
+    },
+    {
+      "name": "App Owner DEV",
+      "request": "launch",
+      "type": "dart",
+      "cwd": "app_owner",
+      "flutterMode": "debug",
+      "deviceId": "emulator",
+      "args": [
+        "-d",
+        "emulator",
+        "--dart-define=OWNER_API_BASE_URL=http://10.0.2.2:3000"
+      ]
+    },
+    {
+      "name": "Backend DEV",
+      "type": "node",
+      "request": "launch",
+      "cwd": "backend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
+      "console": "integratedTerminal"
     }
   ]
 }

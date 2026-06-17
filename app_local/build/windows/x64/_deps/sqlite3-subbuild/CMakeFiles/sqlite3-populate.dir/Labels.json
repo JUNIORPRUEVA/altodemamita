@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "C:/Users/pc/DEV/PROYECTOS/CLIENTES/SISTEMA_SOLARES/app_local/build/windows/x64/_deps/sqlite3-subbuild/CMakeFiles/sqlite3-populate"
+		},
+		{
+			"file" : "C:/Users/pc/DEV/PROYECTOS/CLIENTES/SISTEMA_SOLARES/app_local/build/windows/x64/_deps/sqlite3-subbuild/CMakeFiles/c106dbcd810b6be5ee4e62c4ccbaef59/sqlite3-populate.rule"
+		},
+		{
+			"file" : "C:/Users/pc/DEV/PROYECTOS/CLIENTES/SISTEMA_SOLARES/app_local/build/windows/x64/_deps/sqlite3-subbuild/CMakeFiles/53d19a6c663d396469701e1731efcdb8/sqlite3-populate-complete.rule"
+		},
+		{
+			"file" : "C:/Users/pc/DEV/PROYECTOS/CLIENTES/SISTEMA_SOLARES/app_local/build/windows/x64/_deps/sqlite3-subbuild/CMakeFiles/5990a5fc5a341fe589803d6aa81477b8/sqlite3-populate-build.rule"
+		},
+		{
+			"file" : "C:/Users/pc/DEV/PROYECTOS/CLIENTES/SISTEMA_SOLARES/app_local/build/windows/x64/_deps/sqlite3-subbuild/CMakeFiles/5990a5fc5a341fe589803d6aa81477b8/sqlite3-populate-configure.rule"
+		},
+		{
+			"file" : "C:/Users/pc/DEV/PROYECTOS/CLIENTES/SISTEMA_SOLARES/app_local/build/windows/x64/_deps/sqlite3-subbuild/CMakeFiles/5990a5fc5a341fe589803d6aa81477b8/sqlite3-populate-download.rule"
+		},
+		{
+			"file" : "C:/Users/pc/DEV/PROYECTOS/CLIENTES/SISTEMA_SOLARES/app_local/build/windows/x64/_deps/sqlite3-subbuild/CMakeFiles/5990a5fc5a341fe589803d6aa81477b8/sqlite3-populate-install.rule"
+		},
+		{
+			"file" : "C:/Users/pc/DEV/PROYECTOS/CLIENTES/SISTEMA_SOLARES/app_local/build/windows/x64/_deps/sqlite3-subbuild/CMakeFiles/5990a5fc5a341fe589803d6aa81477b8/sqlite3-populate-mkdir.rule"
+		},
+		{
+			"file" : "C:/Users/pc/DEV/PROYECTOS/CLIENTES/SISTEMA_SOLARES/app_local/build/windows/x64/_deps/sqlite3-subbuild/CMakeFiles/5990a5fc5a341fe589803d6aa81477b8/sqlite3-populate-patch.rule"
+		},
+		{
+			"file" : "C:/Users/pc/DEV/PROYECTOS/CLIENTES/SISTEMA_SOLARES/app_local/build/windows/x64/_deps/sqlite3-subbuild/CMakeFiles/5990a5fc5a341fe589803d6aa81477b8/sqlite3-populate-test.rule"
+		},
+		{
+			"file" : "C:/Users/pc/DEV/PROYECTOS/CLIENTES/SISTEMA_SOLARES/app_local/build/windows/x64/_deps/sqlite3-subbuild/CMakeFiles/5990a5fc5a341fe589803d6aa81477b8/sqlite3-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"sqlite3-populate"
+		],
+		"name" : "sqlite3-populate"
+	}
+}

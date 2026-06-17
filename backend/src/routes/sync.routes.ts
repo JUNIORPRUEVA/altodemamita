@@ -1,4 +1,3 @@
-import { Prisma } from '@prisma/client';
 import { Router } from 'express';
 import { z } from 'zod';
 import { resolveCompanyForRequest } from '../companyIdentity';
@@ -48,13 +47,22 @@ syncRouter.post('/upload', async (req, res) => {
     payments: records.payments ?? [],
   };
 
+  const rejected: Record<string, any[]> = {
+    clients: [],
+    sellers: [],
+    products: [],
+    sales: [],
+    installments: [],
+    payments: [],
+  };
+
   const ack = {
-    clients: await upsertClients(company.id, uploaded.clients),
-    sellers: await upsertSellers(company.id, uploaded.sellers),
-    products: await upsertLots(company.id, uploaded.products),
-    sales: await upsertSales(company.id, uploaded.sales),
-    installments: await upsertInstallments(company.id, uploaded.installments),
-    payments: await upsertPayments(company.id, uploaded.payments),
+    clients: await upsertClients(company.id, uploaded.clients, rejected.clients),
+    sellers: await upsertSellers(company.id, uploaded.sellers, rejected.sellers),
+    products: await upsertLots(company.id, uploaded.products, rejected.products),
+    sales: await upsertSales(company.id, uploaded.sales, rejected.sales),
+    installments: await upsertInstallments(company.id, uploaded.installments, rejected.installments),
+    payments: await upsertPayments(company.id, uploaded.payments, rejected.payments),
   };
 
   const receivedCounts = {
@@ -83,6 +91,7 @@ syncRouter.post('/upload', async (req, res) => {
     records: ack,
     server_time: new Date().toISOString(),
     applied: appliedCounts,
+    rejected: rejected,
   });
 });
 
@@ -177,13 +186,13 @@ function stringValue(...values: unknown[]) {
 
 function decimalValue(...values: unknown[]) {
   const value = stringValue(...values);
-  if (!value) return new Prisma.Decimal(0);
+  if (!value) return 0;
   const normalized = value.replace(/,/g, '');
-  return new Prisma.Decimal(Number.isFinite(Number(normalized)) ? normalized : 0);
+  return Number.isFinite(Number(normalized)) ? Number(normalized) : 0;
 }
 
-function rawJson(row: Row): Prisma.InputJsonObject {
-  return row as Prisma.InputJsonObject;
+function rawJson(row: Row): any {
+  return row;
 }
 
 function whereUpdatedSince(companyId: string, updatedSince?: Date | null) {
@@ -212,20 +221,47 @@ function latestCursor(rows: Row[], fallback: string) {
   return latest.toISOString();
 }
 
-async function upsertClients(companyId: string, rows: Row[]) {
+async function upsertClients(companyId: string, rows: Row[], rejected: any[]) {
   const ack: Row[] = [];
   for (const row of rows) {
     const id = syncId(row);
     if (!id) continue;
+    const document = stringValue(row.cedula, row.document_id, row.document);
     const data = {
       name: stringValue(row.nombre, row.name, row.full_name) ?? 'Sin nombre',
-      document: stringValue(row.cedula, row.document_id, row.document),
+      document,
       phone: stringValue(row.telefono, row.phone),
       address: stringValue(row.direccion, row.address),
       raw: rawJson(row),
       version: versionValue(row),
       deletedAt: deletedAt(row),
     };
+
+    // Validar duplicado activo por documento (solo si tiene documento y no es deleted)
+    if (document && document.trim().length > 0 && !data.deletedAt) {
+      const existingActive = await prisma.client.findFirst({
+        where: {
+          companyId,
+          document,
+          deletedAt: null,
+          syncId: { not: id },
+        },
+        select: { id: true, syncId: true },
+      });
+      if (existingActive) {
+        console.log(
+          `[DuplicateCheck][Client] companyId=${companyId} document=${document} foundActive=true -> rejected (existing syncId=${existingActive.syncId})`,
+        );
+        rejected.push({
+          sync_id: id,
+          reason: 'active_duplicate',
+          message: 'Ya existe un cliente activo con este documento',
+          existingSyncId: existingActive.syncId,
+        });
+        continue;
+      }
+    }
+
     const saved = await prisma.client.upsert({
       where: { companyId_syncId: { companyId, syncId: id } },
       create: { companyId, syncId: id, ...data },
@@ -236,20 +272,47 @@ async function upsertClients(companyId: string, rows: Row[]) {
   return ack;
 }
 
-async function upsertSellers(companyId: string, rows: Row[]) {
+async function upsertSellers(companyId: string, rows: Row[], rejected: any[]) {
   const ack: Row[] = [];
   for (const row of rows) {
     const id = syncId(row);
     if (!id) continue;
+    const document = stringValue(row.cedula, row.document_id, row.document);
     const data = {
       name: stringValue(row.nombre, row.name, row.full_name) ?? 'Sin nombre',
-      document: stringValue(row.cedula, row.document_id, row.document),
+      document,
       phone: stringValue(row.telefono, row.phone),
       active: String(row.activo ?? row.active ?? 'true') !== 'false',
       raw: rawJson(row),
       version: versionValue(row),
       deletedAt: deletedAt(row),
     };
+
+    // Validar duplicado activo por documento (solo si tiene documento y no es deleted)
+    if (document && document.trim().length > 0 && !data.deletedAt) {
+      const existingActive = await prisma.seller.findFirst({
+        where: {
+          companyId,
+          document,
+          deletedAt: null,
+          syncId: { not: id },
+        },
+        select: { id: true, syncId: true },
+      });
+      if (existingActive) {
+        console.log(
+          `[DuplicateCheck][Seller] companyId=${companyId} document=${document} foundActive=true -> rejected (existing syncId=${existingActive.syncId})`,
+        );
+        rejected.push({
+          sync_id: id,
+          reason: 'active_duplicate',
+          message: 'Ya existe un vendedor activo con este documento',
+          existingSyncId: existingActive.syncId,
+        });
+        continue;
+      }
+    }
+
     const saved = await prisma.seller.upsert({
       where: { companyId_syncId: { companyId, syncId: id } },
       create: { companyId, syncId: id, ...data },
@@ -260,14 +323,16 @@ async function upsertSellers(companyId: string, rows: Row[]) {
   return ack;
 }
 
-async function upsertLots(companyId: string, rows: Row[]) {
+async function upsertLots(companyId: string, rows: Row[], rejected: any[]) {
   const ack: Row[] = [];
   for (const row of rows) {
     const id = syncId(row);
     if (!id) continue;
+    const block = stringValue(row.block_number, row.manzana_numero, row.block, row.manzana);
+    const number = stringValue(row.lot_number, row.solar_numero, row.number, row.numero);
     const data = {
-      block: stringValue(row.block_number, row.manzana_numero, row.block, row.manzana),
-      number: stringValue(row.lot_number, row.solar_numero, row.number, row.numero),
+      block,
+      number,
       status: stringValue(row.status, row.estado),
       area: decimalValue(row.area, row.metros_cuadrados),
       price: decimalValue(row.price_per_square_meter, row.precio_por_metro, row.price),
@@ -275,6 +340,33 @@ async function upsertLots(companyId: string, rows: Row[]) {
       version: versionValue(row),
       deletedAt: deletedAt(row),
     };
+
+    // Validar duplicado activo por block+number (solo si no es deleted)
+    if (block && block.trim().length > 0 && number && number.trim().length > 0 && !data.deletedAt) {
+      const existingActive = await prisma.lot.findFirst({
+        where: {
+          companyId,
+          block,
+          number,
+          deletedAt: null,
+          syncId: { not: id },
+        },
+        select: { id: true, syncId: true },
+      });
+      if (existingActive) {
+        console.log(
+          `[DuplicateCheck][Lot] companyId=${companyId} block=${block} number=${number} foundActive=true -> rejected (existing syncId=${existingActive.syncId})`,
+        );
+        rejected.push({
+          sync_id: id,
+          reason: 'active_duplicate',
+          message: `Ya existe un solar activo con block=${block} number=${number}`,
+          existingSyncId: existingActive.syncId,
+        });
+        continue;
+      }
+    }
+
     const saved = await prisma.lot.upsert({
       where: { companyId_syncId: { companyId, syncId: id } },
       create: { companyId, syncId: id, ...data },
@@ -285,7 +377,7 @@ async function upsertLots(companyId: string, rows: Row[]) {
   return ack;
 }
 
-async function upsertSales(companyId: string, rows: Row[]) {
+async function upsertSales(companyId: string, rows: Row[], rejected: any[]) {
   const ack: Row[] = [];
   for (const row of rows) {
     const id = syncId(row);
@@ -303,6 +395,49 @@ async function upsertSales(companyId: string, rows: Row[]) {
       version: versionValue(row),
       deletedAt: deletedAt(row),
     };
+
+    // Validar dependencias solo si no es soft delete
+    if (!data.deletedAt) {
+      const missingDeps: string[] = [];
+
+      if (data.clientSyncId) {
+        const clientExists = await prisma.client.findFirst({
+          where: { companyId, syncId: data.clientSyncId, deletedAt: null },
+          select: { id: true },
+        });
+        if (!clientExists) missingDeps.push('clientSyncId');
+      }
+
+      if (data.lotSyncId) {
+        const lotExists = await prisma.lot.findFirst({
+          where: { companyId, syncId: data.lotSyncId, deletedAt: null },
+          select: { id: true },
+        });
+        if (!lotExists) missingDeps.push('lotSyncId');
+      }
+
+      if (data.sellerSyncId) {
+        const sellerExists = await prisma.seller.findFirst({
+          where: { companyId, syncId: data.sellerSyncId, deletedAt: null },
+          select: { id: true },
+        });
+        if (!sellerExists) missingDeps.push('sellerSyncId');
+      }
+
+      if (missingDeps.length > 0) {
+        console.log(
+          `[DependencyCheck][Sale] companyId=${companyId} syncId=${id} missing=${missingDeps.join(',')} -> rejected`,
+        );
+        rejected.push({
+          sync_id: id,
+          reason: 'missing_dependency',
+          message: `Dependencias faltantes: ${missingDeps.join(', ')}`,
+          missingFields: missingDeps,
+        });
+        continue;
+      }
+    }
+
     const saved = await prisma.sale.upsert({
       where: { companyId_syncId: { companyId, syncId: id } },
       create: { companyId, syncId: id, ...data },
@@ -313,7 +448,7 @@ async function upsertSales(companyId: string, rows: Row[]) {
   return ack;
 }
 
-async function upsertInstallments(companyId: string, rows: Row[]) {
+async function upsertInstallments(companyId: string, rows: Row[], rejected: any[]) {
   const ack: Row[] = [];
   for (const row of rows) {
     const id = syncId(row);
@@ -335,6 +470,27 @@ async function upsertInstallments(companyId: string, rows: Row[]) {
       version: versionValue(row),
       deletedAt: deletedAt(row),
     };
+
+    // Validar dependencia saleSyncId solo si no es soft delete
+    if (!data.deletedAt && data.saleSyncId) {
+      const saleExists = await prisma.sale.findFirst({
+        where: { companyId, syncId: data.saleSyncId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!saleExists) {
+        console.log(
+          `[DependencyCheck][Installment] companyId=${companyId} syncId=${id} missing=saleSyncId -> rejected`,
+        );
+        rejected.push({
+          sync_id: id,
+          reason: 'missing_dependency',
+          message: 'La venta referenciada (saleSyncId) no existe o no está activa',
+          missingFields: ['saleSyncId'],
+        });
+        continue;
+      }
+    }
+
     const saved = await prisma.installment.upsert({
       where: { companyId_syncId: { companyId, syncId: id } },
       create: { companyId, syncId: id, ...data },
@@ -345,7 +501,7 @@ async function upsertInstallments(companyId: string, rows: Row[]) {
   return ack;
 }
 
-async function upsertPayments(companyId: string, rows: Row[]) {
+async function upsertPayments(companyId: string, rows: Row[], rejected: any[]) {
   const ack: Row[] = [];
   for (const row of rows) {
     const id = syncId(row);
@@ -364,6 +520,41 @@ async function upsertPayments(companyId: string, rows: Row[]) {
       version: versionValue(row),
       deletedAt: deletedAt(row),
     };
+
+    // Validar dependencias solo si no es soft delete
+    if (!data.deletedAt) {
+      const missingDeps: string[] = [];
+
+      if (data.saleSyncId) {
+        const saleExists = await prisma.sale.findFirst({
+          where: { companyId, syncId: data.saleSyncId, deletedAt: null },
+          select: { id: true },
+        });
+        if (!saleExists) missingDeps.push('saleSyncId');
+      }
+
+      if (data.installmentSyncId) {
+        const installmentExists = await prisma.installment.findFirst({
+          where: { companyId, syncId: data.installmentSyncId, deletedAt: null },
+          select: { id: true },
+        });
+        if (!installmentExists) missingDeps.push('installmentSyncId');
+      }
+
+      if (missingDeps.length > 0) {
+        console.log(
+          `[DependencyCheck][Payment] companyId=${companyId} syncId=${id} missing=${missingDeps.join(',')} -> rejected`,
+        );
+        rejected.push({
+          sync_id: id,
+          reason: 'missing_dependency',
+          message: `Dependencias faltantes: ${missingDeps.join(', ')}`,
+          missingFields: missingDeps,
+        });
+        continue;
+      }
+    }
+
     const saved = await prisma.payment.upsert({
       where: { companyId_syncId: { companyId, syncId: id } },
       create: { companyId, syncId: id, ...data },

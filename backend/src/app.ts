@@ -5,6 +5,7 @@ import morgan from 'morgan';
 import { authRouter } from './routes/auth.routes';
 import { ownerRouter } from './routes/owner.routes';
 import { syncRouter } from './routes/sync.routes';
+import { systemRouter } from './routes/system.routes';
 
 export function createApp() {
   const app = express();
@@ -30,6 +31,8 @@ export function createApp() {
   app.use('/sync', syncRouter);
   app.use('/api/pos-sync', syncRouter);
   app.use('/pos-sync', syncRouter);
+  app.use('/api/system', systemRouter);
+  app.use('/system', systemRouter);
 
   app.use((_req, res) => {
     res.status(404).json({ error: { message: 'Ruta no encontrada.' } });

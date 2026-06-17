@@ -1,0 +1,35 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project>
+  <ProjectOutputs>
+    <ProjectOutput>
+      <FullPath>C:\Users\pc\DEV\PROYECTOS\CLIENTES\SISTEMA_SOLARES\app_local\build\windows\x64\x64\Debug\ZERO_CHECK</FullPath>
+    </ProjectOutput>
+    <ProjectOutput>
+      <FullPath>C:\Users\pc\DEV\PROYECTOS\CLIENTES\SISTEMA_SOLARES\app_local\build\windows\x64\flutter\x64\Debug\flutter_assemble</FullPath>
+    </ProjectOutput>
+    <ProjectOutput>
+      <FullPath>C:\Users\pc\DEV\PROYECTOS\CLIENTES\SISTEMA_SOLARES\app_local\build\windows\x64\plugins\connectivity_plus\Debug\connectivity_plus_plugin.dll</FullPath>
+    </ProjectOutput>
+    <ProjectOutput>
+      <FullPath>C:\Users\pc\DEV\PROYECTOS\CLIENTES\SISTEMA_SOLARES\app_local\build\windows\x64\plugins\flutter_secure_storage_windows\Debug\flutter_secure_storage_windows_plugin.dll</FullPath>
+    </ProjectOutput>
+    <ProjectOutput>
+      <FullPath>C:\Users\pc\DEV\PROYECTOS\CLIENTES\SISTEMA_SOLARES\app_local\build\windows\x64\plugins\printing\Debug\printing_plugin.dll</FullPath>
+    </ProjectOutput>
+    <ProjectOutput>
+      <FullPath>C:\Users\pc\DEV\PROYECTOS\CLIENTES\SISTEMA_SOLARES\app_local\build\windows\x64\plugins\sqlite3_flutter_libs\Debug\sqlite3.dll</FullPath>
+    </ProjectOutput>
+    <ProjectOutput>
+      <FullPath>C:\Users\pc\DEV\PROYECTOS\CLIENTES\SISTEMA_SOLARES\app_local\build\windows\x64\plugins\sqlite3_flutter_libs\Debug\sqlite3_flutter_libs_plugin.dll</FullPath>
+    </ProjectOutput>
+    <ProjectOutput>
+      <FullPath>C:\Users\pc\DEV\PROYECTOS\CLIENTES\SISTEMA_SOLARES\app_local\build\windows\x64\runner\Debug\sistema_solares.exe</FullPath>
+    </ProjectOutput>
+    <ProjectOutput>
+      <FullPath>C:\Users\pc\DEV\PROYECTOS\CLIENTES\SISTEMA_SOLARES\app_local\build\windows\x64\x64\Debug\ALL_BUILD</FullPath>
+    </ProjectOutput>
+  </ProjectOutputs>
+  <ContentFiles />
+  <SatelliteDlls />
+  <NonRecipeFileRefs />
+</Project>
