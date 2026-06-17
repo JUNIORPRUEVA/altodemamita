@@ -2,8 +2,8 @@
   Build and generate the Windows installer for app_local.
 
   Output:
-    tools/installer/output/SistemaSolares_Setup_<version>_<build>.exe
-    tools/installer/output/BUILD_MANIFEST.txt
+    app_local/instalacion/output/SistemaSolares_Setup_<version>_<build>.exe
+    app_local/instalacion/output/BUILD_MANIFEST.txt
 #>
 
 param(
@@ -12,14 +12,15 @@ param(
   [switch]$SkipFlutterBuild = $false,
   [switch]$SkipAnalyze = $false,
   [switch]$PerUserInstaller = $false,
-  [switch]$IncludeWebView2Runtime = $false
+  [switch]$IncludeWebView2Runtime = $false,
+  [string]$SyncApiBaseUrl = "https://altodemanita-altodemamita-backent.onqyr1.easypanel.host"
 )
 
 $ErrorActionPreference = 'Stop'
 
 $ProjectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $AppDir = Join-Path $ProjectRoot 'app_local'
-$InstallerDir = Join-Path $ProjectRoot 'tools\installer'
+$InstallerDir = Join-Path $AppDir 'instalacion'
 $SetupFile = Join-Path $InstallerDir 'setup.iss'
 $OutputDir = Join-Path $InstallerDir 'output'
 $ReleaseDir = Join-Path $AppDir 'build\windows\x64\runner\Release'
@@ -123,6 +124,7 @@ Write-Host "Installer:    $SetupFile"
 Write-Host "Output dir:   $OutputDir"
 Write-Host "Version:      $AppVersion"
 Write-Host "VersionInfo:  $ResolvedVersionInfo"
+Write-Host "Sync API URL: $SyncApiBaseUrl"
 Write-Host ''
 
 if (-not $SkipAnalyze) {
@@ -139,7 +141,7 @@ if (-not $SkipFlutterBuild) {
   Write-Host '[2/4] Building Flutter Windows release...'
   Push-Location $AppDir
   try {
-    & flutter build windows --release --build-name $VersionParts.BuildName --build-number $VersionParts.BuildNumber
+    & flutter build windows --release --dart-define=SYNC_API_BASE_URL=$SyncApiBaseUrl --build-name $VersionParts.BuildName --build-number $VersionParts.BuildNumber
   } finally {
     Pop-Location
   }
@@ -211,6 +213,7 @@ $manifest = @(
   "InstallerExe: $($generatedInstaller.FullName)",
   "Version: $AppVersion",
   "VersionInfo: $ResolvedVersionInfo",
+  "SyncApiBaseUrl: $SyncApiBaseUrl",
   "PerUserInstaller: $PerUserInstaller",
   "IncludeWebView2Runtime: $IncludeWebView2Runtime",
   '',

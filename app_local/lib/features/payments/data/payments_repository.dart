@@ -899,6 +899,20 @@ class PaymentsRepository {
         draft.paymentTypeOverride == 'cuota' ||
         draft.paymentTypeOverride == 'cuota_vencida' ||
         draft.paymentTypeOverride == 'todas_cuotas_vencidas';
+    final openInstallmentIds = installments
+        .where((installment) {
+          if (_isClosedStatus(installment.status)) {
+            return false;
+          }
+          return installment.remainingAmount > 0.009;
+        })
+        .map((installment) => installment.id)
+        .whereType<int>()
+        .toSet();
+    final selectedInstallmentIds = installmentsToProcess
+        .map((installment) => installment.id)
+        .whereType<int>()
+        .toSet();
     var installmentAppliedTotal = 0.0;
 
     for (final installment in installmentsToProcess) {
@@ -993,6 +1007,15 @@ class PaymentsRepository {
       throw StateError('El pago excede el saldo pendiente de la venta.');
     }
 
+    final settlesDisplayedBalance =
+        draft.paymentTypeOverride == 'abono_capital' &&
+        draft.amountPaid >= pendingBalance - 0.009;
+    final settlesAllInstallments =
+        requiresInstallmentImpact &&
+        remainingAmount <= 0.009 &&
+        openInstallmentIds.isNotEmpty &&
+        selectedInstallmentIds.containsAll(openInstallmentIds);
+
     await _recalculateFutureInstallments(
       txn: txn,
       installments: installments,
@@ -1000,20 +1023,45 @@ class PaymentsRepository {
       currentInstallmentNumber: currentInstallmentNumber,
       monthlyInterest: monthlyInterest,
       fixedInstallmentAmount: fixedInstallmentAmount,
-      remainingPrincipalBalance: _roundCurrency(
-        (outstandingPrincipal - totalPrincipalReduction).clamp(
-          0,
-          financedBalance,
-        ),
-      ),
+      remainingPrincipalBalance: settlesDisplayedBalance
+          ? 0
+          : _roundCurrency(
+              (outstandingPrincipal - totalPrincipalReduction).clamp(
+                0,
+                financedBalance,
+              ),
+            ),
       updatedAt: timestamp,
-      shouldRecalculate: capitalPrepayment > 0,
+      shouldRecalculate: capitalPrepayment > 0 || settlesDisplayedBalance,
     );
 
-    final newPendingBalance = await _loadOutstandingContractBalance(
+    final hasOpenInstallments = await _hasOpenInstallmentBalance(
       txn,
       draft.saleId,
     );
+    if (settlesAllInstallments) {
+      await txn.rawUpdate(
+        '''
+        UPDATE ${DatabaseSchema.installmentsTable}
+        SET monto_pagado = monto_cuota,
+            capital_pagado = capital_cuota,
+            interes_pagado = interes_cuota,
+            estado = ?,
+            fecha_actualizacion = ?,
+            sync_status = ?
+        WHERE venta_id = ?
+          AND deleted_at IS NULL
+          AND estado NOT IN ('pagada', 'ajustada', 'cancelada')
+        ''',
+        ['pagada', timestamp, DatabaseSchema.syncStatusPending, draft.saleId],
+      );
+    }
+    final newPendingBalance =
+        (settlesDisplayedBalance ||
+            settlesAllInstallments ||
+            !hasOpenInstallments)
+        ? 0.0
+        : await _loadOutstandingContractBalance(txn, draft.saleId);
 
     await txn.update(
       DatabaseSchema.salesTable,
@@ -1192,8 +1240,11 @@ class PaymentsRepository {
     }
 
     final futureInstallments = installments.where((installment) {
-      if (installment.status == 'pagada') {
+      if (_isClosedStatus(installment.status)) {
         return false;
+      }
+      if (remainingPrincipalBalance <= 0) {
+        return true;
       }
       if (currentInstallmentNumber > 0) {
         return installment.installmentNumber > currentInstallmentNumber;
@@ -1373,6 +1424,26 @@ class PaymentsRepository {
     }
 
     return _roundCurrency(_toDouble(rows.first['total_pendiente']));
+  }
+
+  Future<bool> _hasOpenInstallmentBalance(
+    DatabaseExecutor txn,
+    int saleId,
+  ) async {
+    final rows = await txn.rawQuery(
+      '''
+      SELECT id
+      FROM ${DatabaseSchema.installmentsTable}
+      WHERE venta_id = ?
+        AND deleted_at IS NULL
+        AND estado NOT IN ('pagada', 'ajustada', 'cancelada')
+        AND (capital_cuota - capital_pagado) > 0.009
+      LIMIT 1
+      ''',
+      [saleId],
+    );
+
+    return rows.isNotEmpty;
   }
 
   /// Reconciles installment states for [saleId] from the actual pagos table

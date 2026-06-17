@@ -106,9 +106,9 @@ class SyncQueueService {
     'clients': [],
     'products': ['clients'],
     'sellers': [],
-    'sales': ['clients', 'products'],
+    'sales': ['clients', 'products', 'sellers'],
     'installments': ['sales'],
-    'payments': ['sales'],
+    'payments': ['clients', 'sales', 'installments'],
   };
 
   static const Map<String, String> _scopeTableMap = {

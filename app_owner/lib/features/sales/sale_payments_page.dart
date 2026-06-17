@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../app/app_colors.dart';
+import '../../app/safe_area_padding.dart';
 import '../../core/utils.dart';
 
 class SalePaymentsPage extends StatelessWidget {
@@ -21,9 +22,11 @@ class SalePaymentsPage extends StatelessWidget {
     // Calculate totals
     double totalPaid = 0;
     for (final pay in payments) {
-      totalPaid += num.tryParse(pay['amount']?.toString() ?? '0')?.toDouble() ?? 0;
+      totalPaid +=
+          num.tryParse(pay['amount']?.toString() ?? '0')?.toDouble() ?? 0;
     }
-    final balance = num.tryParse(sale['balance']?.toString() ?? '0')?.toDouble() ?? 0;
+    final balance =
+        num.tryParse(sale['balance']?.toString() ?? '0')?.toDouble() ?? 0;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -44,39 +47,42 @@ class SalePaymentsPage extends StatelessWidget {
           bottom: BorderSide(color: AppColors.border, width: 0.5),
         ),
       ),
-      body: payments.isEmpty
-          ? _buildEmptyState()
-          : Column(
-              children: [
-                // Subtitle
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                  child: Text(
-                    '$client · $lot',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: AppColors.textSecondary,
-                      fontWeight: FontWeight.w500,
+      body: SafeArea(
+        top: false,
+        child: payments.isEmpty
+            ? _buildEmptyState()
+            : Column(
+                children: [
+                  // Subtitle
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                    child: Text(
+                      '$client · $lot',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppColors.textSecondary,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                   ),
-                ),
-                // Payments vertical list
-                Expanded(
-                  child: ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                    itemCount: payments.length,
-                    itemBuilder: (context, index) {
-                      return _PaymentRow(payment: payments[index]);
-                    },
+                  // Payments vertical list
+                  Expanded(
+                    child: ListView.builder(
+                      padding: safeScrollPadding(context, top: 8),
+                      itemCount: payments.length,
+                      itemBuilder: (context, index) {
+                        return _PaymentRow(payment: payments[index]);
+                      },
+                    ),
                   ),
-                ),
-                // Summary footer
-                _buildSummary(totalPaid, balance),
-              ],
-            ),
+                  // Summary footer
+                  _buildSummary(totalPaid, balance),
+                ],
+              ),
+      ),
     );
   }
 
@@ -131,7 +137,11 @@ class SalePaymentsPage extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           _PaymentSummaryRow('Total pagado', money(totalPaid)),
-          _PaymentSummaryRow('Restante por pagar', money(balance), isBold: true),
+          _PaymentSummaryRow(
+            'Restante por pagar',
+            money(balance),
+            isBold: true,
+          ),
         ],
       ),
     );
@@ -143,9 +153,7 @@ class SalePaymentsPage extends StatelessWidget {
 // ──────────────────────────────────────────────
 
 class _PaymentRow extends StatelessWidget {
-  const _PaymentRow({
-    required this.payment,
-  });
+  const _PaymentRow({required this.payment});
 
   final Map<String, dynamic> payment;
 
@@ -229,9 +237,7 @@ class _PaymentRow extends StatelessWidget {
                 const SizedBox(width: 12),
               ],
               // Sale
-              if (saleRef != '-') ...[
-                _PCell(label: 'Venta', value: saleRef),
-              ],
+              if (saleRef != '-') ...[_PCell(label: 'Venta', value: saleRef)],
             ],
           ),
         ),
@@ -245,10 +251,7 @@ class _PaymentRow extends StatelessWidget {
 // ──────────────────────────────────────────────
 
 class _PCell extends StatelessWidget {
-  const _PCell({
-    required this.label,
-    required this.value,
-  });
+  const _PCell({required this.label, required this.value});
 
   final String label;
   final String value;

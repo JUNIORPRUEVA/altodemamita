@@ -82,16 +82,24 @@ class _SalesPageState extends State<SalesPage> {
             if (status != 'pendiente' && status != 'pending') return false;
             break;
           case 'Pagadas':
-            if (status != 'pagada' && status != 'paid' && status != 'pagado') return false;
+            if (status != 'pagada' && status != 'paid' && status != 'pagado') {
+              return false;
+            }
             break;
           case 'Vencidas':
-            if (status != 'vencida' && status != 'overdue' && status != 'vencido') return false;
+            if (status != 'vencida' &&
+                status != 'overdue' &&
+                status != 'vencido') {
+              return false;
+            }
             break;
         }
       }
 
       // Apply date filter
-      if (_filter == 'Hoy' || _filter == 'Esta semana' || _filter == 'Este mes') {
+      if (_filter == 'Hoy' ||
+          _filter == 'Esta semana' ||
+          _filter == 'Este mes') {
         final dateStr = sale['saleDate']?.toString() ?? '';
         final date = DateTime.tryParse(dateStr);
         if (date == null) return false;
@@ -106,10 +114,14 @@ class _SalesPageState extends State<SalesPage> {
           case 'Esta semana':
             final weekStart = today.subtract(Duration(days: today.weekday - 1));
             final weekEnd = weekStart.add(const Duration(days: 6));
-            if (saleDay.isBefore(weekStart) || saleDay.isAfter(weekEnd)) return false;
+            if (saleDay.isBefore(weekStart) || saleDay.isAfter(weekEnd)) {
+              return false;
+            }
             break;
           case 'Este mes':
-            if (saleDay.month != today.month || saleDay.year != today.year) return false;
+            if (saleDay.month != today.month || saleDay.year != today.year) {
+              return false;
+            }
             break;
         }
       }
@@ -175,7 +187,10 @@ class _SalesPageState extends State<SalesPage> {
             child: Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: AppColors.primaryLight,
                     borderRadius: BorderRadius.circular(8),
@@ -226,12 +241,14 @@ class _SalesPageState extends State<SalesPage> {
         if (sales.isEmpty)
           _buildEmptyState()
         else
-          ...sales.map((sale) => _SaleCard(
-                sale: sale,
-                onTap: () => _openDetail(sale),
-                allInstallments: widget.allInstallments,
-                allPayments: widget.allPayments,
-              )),
+          ...sales.map(
+            (sale) => _SaleCard(
+              sale: sale,
+              onTap: () => _openDetail(sale),
+              allInstallments: widget.allInstallments,
+              allPayments: widget.allPayments,
+            ),
+          ),
       ],
     );
   }
@@ -258,10 +275,7 @@ class _SalesPageState extends State<SalesPage> {
               )
             : null,
         hintText: 'Buscar cliente, solar, ID...',
-        hintStyle: const TextStyle(
-          color: AppColors.textMuted,
-          fontSize: 14,
-        ),
+        hintStyle: const TextStyle(color: AppColors.textMuted, fontSize: 14),
         filled: true,
         fillColor: Colors.white,
         contentPadding: const EdgeInsets.symmetric(vertical: 12),
@@ -346,10 +360,7 @@ class _SalesPageState extends State<SalesPage> {
 // ──────────────────────────────────────────────
 
 class _SaleFilterSheet extends StatelessWidget {
-  const _SaleFilterSheet({
-    required this.current,
-    required this.onSelected,
-  });
+  const _SaleFilterSheet({required this.current, required this.onSelected});
 
   final String current;
   final ValueChanged<String> onSelected;
@@ -408,7 +419,9 @@ class _SaleFilterSheet extends StatelessWidget {
                   labelStyle: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
-                    color: selected ? AppColors.primary : AppColors.textSecondary,
+                    color: selected
+                        ? AppColors.primary
+                        : AppColors.textSecondary,
                   ),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10),
@@ -456,10 +469,12 @@ class _SaleCard extends StatelessWidget {
     final ids = [_syncId, _saleId, _id, _localId].whereType<String>().toSet();
     if (ids.isEmpty) return [];
     return allInstallments.where((inst) {
-      return ids.any((id) =>
-          inst['saleId']?.toString() == id ||
-          inst['saleSyncId']?.toString() == id ||
-          inst['syncId']?.toString() == id);
+      return ids.any(
+        (id) =>
+            inst['saleId']?.toString() == id ||
+            inst['saleSyncId']?.toString() == id ||
+            inst['syncId']?.toString() == id,
+      );
     }).toList();
   }
 
@@ -468,10 +483,12 @@ class _SaleCard extends StatelessWidget {
     final ids = [_syncId, _saleId, _id, _localId].whereType<String>().toSet();
     if (ids.isEmpty) return [];
     return allPayments.where((pay) {
-      return ids.any((id) =>
-          pay['saleId']?.toString() == id ||
-          pay['saleSyncId']?.toString() == id ||
-          pay['syncId']?.toString() == id);
+      return ids.any(
+        (id) =>
+            pay['saleId']?.toString() == id ||
+            pay['saleSyncId']?.toString() == id ||
+            pay['syncId']?.toString() == id,
+      );
     }).toList();
   }
 
@@ -479,10 +496,8 @@ class _SaleCard extends StatelessWidget {
     final installments = _relatedInstallments;
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => SaleInstallmentsPage(
-          sale: sale,
-          installments: installments,
-        ),
+        builder: (_) =>
+            SaleInstallmentsPage(sale: sale, installments: installments),
       ),
     );
   }
@@ -491,10 +506,7 @@ class _SaleCard extends StatelessWidget {
     final payments = _relatedPayments;
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => SalePaymentsPage(
-          sale: sale,
-          payments: payments,
-        ),
+        builder: (_) => SalePaymentsPage(sale: sale, payments: payments),
       ),
     );
   }
@@ -551,20 +563,22 @@ class _SaleCard extends StatelessWidget {
     final total = money(sale['total']);
     final date = dateText(sale['saleDate']);
     final cedula = text(sale['cedula'], '');
+    final phone = text(sale['clientPhone'], '');
+    final seller = text(sale['seller'], '');
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 10),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(16),
           child: Container(
             width: double.infinity,
-            padding: const EdgeInsets.all(14),
+            padding: const EdgeInsets.all(15),
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(16),
               border: Border.all(color: AppColors.border),
             ),
             child: Row(
@@ -609,74 +623,89 @@ class _SaleCard extends StatelessWidget {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 4),
-                      // Lot + date
+                      const SizedBox(height: 6),
+                      // Client document + phone
                       Row(
                         children: [
                           Icon(
-                            Icons.location_on_outlined,
+                            Icons.badge_outlined,
                             size: 12,
                             color: AppColors.textMuted,
                           ),
                           const SizedBox(width: 3),
-                          Text(
-                            lot,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: AppColors.textSecondary,
-                              fontWeight: FontWeight.w500,
+                          Expanded(
+                            child: Text(
+                              cedula.isEmpty ? 'Documento no indicado' : cedula,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: AppColors.textSecondary,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
-                          const SizedBox(width: 12),
-                          Icon(
-                            Icons.calendar_today_outlined,
-                            size: 11,
-                            color: AppColors.textMuted,
+                          if (phone.isNotEmpty) ...[
+                            const SizedBox(width: 10),
+                            Icon(
+                              Icons.phone_outlined,
+                              size: 12,
+                              color: AppColors.textMuted,
+                            ),
+                            const SizedBox(width: 3),
+                            Flexible(
+                              child: Text(
+                                phone,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.textSecondary,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 7),
+                      // Lot + seller + date
+                      Row(
+                        children: [
+                          Flexible(
+                            child: _InfoPill(
+                              icon: Icons.location_on_outlined,
+                              label: lot,
+                            ),
                           ),
-                          const SizedBox(width: 3),
-                          Text(
-                            date,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: AppColors.textSecondary,
-                              fontWeight: FontWeight.w500,
+                          const SizedBox(width: 6),
+                          if (seller.isNotEmpty) ...[
+                            Expanded(
+                              child: _InfoPill(
+                                icon: Icons.person_outline_rounded,
+                                label: seller,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                          ],
+                          Flexible(
+                            child: _InfoPill(
+                              icon: Icons.calendar_today_outlined,
+                              label: date,
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 9),
                       // Balance row
                       Row(
                         children: [
-                          if (cedula.isNotEmpty) ...[
-                            Text(
-                              cedula,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: AppColors.textMuted,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                          ],
-                          Text(
-                            'Total: $total',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: AppColors.textSecondary,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
+                          _AmountLabel(label: 'Total', value: total),
                           const Spacer(),
-                          Text(
-                            balance,
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                              color: statusColor,
-                            ),
+                          _AmountLabel(
+                            label: 'Pendiente',
+                            value: balance,
+                            color: statusColor,
                           ),
                         ],
                       ),
@@ -707,9 +736,19 @@ class _SaleCard extends StatelessWidget {
                       value: 'installments',
                       child: Row(
                         children: [
-                          Icon(Icons.calendar_month_rounded, size: 18, color: AppColors.accentBlue),
+                          Icon(
+                            Icons.calendar_month_rounded,
+                            size: 18,
+                            color: AppColors.accentBlue,
+                          ),
                           SizedBox(width: 10),
-                          Text('Ver cuotas', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                          Text(
+                            'Ver cuotas',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -717,9 +756,19 @@ class _SaleCard extends StatelessWidget {
                       value: 'payments',
                       child: Row(
                         children: [
-                          Icon(Icons.account_balance_wallet_rounded, size: 18, color: AppColors.accentGreen),
+                          Icon(
+                            Icons.account_balance_wallet_rounded,
+                            size: 18,
+                            color: AppColors.accentGreen,
+                          ),
                           SizedBox(width: 10),
-                          Text('Ver pagos', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                          Text(
+                            'Ver pagos',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -734,15 +783,88 @@ class _SaleCard extends StatelessWidget {
   }
 }
 
+class _InfoPill extends StatelessWidget {
+  const _InfoPill({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.borderLight),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: AppColors.textMuted),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 11.5,
+                color: AppColors.textSecondary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AmountLabel extends StatelessWidget {
+  const _AmountLabel({
+    required this.label,
+    required this.value,
+    this.color = AppColors.textPrimary,
+  });
+
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 10.5,
+            color: AppColors.textMuted,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w800,
+            color: color,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 // ──────────────────────────────────────────────
 // Status chip
 // ──────────────────────────────────────────────
 
 class _SaleStatusChip extends StatelessWidget {
-  const _SaleStatusChip({
-    required this.label,
-    required this.color,
-  });
+  const _SaleStatusChip({required this.label, required this.color});
 
   final String label;
   final Color color;

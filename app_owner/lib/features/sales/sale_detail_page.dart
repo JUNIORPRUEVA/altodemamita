@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../app/app_colors.dart';
+import '../../app/safe_area_padding.dart';
 import '../../core/utils.dart';
 import 'sale_installments_page.dart';
 import 'sale_payments_page.dart';
@@ -28,10 +29,12 @@ class SaleDetailPage extends StatelessWidget {
     final ids = [_syncId, _saleId, _id, _localId].whereType<String>().toSet();
     if (ids.isEmpty) return [];
     return allInstallments.where((inst) {
-      return ids.any((id) =>
-          inst['saleId']?.toString() == id ||
-          inst['saleSyncId']?.toString() == id ||
-          inst['syncId']?.toString() == id);
+      return ids.any(
+        (id) =>
+            inst['saleId']?.toString() == id ||
+            inst['saleSyncId']?.toString() == id ||
+            inst['syncId']?.toString() == id,
+      );
     }).toList();
   }
 
@@ -41,10 +44,12 @@ class SaleDetailPage extends StatelessWidget {
     final ids = [_syncId, _saleId, _id, _localId].whereType<String>().toSet();
     if (ids.isEmpty) return [];
     return allPayments.where((pay) {
-      return ids.any((id) =>
-          pay['saleId']?.toString() == id ||
-          pay['saleSyncId']?.toString() == id ||
-          pay['syncId']?.toString() == id);
+      return ids.any(
+        (id) =>
+            pay['saleId']?.toString() == id ||
+            pay['saleSyncId']?.toString() == id ||
+            pay['syncId']?.toString() == id,
+      );
     }).toList();
   }
 
@@ -130,54 +135,57 @@ class SaleDetailPage extends StatelessWidget {
           bottom: BorderSide(color: AppColors.border, width: 0.5),
         ),
       ),
-      body: Column(
-        children: [
-          // ── Action buttons (fixed at top) ──
-          _buildActionButtons(context, relatedInstallments, relatedPayments),
-          // ── Scrollable content ──
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // ── Header compact card ──
-                  _buildHeaderCard(client, status, statusColor, lot, balance),
-                  const SizedBox(height: 12),
+      body: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            // ── Action buttons (fixed at top) ──
+            _buildActionButtons(context, relatedInstallments, relatedPayments),
+            // ── Scrollable content ──
+            Expanded(
+              child: SingleChildScrollView(
+                padding: safeScrollPadding(context, top: 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // ── Header compact card ──
+                    _buildHeaderCard(client, status, statusColor, lot, balance),
+                    const SizedBox(height: 12),
 
-                  // ── Client & Lot section ──
-                  _buildSectionCard('Cliente y Solar', [
-                    _InfoRow('Cliente', client),
-                    _InfoRow('Cédula', cedula),
-                    _InfoRow('Solar', lot),
-                    if (metros != '-') _InfoRow('Metros', metros),
-                    if (modalidad != '-') _InfoRow('Modalidad', modalidad),
-                  ]),
-                  const SizedBox(height: 12),
+                    // ── Client & Lot section ──
+                    _buildSectionCard('Cliente y Solar', [
+                      _InfoRow('Cliente', client),
+                      _InfoRow('Cédula', cedula),
+                      _InfoRow('Solar', lot),
+                      if (metros != '-') _InfoRow('Metros', metros),
+                      if (modalidad != '-') _InfoRow('Modalidad', modalidad),
+                    ]),
+                    const SizedBox(height: 12),
 
-                  // ── Sale info section ──
-                  _buildSectionCard('Información de Venta', [
-                    if (localId != '-') _InfoRow('Venta #', localId),
-                    _InfoRow('Fecha', date),
-                    _InfoRow('Estado', _statusLabel(status)),
-                    if (seller != '-') _InfoRow('Vendedor', seller),
-                    if (plan != '-') _InfoRow('Plan', plan),
-                    if (syncId != '-')
-                      _InfoRow('Sync ID', syncId, isMono: true),
-                  ]),
-                  const SizedBox(height: 12),
+                    // ── Sale info section ──
+                    _buildSectionCard('Información de Venta', [
+                      if (localId != '-') _InfoRow('Venta #', localId),
+                      _InfoRow('Fecha', date),
+                      _InfoRow('Estado', _statusLabel(status)),
+                      if (seller != '-') _InfoRow('Vendedor', seller),
+                      if (plan != '-') _InfoRow('Plan', plan),
+                      if (syncId != '-')
+                        _InfoRow('Sync ID', syncId, isMono: true),
+                    ]),
+                    const SizedBox(height: 12),
 
-                  // ── Financial section ──
-                  _buildSectionCard('Resumen Financiero', [
-                    _InfoRow('Precio total', total),
-                    _InfoRow('Inicial pagada', initial),
-                    _InfoRow('Saldo pendiente', balance, isBold: true),
-                  ]),
-                ],
+                    // ── Financial section ──
+                    _buildSectionCard('Resumen Financiero', [
+                      _InfoRow('Precio total', total),
+                      _InfoRow('Inicial pagada', initial),
+                      _InfoRow('Saldo pendiente', balance, isBold: true),
+                    ]),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -360,10 +368,8 @@ class SaleDetailPage extends StatelessWidget {
                   onTap: () {
                     Navigator.of(context).push(
                       MaterialPageRoute(
-                        builder: (_) => SalePaymentsPage(
-                          sale: sale,
-                          payments: payments,
-                        ),
+                        builder: (_) =>
+                            SalePaymentsPage(sale: sale, payments: payments),
                       ),
                     );
                   },
@@ -382,7 +388,12 @@ class SaleDetailPage extends StatelessWidget {
 // ──────────────────────────────────────────────
 
 class _InfoRow extends StatelessWidget {
-  const _InfoRow(this.label, this.value, {this.isBold = false, this.isMono = false});
+  const _InfoRow(
+    this.label,
+    this.value, {
+    this.isBold = false,
+    this.isMono = false,
+  });
 
   final String label;
   final String value;
@@ -429,10 +440,7 @@ class _InfoRow extends StatelessWidget {
 // ──────────────────────────────────────────────
 
 class _SaleDetailStatusChip extends StatelessWidget {
-  const _SaleDetailStatusChip({
-    required this.label,
-    required this.color,
-  });
+  const _SaleDetailStatusChip({required this.label, required this.color});
 
   final String label;
   final Color color;

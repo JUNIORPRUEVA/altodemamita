@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../app/app_colors.dart';
+import '../../app/safe_area_padding.dart';
 import '../../core/utils.dart';
 
 class SaleInstallmentsPage extends StatelessWidget {
@@ -25,10 +26,16 @@ class SaleInstallmentsPage extends StatelessWidget {
     double totalEndingBalance = 0;
 
     for (final inst in installments) {
-      totalCapital += num.tryParse(inst['totalAmount']?.toString() ?? '0')?.toDouble() ?? 0;
-      totalInterest += num.tryParse(inst['interestAmount']?.toString() ?? '0')?.toDouble() ?? 0;
-      totalPaid += num.tryParse(inst['paidAmount']?.toString() ?? '0')?.toDouble() ?? 0;
-      totalEndingBalance += num.tryParse(inst['endingBalance']?.toString() ?? '0')?.toDouble() ?? 0;
+      totalCapital +=
+          num.tryParse(inst['totalAmount']?.toString() ?? '0')?.toDouble() ?? 0;
+      totalInterest +=
+          num.tryParse(inst['interestAmount']?.toString() ?? '0')?.toDouble() ??
+          0;
+      totalPaid +=
+          num.tryParse(inst['paidAmount']?.toString() ?? '0')?.toDouble() ?? 0;
+      totalEndingBalance +=
+          num.tryParse(inst['endingBalance']?.toString() ?? '0')?.toDouble() ??
+          0;
     }
 
     return Scaffold(
@@ -50,42 +57,50 @@ class SaleInstallmentsPage extends StatelessWidget {
           bottom: BorderSide(color: AppColors.border, width: 0.5),
         ),
       ),
-      body: installments.isEmpty
-          ? _buildEmptyState()
-          : Column(
-              children: [
-                // Subtitle
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                  child: Text(
-                    '$client · $lot',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: AppColors.textSecondary,
-                      fontWeight: FontWeight.w500,
+      body: SafeArea(
+        top: false,
+        child: installments.isEmpty
+            ? _buildEmptyState()
+            : Column(
+                children: [
+                  // Subtitle
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                    child: Text(
+                      '$client · $lot',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppColors.textSecondary,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                   ),
-                ),
-                // Installments vertical list
-                Expanded(
-                  child: ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                    itemCount: installments.length,
-                    itemBuilder: (context, index) {
-                      return _InstallmentRow(
-                        installment: installments[index],
-                        index: index,
-                      );
-                    },
+                  // Installments vertical list
+                  Expanded(
+                    child: ListView.builder(
+                      padding: safeScrollPadding(context, top: 8),
+                      itemCount: installments.length,
+                      itemBuilder: (context, index) {
+                        return _InstallmentRow(
+                          installment: installments[index],
+                          index: index,
+                        );
+                      },
+                    ),
                   ),
-                ),
-                // Summary footer
-                _buildSummary(totalCapital, totalInterest, totalPaid, totalEndingBalance),
-              ],
-            ),
+                  // Summary footer
+                  _buildSummary(
+                    totalCapital,
+                    totalInterest,
+                    totalPaid,
+                    totalEndingBalance,
+                  ),
+                ],
+              ),
+      ),
     );
   }
 
@@ -151,7 +166,11 @@ class SaleInstallmentsPage extends StatelessWidget {
           _SummaryRow('Total del plan', money(totalPlan), isBold: true),
           const Divider(height: 16),
           _SummaryRow('Total pagado', money(totalPaid)),
-          _SummaryRow('Saldo pendiente', money(totalEndingBalance), isBold: true),
+          _SummaryRow(
+            'Saldo pendiente',
+            money(totalEndingBalance),
+            isBold: true,
+          ),
         ],
       ),
     );
@@ -163,10 +182,7 @@ class SaleInstallmentsPage extends StatelessWidget {
 // ──────────────────────────────────────────────
 
 class _InstallmentRow extends StatelessWidget {
-  const _InstallmentRow({
-    required this.installment,
-    required this.index,
-  });
+  const _InstallmentRow({required this.installment, required this.index});
 
   final Map<String, dynamic> installment;
   final int index;
@@ -302,10 +318,7 @@ class _InstallmentRow extends StatelessWidget {
 // ──────────────────────────────────────────────
 
 class _Cell extends StatelessWidget {
-  const _Cell({
-    required this.label,
-    required this.value,
-  });
+  const _Cell({required this.label, required this.value});
 
   final String label;
   final String value;

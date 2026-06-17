@@ -10,20 +10,36 @@ class DashboardPage extends StatelessWidget {
     super.key,
     required this.snapshot,
     this.onOpenModule,
+    this.filterLabel = 'Hoy',
   });
 
   final OwnerSnapshot snapshot;
   final ValueChanged<OwnerModule>? onOpenModule;
+  final String filterLabel;
 
   @override
   Widget build(BuildContext context) {
     final counts = snapshot.dashboard['counts'] as Map<String, dynamic>? ?? {};
-    final totals = snapshot.dashboard['totals'] as Map<String, dynamic>? ?? {};
+    final sellersCount = counts['sellers'] ?? snapshot.sellers.length;
+    final filteredSales = snapshot.sales.where(_matchesFilter).toList();
+    final filteredPayments = snapshot.payments.where(_matchesFilter).toList();
+    final paid = filteredPayments.fold<num>(
+      0,
+      (total, payment) => total + _asNum(payment['amount']),
+    );
+    final pending = filteredSales.fold<num>(
+      0,
+      (total, sale) => total + _asNum(sale['balance']),
+    );
+    final sold = filteredSales.fold<num>(
+      0,
+      (total, sale) => total + _asNum(sale['total']),
+    );
 
     final items = <_DashboardItem>[
       _DashboardItem(
         label: 'Cobrado',
-        value: money(totals['paid']),
+        value: money(paid),
         icon: Icons.account_balance_wallet_outlined,
         color: AppColors.accentGreen,
         module: OwnerModule.payments,
@@ -31,7 +47,7 @@ class DashboardPage extends StatelessWidget {
       ),
       _DashboardItem(
         label: 'Pendiente',
-        value: money(totals['balance']),
+        value: money(pending),
         icon: Icons.receipt_long_outlined,
         color: AppColors.accentAmber,
         module: OwnerModule.installments,
@@ -39,7 +55,7 @@ class DashboardPage extends StatelessWidget {
       ),
       _DashboardItem(
         label: 'Vendido',
-        value: money(totals['sold']),
+        value: money(sold),
         icon: Icons.trending_up,
         color: AppColors.accentBlue,
         module: OwnerModule.sales,
@@ -73,24 +89,58 @@ class DashboardPage extends StatelessWidget {
         color: AppColors.accentBlue,
         module: OwnerModule.clients,
       ),
+      _DashboardItem(
+        label: 'Vendedores',
+        value: text(sellersCount, '0'),
+        icon: Icons.badge_outlined,
+        color: AppColors.accentRose,
+        module: OwnerModule.sellers,
+      ),
     ];
 
     return SingleChildScrollView(
       physics: const ClampingScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-      child: _DashboardGrid(
-        items: items,
-        onTap: onOpenModule,
-      ),
+      child: _DashboardGrid(items: items, onTap: onOpenModule),
     );
+  }
+
+  bool _matchesFilter(Map<String, dynamic> item) {
+    final normalized = filterLabel.trim().toLowerCase();
+    if (normalized == 'personalizado') return true;
+    final date = DateTime.tryParse(
+      text(item['saleDate'] ?? item['paidAt'] ?? item['updatedAt'], ''),
+    );
+    if (date == null) return true;
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final itemDay = DateTime(date.year, date.month, date.day);
+
+    switch (normalized) {
+      case 'hoy':
+        return itemDay == today;
+      case 'ayer':
+        return itemDay == today.subtract(const Duration(days: 1));
+      case 'esta semana':
+        final weekStart = today.subtract(Duration(days: today.weekday - 1));
+        final weekEnd = weekStart.add(const Duration(days: 6));
+        return !itemDay.isBefore(weekStart) && !itemDay.isAfter(weekEnd);
+      case 'este mes':
+        return itemDay.year == today.year && itemDay.month == today.month;
+      default:
+        return true;
+    }
+  }
+
+  num _asNum(Object? value) {
+    if (value is num) return value;
+    return num.tryParse(value?.toString() ?? '') ?? 0;
   }
 }
 
 class _DashboardGrid extends StatelessWidget {
-  const _DashboardGrid({
-    required this.items,
-    required this.onTap,
-  });
+  const _DashboardGrid({required this.items, required this.onTap});
 
   final List<_DashboardItem> items;
   final ValueChanged<OwnerModule>? onTap;
@@ -125,10 +175,7 @@ class _DashboardGrid extends StatelessWidget {
 }
 
 class _DashboardCard extends StatelessWidget {
-  const _DashboardCard({
-    required this.item,
-    required this.onTap,
-  });
+  const _DashboardCard({required this.item, required this.onTap});
 
   final _DashboardItem item;
   final VoidCallback? onTap;
@@ -170,11 +217,7 @@ class _DashboardCard extends StatelessWidget {
                       color: item.color.withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: Icon(
-                      item.icon,
-                      color: item.color,
-                      size: 18,
-                    ),
+                    child: Icon(item.icon, color: item.color, size: 18),
                   ),
                   const Spacer(),
                   Icon(

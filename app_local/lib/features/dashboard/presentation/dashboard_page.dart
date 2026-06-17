@@ -82,6 +82,10 @@ class _DashboardPageState extends State<DashboardPage> {
           sale.paidInitialPayment +
           (sale.salePrice - sale.pendingBalance - sale.downPaymentAmount),
     );
+    final soldAmount = sales.fold<double>(
+      0,
+      (total, sale) => total + sale.salePrice,
+    );
 
     return _DashboardStats(
       totalClients: results[0],
@@ -94,6 +98,7 @@ class _DashboardPageState extends State<DashboardPage> {
       activeFinancing: activeFinancing,
       portfolioPendingAmount: portfolioPendingAmount,
       collectedAmount: collectedAmount,
+      soldAmount: soldAmount,
     );
   }
 
@@ -309,6 +314,24 @@ class _MetricsPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cards = [
+      _StatCard(
+        label: 'Cobrado',
+        value: _formatCurrency(stats.collectedAmount),
+        icon: Icons.account_balance_wallet_outlined,
+        accentColor: const Color(0xFF2E7D5B),
+      ),
+      _StatCard(
+        label: 'Pendiente',
+        value: _formatCurrency(stats.portfolioPendingAmount),
+        icon: Icons.receipt_long_outlined,
+        accentColor: const Color(0xFFB66A12),
+      ),
+      _StatCard(
+        label: 'Vendido',
+        value: _formatCurrency(stats.soldAmount),
+        icon: Icons.trending_up,
+        accentColor: const Color(0xFF204A71),
+      ),
       _StatCard(
         label: 'Clientes',
         value: stats.totalClients.toString(),
@@ -945,6 +968,7 @@ class _DashboardStats {
     required this.activeFinancing,
     required this.portfolioPendingAmount,
     required this.collectedAmount,
+    required this.soldAmount,
   });
 
   const _DashboardStats.empty()
@@ -957,7 +981,8 @@ class _DashboardStats {
       overduePayments = 0,
       activeFinancing = 0,
       portfolioPendingAmount = 0,
-      collectedAmount = 0;
+      collectedAmount = 0,
+      soldAmount = 0;
 
   final int totalClients;
   final int totalLots;
@@ -969,6 +994,7 @@ class _DashboardStats {
   final int activeFinancing;
   final double portfolioPendingAmount;
   final double collectedAmount;
+  final double soldAmount;
 }
 
 class _PriorityBar {

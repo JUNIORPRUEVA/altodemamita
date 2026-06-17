@@ -1,17 +1,14 @@
 import 'package:flutter/material.dart';
 
 import '../app/app_colors.dart';
+import '../app/safe_area_padding.dart';
 import '../core/utils.dart';
 
 /// Pantalla de detalle elegante para cualquier registro.
 /// Recibe un [RecordView] y muestra toda su información
 /// de forma ordenada y profesional.
 class DetailPage extends StatelessWidget {
-  const DetailPage({
-    super.key,
-    required this.view,
-    this.title,
-  });
+  const DetailPage({super.key, required this.view, this.title});
 
   final RecordView view;
   final String? title;
@@ -38,7 +35,7 @@ class DetailPage extends StatelessWidget {
         ),
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
+        padding: safeScrollPadding(context),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -141,35 +138,37 @@ class DetailPage extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  ...view.fields.map((field) => Padding(
-                        padding: const EdgeInsets.only(bottom: 14),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            SizedBox(
-                              width: 120,
-                              child: Text(
-                                field.label,
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  color: AppColors.textSecondary,
-                                  fontWeight: FontWeight.w500,
-                                ),
+                  ...view.fields.map(
+                    (field) => Padding(
+                      padding: const EdgeInsets.only(bottom: 14),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          SizedBox(
+                            width: 120,
+                            child: Text(
+                              field.label,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                color: AppColors.textSecondary,
+                                fontWeight: FontWeight.w500,
                               ),
                             ),
-                            Expanded(
-                              child: Text(
-                                field.value,
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  color: AppColors.textPrimary,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                          ),
+                          Expanded(
+                            child: Text(
+                              field.value,
+                              style: const TextStyle(
+                                fontSize: 14,
+                                color: AppColors.textPrimary,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
-                          ],
-                        ),
-                      )),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),

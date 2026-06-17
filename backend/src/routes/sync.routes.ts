@@ -64,6 +64,10 @@ syncRouter.post('/upload', async (req, res) => {
     installments: await upsertInstallments(company.id, uploaded.installments, rejected.installments),
     payments: await upsertPayments(company.id, uploaded.payments, rejected.payments),
   };
+  await recalculateSaleBalances(company.id, [
+    ...uploaded.installments.map((row) => stringValue(row.sale_sync_id, row.venta_sync_id)),
+    ...uploaded.payments.map((row) => stringValue(row.sale_sync_id, row.venta_sync_id)),
+  ]);
 
   const receivedCounts = {
     clients: uploaded.clients.length,
@@ -219,6 +223,10 @@ function latestCursor(rows: Row[], fallback: string) {
     if (value && value > latest) latest = value;
   }
   return latest.toISOString();
+}
+
+function uniqueSyncIds(values: Array<string | null>) {
+  return [...new Set(values.filter((value): value is string => Boolean(value?.trim())))];
 }
 
 async function upsertClients(companyId: string, rows: Row[], rejected: any[]) {
@@ -390,7 +398,7 @@ async function upsertSales(companyId: string, rows: Row[], rejected: any[]) {
       status: stringValue(row.status, row.estado),
       total: decimalValue(row.sale_price, row.precio_venta, row.total),
       initialPaid: decimalValue(row.paid_initial_payment, row.inicial, row.initialPaid),
-      balance: decimalValue(row.saldo_pendiente, row.balance),
+      balance: decimalValue(row.pending_balance, row.saldo_pendiente, row.balance),
       raw: rawJson(row),
       version: versionValue(row),
       deletedAt: deletedAt(row),
@@ -533,6 +541,14 @@ async function upsertPayments(companyId: string, rows: Row[], rejected: any[]) {
         if (!saleExists) missingDeps.push('saleSyncId');
       }
 
+      if (data.clientSyncId) {
+        const clientExists = await prisma.client.findFirst({
+          where: { companyId, syncId: data.clientSyncId, deletedAt: null },
+          select: { id: true },
+        });
+        if (!clientExists) missingDeps.push('clientSyncId');
+      }
+
       if (data.installmentSyncId) {
         const installmentExists = await prisma.installment.findFirst({
           where: { companyId, syncId: data.installmentSyncId, deletedAt: null },
@@ -563,6 +579,43 @@ async function upsertPayments(companyId: string, rows: Row[], rejected: any[]) {
     ack.push(paymentRecord(saved));
   }
   return ack;
+}
+
+async function recalculateSaleBalances(companyId: string, saleSyncIds: Array<string | null>) {
+  const uniqueSaleSyncIds = uniqueSyncIds(saleSyncIds);
+  for (const saleSyncId of uniqueSaleSyncIds) {
+    const installments = await prisma.installment.findMany({
+      where: {
+        companyId,
+        saleSyncId,
+        deletedAt: null,
+        status: { not: 'ajustada' },
+      },
+      select: {
+        principalAmount: true,
+        paidPrincipalAmount: true,
+        status: true,
+      },
+    });
+    if (installments.length === 0) {
+      continue;
+    }
+
+    const balance = installments.reduce((total, installment) => {
+      if (installment.status === 'cancelada') return total;
+      const principal = Number(installment.principalAmount ?? 0);
+      const paidPrincipal = Number(installment.paidPrincipalAmount ?? 0);
+      return total + Math.max(principal - paidPrincipal, 0);
+    }, 0);
+
+    await prisma.sale.updateMany({
+      where: { companyId, syncId: saleSyncId, deletedAt: null },
+      data: {
+        balance,
+        status: balance <= 0.009 ? 'pagada' : 'activa',
+      },
+    });
+  }
 }
 
 async function listClients(companyId: string, updatedSince?: Date | null) {
@@ -648,8 +701,12 @@ function saleRecord(row: any): Row {
     sale_date: row.saleDate?.toISOString() ?? null,
     status: row.status,
     sale_price: row.total?.toString() ?? '0',
+    total: row.total?.toString() ?? '0',
     paid_initial_payment: row.initialPaid?.toString() ?? '0',
+    initial_paid: row.initialPaid?.toString() ?? '0',
+    pending_balance: row.balance?.toString() ?? '0',
     saldo_pendiente: row.balance?.toString() ?? '0',
+    balance: row.balance?.toString() ?? '0',
     created_at: row.createdAt?.toISOString(),
     updated_at: row.updatedAt?.toISOString(),
     deleted_at: row.deletedAt?.toISOString() ?? null,

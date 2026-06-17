@@ -17,6 +17,7 @@ import '../features/installments/installments_page.dart';
 import '../features/sellers/sellers_page.dart';
 import 'app_colors.dart';
 import 'responsive.dart';
+import 'safe_area_padding.dart';
 
 /// Map an OwnerModule to its display icon.
 IconData moduleIcon(OwnerModule module) {
@@ -131,14 +132,13 @@ class AppShellState extends State<AppShell> {
       appBar: _buildAppBar(context, isDesktop, isMobile),
       drawer: isMobile ? _buildDrawer() : null,
       body: SafeArea(
+        bottom: false,
         child: Row(
           children: [
             // Side navigation for tablet/desktop
             if (!isMobile) _buildNavigationRail(),
             // Main content area
-            Expanded(
-              child: _buildBody(),
-            ),
+            Expanded(child: _buildBody()),
           ],
         ),
       ),
@@ -146,18 +146,20 @@ class AppShellState extends State<AppShell> {
   }
 
   PreferredSizeWidget _buildAppBar(
-      BuildContext context, bool isDesktop, bool isMobile) {
+    BuildContext context,
+    bool isDesktop,
+    bool isMobile,
+  ) {
     return AppBar(
       // --- Leading: drawer button on mobile (only on Dashboard) ---
       leading: isMobile
           ? (_isDashboard
-              ? _MenuButton(
-                  onPressed: () =>
-                      _scaffoldKey.currentState?.openDrawer(),
-                )
-              : _BackButton(
-                  onPressed: () => _selectModule(OwnerModule.dashboard),
-                ))
+                ? _MenuButton(
+                    onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+                  )
+                : _BackButton(
+                    onPressed: () => _selectModule(OwnerModule.dashboard),
+                  ))
           : null,
 
       // --- Title ---
@@ -277,7 +279,11 @@ class AppShellState extends State<AppShell> {
                 value: 'filter',
                 child: Row(
                   children: [
-                    Icon(Icons.tune_rounded, size: 20, color: AppColors.accentBlue),
+                    Icon(
+                      Icons.tune_rounded,
+                      size: 20,
+                      color: AppColors.accentBlue,
+                    ),
                     const SizedBox(width: 12),
                     const Text(
                       'Filtrar',
@@ -294,7 +300,11 @@ class AppShellState extends State<AppShell> {
                 value: 'refresh',
                 child: Row(
                   children: [
-                    Icon(Icons.refresh_rounded, size: 20, color: AppColors.accentGreen),
+                    Icon(
+                      Icons.refresh_rounded,
+                      size: 20,
+                      color: AppColors.accentGreen,
+                    ),
                     const SizedBox(width: 12),
                     const Text(
                       'Actualizar',
@@ -327,10 +337,7 @@ class AppShellState extends State<AppShell> {
       backgroundColor: AppColors.surface,
       surfaceTintColor: Colors.transparent,
       shape: const Border(
-        bottom: BorderSide(
-          color: AppColors.border,
-          width: 0.5,
-        ),
+        bottom: BorderSide(color: AppColors.border, width: 0.5),
       ),
     );
   }
@@ -352,11 +359,7 @@ class AppShellState extends State<AppShell> {
           ),
           const Spacer(),
           if (label == _filterLabel)
-            Icon(
-              Icons.check,
-              size: 18,
-              color: AppColors.accentBlue,
-            ),
+            Icon(Icons.check, size: 18, color: AppColors.accentBlue),
         ],
       ),
     );
@@ -389,9 +392,9 @@ class AppShellState extends State<AppShell> {
             const SizedBox(height: 4),
             Text(
               'Owner',
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w600),
             ),
           ],
         ),
@@ -410,7 +413,7 @@ class AppShellState extends State<AppShell> {
       return const Center(child: CircularProgressIndicator());
     }
     if (_error != null && _snapshot == null) {
-      return ErrorView(error: _error.toString(), onRetry: () => _refresh());
+      return ErrorView(error: _error, onRetry: () => _refresh());
     }
     final snapshot = _snapshot!;
     return RefreshIndicator(
@@ -418,10 +421,11 @@ class AppShellState extends State<AppShell> {
       child: LayoutBuilder(
         builder: (context, constraints) {
           // Constrain content width on wide screens for readability
-          final contentWidth =
-              constraints.maxWidth > 900 ? 900.0 : constraints.maxWidth;
+          final contentWidth = constraints.maxWidth > 900
+              ? 900.0
+              : constraints.maxWidth;
           return SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
+            padding: safeScrollPadding(context),
             child: Center(
               child: SizedBox(
                 width: contentWidth,
@@ -429,8 +433,7 @@ class AppShellState extends State<AppShell> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     if (_loading) const LinearProgressIndicator(minHeight: 2),
-                    if (_error != null)
-                      ErrorBanner(error: _error.toString()),
+                    if (_error != null) ErrorBanner(error: _error),
                     _buildPageContent(snapshot),
                   ],
                 ),
@@ -445,37 +448,37 @@ class AppShellState extends State<AppShell> {
   Widget _buildPageContent(OwnerSnapshot snapshot) {
     return switch (_selected) {
       OwnerModule.dashboard => DashboardPage(
-          snapshot: snapshot,
-          onOpenModule: _selectModule,
-        ),
+        snapshot: snapshot,
+        onOpenModule: _selectModule,
+        filterLabel: _filterLabel,
+      ),
       OwnerModule.clients => ClientsPage(
-          items: snapshot.clients,
-          searchNotifier: _searchNotifier,
-        ),
+        items: snapshot.clients,
+        searchNotifier: _searchNotifier,
+      ),
       OwnerModule.lots => LotsPage(
-          items: snapshot.lots,
-          searchNotifier: _searchNotifier,
-        ),
+        items: snapshot.lots,
+        searchNotifier: _searchNotifier,
+      ),
       OwnerModule.sales => SalesPage(
-          items: snapshot.sales,
-          searchNotifier: _searchNotifier,
-          filterTriggerNotifier: _filterTriggerNotifier,
-          allInstallments: snapshot.installments,
-          allPayments: snapshot.payments,
-        ),
-      OwnerModule.installments =>
-        InstallmentsPage(
-          items: snapshot.installments,
-          searchNotifier: _searchNotifier,
-        ),
+        items: snapshot.sales,
+        searchNotifier: _searchNotifier,
+        filterTriggerNotifier: _filterTriggerNotifier,
+        allInstallments: snapshot.installments,
+        allPayments: snapshot.payments,
+      ),
+      OwnerModule.installments => InstallmentsPage(
+        items: snapshot.installments,
+        searchNotifier: _searchNotifier,
+      ),
       OwnerModule.payments => PaymentsPage(
-          items: snapshot.payments,
-          searchNotifier: _searchNotifier,
-        ),
+        items: snapshot.payments,
+        searchNotifier: _searchNotifier,
+      ),
       OwnerModule.sellers => SellersPage(
-          items: snapshot.sellers,
-          searchNotifier: _searchNotifier,
-        ),
+        items: snapshot.sellers,
+        searchNotifier: _searchNotifier,
+      ),
     };
   }
 }
@@ -501,10 +504,7 @@ class _MenuButton extends StatelessWidget {
             decoration: BoxDecoration(
               color: AppColors.primaryLight,
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: AppColors.border,
-                width: 1,
-              ),
+              border: Border.all(color: AppColors.border, width: 1),
               boxShadow: const [
                 BoxShadow(
                   color: Color(0x08000000),
@@ -546,10 +546,7 @@ class _BackButton extends StatelessWidget {
             decoration: BoxDecoration(
               color: AppColors.primaryLight,
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: AppColors.border,
-                width: 1,
-              ),
+              border: Border.all(color: AppColors.border, width: 1),
             ),
             child: const Icon(
               Icons.arrow_back_rounded,
@@ -580,14 +577,15 @@ class ModulePage extends StatelessWidget {
   Widget build(BuildContext context) {
     return switch (module) {
       OwnerModule.dashboard => DashboardPage(
-          snapshot: snapshot,
-          onOpenModule: onOpenModule,
-        ),
+        snapshot: snapshot,
+        onOpenModule: onOpenModule,
+      ),
       OwnerModule.clients => ClientsPage(items: snapshot.clients),
       OwnerModule.lots => LotsPage(items: snapshot.lots),
       OwnerModule.sales => SalesPage(items: snapshot.sales),
-      OwnerModule.installments =>
-        InstallmentsPage(items: snapshot.installments),
+      OwnerModule.installments => InstallmentsPage(
+        items: snapshot.installments,
+      ),
       OwnerModule.payments => PaymentsPage(items: snapshot.payments),
       OwnerModule.sellers => SellersPage(items: snapshot.sellers),
     };
