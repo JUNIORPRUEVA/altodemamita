@@ -11,13 +11,36 @@ export const systemRouter = Router();
  *
  * Ver: app_local/lib/features/auth/data/auth_service.dart
  *   _probeRemoteSystemStatus() -> body['initialized'] == true
+ *
+ * Ahora también incluye información de la DB actual (sin secretos).
  */
 systemRouter.get('/status', (_req, res) => {
+  const databaseUrl = process.env.DATABASE_URL || '';
+  let databaseName = 'unknown';
+  let databaseHost = 'unknown';
+
+  try {
+    // Parsear DATABASE_URL para extraer host y database name sin credenciales
+    // Formato típico: postgresql://user:password@host:port/database?schema=public
+    const match = databaseUrl.match(
+      /postgresql:\/\/[^:]+:[^@]+@([^/]+)\/([^?]+)/,
+    );
+    if (match) {
+      databaseHost = match[1]; // host:port
+      databaseName = match[2]; // database name
+    }
+  } catch {
+    // Si falla el parseo, mostrar valores por defecto
+  }
+
   res.json({
     ok: true,
     status: 'online',
     service: 'sistema-solares-backend',
     initialized: true,
+    databaseConfigured: databaseUrl.length > 0,
+    databaseName,
+    databaseHost,
     timestamp: new Date().toISOString(),
   });
 });

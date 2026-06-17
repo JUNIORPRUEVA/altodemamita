@@ -1,5 +1,8 @@
 import 'dart:convert';
+import 'dart:developer' as developer;
 import 'dart:io';
+
+import 'package:flutter/foundation.dart';
 
 import '../constants.dart';
 import '../models/owner_snapshot.dart';
@@ -9,7 +12,19 @@ class ApiClient {
 
   final String baseUrl;
 
+  /// Log de depuración para la URL base usada
+  void _logUrl() {
+    if (kDebugMode) {
+      debugPrint('[OwnerApi] OWNER_API_BASE_URL=$baseUrl');
+      developer.log(
+        'OWNER_API_BASE_URL=$baseUrl',
+        name: 'SistemaSolares.OwnerApi',
+      );
+    }
+  }
+
   Future<OwnerSnapshot> fetchSnapshot() async {
+    _logUrl();
     final results = await Future.wait([
       _get('/owner/dashboard'),
       _list('/owner/clients'),
@@ -46,22 +61,59 @@ class ApiClient {
     final client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 15);
     try {
+      if (kDebugMode) {
+        debugPrint('[OwnerApi] request url=$uri');
+        developer.log(
+          'request url=$uri',
+          name: 'SistemaSolares.OwnerApi',
+        );
+      }
       final request = await client.getUrl(uri);
       request.headers.set('x-company-tenant-key', companyTenantKey);
       request.headers.set(HttpHeaders.acceptHeader, ContentType.json.mimeType);
       final response = await request.close();
       final responseBody = await utf8.decoder.bind(response).join();
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw HttpException(
-          'HTTP ${response.statusCode}: $responseBody',
-          uri: uri,
+      if (kDebugMode) {
+        debugPrint('[OwnerApi] response status=${response.statusCode} url=$uri');
+        developer.log(
+          'response status=${response.statusCode} url=$uri',
+          name: 'SistemaSolares.OwnerApi',
         );
+      }
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        final errorMsg = 'HTTP ${response.statusCode}: $responseBody';
+        if (kDebugMode) {
+          debugPrint('[OwnerApi] request failed url=$uri error=$errorMsg');
+          developer.log(
+            'request failed url=$uri error=$errorMsg',
+            name: 'SistemaSolares.OwnerApi',
+          );
+        }
+        throw HttpException(errorMsg, uri: uri);
       }
       final decoded = jsonDecode(responseBody);
       if (decoded is! Map) {
         throw const FormatException('Respuesta invalida del backend.');
       }
       return decoded.cast<String, dynamic>();
+    } on SocketException catch (e) {
+      if (kDebugMode) {
+        debugPrint('[OwnerApi] connection error url=$uri error=$e');
+        developer.log(
+          'connection error url=$uri error=$e',
+          name: 'SistemaSolares.OwnerApi',
+        );
+      }
+      rethrow;
+    } on HttpException catch (e) {
+      if (kDebugMode) {
+        debugPrint('[OwnerApi] http error url=$uri error=$e');
+        developer.log(
+          'http error url=$uri error=$e',
+          name: 'SistemaSolares.OwnerApi',
+        );
+      }
+      rethrow;
     } finally {
       client.close(force: true);
     }

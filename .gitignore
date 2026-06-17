@@ -83,5 +83,8 @@ tools/scripts/probe_output_new.json
 docs/misc/
 docs/logs/
 
+# --- Distribuciones / releases locales ---
+dist_release/
+
 # --- Archivo de entorno ---
 .env

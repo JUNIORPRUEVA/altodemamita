@@ -1,0 +1,33 @@
+﻿Sistema Solares installer build manifest
+GeneratedAt: 2026-06-17 11:47:35
+ProjectRoot: C:\Users\pc\DEV\PROYECTOS\CLIENTES\SISTEMA_SOLARES
+AppDir: C:\Users\pc\DEV\PROYECTOS\CLIENTES\SISTEMA_SOLARES\app_local
+ReleaseDir: C:\Users\pc\DEV\PROYECTOS\CLIENTES\SISTEMA_SOLARES\app_local\build\windows\x64\runner\Release
+InstallerScript: C:\Users\pc\DEV\PROYECTOS\CLIENTES\SISTEMA_SOLARES\tools\installer\setup.iss
+InstallerExe: C:\Users\pc\DEV\PROYECTOS\CLIENTES\SISTEMA_SOLARES\tools\installer\output\SistemaSolares_Setup_1.0.0_10.exe
+Version: 1.0.0+10
+VersionInfo: 1.0.0.10
+PerUserInstaller: False
+IncludeWebView2Runtime: False
+
+Release bundle files:
+ - connectivity_plus_plugin.dll
+ - data\app.so
+ - data\flutter_assets\AssetManifest.bin
+ - data\flutter_assets\assets\fonts\NotoSans-Bold.ttf
+ - data\flutter_assets\assets\fonts\NotoSans-Regular.ttf
+ - data\flutter_assets\FontManifest.json
+ - data\flutter_assets\fonts\MaterialIcons-Regular.otf
+ - data\flutter_assets\NativeAssetsManifest.json
+ - data\flutter_assets\NOTICES.Z
+ - data\flutter_assets\packages\cupertino_icons\assets\CupertinoIcons.ttf
+ - data\flutter_assets\shaders\ink_sparkle.frag
+ - data\flutter_assets\shaders\stretch_effect.frag
+ - data\icudtl.dat
+ - flutter_secure_storage_windows_plugin.dll
+ - flutter_windows.dll
+ - pdfium.dll
+ - printing_plugin.dll
+ - sistema_solares.exe
+ - sqlite3.dll
+ - sqlite3_flutter_libs_plugin.dll

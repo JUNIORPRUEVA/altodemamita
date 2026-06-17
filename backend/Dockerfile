@@ -22,4 +22,6 @@ COPY --from=build /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/dist ./dist
 EXPOSE 3000
-CMD ["node", "dist/server.js"]
+# Ejecutar migraciones Prisma antes de iniciar el servidor
+# Esto asegura que la DB tenga todas las tablas actualizadas
+CMD npx prisma migrate deploy && node dist/server.js

@@ -139,7 +139,7 @@ if (-not $SkipFlutterBuild) {
   Write-Host '[2/4] Building Flutter Windows release...'
   Push-Location $AppDir
   try {
-    & flutter build windows --release --dart-define=SYNC_API_BASE_URL=https://altodemanita-altodemamita-backent.onqyr1.easypanel.host --build-name $VersionParts.BuildName --build-number $VersionParts.BuildNumber
+    & flutter build windows --release --build-name $VersionParts.BuildName --build-number $VersionParts.BuildNumber
   } finally {
     Pop-Location
   }
