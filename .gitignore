@@ -1,45 +1,87 @@
-# Miscellaneous
-*.class
+# ============================================
+# SISTEMA SOLARES - .gitignore raíz
+# ============================================
+
+# --- Archivos de base de datos ---
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# --- Build artifacts (recursivo) ---
+**/build/
+**/dist/
+**/.dart_tool/
+**/node_modules/
+
+# --- Backups ---
+backups/
+backups_audit/
+
+# --- Instaladores y binarios ---
+*.apk
+*.aab
+*.exe
+*.msi
+*.zip
+*.7z
+*.rar
+*.tar.gz
+*.tar
+
+# --- IDE / Editor ---
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+
+# --- Logs y temporales ---
 *.log
-*.pyc
+*.tmp
+*.temp
 *.swp
+*.class
+*.pyc
 .DS_Store
+.history
+
+# --- Flutter/Dart ---
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/coverage/
+.dart_tool/
+
+# --- Symbolication ---
+app.*.symbols
+app.*.map.json
+
+# --- Android Studio ---
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# --- Otros ---
 .atom/
 .build/
 .buildlog/
-.history
 .svn/
 .swiftpm/
 migrate_working_dir/
 
-# IntelliJ related
-*.iml
-*.ipr
-*.iws
-.idea/
+# --- Probes (datos simulados de entorno limpio) ---
+tools/probes/
 
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
-#.vscode/
+# --- Output de scripts ---
+tools/scripts/probe_output_new.json
 
-# Flutter/Dart/Pub related
-**/doc/api/
-**/ios/Flutter/.last_build_id
-.dart_tool/
-.flutter-plugins-dependencies
-.pub-cache/
-.pub/
-/build/
-/coverage/
+# --- Docs misceláneos (capturas, dumps) ---
+docs/misc/
+docs/logs/
 
-# Symbolication related
-app.*.symbols
-
-# Obfuscation related
-app.*.map.json
-
-# Android Studio will place build artifacts here
-/android/app/debug
-/android/app/profile
-/android/app/release
+# --- Archivo de entorno ---
+.env
