@@ -198,7 +198,7 @@ class _AppShellState extends State<AppShell> {
 
   Future<void> _writeStartupDiagnostics() async {
     final logger = SyncDiagnosticsLogger.instance;
-    await logger.log('[AppStartup] version=1.0.0+13');
+    await logger.log('[AppStartup] version=1.0.0+14');
     await logger.log(
       '[BackendConfig] SYNC_API_BASE_URL=${backend_config.BASE_URL}',
     );

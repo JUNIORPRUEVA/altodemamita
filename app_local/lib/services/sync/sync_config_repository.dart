@@ -282,10 +282,14 @@ class SyncConfigRepository {
       return 'backend_initial_upload_required';
     }
     if (currentCloudData?.isPrincipalDataEmpty == true) {
-      return 'backend_cloud_data_empty';
+      return 'cloud_main_data_empty';
     }
     if (currentBackendUrl.isNotEmpty && savedBackendUrl != currentBackendUrl) {
       return 'backend_url_changed';
+    }
+    if (savedDatabaseName.trim().isEmpty &&
+        savedCloudFingerprint.trim().isEmpty) {
+      return 'old_completed_without_cloud_identity';
     }
     if (savedDatabaseName.trim().isEmpty) {
       return 'missing_saved_database_name';

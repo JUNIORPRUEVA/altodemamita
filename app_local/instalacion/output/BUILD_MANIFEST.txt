@@ -1,13 +1,13 @@
 ﻿Sistema Solares installer build manifest
-GeneratedAt: 2026-06-19 12:36:48
+GeneratedAt: 2026-06-19 15:19:09
 ProjectRoot: C:\Users\pc\DEV\PROYECTOS\CLIENTES\SISTEMA_SOLARES
 AppDir: C:\Users\pc\DEV\PROYECTOS\CLIENTES\SISTEMA_SOLARES\app_local
 ReleaseDir: C:\Users\pc\DEV\PROYECTOS\CLIENTES\SISTEMA_SOLARES\app_local\build\windows\x64\runner\Release
 InstallerScript: C:\Users\pc\DEV\PROYECTOS\CLIENTES\SISTEMA_SOLARES\app_local\instalacion\setup.iss
-InstallerExe: C:\Users\pc\DEV\PROYECTOS\CLIENTES\SISTEMA_SOLARES\app_local\instalacion\output\SistemaSolares_Setup_1.0.0_13.exe
-InstallerSHA256: 5672F9C6991FFD8AC58B6451C6275D76DB940B5455BD45A967AF74FD36D021C6
-Version: 1.0.0+13
-VersionInfo: 1.0.0.13
+InstallerExe: C:\Users\pc\DEV\PROYECTOS\CLIENTES\SISTEMA_SOLARES\app_local\instalacion\output\SistemaSolares_Setup_1.0.0_14.exe
+InstallerSHA256: 3E0408B0F553785C4D9817A1EB46E9EA85906ABA65384270E2CF8C253035FDCA
+Version: 1.0.0+14
+VersionInfo: 1.0.0.14
 SyncApiBaseUrl: https://altodemanita-altodemamita-backent.onqyr1.easypanel.host
 DiagnosticsLogPath: %LOCALAPPDATA%\SistemaSolares\logs\sync_diagnostics.log
 PerUserInstaller: False

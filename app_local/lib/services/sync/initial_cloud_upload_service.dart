@@ -44,7 +44,7 @@ class InitialCloudUploadService {
   final SyncApiClient _apiClient;
 
   static const int _batchSize = 100;
-  static const String _appBuild = '1.0.0+13';
+  static const String _appBuild = '1.0.0+14';
   static const String _logPrefix = '[InitialCloudUpload]';
 
   /// Orden de subida respetando dependencias.

@@ -245,7 +245,6 @@ class SyncQueueService {
       }
     });
 
-    await _configRepository.markLocalUploadBootstrapCompleted();
     await _syncLogger.log(
       action: 'local-upload-bootstrap',
       entity: 'sync',
