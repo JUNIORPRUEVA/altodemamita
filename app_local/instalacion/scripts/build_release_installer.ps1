@@ -18,7 +18,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$ProjectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$ProjectRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 $AppDir = Join-Path $ProjectRoot 'app_local'
 $InstallerDir = Join-Path $AppDir 'instalacion'
 $SetupFile = Join-Path $InstallerDir 'setup.iss'
@@ -199,6 +199,8 @@ if (-not $generatedInstaller) {
 }
 
 $manifestPath = Join-Path $OutputDir 'BUILD_MANIFEST.txt'
+$installerSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $generatedInstaller.FullName).Hash
+$diagnosticsLogPath = '%LOCALAPPDATA%\SistemaSolares\logs\sync_diagnostics.log'
 $bundleFiles = Get-ChildItem $ReleaseDir -Recurse -File |
   ForEach-Object { $_.FullName.Substring($ReleaseDir.Length + 1) } |
   Sort-Object
@@ -211,9 +213,11 @@ $manifest = @(
   "ReleaseDir: $ReleaseDir",
   "InstallerScript: $SetupFile",
   "InstallerExe: $($generatedInstaller.FullName)",
+  "InstallerSHA256: $installerSha256",
   "Version: $AppVersion",
   "VersionInfo: $ResolvedVersionInfo",
   "SyncApiBaseUrl: $SyncApiBaseUrl",
+  "DiagnosticsLogPath: $diagnosticsLogPath",
   "PerUserInstaller: $PerUserInstaller",
   "IncludeWebView2Runtime: $IncludeWebView2Runtime",
   '',

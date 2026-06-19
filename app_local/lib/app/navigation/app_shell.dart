@@ -6,7 +6,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/config/backend_config.dart' as backend_config;
 import '../../core/database/app_database.dart';
+import '../../core/database/database_schema.dart';
+import '../../core/diagnostics/sync_diagnostics_logger.dart';
 import '../../features/auth/domain/user_model.dart';
 import '../../features/auth/presentation/auth_provider.dart';
 import '../../features/auth/presentation/profile_screen.dart';
@@ -39,6 +42,7 @@ import '../../repositories/users_sync_repository.dart';
 import '../../repositories/user_roles_sync_repository.dart';
 import '../../services/realtime_sync_service.dart';
 import '../../services/sync/sync_conflict_service.dart';
+import '../../services/sync/sync_config_repository.dart';
 import '../../services/sync/sync_manager.dart';
 import '../../services/sync/sync_queue_service.dart';
 import '../../services/sync/sync_service.dart';
@@ -188,7 +192,78 @@ class _AppShellState extends State<AppShell> {
     unawaited(_refreshInternetStatus());
     _syncQueueService.setCloudSessionExpiredHandler(_handleCloudSessionExpired);
     _syncManager.addListener(_handleSyncManagerChanged);
+    unawaited(_writeStartupDiagnostics());
     unawaited(_syncManager.start());
+  }
+
+  Future<void> _writeStartupDiagnostics() async {
+    final logger = SyncDiagnosticsLogger.instance;
+    await logger.log('[AppStartup] version=1.0.0+13');
+    await logger.log(
+      '[BackendConfig] SYNC_API_BASE_URL=${backend_config.BASE_URL}',
+    );
+    await logger.log(
+      '[BackendConfig] effectiveBackendBaseUrl=${backend_config.effectiveBackendBaseUrl}',
+    );
+    await logger.log(
+      '[BackendConfig] isLocalBackend=${backend_config.isLocalBackend}',
+    );
+    await logger.log(
+      '[BackendConfig] isProductionLikeBackend=${backend_config.isProductionLikeBackend}',
+    );
+
+    final databasePath = await AppDatabase.instance.databasePath;
+    final databaseFile = File(databasePath);
+    final exists = await databaseFile.exists();
+    final sizeBytes = exists ? await databaseFile.length() : 0;
+    await logger.log('[LocalDatabase] path=$databasePath');
+    await logger.log('[LocalDatabase] exists=$exists');
+    await logger.log('[LocalDatabase] sizeBytes=$sizeBytes');
+
+    final db = await AppDatabase.instance.database;
+    final counts = <String, String>{
+      'clientes': DatabaseSchema.clientsTable,
+      'vendedores': DatabaseSchema.sellersTable,
+      'solares': DatabaseSchema.lotsTable,
+      'ventas': DatabaseSchema.salesTable,
+      'cuotas': DatabaseSchema.installmentsTable,
+      'pagos': DatabaseSchema.paymentsTable,
+      'sync_queue': DatabaseSchema.syncQueueTable,
+    };
+    for (final entry in counts.entries) {
+      await logger.log(
+        '[LocalDatabase] ${entry.key}=${await _countTable(db, entry.value)}',
+      );
+    }
+
+    final configRepository = SyncConfigRepository();
+    final settings = await configRepository.loadSettings();
+    final diagnostics = await configRepository
+        .loadLocalUploadBootstrapDiagnostics(
+          backendUrl: settings.normalizedBaseUrl,
+        );
+    await logger.log(
+      '[InitialCloudUpload] completedFlag=${diagnostics.completedFlag}',
+    );
+    await logger.log(
+      '[InitialCloudUpload] savedBackendUrl=${diagnostics.savedBackendUrl}',
+    );
+    await logger.log(
+      '[InitialCloudUpload] currentBackendUrl=${settings.normalizedBaseUrl}',
+    );
+    await logger.log('[InitialCloudUpload] shouldRun=${diagnostics.shouldRun}');
+    if (!diagnostics.shouldRun) {
+      await logger.log('[InitialCloudUpload] already completed, skipping');
+    }
+  }
+
+  Future<int> _countTable(dynamic db, String tableName) async {
+    final rows = await db.rawQuery('SELECT COUNT(*) AS total FROM $tableName');
+    final value = rows.isEmpty ? 0 : rows.first['total'];
+    if (value is num) {
+      return value.toInt();
+    }
+    return int.tryParse(value?.toString() ?? '') ?? 0;
   }
 
   @override

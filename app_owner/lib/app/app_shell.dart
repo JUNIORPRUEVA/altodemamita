@@ -466,6 +466,8 @@ class AppShellState extends State<AppShell> {
         filterTriggerNotifier: _filterTriggerNotifier,
         allInstallments: snapshot.installments,
         allPayments: snapshot.payments,
+        allClients: snapshot.clients,
+        allSellers: snapshot.sellers,
       ),
       OwnerModule.installments => InstallmentsPage(
         items: snapshot.installments,

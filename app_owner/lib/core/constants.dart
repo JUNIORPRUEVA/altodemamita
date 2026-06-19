@@ -1,3 +1,13 @@
+/// URL base del backend para la app Owner.
+///
+/// Desarrollo (emulador Android):
+///   flutter run --dart-define=OWNER_API_BASE_URL=http://10.0.2.2:3000
+///
+/// Producción:
+///   flutter run --dart-define=OWNER_API_BASE_URL=https://altodemanita-altodemamita-backent.onqyr1.easypanel.host
+///
+/// Por defecto apunta a localhost del emulador para desarrollo seguro.
+/// Nunca quemar URL de producción como default.
 const String baseUrl = String.fromEnvironment(
   'OWNER_API_BASE_URL',
   defaultValue: 'http://10.0.2.2:3000',

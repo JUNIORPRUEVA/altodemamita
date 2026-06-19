@@ -1,6 +1,9 @@
 {
   "version": "0.2.0",
   "configurations": [
+    // ============================================================
+    // 🟢 DESARROLLO LOCAL (apunta a backend local)
+    // ============================================================
     {
       "name": "App Local DEV",
       "request": "launch",
@@ -38,6 +41,35 @@
         "dev"
       ],
       "console": "integratedTerminal"
+    },
+    // ============================================================
+    // 🔴 PRODUCCIÓN (apunta a EasyPanel)
+    // ============================================================
+    {
+      "name": "App Local PROD",
+      "request": "launch",
+      "type": "dart",
+      "cwd": "app_local",
+      "flutterMode": "release",
+      "deviceId": "windows",
+      "args": [
+        "-d",
+        "windows",
+        "--dart-define=SYNC_API_BASE_URL=https://altodemanita-altodemamita-backent.onqyr1.easypanel.host"
+      ]
+    },
+    {
+      "name": "App Owner PROD",
+      "request": "launch",
+      "type": "dart",
+      "cwd": "app_owner",
+      "flutterMode": "release",
+      "deviceId": "emulator",
+      "args": [
+        "-d",
+        "emulator",
+        "--dart-define=OWNER_API_BASE_URL=https://altodemanita-altodemamita-backent.onqyr1.easypanel.host"
+      ]
     }
   ]
 }

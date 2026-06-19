@@ -9,6 +9,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import '../../core/database/app_database.dart';
 import '../../core/database/database_schema.dart';
 import '../../core/config/app_flags.dart';
+import '../../core/diagnostics/sync_diagnostics_logger.dart';
 import '../../core/system/system_config_service.dart';
 import '../../core/utils/client_data_guard.dart';
 import '../../models/sync/sync_conflict_strategy.dart';
@@ -174,6 +175,7 @@ class SyncQueueService {
 
   void _log(String message) {
     developer.log(message, name: 'SistemaSolares.SyncQueue');
+    SyncDiagnosticsLogger.instance.logUnawaited('[SyncQueue] $message');
   }
 
   void registerRepository(SyncRepository repository) {
@@ -702,6 +704,7 @@ class SyncQueueService {
     }
 
     _isProcessing = true;
+    _log('processing...');
     await _refreshState();
     try {
       final settings = await _configRepository.loadSettings();
@@ -740,6 +743,7 @@ class SyncQueueService {
           includeDeferred: includeDeferred,
         );
         if (items.isEmpty) {
+          _log('completed processed=$processedCount');
           return processedCount;
         }
 
@@ -1131,6 +1135,7 @@ class SyncQueueService {
         await _refreshState(clearLastError: true);
         return 0;
       }
+      _log('failed error=$error');
       rethrow;
     } finally {
       _isProcessing = false;
@@ -1147,6 +1152,7 @@ class SyncQueueService {
 
     try {
       await _waitForIdle();
+      _log('pending count=${await pendingCount()}');
 
       for (final scope in targetScopes) {
         await refreshScope(scope);

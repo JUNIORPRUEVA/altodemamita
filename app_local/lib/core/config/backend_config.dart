@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+import '../diagnostics/sync_diagnostics_logger.dart';
+
 /// Configuración central del backend.
 ///
 /// Regla profesional:
@@ -99,6 +101,18 @@ String normalizeBackendBaseUrl(String baseUrl) {
 /// effectiveBackendBaseUrl=http://localhost:3000/api
 String get effectiveBackendBaseUrl {
   final normalized = normalizeBackendBaseUrl(BASE_URL);
+  SyncDiagnosticsLogger.instance.logUnawaited(
+    '[BackendConfig] SYNC_API_BASE_URL=$_backendBaseUrlFromEnv',
+  );
+  SyncDiagnosticsLogger.instance.logUnawaited(
+    '[BackendConfig] effectiveBackendBaseUrl=$normalized',
+  );
+  SyncDiagnosticsLogger.instance.logUnawaited(
+    '[BackendConfig] isLocalBackend=$isLocalBackend',
+  );
+  SyncDiagnosticsLogger.instance.logUnawaited(
+    '[BackendConfig] isProductionLikeBackend=$isProductionLikeBackend',
+  );
 
   if (kDebugMode) {
     debugPrint('[BackendConfig] SYNC_API_BASE_URL=$_backendBaseUrlFromEnv');
@@ -142,7 +156,7 @@ String backendEndpoint(String endpoint) {
 
 /// Devuelve true si la URL actual parece ser localhost/desarrollo.
 bool get isLocalBackend {
-  final normalized = effectiveBackendBaseUrl.toLowerCase();
+  final normalized = normalizeBackendBaseUrl(BASE_URL).toLowerCase();
 
   return normalized.contains('localhost') ||
       normalized.contains('127.0.0.1') ||
@@ -151,7 +165,7 @@ bool get isLocalBackend {
 
 /// Devuelve true si la URL actual parece ser producción/EasyPanel.
 bool get isProductionLikeBackend {
-  final normalized = effectiveBackendBaseUrl.toLowerCase();
+  final normalized = normalizeBackendBaseUrl(BASE_URL).toLowerCase();
 
   return normalized.contains('easypanel.host') ||
       normalized.startsWith('https://');

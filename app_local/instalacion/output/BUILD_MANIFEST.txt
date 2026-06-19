@@ -1,13 +1,17 @@
-Sistema Solares installer build manifest
-GeneratedAt: 2026-06-17 12:27:08
+﻿Sistema Solares installer build manifest
+GeneratedAt: 2026-06-19 12:36:48
+ProjectRoot: C:\Users\pc\DEV\PROYECTOS\CLIENTES\SISTEMA_SOLARES
 AppDir: C:\Users\pc\DEV\PROYECTOS\CLIENTES\SISTEMA_SOLARES\app_local
 ReleaseDir: C:\Users\pc\DEV\PROYECTOS\CLIENTES\SISTEMA_SOLARES\app_local\build\windows\x64\runner\Release
 InstallerScript: C:\Users\pc\DEV\PROYECTOS\CLIENTES\SISTEMA_SOLARES\app_local\instalacion\setup.iss
-InstallerExe: C:\Users\pc\DEV\PROYECTOS\CLIENTES\SISTEMA_SOLARES\app_local\instalacion\output\SistemaSolares_Setup_1.0.0_10.exe
-Version: 1.0.0+10
-VersionInfo: 1.0.0.10
+InstallerExe: C:\Users\pc\DEV\PROYECTOS\CLIENTES\SISTEMA_SOLARES\app_local\instalacion\output\SistemaSolares_Setup_1.0.0_13.exe
+InstallerSHA256: 5672F9C6991FFD8AC58B6451C6275D76DB940B5455BD45A967AF74FD36D021C6
+Version: 1.0.0+13
+VersionInfo: 1.0.0.13
 SyncApiBaseUrl: https://altodemanita-altodemamita-backent.onqyr1.easypanel.host
-OutputLocation: app_local\instalacion\output
+DiagnosticsLogPath: %LOCALAPPDATA%\SistemaSolares\logs\sync_diagnostics.log
+PerUserInstaller: False
+IncludeWebView2Runtime: False
 
 Release bundle files:
  - connectivity_plus_plugin.dll
@@ -28,5 +32,5 @@ Release bundle files:
  - pdfium.dll
  - printing_plugin.dll
  - sistema_solares.exe
- - sqlite3_flutter_libs_plugin.dll
  - sqlite3.dll
+ - sqlite3_flutter_libs_plugin.dll

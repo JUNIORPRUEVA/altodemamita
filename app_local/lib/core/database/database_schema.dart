@@ -4,10 +4,11 @@ import '../config/backend_config.dart';
 import '../../features/sales/domain/sale_calculator.dart';
 import '../config/app_flags.dart';
 import '../security/password_hasher.dart';
+import 'lot_repair_service.dart';
 
 class DatabaseSchema {
   static const String databaseName = 'sistema_solares.db';
-  static const int databaseVersion = 27;
+  static const int databaseVersion = 28;
   static const String defaultSyncBaseUrl = BASE_URL;
 
   static const String clientsTable = 'clientes';
@@ -132,6 +133,7 @@ class DatabaseSchema {
     await _migrateToVersion25(db);
     await _migrateToVersion26(db);
     await _migrateToVersion27(db);
+    await _migrateToVersion28(db);
   }
 
   static Future<void> ensureCoreStructures(DatabaseExecutor db) async {
@@ -160,6 +162,7 @@ class DatabaseSchema {
     await _migrateToVersion25(db);
     await _migrateToVersion26(db);
     await _migrateToVersion27(db);
+    await _migrateToVersion28(db);
     await seedDefaults(db);
   }
 
@@ -452,7 +455,24 @@ class DatabaseSchema {
       await _migrateToVersion27(db);
     }
 
+    if (oldVersion < 28 && newVersion >= 28) {
+      await _migrateToVersion28(db);
+    }
+
     await seedDefaults(db);
+  }
+
+  /// v28: Reparación automática de solares duplicados/vendidos.
+  ///
+  /// Corre en DB existentes para garantizar:
+  /// - Triggers correctos (manzana_numero + solar_numero combinados)
+  /// - Índice correcto (manzana_numero, solar_numero) WHERE deleted_at IS NULL
+  /// - Solares eliminados con estado vendido/reservado -> disponible
+  /// - Solares activos vendidos sin venta activa -> disponible
+  ///
+  /// Idempotente: puede correr muchas veces sin dañar nada.
+  static Future<void> _migrateToVersion28(DatabaseExecutor db) async {
+    await LotRepairService.run(db: db);
   }
 
   static Future<void> _migrateToVersion19(DatabaseExecutor db) async {
@@ -936,7 +956,7 @@ class DatabaseSchema {
     if (await _tableExists(db, lotsTable)) {
       await db.execute(
         'CREATE INDEX IF NOT EXISTS idx_solares_active_key_normalized '
-        'ON $lotsTable(LOWER(TRIM(solar_numero))) '
+        'ON $lotsTable(LOWER(TRIM(manzana_numero)), LOWER(TRIM(solar_numero))) '
         'WHERE deleted_at IS NULL',
       );
       await db.execute('''
@@ -946,6 +966,7 @@ class DatabaseSchema {
           AND EXISTS (
             SELECT 1 FROM $lotsTable
             WHERE deleted_at IS NULL
+              AND LOWER(TRIM(manzana_numero)) = LOWER(TRIM(NEW.manzana_numero))
               AND LOWER(TRIM(solar_numero)) = LOWER(TRIM(NEW.solar_numero))
           )
         BEGIN
@@ -960,6 +981,7 @@ class DatabaseSchema {
             SELECT 1 FROM $lotsTable
             WHERE id <> NEW.id
               AND deleted_at IS NULL
+              AND LOWER(TRIM(manzana_numero)) = LOWER(TRIM(NEW.manzana_numero))
               AND LOWER(TRIM(solar_numero)) = LOWER(TRIM(NEW.solar_numero))
           )
         BEGIN

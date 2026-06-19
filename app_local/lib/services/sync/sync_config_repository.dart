@@ -43,7 +43,15 @@ class SyncConfigRepository {
       'sync.local_upload_bootstrap_completed_at';
   static const syncLocalUploadBootstrapBackendUrlKey =
       'sync.local_upload_bootstrap_backend_url';
-  static const syncLocalUploadBootstrapVersionKey =
+  static const syncLocalUploadBootstrapAppBuildKey =
+      'sync.local_upload_bootstrap_app_build';
+  static const syncLocalUploadBootstrapDatabaseNameKey =
+      'sync.local_upload_bootstrap_database_name';
+  static const syncLocalUploadBootstrapDatabaseHostKey =
+      'sync.local_upload_bootstrap_database_host';
+  static const syncLocalUploadBootstrapCloudFingerprintKey =
+      'sync.local_upload_bootstrap_cloud_fingerprint';
+  static const _legacySyncLocalUploadBootstrapVersionKey =
       'sync.local_upload_bootstrap_version';
 
   static const _jwtTokenPreferenceKey = 'sync.jwt_token';
@@ -184,39 +192,129 @@ class SyncConfigRepository {
     }
   }
 
-  /// Verifica si la sincronización inicial ya se completó para la URL dada.
-  ///
-  /// Si la URL guardada es diferente a la URL actual, retorna false
-  /// para que se ejecute de nuevo contra la nueva URL.
-  Future<bool> isLocalUploadBootstrapCompleted({
+  /// Devuelve la decisión local de bootstrap para la URL y nube actuales.
+  Future<LocalUploadBootstrapDiagnostics> loadLocalUploadBootstrapDiagnostics({
     String? backendUrl,
+    CloudIdentity? cloudIdentity,
   }) async {
     final prefs = await _tryPreferences();
-    if (prefs == null) return false;
+    final completed =
+        prefs?.getBool(syncLocalUploadBootstrapCompletedKey) ?? false;
+    final savedUrl =
+        prefs?.getString(syncLocalUploadBootstrapBackendUrlKey) ?? '';
+    final savedDatabaseName =
+        prefs?.getString(syncLocalUploadBootstrapDatabaseNameKey) ?? '';
+    final savedDatabaseHost =
+        prefs?.getString(syncLocalUploadBootstrapDatabaseHostKey) ?? '';
+    final savedCloudFingerprint =
+        prefs?.getString(syncLocalUploadBootstrapCloudFingerprintKey) ?? '';
+    final normalizedSaved = normalizeBackendBaseUrl(savedUrl);
+    final normalizedCurrent = normalizeBackendBaseUrl(backendUrl ?? '');
+    final currentDatabaseName = cloudIdentity?.databaseName ?? '';
+    final currentDatabaseHost = cloudIdentity?.databaseHost ?? '';
+    final currentCloudFingerprint = cloudIdentity?.cloudFingerprint ?? '';
+    final currentCloudData = cloudIdentity?.cloudData;
+    final currentInitialUploadRequired =
+        cloudIdentity?.initialUploadRequired ?? false;
+    final reason = _resolveLocalUploadBootstrapReason(
+      completed: completed,
+      savedBackendUrl: normalizedSaved,
+      currentBackendUrl: normalizedCurrent,
+      savedDatabaseName: savedDatabaseName,
+      currentDatabaseName: currentDatabaseName,
+      savedCloudFingerprint: savedCloudFingerprint,
+      currentCloudFingerprint: currentCloudFingerprint,
+      currentCloudData: currentCloudData,
+      currentInitialUploadRequired: currentInitialUploadRequired,
+      requireCloudIdentity: cloudIdentity != null,
+    );
+    return LocalUploadBootstrapDiagnostics(
+      completedFlag: completed,
+      savedBackendUrl: normalizedSaved,
+      currentBackendUrl: normalizedCurrent,
+      savedDatabaseName: savedDatabaseName,
+      savedDatabaseHost: savedDatabaseHost,
+      savedCloudFingerprint: savedCloudFingerprint,
+      currentDatabaseName: currentDatabaseName,
+      currentDatabaseHost: currentDatabaseHost,
+      currentCloudFingerprint: currentCloudFingerprint,
+      currentCloudData: currentCloudData,
+      currentInitialUploadRequired: currentInitialUploadRequired,
+      shouldRun: reason != 'already_completed_same_cloud',
+      reason: reason,
+    );
+  }
 
-    final completed = prefs.getBool(syncLocalUploadBootstrapCompletedKey) ?? false;
-    if (!completed) return false;
-
-    // Si se proporciona una URL, verificar que coincida con la guardada
-    if (backendUrl != null && backendUrl.trim().isNotEmpty) {
-      final savedUrl = prefs.getString(syncLocalUploadBootstrapBackendUrlKey) ?? '';
-      final normalizedSaved = normalizeBackendBaseUrl(savedUrl);
-      final normalizedCurrent = normalizeBackendBaseUrl(backendUrl);
-      if (normalizedSaved != normalizedCurrent) {
-        debugPrint(
-          '[SyncConfig] initial upload completed for different URL: '
-          'saved="$normalizedSaved" current="$normalizedCurrent" -> will re-run',
-        );
-        return false;
-      }
+  Future<bool> isLocalUploadBootstrapCompleted({
+    String? backendUrl,
+    CloudIdentity? cloudIdentity,
+  }) async {
+    final diagnostics = await loadLocalUploadBootstrapDiagnostics(
+      backendUrl: backendUrl,
+      cloudIdentity: cloudIdentity,
+    );
+    if (diagnostics.reason == 'backend_url_changed') {
+      debugPrint(
+        '[SyncConfig] initial upload completed for different URL: '
+        'saved="${diagnostics.savedBackendUrl}" '
+        'current="${diagnostics.currentBackendUrl}" -> will re-run',
+      );
     }
+    return !diagnostics.shouldRun;
+  }
 
-    return true;
+  String _resolveLocalUploadBootstrapReason({
+    required bool completed,
+    required String savedBackendUrl,
+    required String currentBackendUrl,
+    required String savedDatabaseName,
+    required String currentDatabaseName,
+    required String savedCloudFingerprint,
+    required String currentCloudFingerprint,
+    required CloudData? currentCloudData,
+    required bool currentInitialUploadRequired,
+    required bool requireCloudIdentity,
+  }) {
+    if (!completed) {
+      return 'not_completed';
+    }
+    if (currentInitialUploadRequired) {
+      return 'backend_initial_upload_required';
+    }
+    if (currentCloudData?.isPrincipalDataEmpty == true) {
+      return 'backend_cloud_data_empty';
+    }
+    if (currentBackendUrl.isNotEmpty && savedBackendUrl != currentBackendUrl) {
+      return 'backend_url_changed';
+    }
+    if (savedDatabaseName.trim().isEmpty) {
+      return 'missing_saved_database_name';
+    }
+    if (savedCloudFingerprint.trim().isEmpty) {
+      return 'missing_saved_cloud_fingerprint';
+    }
+    if (!requireCloudIdentity) {
+      return 'already_completed_same_cloud';
+    }
+    if (currentDatabaseName.trim().isEmpty) {
+      return 'missing_current_database_name';
+    }
+    if (currentCloudFingerprint.trim().isEmpty) {
+      return 'missing_current_cloud_fingerprint';
+    }
+    if (savedDatabaseName != currentDatabaseName) {
+      return 'database_name_changed';
+    }
+    if (savedCloudFingerprint != currentCloudFingerprint) {
+      return 'cloud_fingerprint_changed';
+    }
+    return 'already_completed_same_cloud';
   }
 
   /// Marca la sincronización inicial como completada, guardando metadatos.
   Future<void> markLocalUploadBootstrapCompleted({
     String? backendUrl,
+    CloudIdentity? cloudIdentity,
     String? version,
   }) async {
     final prefs = await _tryPreferences();
@@ -234,7 +332,21 @@ class SyncConfigRepository {
       );
     }
     if (version != null && version.trim().isNotEmpty) {
-      await prefs.setString(syncLocalUploadBootstrapVersionKey, version);
+      await prefs.setString(syncLocalUploadBootstrapAppBuildKey, version);
+    }
+    if (cloudIdentity != null) {
+      await prefs.setString(
+        syncLocalUploadBootstrapDatabaseNameKey,
+        cloudIdentity.databaseName,
+      );
+      await prefs.setString(
+        syncLocalUploadBootstrapDatabaseHostKey,
+        cloudIdentity.databaseHost,
+      );
+      await prefs.setString(
+        syncLocalUploadBootstrapCloudFingerprintKey,
+        cloudIdentity.cloudFingerprint,
+      );
     }
   }
 
@@ -246,7 +358,11 @@ class SyncConfigRepository {
     await prefs.remove(syncLocalUploadBootstrapCompletedKey);
     await prefs.remove(syncLocalUploadBootstrapCompletedAtKey);
     await prefs.remove(syncLocalUploadBootstrapBackendUrlKey);
-    await prefs.remove(syncLocalUploadBootstrapVersionKey);
+    await prefs.remove(syncLocalUploadBootstrapAppBuildKey);
+    await prefs.remove(_legacySyncLocalUploadBootstrapVersionKey);
+    await prefs.remove(syncLocalUploadBootstrapDatabaseNameKey);
+    await prefs.remove(syncLocalUploadBootstrapDatabaseHostKey);
+    await prefs.remove(syncLocalUploadBootstrapCloudFingerprintKey);
   }
 
   Future<void> saveLastRun({
@@ -402,7 +518,7 @@ class SyncConfigRepository {
       await prefs.remove(syncDeviceCanWriteKey);
       await prefs.remove(syncDeviceLastValidatedAtKey);
       await prefs.remove(syncDeviceReasonKey);
-      await prefs.remove(syncLocalUploadBootstrapCompletedKey);
+      await resetLocalUploadBootstrapCompleted();
     }
 
     await _settingsRepository.saveMultiple({
@@ -428,6 +544,92 @@ class SyncConfigRepository {
     }
     await clearSyncRuntimeState();
     return generated;
+  }
+}
+
+class LocalUploadBootstrapDiagnostics {
+  const LocalUploadBootstrapDiagnostics({
+    required this.completedFlag,
+    required this.savedBackendUrl,
+    required this.currentBackendUrl,
+    required this.savedDatabaseName,
+    required this.savedDatabaseHost,
+    required this.savedCloudFingerprint,
+    required this.currentDatabaseName,
+    required this.currentDatabaseHost,
+    required this.currentCloudFingerprint,
+    required this.currentCloudData,
+    required this.currentInitialUploadRequired,
+    required this.shouldRun,
+    required this.reason,
+  });
+
+  final bool completedFlag;
+  final String savedBackendUrl;
+  final String currentBackendUrl;
+  final String savedDatabaseName;
+  final String savedDatabaseHost;
+  final String savedCloudFingerprint;
+  final String currentDatabaseName;
+  final String currentDatabaseHost;
+  final String currentCloudFingerprint;
+  final CloudData? currentCloudData;
+  final bool currentInitialUploadRequired;
+  final bool shouldRun;
+  final String reason;
+}
+
+class CloudIdentity {
+  const CloudIdentity({
+    required this.databaseName,
+    required this.databaseHost,
+    required this.cloudFingerprint,
+    required this.cloudData,
+    required this.initialUploadRequired,
+  });
+
+  final String databaseName;
+  final String databaseHost;
+  final String cloudFingerprint;
+  final CloudData? cloudData;
+  final bool initialUploadRequired;
+
+  bool get isComplete =>
+      databaseName.trim().isNotEmpty && cloudFingerprint.trim().isNotEmpty;
+}
+
+class CloudData {
+  const CloudData({
+    required this.clients,
+    required this.sellers,
+    required this.lots,
+    required this.sales,
+    required this.installments,
+    required this.payments,
+    required this.syncBatches,
+  });
+
+  final int clients;
+  final int sellers;
+  final int lots;
+  final int sales;
+  final int installments;
+  final int payments;
+  final int syncBatches;
+
+  bool get isPrincipalDataEmpty =>
+      clients == 0 &&
+      sellers == 0 &&
+      lots == 0 &&
+      sales == 0 &&
+      installments == 0 &&
+      payments == 0 &&
+      syncBatches == 0;
+
+  @override
+  String toString() {
+    return 'clients=$clients sellers=$sellers lots=$lots sales=$sales '
+        'installments=$installments payments=$payments syncBatches=$syncBatches';
   }
 }
 

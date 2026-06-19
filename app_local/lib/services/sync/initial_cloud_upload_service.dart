@@ -1,11 +1,14 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:developer' as developer;
 import 'dart:io';
 
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:flutter/foundation.dart';
 
 import '../../core/database/app_database.dart';
 import '../../core/database/database_schema.dart';
+import '../../core/diagnostics/sync_diagnostics_logger.dart';
 import '../../core/network/backend_http_client.dart';
 import '../../models/sync/sync_settings.dart';
 import 'sync_api_client.dart';
@@ -40,7 +43,8 @@ class InitialCloudUploadService {
   final SyncConfigRepository _configRepository;
   final SyncApiClient _apiClient;
 
-  static const int _batchSize = 200;
+  static const int _batchSize = 100;
+  static const String _appBuild = '1.0.0+13';
   static const String _logPrefix = '[InitialCloudUpload]';
 
   /// Orden de subida respetando dependencias.
@@ -57,6 +61,7 @@ class InitialCloudUploadService {
     final line = '$_logPrefix $message';
     debugPrint(line);
     developer.log(line, name: 'SistemaSolares.InitialCloudUpload');
+    SyncDiagnosticsLogger.instance.logUnawaited(line);
   }
 
   /// Punto de entrada principal.
@@ -68,16 +73,37 @@ class InitialCloudUploadService {
   /// false si falló o ya estaba completada.
   Future<bool> run({required SyncSettings settings}) async {
     final backendUrl = settings.normalizedBaseUrl;
+    final cloudIdentity = await _fetchCloudIdentity(settings);
+    if (cloudIdentity == null || !cloudIdentity.isComplete) {
+      _log('cloud identity unavailable, keeping local mode');
+      _log('cloud identity unavailable, app continues local');
+      _log('pending retry');
+      return false;
+    }
 
-    // 1. Verificar si ya se completó (comparando backend URL)
-    final alreadyCompleted = await _configRepository
-        .isLocalUploadBootstrapCompleted(backendUrl: backendUrl);
-    if (alreadyCompleted) {
+    final diagnostics = await _configRepository
+        .loadLocalUploadBootstrapDiagnostics(
+          backendUrl: backendUrl,
+          cloudIdentity: cloudIdentity,
+        );
+    _log('completedFlag=${diagnostics.completedFlag}');
+    _log('savedBackendUrl=${diagnostics.savedBackendUrl}');
+    _log('currentBackendUrl=${diagnostics.currentBackendUrl}');
+    _log('savedDatabaseName=${diagnostics.savedDatabaseName}');
+    _log('currentDatabaseName=${diagnostics.currentDatabaseName}');
+    _log('savedCloudFingerprint=${diagnostics.savedCloudFingerprint}');
+    _log('currentCloudFingerprint=${diagnostics.currentCloudFingerprint}');
+    _log('cloudData=${diagnostics.currentCloudData}');
+    _log('initialUploadRequired=${diagnostics.currentInitialUploadRequired}');
+    _log('shouldRun=${diagnostics.shouldRun} reason=${diagnostics.reason}');
+
+    // 1. Verificar si ya se completó para esta URL y esta identidad de nube.
+    if (!diagnostics.shouldRun) {
       _log('already completed, skipping');
       return true;
     }
 
-    _log('starting');
+    _log('starting reason=${diagnostics.reason}');
 
     // 2. Verificar backend online
     if (!await _isBackendOnline(settings)) {
@@ -116,28 +142,148 @@ class InitialCloudUploadService {
         totalRejected += result.rejectedCount;
       }
     } on SocketException {
-      _log('network error -> pending retry');
+      _log('failed error=network error -> pending retry');
       return false;
     } on HttpException catch (error) {
-      _log('http error -> pending retry: $error');
+      _log('failed error=http error -> pending retry: $error');
       return false;
     } catch (error) {
-      _log('unexpected error -> pending retry: $error');
+      _log('failed error=unexpected error -> pending retry: $error');
       return false;
     }
 
     // 6. Si hay registros rechazados, no marcar completado
     if (totalRejected > 0) {
-      _log('total rejected=$totalRejected -> pending retry, will not mark completed');
+      _log(
+        'total rejected=$totalRejected -> pending retry, will not mark completed',
+      );
       return false;
     }
 
     // 7. Marcar como completado con metadatos
     await _configRepository.markLocalUploadBootstrapCompleted(
       backendUrl: backendUrl,
+      cloudIdentity: cloudIdentity,
+      version: _appBuild,
     );
-    _log('completed');
+    _log(
+      'completed databaseName=${cloudIdentity.databaseName} cloudFingerprint=${cloudIdentity.cloudFingerprint}',
+    );
     return true;
+  }
+
+  Future<CloudIdentity?> _fetchCloudIdentity(SyncSettings settings) async {
+    final baseUrl = settings.normalizedBaseUrl;
+    final httpClient = createBackendHttpClient(
+      connectionTimeout: const Duration(seconds: 8),
+      idleTimeout: const Duration(seconds: 10),
+    );
+
+    try {
+      final statusUri = Uri.parse('$baseUrl/system/status');
+      final request = await httpClient.getUrl(statusUri);
+      request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+      final response = await request.close();
+      final responseBody = await utf8.decoder.bind(response).join();
+      if (response.statusCode != 200) {
+        return null;
+      }
+      final decoded = jsonDecode(responseBody);
+      if (decoded is! Map) {
+        return null;
+      }
+      final databaseName = decoded['databaseName']?.toString().trim() ?? '';
+      final databaseHost = decoded['databaseHost']?.toString().trim() ?? '';
+      var cloudFingerprint =
+          decoded['cloudFingerprint']?.toString().trim() ?? '';
+      if (cloudFingerprint.isEmpty &&
+          databaseName.isNotEmpty &&
+          databaseHost.isNotEmpty) {
+        final tenantKey =
+            decoded['tenantKey']?.toString().trim().isNotEmpty == true
+            ? decoded['tenantKey'].toString().trim()
+            : await _fetchTenantKey(settings, httpClient);
+        cloudFingerprint = _buildCloudFingerprint(
+          databaseHost: databaseHost,
+          databaseName: databaseName,
+          tenantKey: tenantKey,
+        );
+        _log(
+          'cloud fingerprint fallback calculated databaseName=$databaseName databaseHost=$databaseHost tenantKey=$tenantKey',
+        );
+      }
+      return CloudIdentity(
+        databaseName: databaseName,
+        databaseHost: databaseHost,
+        cloudFingerprint: cloudFingerprint,
+        cloudData: _readCloudData(decoded['cloudData']),
+        initialUploadRequired: decoded['initialUploadRequired'] == true,
+      );
+    } catch (_) {
+      return null;
+    } finally {
+      httpClient.close(force: true);
+    }
+  }
+
+  CloudData? _readCloudData(Object? value) {
+    if (value is! Map) {
+      return null;
+    }
+    return CloudData(
+      clients: _readInt(value['clients']),
+      sellers: _readInt(value['sellers']),
+      lots: _readInt(value['lots']),
+      sales: _readInt(value['sales']),
+      installments: _readInt(value['installments']),
+      payments: _readInt(value['payments']),
+      syncBatches: _readInt(value['syncBatches']),
+    );
+  }
+
+  int _readInt(Object? value) {
+    if (value is int) {
+      return value;
+    }
+    if (value is num) {
+      return value.toInt();
+    }
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  Future<String> _fetchTenantKey(
+    SyncSettings settings,
+    HttpClient httpClient,
+  ) async {
+    try {
+      final configUri = Uri.parse(
+        '${settings.normalizedBaseUrl}/system/config',
+      );
+      final request = await httpClient.getUrl(configUri);
+      request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+      final response = await request.close();
+      if (response.statusCode != 200) {
+        return '';
+      }
+      final responseBody = await utf8.decoder.bind(response).join();
+      final decoded = jsonDecode(responseBody);
+      if (decoded is! Map) {
+        return '';
+      }
+      return decoded['tenantKey']?.toString().trim() ?? '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  String _buildCloudFingerprint({
+    required String databaseHost,
+    required String databaseName,
+    required String tenantKey,
+  }) {
+    return crypto.sha256
+        .convert(utf8.encode('$databaseHost:$databaseName:$tenantKey'))
+        .toString();
   }
 
   /// Verifica que el backend esté online usando /system/status
@@ -313,11 +459,11 @@ class InitialCloudUploadService {
           : i + _batchSize;
       final batch = records.sublist(i, end);
 
-      _log('uploading scope=$scope count=${batch.length} batch=${i ~/ _batchSize + 1}/${(records.length / _batchSize).ceil()}');
+      _log(
+        'uploading scope=$scope batch=${i ~/ _batchSize + 1}/${(records.length / _batchSize).ceil()} count=${batch.length}',
+      );
 
-      final recordsByScope = <String, List<Map<String, Object?>>>{
-        scope: batch,
-      };
+      final recordsByScope = <String, List<Map<String, Object?>>>{scope: batch};
 
       try {
         final response = await _apiClient.uploadQueuedRecords(
@@ -330,12 +476,23 @@ class InitialCloudUploadService {
         final rejected = batch.length - applied;
         totalRejected += rejected;
 
-        _log('upload success scope=$scope applied=$applied rejected=$rejected');
+        _log(
+          'response scope=$scope status=success applied=$applied rejected=$rejected',
+        );
+        if (rejected > 0) {
+          _log(
+            'rejected scope=$scope details=expected=${batch.length} applied=$applied',
+          );
+        }
       } on HttpException catch (error) {
-        _log('upload failed scope=$scope batch=${i ~/ _batchSize + 1}: $error');
+        _log(
+          'failed error=upload failed scope=$scope batch=${i ~/ _batchSize + 1}: $error',
+        );
         return (success: false, rejectedCount: totalRejected);
       } on SocketException {
-        _log('upload network error scope=$scope batch=${i ~/ _batchSize + 1}');
+        _log(
+          'failed error=upload network error scope=$scope batch=${i ~/ _batchSize + 1}',
+        );
         return (success: false, rejectedCount: totalRejected);
       }
     }

@@ -20,18 +20,18 @@ if (-not $Build -and -not $CompileInstaller) {
   return
 }
 
-$args = @()
+$forwardArgs = @()
 if ($Version) {
-  $args += @('-Version', $Version)
+  $forwardArgs += @('-Version', $Version)
 }
 if ($SkipAnalyze) {
-  $args += '-SkipAnalyze'
+  $forwardArgs += '-SkipAnalyze'
 }
 if ($PerUserInstaller) {
-  $args += '-PerUserInstaller'
+  $forwardArgs += '-PerUserInstaller'
 }
 if (-not $Build) {
-  $args += '-SkipFlutterBuild'
+  $forwardArgs += '-SkipFlutterBuild'
 }
 
-& $scriptPath @args
+& $scriptPath @forwardArgs

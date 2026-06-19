@@ -45,9 +45,12 @@ class AppPaths {
 
     return path.join(backupsDirectory, 'local');
   }
+
   String get configDirectory => path.join(supportDirectory, 'config');
   String get logsDirectory => path.join(supportDirectory, 'logs');
   String get syncLogPath => path.join(logsDirectory, 'sync.log');
+  String get syncDiagnosticsLogPath =>
+      path.join(logsDirectory, 'sync_diagnostics.log');
   String get incidentsDirectory => path.join(logsDirectory, 'incidents');
   String get generatedDirectory => path.join(supportDirectory, 'generated');
   String get mediaDirectory => path.join(supportDirectory, 'media');
@@ -56,19 +59,14 @@ class AppPaths {
   String get recoveryDirectory => path.join(supportDirectory, 'recovery');
   String get quarantineDirectory => path.join(recoveryDirectory, 'quarantine');
   String get snapshotsDirectory => path.join(recoveryDirectory, 'snapshots');
-  String get backupConfigPath => path.join(configDirectory, 'backup_config.json');
-  String get backupHistoryPath => path.join(
-    configDirectory,
-    'backup_history.json',
-  );
-  String get legacyBackupConfigPath => path.join(
-    legacySupportDirectory,
-    'backup_config.json',
-  );
-  String get legacyBackupHistoryPath => path.join(
-    legacySupportDirectory,
-    'backup_history.json',
-  );
+  String get backupConfigPath =>
+      path.join(configDirectory, 'backup_config.json');
+  String get backupHistoryPath =>
+      path.join(configDirectory, 'backup_history.json');
+  String get legacyBackupConfigPath =>
+      path.join(legacySupportDirectory, 'backup_config.json');
+  String get legacyBackupHistoryPath =>
+      path.join(legacySupportDirectory, 'backup_history.json');
 
   String get defaultBackupDirectory {
     final userProfile = Platform.environment['USERPROFILE'];

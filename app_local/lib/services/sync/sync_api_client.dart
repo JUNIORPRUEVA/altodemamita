@@ -3,6 +3,7 @@ import 'dart:developer' as developer;
 import 'dart:io';
 
 import '../../core/config/backend_config.dart';
+import '../../core/diagnostics/sync_diagnostics_logger.dart';
 import '../../core/network/backend_http_client.dart';
 import '../../core/system/system_config_service.dart';
 import '../../models/sync/sync_conflict_strategy.dart';
@@ -131,6 +132,7 @@ class SyncApiClient {
 
   void _log(String message) {
     developer.log(message, name: 'SistemaSolares.SyncApi');
+    SyncDiagnosticsLogger.instance.logUnawaited(message);
     // ignore: avoid_print
     print(message);
   }

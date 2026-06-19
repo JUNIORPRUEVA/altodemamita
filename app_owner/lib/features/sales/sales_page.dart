@@ -14,6 +14,8 @@ class SalesPage extends StatefulWidget {
     this.filterTriggerNotifier,
     this.allInstallments = const [],
     this.allPayments = const [],
+    this.allClients = const [],
+    this.allSellers = const [],
   });
 
   final List<Map<String, dynamic>> items;
@@ -21,6 +23,8 @@ class SalesPage extends StatefulWidget {
   final ValueNotifier<int>? filterTriggerNotifier;
   final List<Map<String, dynamic>> allInstallments;
   final List<Map<String, dynamic>> allPayments;
+  final List<Map<String, dynamic>> allClients;
+  final List<Map<String, dynamic>> allSellers;
 
   @override
   State<SalesPage> createState() => _SalesPageState();
@@ -349,6 +353,8 @@ class _SalesPageState extends State<SalesPage> {
           sale: sale,
           allInstallments: widget.allInstallments,
           allPayments: widget.allPayments,
+          allClients: widget.allClients,
+          allSellers: widget.allSellers,
         ),
       ),
     );
@@ -558,13 +564,8 @@ class _SaleCard extends StatelessWidget {
     final status = sale['status']?.toString();
     final statusColor = _statusColor(status);
     final client = text(sale['client'], 'Cliente');
-    final lot = text(sale['lot'], '-');
-    final balance = money(sale['balance']);
     final total = money(sale['total']);
-    final date = dateText(sale['saleDate']);
-    final cedula = text(sale['cedula'], '');
-    final phone = text(sale['clientPhone'], '');
-    final seller = text(sale['seller'], '');
+    final balance = money(sale['balance']);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
@@ -594,120 +595,66 @@ class _SaleCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 12),
-                // Content
+                // Content — solo 3 líneas: cliente, estado, total
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Client name + status badge
+                      // Línea 1: Nombre del cliente
+                      Text(
+                        client,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textPrimary,
+                          height: 1.2,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      // Línea 2: Estado + total
                       Row(
                         children: [
-                          Expanded(
-                            child: Text(
-                              client,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.textPrimary,
-                                height: 1.2,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 6),
                           _SaleStatusChip(
                             label: _statusLabel(status),
                             color: statusColor,
                           ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      // Client document + phone
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.badge_outlined,
-                            size: 12,
-                            color: AppColors.textMuted,
+                          const SizedBox(width: 8),
+                          Text(
+                            total,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.textPrimary,
+                            ),
                           ),
-                          const SizedBox(width: 3),
-                          Expanded(
-                            child: Text(
-                              cedula.isEmpty ? 'Documento no indicado' : cedula,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: AppColors.textSecondary,
+                          if (balance.isNotEmpty) ...[
+                            const Spacer(),
+                            Text(
+                              'Pendiente: $balance',
+                              style: TextStyle(
+                                fontSize: 11,
                                 fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                          if (phone.isNotEmpty) ...[
-                            const SizedBox(width: 10),
-                            Icon(
-                              Icons.phone_outlined,
-                              size: 12,
-                              color: AppColors.textMuted,
-                            ),
-                            const SizedBox(width: 3),
-                            Flexible(
-                              child: Text(
-                                phone,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  color: AppColors.textSecondary,
-                                  fontWeight: FontWeight.w500,
-                                ),
+                                color: statusColor,
                               ),
                             ),
                           ],
                         ],
                       ),
-                      const SizedBox(height: 7),
-                      // Lot + seller + date
-                      Row(
-                        children: [
-                          Flexible(
-                            child: _InfoPill(
-                              icon: Icons.location_on_outlined,
-                              label: lot,
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          if (seller.isNotEmpty) ...[
-                            Expanded(
-                              child: _InfoPill(
-                                icon: Icons.person_outline_rounded,
-                                label: seller,
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                          ],
-                          Flexible(
-                            child: _InfoPill(
-                              icon: Icons.calendar_today_outlined,
-                              label: date,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 9),
-                      // Balance row
-                      Row(
-                        children: [
-                          _AmountLabel(label: 'Total', value: total),
-                          const Spacer(),
-                          _AmountLabel(
-                            label: 'Pendiente',
-                            value: balance,
-                            color: statusColor,
-                          ),
-                        ],
+                      const SizedBox(height: 4),
+                      // Línea 3: Leyenda del estado (letra pequeña)
+                      Text(
+                        _statusLegend(status),
+                        style: const TextStyle(
+                          fontSize: 10.5,
+                          color: AppColors.textMuted,
+                          fontWeight: FontWeight.w400,
+                          height: 1.3,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ],
                   ),
@@ -781,81 +728,26 @@ class _SaleCard extends StatelessWidget {
       ),
     );
   }
-}
 
-class _InfoPill extends StatelessWidget {
-  const _InfoPill({required this.icon, required this.label});
-
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: AppColors.background,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.borderLight),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 12, color: AppColors.textMuted),
-          const SizedBox(width: 4),
-          Flexible(
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 11.5,
-                color: AppColors.textSecondary,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _AmountLabel extends StatelessWidget {
-  const _AmountLabel({
-    required this.label,
-    required this.value,
-    this.color = AppColors.textPrimary,
-  });
-
-  final String label;
-  final String value;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 10.5,
-            color: AppColors.textMuted,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w800,
-            color: color,
-          ),
-        ),
-      ],
-    );
+  String _statusLegend(String? status) {
+    switch (status?.toLowerCase()) {
+      case 'activa':
+      case 'active':
+        return 'Al día — al corriente con sus pagos';
+      case 'pagada':
+      case 'paid':
+      case 'pagado':
+        return 'Totalmente liquidada — sin deuda pendiente';
+      case 'pendiente':
+      case 'pending':
+        return 'Con cuotas pendientes por pagar';
+      case 'vencida':
+      case 'overdue':
+      case 'vencido':
+        return 'Una o más cuotas están vencidas';
+      default:
+        return 'Estado sin definir';
+    }
   }
 }
 
