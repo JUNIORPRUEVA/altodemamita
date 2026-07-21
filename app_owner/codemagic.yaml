@@ -1,0 +1,52 @@
+workflows:
+  app-owner-ios:
+    name: App Owner iOS TestFlight
+    max_build_duration: 120
+    instance_type: mac_mini_m2
+    integrations:
+      app_store_connect: CodemagicKey
+    environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.sistemasolares.sistema-solares-owner
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      vars:
+        OWNER_API_BASE_URL: https://altodemanita-backend.onqyr1.easypanel.host
+        BUNDLE_ID: com.sistemasolares.sistema-solares-owner
+        XCODE_WORKSPACE: ios/Runner.xcworkspace
+        XCODE_SCHEME: Runner
+    scripts:
+      - name: Prepare Flutter project
+        script: |
+          flutter clean
+          flutter pub get
+      - name: Install iOS pods
+        script: |
+          cd ios
+          pod install
+      - name: Set up iOS code signing
+        script: |
+          xcode-project use-profiles --project ios/Runner.xcodeproj
+      - name: Analyze
+        script: |
+          flutter analyze
+      - name: Build signed iOS IPA
+        script: |
+          flutter build ipa --release \
+            -t lib/main.dart \
+            --export-options-plist=/Users/builder/export_options.plist \
+            --dart-define=OWNER_API_BASE_URL="$OWNER_API_BASE_URL"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+
+    # Publishing is intentionally not enabled here to avoid automatic upload.
+    # After App Store Connect is configured and you are ready to upload,
+    # enable this block:
+    #
+    # publishing:
+    #   app_store_connect:
+    #     auth: integration
+    #     submit_to_testflight: false
