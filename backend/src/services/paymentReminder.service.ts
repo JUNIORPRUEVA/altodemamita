@@ -31,6 +31,7 @@ export class PaymentReminderService {
     timezone: config.paymentReminderTimezone,
   });
   private readonly whatsapp = new WhatsappService();
+  private readonly approvedTemplateCache = new Map<string, boolean>();
 
   async getSaleSummary(companyId: string, saleSyncId: string, calculationDate = new Date()) {
     const sale = await prisma.sale.findFirst({
@@ -135,6 +136,15 @@ export class PaymentReminderService {
         templateCapacity,
       });
       return { status: 'SKIPPED_TEMPLATE_CAPACITY', summary: result.summary };
+    }
+    if (!dryRun && !(await this.isTemplateApproved(templateName))) {
+      logEvent('notification_skipped_template_not_approved', {
+        companyId: input.companyId,
+        saleSyncId: input.saleSyncId,
+        templateName,
+        overdueInstallments: result.summary.cantidadCuotasVencidas,
+      });
+      return { status: 'SKIPPED_TEMPLATE_NOT_APPROVED', summary: result.summary };
     }
     const payload = buildTemplatePayload(result.summary, recipients, {
       clientName: result.client?.name ?? 'cliente',
@@ -460,6 +470,42 @@ export class PaymentReminderService {
         notificationId,
       })) as any,
     });
+  }
+
+  private async isTemplateApproved(templateName: string) {
+    const cached = this.approvedTemplateCache.get(templateName);
+    if (cached !== undefined) return cached;
+    if (!config.whatsappBusinessAccountId || !config.whatsappAccessToken) {
+      this.approvedTemplateCache.set(templateName, false);
+      return false;
+    }
+    try {
+      const response = await fetch(
+        `https://graph.facebook.com/v20.0/${config.whatsappBusinessAccountId}/message_templates?fields=name,status,language&limit=200`,
+        {
+          headers: {
+            Authorization: `Bearer ${config.whatsappAccessToken}`,
+          },
+        },
+      );
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        this.approvedTemplateCache.set(templateName, false);
+        return false;
+      }
+      for (const item of body?.data ?? []) {
+        if (item?.language === config.whatsappTemplateLanguage) {
+          this.approvedTemplateCache.set(
+            item.name,
+            ['APPROVED', 'ACTIVE'].includes(item.status),
+          );
+        }
+      }
+      return this.approvedTemplateCache.get(templateName) ?? false;
+    } catch {
+      this.approvedTemplateCache.set(templateName, false);
+      return false;
+    }
   }
 }
 
