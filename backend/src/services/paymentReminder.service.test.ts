@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  DETAILED1_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+  DETAILED2_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+  DETAILED4_PROJECT_PAYMENT_REMINDER_TEMPLATE,
   DETAILED5_PROJECT_PAYMENT_REMINDER_TEMPLATE,
   DETAILED3_PROJECT_PAYMENT_REMINDER_TEMPLATE,
   DETAILED_PROJECT_PAYMENT_REMINDER_TEMPLATE,
   PROJECT_PAYMENT_REMINDER_TEMPLATE,
   buildTemplatePayload,
+  resolveDetailedTemplateName,
 } from './paymentReminder.service';
 import { resolvePaymentReminderRecipients } from './paymentReminderRecipients.service';
 
@@ -306,5 +310,14 @@ describe('buildTemplatePayload', () => {
     for (const parameter of payload) {
       assert.doesNotMatch(parameter, /[\n\t]/);
     }
+  });
+
+  it('elige automaticamente la plantilla detallada segun la cantidad de cuotas', () => {
+    assert.equal(resolveDetailedTemplateName(DETAILED5_PROJECT_PAYMENT_REMINDER_TEMPLATE, 1), DETAILED1_PROJECT_PAYMENT_REMINDER_TEMPLATE);
+    assert.equal(resolveDetailedTemplateName(DETAILED5_PROJECT_PAYMENT_REMINDER_TEMPLATE, 2), DETAILED2_PROJECT_PAYMENT_REMINDER_TEMPLATE);
+    assert.equal(resolveDetailedTemplateName(DETAILED5_PROJECT_PAYMENT_REMINDER_TEMPLATE, 3), DETAILED3_PROJECT_PAYMENT_REMINDER_TEMPLATE);
+    assert.equal(resolveDetailedTemplateName(DETAILED5_PROJECT_PAYMENT_REMINDER_TEMPLATE, 4), DETAILED4_PROJECT_PAYMENT_REMINDER_TEMPLATE);
+    assert.equal(resolveDetailedTemplateName(DETAILED5_PROJECT_PAYMENT_REMINDER_TEMPLATE, 5), DETAILED5_PROJECT_PAYMENT_REMINDER_TEMPLATE);
+    assert.equal(resolveDetailedTemplateName(PROJECT_PAYMENT_REMINDER_TEMPLATE, 2), PROJECT_PAYMENT_REMINDER_TEMPLATE);
   });
 });

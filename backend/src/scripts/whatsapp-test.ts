@@ -1,6 +1,9 @@
 import { config } from '../config';
 import { normalizeTestNumbers } from '../services/paymentReminderRecipients.service';
 import {
+  DETAILED1_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+  DETAILED2_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+  DETAILED4_PROJECT_PAYMENT_REMINDER_TEMPLATE,
   DETAILED5_PROJECT_PAYMENT_REMINDER_TEMPLATE,
   DETAILED3_PROJECT_PAYMENT_REMINDER_TEMPLATE,
   DETAILED_PROJECT_PAYMENT_REMINDER_TEMPLATE,
@@ -32,6 +35,25 @@ const DETAILED5_PROJECT_TEST_PARAMETERS = [
   'Cuota mes de agosto 2026: RD$25,000.00 mas mora: RD$7,500.00',
   'RD$162,500.00',
 ];
+const DETAILED4_PROJECT_TEST_PARAMETERS = [
+  'Solar 28',
+  'Cuota mes de abril 2026: RD$25,000.00 mas mora: RD$7,500.00',
+  'Cuota mes de mayo 2026: RD$25,000.00 mas mora: RD$7,500.00',
+  'Cuota mes de junio 2026: RD$25,000.00 mas mora: RD$7,500.00',
+  'Cuota mes de julio 2026: RD$25,000.00 mas mora: RD$7,500.00',
+  'RD$130,000.00',
+];
+const DETAILED2_PROJECT_TEST_PARAMETERS = [
+  'Solar 28',
+  'Cuota mes de junio 2026: RD$25,000.00 mas mora: RD$7,500.00',
+  'Cuota mes de julio 2026: RD$25,000.00 mas mora: RD$7,500.00',
+  'RD$65,000.00',
+];
+const DETAILED1_PROJECT_TEST_PARAMETERS = [
+  'Solar 28',
+  'Cuota mes de julio 2026: RD$25,000.00 mas mora: RD$7,500.00',
+  'RD$32,500.00',
+];
 
 type TemplateRecord = {
   name: string;
@@ -52,8 +74,14 @@ async function main() {
   const service = new WhatsappService();
   const parameters = config.whatsappPaymentTestTemplate === DETAILED5_PROJECT_PAYMENT_REMINDER_TEMPLATE
     ? DETAILED5_PROJECT_TEST_PARAMETERS
+    : config.whatsappPaymentTestTemplate === DETAILED4_PROJECT_PAYMENT_REMINDER_TEMPLATE
+      ? DETAILED4_PROJECT_TEST_PARAMETERS
     : config.whatsappPaymentTestTemplate === DETAILED3_PROJECT_PAYMENT_REMINDER_TEMPLATE
       ? DETAILED3_PROJECT_TEST_PARAMETERS
+      : config.whatsappPaymentTestTemplate === DETAILED2_PROJECT_PAYMENT_REMINDER_TEMPLATE
+        ? DETAILED2_PROJECT_TEST_PARAMETERS
+        : config.whatsappPaymentTestTemplate === DETAILED1_PROJECT_PAYMENT_REMINDER_TEMPLATE
+          ? DETAILED1_PROJECT_TEST_PARAMETERS
       : config.whatsappPaymentTestTemplate === DETAILED_PROJECT_PAYMENT_REMINDER_TEMPLATE
       ? DETAILED_PROJECT_TEST_PARAMETERS
       : config.whatsappPaymentTestTemplate === PROJECT_PAYMENT_REMINDER_TEMPLATE

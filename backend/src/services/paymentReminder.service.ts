@@ -19,7 +19,10 @@ import { WhatsappService } from './whatsapp.service';
 const TERMINAL_SALE_STATUSES = new Set(['pagada', 'cancelada', 'anulada', 'cerrada', 'saldada']);
 export const PROJECT_PAYMENT_REMINDER_TEMPLATE = 'recordatorio_cuotas_vencidas_proyecto';
 export const DETAILED_PROJECT_PAYMENT_REMINDER_TEMPLATE = 'recordatorio_cuotas_vencidas_detalle';
+export const DETAILED1_PROJECT_PAYMENT_REMINDER_TEMPLATE = 'recordatorio_cuotas_vencidas_detalle1';
+export const DETAILED2_PROJECT_PAYMENT_REMINDER_TEMPLATE = 'recordatorio_cuotas_vencidas_detalle2';
 export const DETAILED3_PROJECT_PAYMENT_REMINDER_TEMPLATE = 'recordatorio_cuotas_vencidas_detalle3';
+export const DETAILED4_PROJECT_PAYMENT_REMINDER_TEMPLATE = 'recordatorio_cuotas_vencidas_detalle4';
 export const DETAILED5_PROJECT_PAYMENT_REMINDER_TEMPLATE = 'recordatorio_cuotas_vencidas_detalle5';
 
 export class PaymentReminderService {
@@ -118,9 +121,10 @@ export class PaymentReminderService {
       return { status: 'BLOCKED_CONFIGURATION', summary: result.summary, recipients };
     }
 
-    const templateName = recipients.mode === 'TEST'
+    const baseTemplateName = recipients.mode === 'TEST'
       ? config.whatsappPaymentTestTemplate
       : config.whatsappPaymentTemplate;
+    const templateName = resolveDetailedTemplateName(baseTemplateName, result.summary.cantidadCuotasVencidas);
     const templateCapacity = getTemplateInstallmentCapacity(templateName);
     if (templateCapacity && result.summary.cantidadCuotasVencidas > templateCapacity) {
       logEvent('notification_skipped_template_capacity_exceeded', {
@@ -481,10 +485,34 @@ export function buildTemplatePayload(
     ];
   }
 
+  if (templateName === DETAILED1_PROJECT_PAYMENT_REMINDER_TEMPLATE) {
+    return [
+      labels.lotLabel,
+      ...buildInstallmentDetailLines(summary, 1),
+      formatCurrency(summary.totalGeneral),
+    ];
+  }
+
+  if (templateName === DETAILED2_PROJECT_PAYMENT_REMINDER_TEMPLATE) {
+    return [
+      labels.lotLabel,
+      ...buildInstallmentDetailLines(summary, 2),
+      formatCurrency(summary.totalGeneral),
+    ];
+  }
+
   if (templateName === DETAILED3_PROJECT_PAYMENT_REMINDER_TEMPLATE) {
     return [
       labels.lotLabel,
       ...buildInstallmentDetailLines(summary, 3),
+      formatCurrency(summary.totalGeneral),
+    ];
+  }
+
+  if (templateName === DETAILED4_PROJECT_PAYMENT_REMINDER_TEMPLATE) {
+    return [
+      labels.lotLabel,
+      ...buildInstallmentDetailLines(summary, 4),
       formatCurrency(summary.totalGeneral),
     ];
   }
@@ -618,9 +646,28 @@ function notificationData(
 }
 
 function getTemplateInstallmentCapacity(templateName: string) {
+  if (templateName === DETAILED1_PROJECT_PAYMENT_REMINDER_TEMPLATE) return 1;
+  if (templateName === DETAILED2_PROJECT_PAYMENT_REMINDER_TEMPLATE) return 2;
   if (templateName === DETAILED3_PROJECT_PAYMENT_REMINDER_TEMPLATE) return 3;
+  if (templateName === DETAILED4_PROJECT_PAYMENT_REMINDER_TEMPLATE) return 4;
   if (templateName === DETAILED5_PROJECT_PAYMENT_REMINDER_TEMPLATE) return 5;
   return null;
+}
+
+export function resolveDetailedTemplateName(baseTemplateName: string, overdueInstallmentCount: number) {
+  const detailedTemplates = new Set([
+    DETAILED1_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+    DETAILED2_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+    DETAILED3_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+    DETAILED4_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+    DETAILED5_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+  ]);
+  if (!detailedTemplates.has(baseTemplateName)) return baseTemplateName;
+  if (overdueInstallmentCount <= 1) return DETAILED1_PROJECT_PAYMENT_REMINDER_TEMPLATE;
+  if (overdueInstallmentCount === 2) return DETAILED2_PROJECT_PAYMENT_REMINDER_TEMPLATE;
+  if (overdueInstallmentCount === 3) return DETAILED3_PROJECT_PAYMENT_REMINDER_TEMPLATE;
+  if (overdueInstallmentCount === 4) return DETAILED4_PROJECT_PAYMENT_REMINDER_TEMPLATE;
+  return DETAILED5_PROJECT_PAYMENT_REMINDER_TEMPLATE;
 }
 
 function parseTestNumbers() {
