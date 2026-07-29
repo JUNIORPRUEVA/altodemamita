@@ -38,6 +38,8 @@ model Company {
   sales        Sale[]
   installments Installment[]
   payments     Payment[]
+  paymentReminderNotifications PaymentReminderNotification[]
+  lateFeeSnapshots LateFeeSnapshot[]
   syncBatches  SyncBatch[]
 }
 
@@ -183,4 +185,81 @@ model SyncBatch {
   createdAt      DateTime @default(now())
 
   @@index([companyId, createdAt])
+}
+
+model PaymentReminderNotification {
+  id                            String   @id @default(uuid())
+  companyId                     String
+  company                       Company  @relation(fields: [companyId], references: [id])
+  clientSyncId                  String?
+  saleSyncId                    String
+  type                          String
+  period                        String?
+  lastOverdueInstallmentSyncId  String
+  overdueInstallmentCount       Int
+  pendingPrincipal              Decimal  @default(0) @db.Decimal(14, 2)
+  lateFeeTotal                  Decimal  @default(0) @db.Decimal(14, 2)
+  totalDue                      Decimal  @default(0) @db.Decimal(14, 2)
+  destinationPhone              String?
+  templateName                  String?
+  whatsappMessageId             String?
+  status                        String   @default("PENDING")
+  attempts                      Int      @default(0)
+  error                         String?
+  scheduledAt                   DateTime?
+  sentAt                        DateTime?
+  payload                       Json?
+  testMode                      Boolean  @default(false)
+  redirected                    Boolean  @default(false)
+  originalRecipientMasked       String?
+  createdAt                     DateTime @default(now())
+  updatedAt                     DateTime @updatedAt
+  deliveries                    PaymentReminderDelivery[]
+
+  @@unique([companyId, saleSyncId, type, lastOverdueInstallmentSyncId])
+  @@index([companyId, status, createdAt])
+  @@index([companyId, whatsappMessageId])
+}
+
+model PaymentReminderDelivery {
+  id                       String   @id @default(uuid())
+  notificationId           String
+  notification             PaymentReminderNotification @relation(fields: [notificationId], references: [id])
+  actualRecipient          String
+  originalRecipientMasked  String?
+  testMode                 Boolean  @default(false)
+  redirected               Boolean  @default(false)
+  whatsappMessageId        String?
+  status                   String   @default("PENDING")
+  attempts                 Int      @default(0)
+  error                    String?
+  sentAt                   DateTime?
+  deliveredAt              DateTime?
+  readAt                   DateTime?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  @@unique([notificationId, actualRecipient])
+  @@index([whatsappMessageId])
+  @@index([status, createdAt])
+}
+
+model LateFeeSnapshot {
+  id                  String   @id @default(uuid())
+  companyId           String
+  company             Company  @relation(fields: [companyId], references: [id])
+  clientSyncId        String?
+  saleSyncId          String
+  installmentSyncId   String
+  calculatedAt        DateTime
+  baseBalance         Decimal  @default(0) @db.Decimal(14, 2)
+  overdueDays         Int
+  dailyRate           Decimal  @default(0) @db.Decimal(8, 6)
+  calculatedLateFee   Decimal  @default(0) @db.Decimal(14, 2)
+  eventType           String
+  notificationId      String?
+  createdAt           DateTime @default(now())
+
+  @@index([companyId, saleSyncId, calculatedAt])
+  @@index([companyId, installmentSyncId])
 }

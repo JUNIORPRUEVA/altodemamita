@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import { authRouter } from './routes/auth.routes';
 import { ownerRouter } from './routes/owner.routes';
+import { paymentReminderRouter } from './routes/paymentReminder.routes';
 import { syncRouter } from './routes/sync.routes';
 import { systemRouter } from './routes/system.routes';
 
@@ -27,6 +28,8 @@ export function createApp() {
   app.use('/auth', authRouter);
   app.use('/api/owner', ownerRouter);
   app.use('/owner', ownerRouter);
+  app.use('/api/payment-reminders', paymentReminderRouter);
+  app.use('/payment-reminders', paymentReminderRouter);
   app.use('/api/sync', syncRouter);
   app.use('/sync', syncRouter);
   app.use('/api/pos-sync', syncRouter);

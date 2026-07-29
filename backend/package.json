@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",
+    "test": "tsx --test src/**/*.test.ts",
+    "whatsapp:test": "tsx src/scripts/whatsapp-test.ts",
+    "payment-reminder:test-real-data": "tsx src/scripts/payment-reminder-test-real-data.ts",
     "start": "node dist/server.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate deploy",

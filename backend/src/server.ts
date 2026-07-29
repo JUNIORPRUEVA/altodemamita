@@ -1,6 +1,7 @@
 import { bootstrapUsers } from './bootstrap';
 import { config, validateConfig } from './config';
 import { createApp } from './app';
+import { startPaymentReminderJob } from './jobs/paymentReminder.job';
 
 function getDatabaseName(): string {
   const databaseUrl = process.env.DATABASE_URL || '';
@@ -28,6 +29,7 @@ async function main() {
     console.log(`[Backend] databaseName=${databaseName}`);
     console.log(`[Backend] NODE_ENV=${process.env.NODE_ENV || 'development'}`);
   });
+  startPaymentReminderJob();
 }
 
 main().catch((error) => {
