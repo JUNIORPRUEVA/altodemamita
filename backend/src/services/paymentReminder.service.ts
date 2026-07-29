@@ -24,6 +24,16 @@ export const DETAILED2_PROJECT_PAYMENT_REMINDER_TEMPLATE = 'recordatorio_cuotas_
 export const DETAILED3_PROJECT_PAYMENT_REMINDER_TEMPLATE = 'recordatorio_cuotas_vencidas_detalle3';
 export const DETAILED4_PROJECT_PAYMENT_REMINDER_TEMPLATE = 'recordatorio_cuotas_vencidas_detalle4';
 export const DETAILED5_PROJECT_PAYMENT_REMINDER_TEMPLATE = 'recordatorio_cuotas_vencidas_detalle5';
+export const ELEGANT1_PROJECT_PAYMENT_REMINDER_TEMPLATE = 'recordatorio_cuotas_vencidas_elegante1';
+export const ELEGANT2_PROJECT_PAYMENT_REMINDER_TEMPLATE = 'recordatorio_cuotas_vencidas_elegante2';
+export const ELEGANT3_PROJECT_PAYMENT_REMINDER_TEMPLATE = 'recordatorio_cuotas_vencidas_elegante3';
+export const ELEGANT4_PROJECT_PAYMENT_REMINDER_TEMPLATE = 'recordatorio_cuotas_vencidas_elegante4';
+export const ELEGANT5_PROJECT_PAYMENT_REMINDER_TEMPLATE = 'recordatorio_cuotas_vencidas_elegante5';
+export const PROFESSIONAL1_PROJECT_PAYMENT_REMINDER_TEMPLATE = 'recordatorio_cuotas_vencidas_profesional1';
+export const PROFESSIONAL2_PROJECT_PAYMENT_REMINDER_TEMPLATE = 'recordatorio_cuotas_vencidas_profesional2';
+export const PROFESSIONAL3_PROJECT_PAYMENT_REMINDER_TEMPLATE = 'recordatorio_cuotas_vencidas_profesional3';
+export const PROFESSIONAL4_PROJECT_PAYMENT_REMINDER_TEMPLATE = 'recordatorio_cuotas_vencidas_profesional4';
+export const PROFESSIONAL5_PROJECT_PAYMENT_REMINDER_TEMPLATE = 'recordatorio_cuotas_vencidas_profesional5';
 
 export class PaymentReminderService {
   private readonly calculator = new LateFeeCalculationService({
@@ -531,6 +541,15 @@ export function buildTemplatePayload(
     ];
   }
 
+  if (isSeparatedInstallmentTemplate(templateName)) {
+    const capacity = getTemplateInstallmentCapacity(templateName) ?? summary.cuotas.length;
+    return [
+      labels.lotLabel,
+      ...buildElegantInstallmentParameters(summary, capacity),
+      formatCurrency(summary.totalGeneral),
+    ];
+  }
+
   if (templateName === DETAILED1_PROJECT_PAYMENT_REMINDER_TEMPLATE) {
     return [
       labels.lotLabel,
@@ -646,12 +665,24 @@ export function buildInstallmentDetailLines(summary: LateFeeSummary, maxLines: n
   return lines;
 }
 
-function formatInstallmentMonth(dateKey: string) {
+export function buildElegantInstallmentParameters(summary: LateFeeSummary, maxLines: number) {
+  return summary.cuotas
+    .slice(0, maxLines)
+    .flatMap((cuota) => [
+      formatInstallmentMonth(cuota.fechaVencimiento, true),
+      formatCurrency(cuota.saldoPendiente),
+      formatCurrency(cuota.mora),
+    ]);
+}
+
+function formatInstallmentMonth(dateKey: string, capitalize = false) {
   const date = new Date(`${dateKey}T00:00:00-04:00`);
-  return new Intl.DateTimeFormat('es-DO', {
+  const month = new Intl.DateTimeFormat('es-DO', {
     month: 'long',
     timeZone: 'America/Santo_Domingo',
-  }).format(date) + ` ${date.getFullYear()}`;
+  }).format(date);
+  const displayMonth = capitalize ? `${month.charAt(0).toUpperCase()}${month.slice(1)}` : month;
+  return `${displayMonth} ${date.getFullYear()}`;
 }
 
 function notificationData(
@@ -692,6 +723,16 @@ function notificationData(
 }
 
 function getTemplateInstallmentCapacity(templateName: string) {
+  if (templateName === ELEGANT1_PROJECT_PAYMENT_REMINDER_TEMPLATE) return 1;
+  if (templateName === ELEGANT2_PROJECT_PAYMENT_REMINDER_TEMPLATE) return 2;
+  if (templateName === ELEGANT3_PROJECT_PAYMENT_REMINDER_TEMPLATE) return 3;
+  if (templateName === ELEGANT4_PROJECT_PAYMENT_REMINDER_TEMPLATE) return 4;
+  if (templateName === ELEGANT5_PROJECT_PAYMENT_REMINDER_TEMPLATE) return 5;
+  if (templateName === PROFESSIONAL1_PROJECT_PAYMENT_REMINDER_TEMPLATE) return 1;
+  if (templateName === PROFESSIONAL2_PROJECT_PAYMENT_REMINDER_TEMPLATE) return 2;
+  if (templateName === PROFESSIONAL3_PROJECT_PAYMENT_REMINDER_TEMPLATE) return 3;
+  if (templateName === PROFESSIONAL4_PROJECT_PAYMENT_REMINDER_TEMPLATE) return 4;
+  if (templateName === PROFESSIONAL5_PROJECT_PAYMENT_REMINDER_TEMPLATE) return 5;
   if (templateName === DETAILED1_PROJECT_PAYMENT_REMINDER_TEMPLATE) return 1;
   if (templateName === DETAILED2_PROJECT_PAYMENT_REMINDER_TEMPLATE) return 2;
   if (templateName === DETAILED3_PROJECT_PAYMENT_REMINDER_TEMPLATE) return 3;
@@ -702,6 +743,16 @@ function getTemplateInstallmentCapacity(templateName: string) {
 
 export function resolveDetailedTemplateName(baseTemplateName: string, overdueInstallmentCount: number) {
   const detailedTemplates = new Set([
+    ELEGANT1_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+    ELEGANT2_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+    ELEGANT3_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+    ELEGANT4_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+    ELEGANT5_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+    PROFESSIONAL1_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+    PROFESSIONAL2_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+    PROFESSIONAL3_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+    PROFESSIONAL4_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+    PROFESSIONAL5_PROJECT_PAYMENT_REMINDER_TEMPLATE,
     DETAILED1_PROJECT_PAYMENT_REMINDER_TEMPLATE,
     DETAILED2_PROJECT_PAYMENT_REMINDER_TEMPLATE,
     DETAILED3_PROJECT_PAYMENT_REMINDER_TEMPLATE,
@@ -709,11 +760,49 @@ export function resolveDetailedTemplateName(baseTemplateName: string, overdueIns
     DETAILED5_PROJECT_PAYMENT_REMINDER_TEMPLATE,
   ]);
   if (!detailedTemplates.has(baseTemplateName)) return baseTemplateName;
+  if (isProfessionalTemplate(baseTemplateName)) {
+    if (overdueInstallmentCount <= 1) return PROFESSIONAL1_PROJECT_PAYMENT_REMINDER_TEMPLATE;
+    if (overdueInstallmentCount === 2) return PROFESSIONAL2_PROJECT_PAYMENT_REMINDER_TEMPLATE;
+    if (overdueInstallmentCount === 3) return PROFESSIONAL3_PROJECT_PAYMENT_REMINDER_TEMPLATE;
+    if (overdueInstallmentCount === 4) return PROFESSIONAL4_PROJECT_PAYMENT_REMINDER_TEMPLATE;
+    return PROFESSIONAL5_PROJECT_PAYMENT_REMINDER_TEMPLATE;
+  }
+  if (isElegantTemplate(baseTemplateName)) {
+    if (overdueInstallmentCount <= 1) return ELEGANT1_PROJECT_PAYMENT_REMINDER_TEMPLATE;
+    if (overdueInstallmentCount === 2) return ELEGANT2_PROJECT_PAYMENT_REMINDER_TEMPLATE;
+    if (overdueInstallmentCount === 3) return ELEGANT3_PROJECT_PAYMENT_REMINDER_TEMPLATE;
+    if (overdueInstallmentCount === 4) return ELEGANT4_PROJECT_PAYMENT_REMINDER_TEMPLATE;
+    return ELEGANT5_PROJECT_PAYMENT_REMINDER_TEMPLATE;
+  }
   if (overdueInstallmentCount <= 1) return DETAILED1_PROJECT_PAYMENT_REMINDER_TEMPLATE;
   if (overdueInstallmentCount === 2) return DETAILED2_PROJECT_PAYMENT_REMINDER_TEMPLATE;
   if (overdueInstallmentCount === 3) return DETAILED3_PROJECT_PAYMENT_REMINDER_TEMPLATE;
   if (overdueInstallmentCount === 4) return DETAILED4_PROJECT_PAYMENT_REMINDER_TEMPLATE;
   return DETAILED5_PROJECT_PAYMENT_REMINDER_TEMPLATE;
+}
+
+function isSeparatedInstallmentTemplate(templateName: string) {
+  return isElegantTemplate(templateName) || isProfessionalTemplate(templateName);
+}
+
+function isProfessionalTemplate(templateName: string) {
+  return [
+    PROFESSIONAL1_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+    PROFESSIONAL2_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+    PROFESSIONAL3_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+    PROFESSIONAL4_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+    PROFESSIONAL5_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+  ].includes(templateName);
+}
+
+function isElegantTemplate(templateName: string) {
+  return [
+    ELEGANT1_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+    ELEGANT2_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+    ELEGANT3_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+    ELEGANT4_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+    ELEGANT5_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+  ].includes(templateName);
 }
 
 function parseTestNumbers() {

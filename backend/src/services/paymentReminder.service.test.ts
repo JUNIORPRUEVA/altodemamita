@@ -7,6 +7,16 @@ import {
   DETAILED5_PROJECT_PAYMENT_REMINDER_TEMPLATE,
   DETAILED3_PROJECT_PAYMENT_REMINDER_TEMPLATE,
   DETAILED_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+  ELEGANT1_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+  ELEGANT2_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+  ELEGANT3_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+  ELEGANT4_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+  ELEGANT5_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+  PROFESSIONAL1_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+  PROFESSIONAL2_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+  PROFESSIONAL3_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+  PROFESSIONAL4_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+  PROFESSIONAL5_PROJECT_PAYMENT_REMINDER_TEMPLATE,
   PROJECT_PAYMENT_REMINDER_TEMPLATE,
   buildTemplatePayload,
   resolveDetailedTemplateName,
@@ -319,5 +329,109 @@ describe('buildTemplatePayload', () => {
     assert.equal(resolveDetailedTemplateName(DETAILED5_PROJECT_PAYMENT_REMINDER_TEMPLATE, 4), DETAILED4_PROJECT_PAYMENT_REMINDER_TEMPLATE);
     assert.equal(resolveDetailedTemplateName(DETAILED5_PROJECT_PAYMENT_REMINDER_TEMPLATE, 5), DETAILED5_PROJECT_PAYMENT_REMINDER_TEMPLATE);
     assert.equal(resolveDetailedTemplateName(PROJECT_PAYMENT_REMINDER_TEMPLATE, 2), PROJECT_PAYMENT_REMINDER_TEMPLATE);
+  });
+
+  it('para la plantilla profesional separa mes, cuota y mora sin faltas ortograficas', () => {
+    const recipients = resolvePaymentReminderRecipients({
+      customerPhone: '8095551234',
+      testMode: false,
+      allowRealRecipients: true,
+      testNumbers: [],
+    });
+    const payload = buildTemplatePayload(
+      {
+        companyId: 'company-1',
+        clienteId: 'client-1',
+        clienteSyncId: 'client-sync-1',
+        ventaId: 'sale-1',
+        ventaSyncId: 'V-000145',
+        fechaCalculo: '2026-08-01',
+        cantidadCuotasVencidas: 3,
+        capitalPendiente: '25245.42',
+        moraTotal: '5133.23',
+        totalGeneral: '30378.65',
+        ultimaCuotaVencidaSyncId: 'cuota-3',
+        periodoNotificacion: '2026-07',
+        cuotas: [
+          {
+            cuotaId: 'cuota-1',
+            cuotaSyncId: 'cuota-1',
+            numeroCuota: 1,
+            fechaVencimiento: '2026-05-27',
+            montoOriginal: '8415.14',
+            montoPagado: '0.00',
+            saldoPendiente: '8415.14',
+            diasAtraso: 30,
+            tasaDiaria: '0.01',
+            mora: '2524.54',
+            totalActualizado: '10939.68',
+          },
+          {
+            cuotaId: 'cuota-2',
+            cuotaSyncId: 'cuota-2',
+            numeroCuota: 2,
+            fechaVencimiento: '2026-06-27',
+            montoOriginal: '8415.14',
+            montoPagado: '0.00',
+            saldoPendiente: '8415.14',
+            diasAtraso: 30,
+            tasaDiaria: '0.01',
+            mora: '2524.54',
+            totalActualizado: '10939.68',
+          },
+          {
+            cuotaId: 'cuota-3',
+            cuotaSyncId: 'cuota-3',
+            numeroCuota: 3,
+            fechaVencimiento: '2026-07-27',
+            montoOriginal: '8415.14',
+            montoPagado: '0.00',
+            saldoPendiente: '8415.14',
+            diasAtraso: 1,
+            tasaDiaria: '0.01',
+            mora: '84.15',
+            totalActualizado: '8499.29',
+          },
+        ],
+      },
+      recipients,
+      {
+        clientName: 'Juan Perez',
+        originalPhone: '8095551234',
+        lotLabel: 'MM-H-S88',
+        saleLabel: 'V-000145',
+      },
+      PROFESSIONAL3_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+    );
+
+    assert.deepEqual(payload, [
+      'MM-H-S88',
+      'Mayo 2026',
+      'RD$8,415.14',
+      'RD$2,524.54',
+      'Junio 2026',
+      'RD$8,415.14',
+      'RD$2,524.54',
+      'Julio 2026',
+      'RD$8,415.14',
+      'RD$84.15',
+      'RD$30,378.65',
+    ]);
+  });
+
+  it('elige automaticamente la plantilla elegante segun la cantidad de cuotas', () => {
+    assert.equal(resolveDetailedTemplateName(ELEGANT5_PROJECT_PAYMENT_REMINDER_TEMPLATE, 1), ELEGANT1_PROJECT_PAYMENT_REMINDER_TEMPLATE);
+    assert.equal(resolveDetailedTemplateName(ELEGANT5_PROJECT_PAYMENT_REMINDER_TEMPLATE, 2), ELEGANT2_PROJECT_PAYMENT_REMINDER_TEMPLATE);
+    assert.equal(resolveDetailedTemplateName(ELEGANT5_PROJECT_PAYMENT_REMINDER_TEMPLATE, 3), ELEGANT3_PROJECT_PAYMENT_REMINDER_TEMPLATE);
+    assert.equal(resolveDetailedTemplateName(ELEGANT5_PROJECT_PAYMENT_REMINDER_TEMPLATE, 4), ELEGANT4_PROJECT_PAYMENT_REMINDER_TEMPLATE);
+    assert.equal(resolveDetailedTemplateName(ELEGANT5_PROJECT_PAYMENT_REMINDER_TEMPLATE, 5), ELEGANT5_PROJECT_PAYMENT_REMINDER_TEMPLATE);
+  });
+
+  it('elige automaticamente la plantilla profesional segun la cantidad de cuotas', () => {
+    assert.equal(resolveDetailedTemplateName(PROFESSIONAL5_PROJECT_PAYMENT_REMINDER_TEMPLATE, 1), PROFESSIONAL1_PROJECT_PAYMENT_REMINDER_TEMPLATE);
+    assert.equal(resolveDetailedTemplateName(PROFESSIONAL5_PROJECT_PAYMENT_REMINDER_TEMPLATE, 2), PROFESSIONAL2_PROJECT_PAYMENT_REMINDER_TEMPLATE);
+    assert.equal(resolveDetailedTemplateName(PROFESSIONAL5_PROJECT_PAYMENT_REMINDER_TEMPLATE, 3), PROFESSIONAL3_PROJECT_PAYMENT_REMINDER_TEMPLATE);
+    assert.equal(resolveDetailedTemplateName(PROFESSIONAL5_PROJECT_PAYMENT_REMINDER_TEMPLATE, 4), PROFESSIONAL4_PROJECT_PAYMENT_REMINDER_TEMPLATE);
+    assert.equal(resolveDetailedTemplateName(PROFESSIONAL5_PROJECT_PAYMENT_REMINDER_TEMPLATE, 5), PROFESSIONAL5_PROJECT_PAYMENT_REMINDER_TEMPLATE);
   });
 });

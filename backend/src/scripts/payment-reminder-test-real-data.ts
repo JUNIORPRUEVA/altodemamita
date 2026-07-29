@@ -13,14 +13,28 @@ import {
   DETAILED5_PROJECT_PAYMENT_REMINDER_TEMPLATE,
   DETAILED3_PROJECT_PAYMENT_REMINDER_TEMPLATE,
   DETAILED_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+  ELEGANT1_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+  ELEGANT2_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+  ELEGANT3_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+  ELEGANT4_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+  ELEGANT5_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+  PROFESSIONAL1_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+  PROFESSIONAL2_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+  PROFESSIONAL3_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+  PROFESSIONAL4_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+  PROFESSIONAL5_PROJECT_PAYMENT_REMINDER_TEMPLATE,
   PROJECT_PAYMENT_REMINDER_TEMPLATE,
+  buildElegantInstallmentParameters,
   buildInstallmentDetail,
   buildInstallmentDetailLines,
   formatCurrency,
+  resolveDetailedTemplateName,
 } from '../services/paymentReminder.service';
 import { WhatsappService } from '../services/whatsapp.service';
 
-const ONLY_ALLOWED_RECIPIENT = '18295319442';
+const DEFAULT_ALLOWED_RECIPIENT = '18295319442';
+const ONLY_ALLOWED_RECIPIENT = normalizeTestNumbers([process.env.PAYMENT_REMINDER_TEST_REAL_DATA_RECIPIENT ?? DEFAULT_ALLOWED_RECIPIENT])[0];
+const SAMPLE_COUNT = Number(process.env.PAYMENT_REMINDER_TEST_REAL_DATA_COUNT ?? '1');
 const TEST_NOTIFICATION_TYPE = 'OVERDUE_INSTALLMENTS_TEST_REAL_DATA';
 const TEST_RUN_TYPE = `${TEST_NOTIFICATION_TYPE}_${new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14)}`;
 const LANGUAGE_CODE = 'es';
@@ -37,128 +51,143 @@ async function main() {
   if (phoneNumber.status !== 'CONNECTED') {
     throw new Error(`El numero emisor no esta CONNECTED. Estado actual: ${phoneNumber.status ?? 'desconocido'}`);
   }
-  const template = await findApprovedTemplate();
+  const approvedTemplates = await findApprovedTemplates();
 
-  const saleData = await findOneOverdueSale();
-  if (!saleData) {
-    throw new Error('No existe una venta vencida valida para esta prueba.');
+  const salesData = await findOverdueSales(SAMPLE_COUNT, approvedTemplates);
+  if (salesData.length < SAMPLE_COUNT) {
+    throw new Error(`Solo se encontraron ${salesData.length} ventas vencidas validas para esta prueba.`);
   }
 
-  const recipients = resolvePaymentReminderRecipients({
-    customerPhone: saleData.client.phone,
-    testMode: true,
-    allowRealRecipients: false,
-    testNumbers: [ONLY_ALLOWED_RECIPIENT],
-  });
-  if (
-    recipients.mode !== 'TEST' ||
-    recipients.recipients.length !== 1 ||
-    recipients.recipients[0] !== ONLY_ALLOWED_RECIPIENT
-  ) {
-    throw new Error('Destinatario final invalido. La prueba solo puede enviarse a 18295319442.');
+  const deliveries = [];
+  for (const saleData of salesData) {
+    const recipients = resolvePaymentReminderRecipients({
+      customerPhone: saleData.client.phone,
+      testMode: true,
+      allowRealRecipients: false,
+      testNumbers: [ONLY_ALLOWED_RECIPIENT],
+    });
+    if (
+      recipients.mode !== 'TEST' ||
+      recipients.recipients.length !== 1 ||
+      recipients.recipients[0] !== ONLY_ALLOWED_RECIPIENT
+    ) {
+      throw new Error(`Destinatario final invalido. La prueba solo puede enviarse a ${ONLY_ALLOWED_RECIPIENT}.`);
+    }
+
+    const templateName = resolveDetailedTemplateName(
+      config.whatsappPaymentTestTemplate,
+      saleData.summary.cantidadCuotasVencidas,
+    );
+    const template = approvedTemplates.get(templateName);
+    if (!template) {
+      throw new Error(`La plantilla ${templateName} no esta aprobada para esta venta.`);
+    }
+    const payloadParameters = buildTemplateVariables(saleData, templateName);
+
+    const preview = {
+      companyId: saleData.sale.companyId,
+      saleSyncId: saleData.sale.syncId,
+      customerName: saleData.client.name,
+      originalRecipientMasked: maskPhone(saleData.client.phone),
+      solar: saleData.lotLabel,
+      overdueInstallments: saleData.summary.cantidadCuotasVencidas,
+      principalPending: formatCurrency(saleData.summary.capitalPendiente),
+      lateFee: formatCurrency(saleData.summary.moraTotal),
+      total: formatCurrency(saleData.summary.totalGeneral),
+      lastOverdueInstallment: saleData.summary.ultimaCuotaVencidaSyncId,
+      finalTestRecipient: ONLY_ALLOWED_RECIPIENT,
+    };
+
+    const notification = await reserveTestNotification(saleData, payloadParameters, templateName);
+    const delivery = await reserveTestDelivery(notification.id, preview.originalRecipientMasked);
+
+    const service = new WhatsappService();
+    try {
+      const result = await service.sendTemplateMessage({
+        to: ONLY_ALLOWED_RECIPIENT,
+        templateName,
+        languageCode: LANGUAGE_CODE,
+        parameters: payloadParameters,
+      });
+      await prisma.paymentReminderDelivery.update({
+        where: { id: delivery.id },
+        data: {
+          status: 'ACCEPTED',
+          attempts: { increment: 1 },
+          whatsappMessageId: result.messageId,
+          sentAt: new Date(),
+          error: null,
+        },
+      });
+      await prisma.paymentReminderNotification.update({
+        where: { id: notification.id },
+        data: {
+          status: 'ACCEPTED',
+          attempts: { increment: 1 },
+          whatsappMessageId: result.messageId,
+          sentAt: new Date(),
+          error: null,
+        },
+      });
+
+      deliveries.push({
+        success: true,
+        sale: preview,
+        delivery: {
+          actualRecipient: ONLY_ALLOWED_RECIPIENT,
+          template: template.name,
+          httpStatus: result.httpStatus,
+          acceptedByMeta: true,
+          whatsappMessageId: result.messageId,
+          status: 'ACCEPTED',
+        },
+        payload: redactedPayload(payloadParameters, templateName),
+        webhookStatus: await findRecentWebhookStatus(result.messageId),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Error desconocido';
+      await prisma.paymentReminderDelivery.update({
+        where: { id: delivery.id },
+        data: {
+          status: 'FAILED',
+          attempts: { increment: 1 },
+          error: message.slice(0, 500),
+        },
+      });
+      await prisma.paymentReminderNotification.update({
+        where: { id: notification.id },
+        data: {
+          status: 'FAILED',
+          attempts: { increment: 1 },
+          error: message.slice(0, 500),
+        },
+      });
+      deliveries.push({
+        success: false,
+        sale: preview,
+        delivery: {
+          actualRecipient: ONLY_ALLOWED_RECIPIENT,
+          template: template.name,
+          httpStatus: parseHttpStatus(error),
+          acceptedByMeta: false,
+          whatsappMessageId: null,
+          status: 'FAILED',
+          error: message,
+        },
+        payload: redactedPayload(payloadParameters, templateName),
+        webhookStatus: null,
+      });
+      process.exitCode = 1;
+    }
   }
 
-  const payloadParameters = buildTemplateVariables(saleData);
-
-  const preview = {
-    companyId: saleData.sale.companyId,
-    saleSyncId: saleData.sale.syncId,
-    customerName: saleData.client.name,
-    originalRecipientMasked: maskPhone(saleData.client.phone),
-    solar: saleData.lotLabel,
-    contract: shortContractId(saleData.sale.syncId),
-    overdueInstallments: saleData.summary.cantidadCuotasVencidas,
-    principalPending: formatCurrency(saleData.summary.capitalPendiente),
-    lateFee: formatCurrency(saleData.summary.moraTotal),
-    total: formatCurrency(saleData.summary.totalGeneral),
-    lastOverdueInstallment: saleData.summary.ultimaCuotaVencidaSyncId,
-    finalTestRecipient: ONLY_ALLOWED_RECIPIENT,
-  };
-  console.log(JSON.stringify({ preview }, null, 2));
-
-  const notification = await reserveTestNotification(saleData, payloadParameters);
-  const delivery = await reserveTestDelivery(notification.id, preview.originalRecipientMasked);
-
-  const service = new WhatsappService();
-  try {
-    const result = await service.sendTemplateMessage({
-      to: ONLY_ALLOWED_RECIPIENT,
-      templateName: config.whatsappPaymentTestTemplate,
-      languageCode: LANGUAGE_CODE,
-      parameters: payloadParameters,
-    });
-    await prisma.paymentReminderDelivery.update({
-      where: { id: delivery.id },
-      data: {
-        status: 'ACCEPTED',
-        attempts: { increment: 1 },
-        whatsappMessageId: result.messageId,
-        sentAt: new Date(),
-        error: null,
-      },
-    });
-    await prisma.paymentReminderNotification.update({
-      where: { id: notification.id },
-      data: {
-        status: 'ACCEPTED',
-        attempts: { increment: 1 },
-        whatsappMessageId: result.messageId,
-        sentAt: new Date(),
-        error: null,
-      },
-    });
-
-    console.log(JSON.stringify({
-      success: true,
-      mode: 'TEST_REAL_DATA',
-      sale: preview,
-      delivery: {
-        actualRecipient: ONLY_ALLOWED_RECIPIENT,
-        template: template.name,
-        httpStatus: result.httpStatus,
-        acceptedByMeta: true,
-        whatsappMessageId: result.messageId,
-        status: 'ACCEPTED',
-      },
-      payload: redactedPayload(payloadParameters),
-      webhookStatus: await findRecentWebhookStatus(result.messageId),
-    }, null, 2));
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Error desconocido';
-    await prisma.paymentReminderDelivery.update({
-      where: { id: delivery.id },
-      data: {
-        status: 'FAILED',
-        attempts: { increment: 1 },
-        error: message.slice(0, 500),
-      },
-    });
-    await prisma.paymentReminderNotification.update({
-      where: { id: notification.id },
-      data: {
-        status: 'FAILED',
-        attempts: { increment: 1 },
-        error: message.slice(0, 500),
-      },
-    });
-    console.log(JSON.stringify({
-      success: false,
-      mode: 'TEST_REAL_DATA',
-      sale: preview,
-      delivery: {
-        actualRecipient: ONLY_ALLOWED_RECIPIENT,
-        template: template.name,
-        httpStatus: parseHttpStatus(error),
-        acceptedByMeta: false,
-        whatsappMessageId: null,
-        status: 'FAILED',
-        error: message,
-      },
-      payload: redactedPayload(payloadParameters),
-      webhookStatus: null,
-    }, null, 2));
-    process.exitCode = 1;
-  }
+  console.log(JSON.stringify({
+    success: deliveries.every((item) => item.success),
+    mode: 'TEST_REAL_DATA',
+    templateBase: config.whatsappPaymentTestTemplate,
+    deliveryStatusNote: 'HTTP 200/ACCEPTED no significa DELIVERED. La entrega final se confirma por webhook.',
+    deliveries,
+  }, null, 2));
 }
 
 function validateSafetyConfig() {
@@ -195,12 +224,12 @@ function validateSafetyConfig() {
   const numbers = normalizeTestNumbers(
     config.paymentRemindersTestNumbers.split(',').map((value) => value.trim()).filter(Boolean),
   );
-  if (numbers.length !== 1 || numbers[0] !== ONLY_ALLOWED_RECIPIENT) {
-    throw new Error('PAYMENT_REMINDERS_TEST_NUMBERS debe contener unicamente 18295319442.');
+  if (!ONLY_ALLOWED_RECIPIENT || numbers.length !== 1 || numbers[0] !== ONLY_ALLOWED_RECIPIENT) {
+    throw new Error(`PAYMENT_REMINDERS_TEST_NUMBERS debe contener unicamente ${ONLY_ALLOWED_RECIPIENT}.`);
   }
 }
 
-async function findOneOverdueSale() {
+async function findOverdueSales(count: number, approvedTemplates: Map<string, TemplateRecord>) {
   const calculator = new LateFeeCalculationService({
     dailyRate: config.lateFeeDailyRate,
     timezone: config.paymentReminderTimezone,
@@ -217,6 +246,7 @@ async function findOneOverdueSale() {
     take: 200,
   });
   const saleSyncIds = [...new Set(candidateInstallments.map((item) => item.saleSyncId).filter((value): value is string => Boolean(value)))];
+  const salesData = [];
 
   for (const saleSyncId of saleSyncIds) {
     const sale = await prisma.sale.findFirst({
@@ -268,16 +298,22 @@ async function findOneOverdueSale() {
       Number(summary.moraTotal) >= 0 &&
       Number(summary.totalGeneral) >= 0
     ) {
-      return {
+      const templateName = resolveDetailedTemplateName(
+        config.whatsappPaymentTestTemplate,
+        summary.cantidadCuotasVencidas,
+      );
+      if (!approvedTemplates.has(templateName)) continue;
+      salesData.push({
         sale,
         client,
         lot,
         lotLabel: lot ? lotDisplay(lot) : 'No especificado',
         summary,
-      };
+      });
+      if (salesData.length >= count) return salesData;
     }
   }
-  return null;
+  return salesData;
 }
 
 function buildTemplateVariables(input: {
@@ -285,8 +321,8 @@ function buildTemplateVariables(input: {
   sale: { syncId: string };
   lotLabel: string;
   summary: LateFeeSummary;
-}) {
-  if (config.whatsappPaymentTestTemplate === PROJECT_PAYMENT_REMINDER_TEMPLATE) {
+}, templateName = config.whatsappPaymentTestTemplate) {
+  if (templateName === PROJECT_PAYMENT_REMINDER_TEMPLATE) {
     return [
       input.lotLabel,
       String(input.summary.cantidadCuotasVencidas),
@@ -295,24 +331,32 @@ function buildTemplateVariables(input: {
       formatCurrency(input.summary.totalGeneral),
     ];
   }
-  if (config.whatsappPaymentTestTemplate === DETAILED_PROJECT_PAYMENT_REMINDER_TEMPLATE) {
+  if (templateName === DETAILED_PROJECT_PAYMENT_REMINDER_TEMPLATE) {
     return [
       input.lotLabel,
       buildInstallmentDetail(input.summary),
       formatCurrency(input.summary.totalGeneral),
     ];
   }
-  if (config.whatsappPaymentTestTemplate === DETAILED3_PROJECT_PAYMENT_REMINDER_TEMPLATE) {
+  if (templateName === DETAILED3_PROJECT_PAYMENT_REMINDER_TEMPLATE) {
     return [
       input.lotLabel,
       ...buildInstallmentDetailLines(input.summary, 3),
       formatCurrency(input.summary.totalGeneral),
     ];
   }
-  if (config.whatsappPaymentTestTemplate === DETAILED5_PROJECT_PAYMENT_REMINDER_TEMPLATE) {
+  if (templateName === DETAILED5_PROJECT_PAYMENT_REMINDER_TEMPLATE) {
     return [
       input.lotLabel,
       ...buildInstallmentDetailLines(input.summary, 5),
+      formatCurrency(input.summary.totalGeneral),
+    ];
+  }
+  if (isSeparatedInstallmentTemplate(templateName)) {
+    const capacity = Number(templateName.match(/(\d)$/)?.[1] ?? input.summary.cuotas.length);
+    return [
+      input.lotLabel,
+      ...buildElegantInstallmentParameters(input.summary, capacity),
       formatCurrency(input.summary.totalGeneral),
     ];
   }
@@ -328,11 +372,28 @@ function buildTemplateVariables(input: {
   ];
 }
 
+function isSeparatedInstallmentTemplate(templateName: string) {
+  return [
+    ELEGANT1_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+    ELEGANT2_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+    ELEGANT3_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+    ELEGANT4_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+    ELEGANT5_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+    PROFESSIONAL1_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+    PROFESSIONAL2_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+    PROFESSIONAL3_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+    PROFESSIONAL4_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+    PROFESSIONAL5_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+  ].includes(templateName);
+}
+
 function shortContractId(value: string) {
   return value.slice(-5);
 }
 
-async function reserveTestNotification(input: Awaited<ReturnType<typeof findOneOverdueSale>> extends infer T ? NonNullable<T> : never, payload: string[]) {
+type OverdueSaleData = Awaited<ReturnType<typeof findOverdueSales>>[number];
+
+async function reserveTestNotification(input: OverdueSaleData, payload: string[], templateName: string) {
   const lastOverdueInstallmentSyncId = input.summary.ultimaCuotaVencidaSyncId;
   if (!lastOverdueInstallmentSyncId) {
     throw new Error('No hay ultima cuota vencida para registrar la prueba.');
@@ -350,7 +411,7 @@ async function reserveTestNotification(input: Awaited<ReturnType<typeof findOneO
       lateFeeTotal: input.summary.moraTotal,
       totalDue: input.summary.totalGeneral,
       destinationPhone: ONLY_ALLOWED_RECIPIENT,
-      templateName: config.whatsappPaymentTestTemplate,
+      templateName,
       status: 'PROCESSING',
       scheduledAt: new Date(),
       payload,
@@ -380,21 +441,22 @@ async function getPhoneNumberStatus() {
   ) as Promise<any>;
 }
 
-async function findApprovedTemplate() {
+async function findApprovedTemplates() {
   const body = await graphGet(
     `${config.whatsappBusinessAccountId}/message_templates?fields=name,status,language,category&limit=100`,
   ) as { data?: TemplateRecord[] };
-  const template = (body.data ?? []).find((item) =>
-    item.name === config.whatsappPaymentTestTemplate &&
-    item.language === LANGUAGE_CODE,
-  );
-  if (!template) {
-    throw new Error(`La plantilla ${config.whatsappPaymentTestTemplate} con idioma ${LANGUAGE_CODE} no aparece en Meta.`);
+  const approved = new Map<string, TemplateRecord>();
+  for (const item of body.data ?? []) {
+    if (item.language === LANGUAGE_CODE && ['ACTIVE', 'APPROVED'].includes(item.status)) {
+      approved.set(item.name, item);
+    }
   }
-  if (!['ACTIVE', 'APPROVED'].includes(template.status)) {
-    throw new Error(`La plantilla existe pero no esta activa. Estado actual: ${template.status}`);
+  const baseTemplate = approved.get(config.whatsappPaymentTestTemplate);
+  const baseLooksLikeFamily = /\d$/.test(config.whatsappPaymentTestTemplate);
+  if (!baseTemplate && !baseLooksLikeFamily) {
+    throw new Error(`La plantilla ${config.whatsappPaymentTestTemplate} con idioma ${LANGUAGE_CODE} no aparece aprobada en Meta.`);
   }
-  return template;
+  return approved;
 }
 
 async function graphGet(path: string) {
@@ -430,13 +492,13 @@ async function findRecentWebhookStatus(messageId: string) {
   return delivery;
 }
 
-function redactedPayload(parameters: string[]) {
+function redactedPayload(parameters: string[], templateName: string) {
   return {
     messaging_product: 'whatsapp',
     to: ONLY_ALLOWED_RECIPIENT,
     type: 'template',
     template: {
-      name: config.whatsappPaymentTestTemplate,
+      name: templateName,
       language: { code: LANGUAGE_CODE },
       components: [
         {

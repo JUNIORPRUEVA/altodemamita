@@ -33,9 +33,9 @@ export const config = {
     process.env.PAYMENT_REMINDER_ALLOWED_DAYS ?? '1,2,3,4,5,6',
   paymentReminderStartDate: process.env.PAYMENT_REMINDER_START_DATE ?? '',
   whatsappPaymentTemplate:
-    process.env.WHATSAPP_PAYMENT_TEMPLATE ?? 'recordatorio_cuotas_vencidas_detalle5',
+    process.env.WHATSAPP_PAYMENT_TEMPLATE ?? 'recordatorio_cuotas_vencidas_profesional5',
   whatsappPaymentTestTemplate:
-    process.env.WHATSAPP_PAYMENT_TEST_TEMPLATE ?? 'recordatorio_cuotas_vencidas_detalle5',
+    process.env.WHATSAPP_PAYMENT_TEST_TEMPLATE ?? 'recordatorio_cuotas_vencidas_profesional5',
   whatsappTemplateLanguage: process.env.WHATSAPP_TEMPLATE_LANGUAGE ?? 'es',
   whatsappAccessToken: process.env.WHATSAPP_ACCESS_TOKEN ?? '',
   whatsappPhoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID ?? '',
