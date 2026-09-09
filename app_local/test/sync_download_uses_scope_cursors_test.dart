@@ -4,6 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sistema_solares/core/database/app_database.dart';
+import 'package:sistema_solares/core/database/database_schema.dart';
+import 'package:sistema_solares/features/settings/data/settings_repository.dart';
 import 'package:sistema_solares/repositories/products_sync_repository.dart';
 import 'package:sistema_solares/repositories/roles_sync_repository.dart';
 import 'package:sistema_solares/services/sync/sync_config_repository.dart';
@@ -30,7 +32,10 @@ void main() {
     );
     appDatabase = AppDatabase.test(path.join(tempDirectory.path, 'sync.db'));
     await appDatabase.initialize();
-    configRepository = SyncConfigRepository();
+    configRepository = SyncConfigRepository(
+      settingsRepository: SettingsRepository(appDatabase: appDatabase),
+      preferencesFactory: SharedPreferences.getInstance,
+    );
     apiClient = FakeSyncDownloadApiClient();
     queueService = SyncQueueService.test(
       appDatabase: appDatabase,
@@ -48,6 +53,7 @@ void main() {
       syncQueueService: queueService,
       appDatabase: appDatabase,
     );
+    await configRepository.saveBaseUrl('http://127.0.0.1:9999/api');
     await configRepository.saveJwtToken('jwt-test');
   });
 
@@ -59,6 +65,20 @@ void main() {
   });
 
   test('sync_download_uses_scope_cursors_test', () async {
+    final db = await appDatabase.database;
+    await db.insert(DatabaseSchema.lotsTable, {
+      'manzana_numero': 'A',
+      'solar_numero': '1',
+      'metros_cuadrados': 100,
+      'precio_por_metro': 10,
+      'estado': 'disponible',
+      'fecha_creacion': DateTime.utc(2026, 5, 1).toIso8601String(),
+      'fecha_actualizacion': DateTime.utc(2026, 5, 1).toIso8601String(),
+      'version': 1,
+      'sync_id': 'product-local-1',
+      'sync_status': DatabaseSchema.syncStatusSynced,
+    });
+
     final rolesCursor = DateTime.utc(2026, 5, 1, 10);
     final productsCursor = DateTime.utc(2026, 5, 2, 10);
     await configRepository.saveCursor('roles', rolesCursor);

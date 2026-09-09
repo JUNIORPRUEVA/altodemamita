@@ -19,6 +19,32 @@ class _TestAuthProvider extends AuthProvider {
   bool canAccess(String module, PermissionAction action) => true;
 }
 
+class _InMemoryLotRepository extends LotRepository {
+  _InMemoryLotRepository({required super.appDatabase});
+
+  final List<Lot> _lots = [];
+  int _nextId = 1;
+
+  @override
+  Future<void> save(Lot lot) async {
+    final id = lot.id ?? _nextId++;
+    final normalizedLot = lot.copyWith(id: id, status: 'disponible');
+    final index = _lots.indexWhere((existing) => existing.id == id);
+    if (index == -1) {
+      _lots.add(normalizedLot);
+    } else {
+      _lots[index] = normalizedLot;
+    }
+  }
+
+  @override
+  Future<List<Lot>> fetchAvailable({String query = ''}) async {
+    return _lots
+        .where((lot) => lot.status == 'disponible')
+        .toList(growable: false);
+  }
+}
+
 Future<void> _settle(WidgetTester tester) async {
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 300));
@@ -35,7 +61,7 @@ void main() {
     );
     appDatabase = AppDatabase.test(path.join(tempDirectory.path, 'test.db'));
     await appDatabase.initialize();
-    lotRepository = LotRepository(appDatabase: appDatabase);
+    lotRepository = _InMemoryLotRepository(appDatabase: appDatabase);
   });
 
   tearDown(() async {

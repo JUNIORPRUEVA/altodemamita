@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -207,7 +206,9 @@ class _SistemaSolaresBootstrapState extends State<SistemaSolaresBootstrap> {
       return;
     }
 
-    final observer = BackupLifecycleObserver(backupService: widget.backupService);
+    final observer = BackupLifecycleObserver(
+      backupService: widget.backupService,
+    );
     WidgetsBinding.instance.addObserver(observer);
     _backupLifecycleObserver = observer;
   }

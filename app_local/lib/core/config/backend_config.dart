@@ -12,11 +12,9 @@ import '../diagnostics/sync_diagnostics_logger.dart';
 /// flutter run -d windows --dart-define=SYNC_API_BASE_URL=http://localhost:3000
 ///
 /// Producción:
-/// flutter build windows --dart-define=SYNC_API_BASE_URL=https://altodemanita-altodemamita-backent.onqyr1.easypanel.host
+/// flutter build windows --dart-define=SYNC_API_BASE_URL=https://backend-publico-verificado
 ///
-/// Importante:
-/// No quemar aquí la URL de producción.
-const String _defaultBackendBaseUrl = 'http://localhost:3000';
+const String _defaultBackendBaseUrl = '';
 
 const String _backendBaseUrlFromEnv = String.fromEnvironment(
   'SYNC_API_BASE_URL',
@@ -29,10 +27,12 @@ const String _backendBaseUrlFromEnv = String.fromEnvironment(
 /// Para construir endpoints seguros, usa:
 /// - effectiveBackendBaseUrl
 /// - backendEndpoint('/sync/upload')
+// ignore: constant_identifier_names
 const String BASE_URL = _backendBaseUrlFromEnv;
 
 /// Mantener vacío para evitar que la app caiga accidentalmente
 /// en un backend viejo o de producción.
+// ignore: constant_identifier_names
 const String LEGACY_BASE_URL = '';
 
 const String companyTenantKey = 'alto-dona-mamita-sistema-solares';
@@ -173,6 +173,4 @@ bool get isProductionLikeBackend {
 
 /// Se deja en false para no amarrar la app a un host fijo.
 /// La URL correcta debe venir por ambiente usando --dart-define.
-bool isOfficialBackendHost(String hostOrUrl) {
-  return false;
-}
+bool isOfficialBackendHost(String hostOrUrl) => false;

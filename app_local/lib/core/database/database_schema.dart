@@ -228,19 +228,21 @@ class DatabaseSchema {
     final now = DateTime.now().toIso8601String();
     final batch = db.batch();
 
-    batch.insert(usersTable, {
-      'id': 1,
-      'nombre': 'Administrador principal',
-      'email': PasswordHasher.defaultAdminEmail,
-      'password_hash': '',
-      'password_reset_required': 1,
-      'rol': 'admin',
-      'activo': 1,
-      'telefono': null,
-      'fecha_creacion': now,
-      'fecha_actualizacion': now,
-      'password_updated_at': null,
-    }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    if (!cloudCutoverMode.usesAuthoritativeBusinessWrites) {
+      batch.insert(usersTable, {
+        'id': 1,
+        'nombre': 'Administrador principal',
+        'email': PasswordHasher.defaultAdminEmail,
+        'password_hash': '',
+        'password_reset_required': 1,
+        'rol': 'admin',
+        'activo': 1,
+        'telefono': null,
+        'fecha_creacion': now,
+        'fecha_actualizacion': now,
+        'password_updated_at': null,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    }
 
     final defaults = <Map<String, Object?>>[
       {
@@ -287,6 +289,10 @@ class DatabaseSchema {
     DatabaseExecutor db,
     String now,
   ) async {
+    if (cloudCutoverMode.usesAuthoritativeBusinessWrites) {
+      return;
+    }
+
     final rows = await db.rawQuery(
       'SELECT id, email, password_hash, password_reset_required, rol, activo, '
       'fecha_actualizacion '
@@ -691,6 +697,7 @@ class DatabaseSchema {
         local_path TEXT,
         remote_url TEXT,
         upload_status TEXT NOT NULL DEFAULT '$uploadStatusSynced',
+        sync_id TEXT,
         id_local INTEGER,
         id_remote TEXT,
         sync_status TEXT NOT NULL DEFAULT '$syncStatusSynced',
@@ -701,6 +708,15 @@ class DatabaseSchema {
         deleted_at TEXT
       )
     ''');
+
+    if (!await _columnExists(db, companyProfilesTable, 'sync_id')) {
+      await db.execute(
+        'ALTER TABLE $companyProfilesTable ADD COLUMN sync_id TEXT',
+      );
+    }
+    await db.execute(
+      "UPDATE $companyProfilesTable SET sync_id = lower(hex(randomblob(16))) WHERE sync_id IS NULL OR trim(sync_id) = ''",
+    );
 
     for (final columnName in ['local_path', 'remote_url', 'upload_status']) {
       if (!await _columnExists(db, companyInfoTable, columnName)) {
@@ -738,11 +754,22 @@ class DatabaseSchema {
       'CREATE INDEX IF NOT EXISTS idx_company_profiles_id_remote ON $companyProfilesTable(id_remote)',
     );
     await db.execute(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_company_profiles_sync_id ON $companyProfilesTable(sync_id)',
+    );
+    await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_company_profiles_upload_status ON $companyProfilesTable(upload_status)',
     );
 
     if (await _tableExists(db, companyInfoTable)) {
       final now = DateTime.now().toIso8601String();
+      final companyInfoHasSyncId = await _columnExists(
+        db,
+        companyInfoTable,
+        'sync_id',
+      );
+      final syncIdSelect = companyInfoHasSyncId
+          ? "COALESCE(NULLIF(TRIM(sync_id), ''), lower(hex(randomblob(16))))"
+          : 'lower(hex(randomblob(16)))';
       await db.execute('''
         INSERT INTO $companyProfilesTable (
           name,
@@ -752,6 +779,7 @@ class DatabaseSchema {
           local_path,
           remote_url,
           upload_status,
+          sync_id,
           id_local,
           id_remote,
           sync_status,
@@ -769,6 +797,7 @@ class DatabaseSchema {
           local_path,
           remote_url,
           COALESCE(NULLIF(TRIM(upload_status), ''), '$uploadStatusSynced'),
+          $syncIdSelect,
           id,
           id_remote,
           COALESCE(NULLIF(TRIM(sync_status), ''), '$syncStatusSynced'),

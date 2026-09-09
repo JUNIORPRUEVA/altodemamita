@@ -7,8 +7,8 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import '../../../core/config/app_flags.dart';
 import '../../../core/config/backend_config.dart';
+import '../../../core/config/app_flags.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_schema.dart';
 import '../../../core/network/backend_api_client.dart';
@@ -21,16 +21,9 @@ import '../../../core/utils/sync_id_generator.dart';
 import '../../../features/settings/data/company_repository.dart';
 import '../../../features/settings/data/settings_repository.dart';
 import '../../../features/settings/domain/company_info.dart';
-import '../../../repositories/company_profiles_sync_repository.dart';
-import '../../../repositories/permissions_sync_repository.dart';
-import '../../../repositories/role_permissions_sync_repository.dart';
-import '../../../repositories/roles_sync_repository.dart';
 import '../../../repositories/users_sync_repository.dart';
-import '../../../repositories/user_roles_sync_repository.dart';
 import '../../../services/sync/sync_config_repository.dart';
 import '../../../services/sync/sync_queue_service.dart';
-import '../../../services/sync/sync_api_client.dart';
-import '../../../repositories/sync_repository.dart';
 import '../domain/permission_model.dart';
 import '../domain/user_model.dart';
 
@@ -123,11 +116,19 @@ class AuthService {
     SensitiveStorage? sensitiveStorage,
     HttpClient? httpClient,
     BackendApiClient? apiClient,
+    SystemConfigService? systemConfigService,
   }) : _appDatabase = appDatabase ?? AppDatabase.instance,
        _syncConfigRepository = syncConfigRepository ?? SyncConfigRepository(),
        _syncQueueService = syncQueueService ?? SyncQueueService.instance,
        _httpClient = httpClient ?? createBackendHttpClient(),
        _apiClient = apiClient ?? BackendApiClient(),
+       _systemConfigService =
+           systemConfigService ??
+           (syncConfigRepository == null
+               ? SystemConfigService.instance
+               : SystemConfigService.withSyncConfigRepository(
+                   syncConfigRepository: syncConfigRepository,
+                 )),
        _sensitiveStorage =
            sensitiveStorage ??
            SensitiveStorage(preferencesFactory: preferencesFactory) {
@@ -161,27 +162,21 @@ class AuthService {
       'Usuario o contraseña incorrectos.';
   static const String localDatabaseErrorMessage =
       'Ocurrio un error al validar el usuario local. Intenta de nuevo.';
-  static const List<String> _authBootstrapScopes = [
-    'users',
-    'roles',
-    'permissions',
-    'user_roles',
-    'role_permissions',
-    'company_profiles',
-  ];
-
   final AppDatabase _appDatabase;
   final SyncConfigRepository _syncConfigRepository;
   final SyncQueueService _syncQueueService;
   final HttpClient _httpClient;
   final BackendApiClient _apiClient;
+  final SystemConfigService _systemConfigService;
   final SensitiveStorage _sensitiveStorage;
   final BackendEntityIdRegistry _idRegistry = BackendEntityIdRegistry.instance;
   late final UsersSyncRepository _usersSyncRepository;
 
   bool get _shouldRunBackgroundSync =>
       identical(_appDatabase, AppDatabase.instance);
-  bool get _useBackendMode => false;
+  bool get _useBackendMode => cloudCutoverMode.usesAuthoritativeBusinessWrites;
+  bool get _requiresCloudBackedLocalAuth =>
+      cloudCutoverMode == CloudCutoverMode.cloudAuthoritative;
 
   Future<AuthBootstrapResult> bootstrap() async {
     debugPrint('[Bootstrap] Iniciando arranque de la app...');
@@ -220,18 +215,9 @@ class AuthService {
       );
       await clearSession();
     } else {
-      // Paso 1: intentar restaurar sesion local (token SQLite).
-      debugPrint('[Bootstrap] Intentando restaurar sesion local...');
-      currentUser = await restoreSession();
-
-      if (currentUser != null) {
+      if (_requiresCloudBackedLocalAuth) {
         debugPrint(
-          '[Bootstrap] Sesion local restaurada para ${currentUser.email}.',
-        );
-      } else {
-        // Paso 2: no hay sesion local — intentar JWT guardado contra /auth/me.
-        debugPrint(
-          '[Bootstrap] Sin sesion local. Intentando validar JWT con backend...',
+          '[Bootstrap] CLOUD_AUTHORITATIVE: validando JWT antes de sesion local...',
         );
         if (remoteStatus.isReachable && remoteStatus.initialized) {
           currentUser = await _restoreSessionFromJwt();
@@ -243,9 +229,39 @@ class AuthService {
             debugPrint(
               '[Bootstrap] JWT invalido o inexistente. Se requiere login.',
             );
+            await clearSession();
           }
         } else {
           debugPrint('[Bootstrap] Backend no disponible. Se requiere login.');
+        }
+      } else {
+        // Paso 1: intentar restaurar sesion local (token SQLite).
+        debugPrint('[Bootstrap] Intentando restaurar sesion local...');
+        currentUser = await restoreSession();
+
+        if (currentUser != null) {
+          debugPrint(
+            '[Bootstrap] Sesion local restaurada para ${currentUser.email}.',
+          );
+        } else {
+          // Paso 2: no hay sesion local — intentar JWT guardado contra /auth/me.
+          debugPrint(
+            '[Bootstrap] Sin sesion local. Intentando validar JWT con backend...',
+          );
+          if (remoteStatus.isReachable && remoteStatus.initialized) {
+            currentUser = await _restoreSessionFromJwt();
+            if (currentUser != null) {
+              debugPrint(
+                '[Bootstrap] Sesion restaurada via JWT para ${currentUser.email}.',
+              );
+            } else {
+              debugPrint(
+                '[Bootstrap] JWT invalido o inexistente. Se requiere login.',
+              );
+            }
+          } else {
+            debugPrint('[Bootstrap] Backend no disponible. Se requiere login.');
+          }
         }
       }
     }
@@ -267,114 +283,28 @@ class AuthService {
     required String email,
     required String password,
   }) async {
-    debugPrint('[SignIn] Intento de login para $email...');
-    final remoteStatus = await _fetchRemoteSystemStatus();
-    debugPrint(
-      '[SignIn] Backend: alcanzable=${remoteStatus.isReachable}, '
-      'inicializado=${remoteStatus.initialized}',
-    );
-    final cloudIsReady =
-        remoteStatus.isReachable &&
-        remoteStatus.statusAvailable &&
-        remoteStatus.initialized;
-
-    if (cloudIsReady) {
-      debugPrint('[SignIn] login online attempt para $email.');
-      try {
-        final user = await loginOnline(email: email, password: password);
-        debugPrint('[SignIn] login online success para ${user.email}.');
-        bool syncTriggered = false;
-        try {
-          syncTriggered = await _runAuthOnlySyncIfPossible();
-        } catch (error) {
-          debugPrint('[SignIn] auth bootstrap no fatal para $email: $error');
-          syncTriggered = false;
-        }
-        final refreshedUser = user.id == null
-            ? user
-            : (await getUserById(user.id!)) ?? user;
-        return AuthSignInResult(
-          user: refreshedUser,
-          mode: AuthSignInMode.online,
-          syncTriggered: syncTriggered,
-        );
-      } on AuthException catch (error) {
-        debugPrint(
-          '[SignIn] login online failure para $email: ${error.message}',
-        );
-        if (_looksLikeInactiveFailure(error.message)) {
-          await _markLocalUserInactiveByIdentifier(email);
-          throw const AuthException(localUserInactiveMessage);
-        }
-        if (_looksLikeCredentialFailure(error.message)) {
-          throw const AuthException(invalidLocalCredentialsMessage);
-        }
-        if (!_looksLikeConnectivityFailure(error.message)) {
-          throw AuthException(error.message);
-        }
-        try {
-          final localUser = await _signInLocalValidated(
-            identifier: email,
-            password: password,
-          );
-          return AuthSignInResult(
-            user: localUser,
-            mode: AuthSignInMode.offline,
-          );
-        } on AuthException catch (localError) {
-          if (_looksLikeCredentialFailure(error.message) &&
-              localError.message == invalidLocalCredentialsMessage) {
-            throw const AuthException(invalidLocalCredentialsMessage);
-          }
-          throw AuthException(localError.message);
-        }
-      } on TimeoutException catch (error) {
-        debugPrint('[SignIn] timeout durante login online: $error');
-        final localUser = await _signInLocalValidated(
-          identifier: email,
-          password: password,
-        );
-        return AuthSignInResult(user: localUser, mode: AuthSignInMode.offline);
-      } on SocketException catch (error) {
-        debugPrint('[SignIn] error de red durante login online: $error');
-        final localUser = await _signInLocalValidated(
-          identifier: email,
-          password: password,
-        );
-        return AuthSignInResult(user: localUser, mode: AuthSignInMode.offline);
-      } catch (error) {
-        debugPrint('[SignIn] error inesperado durante login online: $error');
-        try {
-          final localUser = await _signInLocalValidated(
-            identifier: email,
-            password: password,
-          );
-          return AuthSignInResult(
-            user: localUser,
-            mode: AuthSignInMode.offline,
-          );
-        } on AuthException {
-          throw const AuthException(
-            'El usuario no quedo guardado localmente despues del login online.',
-          );
-        }
-      }
-    }
-
-    debugPrint('[SignIn] Backend no disponible para login online.');
     try {
-      final localUser = await _signInLocalValidated(
-        identifier: email,
-        password: password,
+      final onlineUser = await loginOnline(email: email, password: password);
+      return AuthSignInResult(
+        user: onlineUser,
+        mode: AuthSignInMode.online,
+        syncTriggered: true,
       );
-      debugPrint(
-        '[SignIn] Autenticacion local permitida en modo offline. '
-        'Sync bloqueado hasta recuperar JWT de nube.',
-      );
-      return AuthSignInResult(user: localUser, mode: AuthSignInMode.offline);
-    } on AuthException {
-      rethrow;
+    } on SocketException catch (error) {
+      debugPrint('[SignIn] Backend offline, intentando login local: $error');
+    } on TimeoutException catch (error) {
+      debugPrint('[SignIn] Backend timeout, intentando login local: $error');
+    } on IOException catch (error) {
+      debugPrint('[SignIn] Error de red, intentando login local: $error');
     }
+
+    debugPrint('[SignIn] Intento de login local para $email...');
+    final localUser = await _signInLocalValidated(
+      identifier: email,
+      password: password,
+    );
+    debugPrint('[SignIn] login local success para ${localUser.email}.');
+    return AuthSignInResult(user: localUser, mode: AuthSignInMode.offline);
   }
 
   Future<void> debugDumpLocalUsersSafe({String context = 'manual'}) async {
@@ -446,10 +376,7 @@ class AuthService {
     final response = await _sendJsonRequest(
       method: 'POST',
       uri: loginUri,
-      payload: {
-        'identifier': normalizedIdentifier,
-        'password': normalizedPassword,
-      },
+      payload: {'email': normalizedIdentifier, 'password': normalizedPassword},
     );
 
     final accessToken = response['accessToken']?.toString().trim() ?? '';
@@ -477,7 +404,7 @@ class AuthService {
       'rol: ${user.role.storageValue}',
     );
     await _recordAuthCloudValidation(status: 'online_login_ok');
-    await SystemConfigService.instance.refresh();
+    await _systemConfigService.refresh();
     await _logOnlineLoginPersistenceSnapshot(user);
     return user;
   }
@@ -724,12 +651,12 @@ class AuthService {
       return currentCode;
     }
 
-    SystemConfigService.instance.ensureWritable();
+    _systemConfigService.ensureWritable();
     return _writeNewAdminRecoveryCode(db);
   }
 
   Future<String> regenerateAdminRecoveryCode() async {
-    SystemConfigService.instance.ensureWritable();
+    _systemConfigService.ensureWritable();
 
     final db = await _appDatabase.database;
     return _writeNewAdminRecoveryCode(db);
@@ -929,6 +856,11 @@ class AuthService {
       await clearSession();
       return null;
     }
+    if (_requiresCloudBackedLocalAuth && !_isCloudBackedLocalUser(user)) {
+      await _revokeSessionBySelector(db, selector);
+      await clearSession();
+      return null;
+    }
 
     await db.update(
       DatabaseSchema.authSessionsTable,
@@ -1057,7 +989,7 @@ class AuthService {
     required List<PermissionModel> permissions,
     bool active = true,
   }) async {
-    SystemConfigService.instance.ensureWritable();
+    _systemConfigService.ensureWritable();
 
     final normalizedEmail = email.trim().toLowerCase();
     final normalizedName = nombre.trim();
@@ -1129,7 +1061,7 @@ class AuthService {
     required List<PermissionModel> permissions,
     String? newPassword,
   }) async {
-    SystemConfigService.instance.ensureWritable();
+    _systemConfigService.ensureWritable();
 
     final userId = user.id;
     if (userId == null) {
@@ -1223,7 +1155,7 @@ class AuthService {
   }
 
   Future<void> deleteUser(int userId) async {
-    SystemConfigService.instance.ensureWritable();
+    _systemConfigService.ensureWritable();
 
     if (_useBackendMode) {
       await _deleteUserInBackend(userId);
@@ -1260,7 +1192,7 @@ class AuthService {
     required UserModel user,
     required bool active,
   }) async {
-    SystemConfigService.instance.ensureWritable();
+    _systemConfigService.ensureWritable();
 
     final userId = user.id;
     if (userId == null) {
@@ -1606,8 +1538,7 @@ class AuthService {
 
   /// Validates the stored JWT against [/auth/me] and, if successful, refreshes
   /// the local user cache and creates a new local session — without requiring
-  /// the plaintext password.  Returns [null] when the token is absent, expired,
-  /// or the user has no prior cached record on this device.
+  /// the plaintext password. Returns [null] when the token is absent or expired.
   Future<UserModel?> _restoreSessionFromJwt() async {
     final settings = await _syncConfigRepository.loadSettings();
     final jwt = settings.jwtToken.trim();
@@ -1641,12 +1572,12 @@ class AuthService {
   }
 
   /// Refreshes or creates the local user from a [/auth/me] payload, without
-  /// touching the stored password hash.  Returns [null] when no prior local user
-  /// record can be found for this device (first-ever login is still required).
+  /// inventing an offline password verifier.
   Future<UserModel?> _refreshLocalUserFromJwtPayload(
     Map<String, dynamic> payload,
   ) async {
-    final remoteAuthId = payload['sub']?.toString().trim();
+    final remoteAuthId =
+        payload['sub']?.toString().trim() ?? payload['id']?.toString().trim();
     final email = payload['email']?.toString().trim().toLowerCase() ?? '';
     if (remoteAuthId == null || remoteAuthId.isEmpty || email.isEmpty) {
       debugPrint('[JWT] Payload de /auth/me incompleto.');
@@ -1654,9 +1585,11 @@ class AuthService {
     }
 
     final db = await _appDatabase.database;
-    final role = _mapRemoteRole(payload['roles']);
+    final role = _mapRemoteRole(payload['roles'] ?? payload['role']);
     final hasPermissionsInPayload = payload.containsKey('permissions');
-    final fullName = payload['fullName']?.toString().trim();
+    final fullName =
+        payload['fullName']?.toString().trim() ??
+        payload['name']?.toString().trim();
     final username = payload['username']?.toString().trim();
     final now = DateTime.now();
 
@@ -1682,46 +1615,54 @@ class AuthService {
           ? byRemoteId.first
           : (byEmail.isNotEmpty ? byEmail.first : null);
 
-      if (existing == null) {
-        // Usuario nunca ha iniciado sesión en esta PC — login manual requerido.
-        debugPrint(
-          '[JWT] Usuario $email no encontrado localmente. '
-          'Se requiere login manual.',
-        );
-        return null;
-      }
-
-      final userId = existing['id'] as int;
-      final localPermissions = await _fetchPermissionsForUser(txn, userId);
+      final createdAt = existing == null
+          ? now.toIso8601String()
+          : (existing['fecha_creacion'] as String? ?? now.toIso8601String());
+      var userId = existing == null ? null : existing['id'] as int;
+      final localPermissions = userId == null
+          ? const <PermissionModel>[]
+          : await _fetchPermissionsForUser(txn, userId);
       final permissions = _resolvePermissionsForAuthPayload(
         role: role,
         rawPermissions: payload['permissions'],
         hasPermissionsInPayload: hasPermissionsInPayload,
         fallback: localPermissions,
       );
-      await txn.update(
-        DatabaseSchema.usersTable,
-        {
-          'id_remote': remoteAuthId,
-          'id_local': userId,
-          'remote_auth_id': remoteAuthId,
-          'nombre':
-              (fullName?.isNotEmpty == true ? fullName : username) ?? email,
-          'email': email,
-          'password_reset_required': 0,
-          'rol': role.storageValue,
-          'activo': payload['isActive'] == false ? 0 : 1,
-          'auth_source': AuthSource.cloud.storageValue,
-          'last_online_login_at': now.toIso8601String(),
-          'sync_status': DatabaseSchema.syncStatusSynced,
-          'fecha_actualizacion': now.toIso8601String(),
-          'last_modified_local': now.toIso8601String(),
-          'last_modified_remote': now.toIso8601String(),
-          'deleted_at': null,
-        },
-        where: 'id = ?',
-        whereArgs: [userId],
-      );
+      final values = {
+        'id_remote': remoteAuthId,
+        'remote_auth_id': remoteAuthId,
+        'nombre': (fullName?.isNotEmpty == true ? fullName : username) ?? email,
+        'email': email,
+        'password_reset_required': 0,
+        'rol': role.storageValue,
+        'activo': payload['active'] == false || payload['isActive'] == false
+            ? 0
+            : 1,
+        'auth_source': AuthSource.cloud.storageValue,
+        'last_online_login_at': now.toIso8601String(),
+        'sync_status': DatabaseSchema.syncStatusSynced,
+        'fecha_creacion': createdAt,
+        'fecha_actualizacion': now.toIso8601String(),
+        'last_modified_local': now.toIso8601String(),
+        'last_modified_remote': now.toIso8601String(),
+        'deleted_at': null,
+      };
+      if (userId == null) {
+        userId = await txn.insert(DatabaseSchema.usersTable, {
+          ...values,
+          'id_local': null,
+          'sync_id': _nextUserSyncId(),
+          'password_hash': '',
+          'password_updated_at': null,
+        });
+      } else {
+        await txn.update(
+          DatabaseSchema.usersTable,
+          {...values, 'id_local': userId},
+          where: 'id = ?',
+          whereArgs: [userId],
+        );
+      }
       await _replacePermissions(txn, userId, permissions);
 
       // Crear nueva sesion local ligada a este usuario.
@@ -1892,9 +1833,7 @@ class AuthService {
     debugPrint(
       '[auth-http] response status=${response.statusCode} uri=$uri body=${_truncateForLog(body)}',
     );
-    final decoded = body.trim().isEmpty
-        ? const <String, dynamic>{}
-        : jsonDecode(body);
+    final decoded = _decodeBackendJsonBody(body);
     final responsePayload = decoded is Map<String, dynamic>
         ? _unwrapResponseEnvelope(decoded)
         : (decoded is Map
@@ -1928,6 +1867,20 @@ class AuthService {
       throw const AuthException('La respuesta del backend no es valida.');
     }
     return responsePayload;
+  }
+
+  dynamic _decodeBackendJsonBody(String body) {
+    if (body.trim().isEmpty) {
+      return const <String, dynamic>{};
+    }
+
+    try {
+      return jsonDecode(body);
+    } on FormatException {
+      throw const AuthException(
+        'El backend respondio con un formato no valido. Verifica la URL del servidor y vuelve a intentar.',
+      );
+    }
   }
 
   String _extractBackendErrorMessage(
@@ -2208,11 +2161,22 @@ class AuthService {
   }
 
   Future<List<UserModel>> _fetchUsersFromBackend() async {
-    final response = await _apiClient.get('/users');
+    final response = await _apiClient.get('/business/users');
+    final rawPayload = response is Map<String, dynamic>
+        ? response
+        : response is Map
+        ? response.map((key, value) => MapEntry(key.toString(), value))
+        : const <String, dynamic>{};
+    final data = rawPayload['data'];
+    final payload = data is Map<String, dynamic>
+        ? data
+        : data is Map
+        ? data.map((key, value) => MapEntry(key.toString(), value))
+        : rawPayload;
     final items = response is List
         ? response
-        : ((response is Map<String, dynamic> ? response['items'] : null)
-                  as List?) ??
+        : (payload['users'] as List?) ??
+              (payload['items'] as List?) ??
               const [];
     return items
         .whereType<Map>()
@@ -2233,14 +2197,13 @@ class AuthService {
     required bool active,
   }) async {
     final response = await _apiClient.post(
-      '/users',
+      '/business/users',
       body: {
         'email': email,
-        'username': _buildUsernameFromEmail(email),
-        'fullName': nombre,
+        'name': nombre,
         'password': password,
-        'isActive': active,
-        'roleCode': _roleCodeFor(role, permissions),
+        'active': active,
+        'role': role == UserRole.admin ? 'OWNER' : 'TECH',
       },
     );
     final payload = response is Map<String, dynamic>
@@ -2248,7 +2211,18 @@ class AuthService {
         : (response as Map).map(
             (key, value) => MapEntry(key.toString(), value),
           );
-    return _mapBackendUser(payload, fallbackPassword: password);
+    final data = payload['data'];
+    final unwrapped = data is Map<String, dynamic>
+        ? data
+        : data is Map
+        ? data.map((key, value) => MapEntry(key.toString(), value))
+        : payload;
+    final userPayload = unwrapped['user'] is Map
+        ? (unwrapped['user'] as Map).map(
+            (key, value) => MapEntry(key.toString(), value),
+          )
+        : unwrapped;
+    return _mapBackendUser(userPayload, fallbackPassword: password);
   }
 
   Future<UserModel> _updateUserInBackend({
@@ -2359,7 +2333,9 @@ class AuthService {
     if (remoteId.isEmpty) {
       throw const AuthException('La API no devolvio un id de usuario valido.');
     }
-    final role = _mapRemoteRole(payload['roleCodes'] ?? payload['roles']);
+    final role = _mapRemoteRole(
+      payload['roleCodes'] ?? payload['roles'] ?? payload['role'],
+    );
     final permissions = role == UserRole.admin
         ? _fullPermissions()
         : _mapRemotePermissions(payload['permissions']);
@@ -2378,6 +2354,7 @@ class AuthService {
       remoteAuthId: remoteId,
       nombre:
           payload['fullName']?.toString() ??
+          payload['name']?.toString() ??
           payload['username']?.toString() ??
           '',
       email: payload['email']?.toString() ?? '',
@@ -2385,7 +2362,7 @@ class AuthService {
       passwordResetRequired: false,
       role: role,
       permissions: permissions,
-      activo: payload['isActive'] != false,
+      activo: payload['active'] != false && payload['isActive'] != false,
       fechaCreacion: createdAt,
       fechaActualizacion: updatedAt,
       authSource: AuthSource.cloud,
@@ -2437,6 +2414,13 @@ class AuthService {
   }
 
   UserRole _mapRemoteRole(Object? rawRoles) {
+    if (rawRoles is String) {
+      final role = rawRoles.trim().toUpperCase();
+      if (role == 'OWNER' || role == 'SUPER_ADMIN' || role == 'ADMIN') {
+        return UserRole.admin;
+      }
+      return UserRole.user;
+    }
     if (rawRoles is! List) {
       return UserRole.user;
     }
@@ -2604,6 +2588,16 @@ class AuthService {
       return _LocalUserLookupResult(row: byUsername.first, foundBy: 'username');
     }
 
+    final byName = await db.query(
+      DatabaseSchema.usersTable,
+      where: "deleted_at IS NULL AND LOWER(TRIM(COALESCE(nombre, ''))) = ?",
+      whereArgs: [normalizedIdentifier],
+      limit: 1,
+    );
+    if (byName.isNotEmpty) {
+      return _LocalUserLookupResult(row: byName.first, foundBy: 'nombre');
+    }
+
     final byRemote = await db.query(
       DatabaseSchema.usersTable,
       where:
@@ -2632,38 +2626,6 @@ class AuthService {
       return normalizedEmail;
     }
     return normalizedEmail.split('@').first.trim();
-  }
-
-  Future<void> _markLocalUserInactiveByIdentifier(String identifier) async {
-    final normalizedIdentifier = _normalizeIdentifier(identifier);
-    if (normalizedIdentifier.isEmpty) {
-      return;
-    }
-
-    final db = await _appDatabase.database;
-    final lookup = await _findLocalUserForLogin(db, normalizedIdentifier);
-    final row = lookup?.row;
-    if (row == null) {
-      return;
-    }
-
-    final userId = row['id'] as int?;
-    if (userId == null) {
-      return;
-    }
-
-    final now = DateTime.now().toIso8601String();
-    await db.update(
-      DatabaseSchema.usersTable,
-      {
-        'activo': 0,
-        'fecha_actualizacion': now,
-        'last_modified_remote': now,
-        'sync_status': DatabaseSchema.syncStatusSynced,
-      },
-      where: 'id = ?',
-      whereArgs: [userId],
-    );
   }
 
   bool _verifyStoredPassword(String password, String storedHash) {
@@ -2733,6 +2695,14 @@ class AuthService {
         );
       }
 
+      if (_requiresCloudBackedLocalAuth &&
+          !_isCloudBackedLocalUser(foundUser)) {
+        _debugAuth(
+          '[SignInLocal] usuario_activo=true password_valid=false motivo=usuario_local_no_cloud_authoritative',
+        );
+        throw const AuthException(firstConnectionRequiredMessage);
+      }
+
       final hasPasswordVerifier = foundUser.passwordHash.trim().isNotEmpty;
       if (!hasPasswordVerifier) {
         _debugAuth(
@@ -2800,12 +2770,10 @@ class AuthService {
     debugPrint(message);
   }
 
-  bool _looksLikeCredentialFailure(String message) {
-    final normalized = message.trim().toLowerCase();
-    return normalized.contains('credenciales') ||
-        normalized.contains('correo') ||
-        normalized.contains('contrasena') ||
-        normalized.contains('invalid');
+  bool _isCloudBackedLocalUser(UserModel user) {
+    return user.authSource == AuthSource.cloud &&
+        (user.remoteAuthId ?? '').trim().isNotEmpty &&
+        user.lastOnlineLoginAt != null;
   }
 
   bool _looksLikeInactiveFailure(String message) {
@@ -2817,79 +2785,6 @@ class AuthService {
         normalized.contains('suspend');
   }
 
-  bool _looksLikeConnectivityFailure(String message) {
-    final normalized = message.trim().toLowerCase();
-    return normalized.contains('timeout') ||
-        normalized.contains('tiempo de espera') ||
-        normalized.contains('socket') ||
-        normalized.contains('network') ||
-        normalized.contains('conexion') ||
-        normalized.contains('conexión') ||
-        normalized.contains('offline') ||
-        normalized.contains('unreachable') ||
-        normalized.contains('temporarily unavailable') ||
-        normalized.contains('temporariamente no disponible');
-  }
-
-  Future<bool> _runAuthOnlySyncIfPossible() async {
-    if (!allowAuthBootstrap) {
-      return false;
-    }
-
-    final settings = await _syncConfigRepository.loadSettings();
-    if (!settings.isConfigured) {
-      return false;
-    }
-
-    final repositoriesByScope = <String, SyncRepository>{
-      'users': UsersSyncRepository(appDatabase: _appDatabase),
-      'roles': RolesSyncRepository(appDatabase: _appDatabase),
-      'permissions': PermissionsSyncRepository(appDatabase: _appDatabase),
-      'user_roles': UserRolesSyncRepository(appDatabase: _appDatabase),
-      'role_permissions': RolePermissionsSyncRepository(
-        appDatabase: _appDatabase,
-      ),
-      'company_profiles': CompanyProfilesSyncRepository(
-        appDatabase: _appDatabase,
-      ),
-    };
-    final cursors = <String, DateTime?>{};
-    for (final scope in _authBootstrapScopes) {
-      cursors[scope] = await _syncConfigRepository.loadCursor(scope);
-    }
-
-    final response = await SyncApiClient(
-      httpClient: _httpClient,
-    ).downloadChanges(settings: settings, updatedSinceByScope: cursors);
-
-    var appliedRecords = 0;
-    for (final scope in _authBootstrapScopes) {
-      final repository = repositoriesByScope[scope];
-      if (repository == null || !response.supportsScope(scope)) {
-        continue;
-      }
-
-      final records = response.recordsForScope(scope);
-      if (records.isNotEmpty) {
-        await repository.mergeRemoteRecords(records);
-        appliedRecords += records.length;
-      }
-
-      final nextCursor =
-          response.cursorForScope(scope) ??
-          _findLatestTimestamp(records) ??
-          response.serverTime;
-      if (nextCursor != null) {
-        await _syncConfigRepository.saveCursor(scope, nextCursor);
-      }
-    }
-
-    await _recordAuthCloudValidation(
-      status: appliedRecords > 0 ? 'auth_sync_ok' : 'auth_sync_idle',
-    );
-    return true;
-  }
-
   Future<void> _recordAuthCloudValidation({required String status}) async {
     final db = await _appDatabase.database;
     final now = DateTime.now().toIso8601String();
@@ -2897,23 +2792,6 @@ class AuthService {
       await _upsertSetting(txn, authLastCloudValidationAtKey, now, now);
       await _upsertSetting(txn, authLastCloudValidationStatusKey, status, now);
     });
-  }
-
-  DateTime? _findLatestTimestamp(List<Map<String, dynamic>> records) {
-    DateTime? latest;
-    for (final record in records) {
-      final rawValue = record['updated_at'];
-      final parsed = rawValue == null
-          ? null
-          : DateTime.tryParse(rawValue.toString());
-      if (parsed == null) {
-        continue;
-      }
-      if (latest == null || parsed.isAfter(latest)) {
-        latest = parsed;
-      }
-    }
-    return latest;
   }
 
   Future<bool> _hasAnyLocalLoginCapableUser(Database db) async {
@@ -2995,7 +2873,7 @@ class AuthService {
     final permissions = <PermissionModel>[];
     for (final row in rows) {
       final rawActions = row['acciones'] as String? ?? '[]';
-      final decoded = jsonDecode(rawActions);
+      final decoded = _decodePermissionActions(rawActions);
       final actions = decoded is List
           ? decoded.whereType<String>().toList(growable: false)
           : const <String>[];
@@ -3015,6 +2893,14 @@ class AuthService {
           (module) => byModule[module.key] ?? PermissionModel.empty(module.key),
         )
         .toList(growable: false);
+  }
+
+  dynamic _decodePermissionActions(String rawActions) {
+    try {
+      return jsonDecode(rawActions);
+    } on FormatException {
+      return const <String>[];
+    }
   }
 
   Future<void> _replacePermissions(
@@ -3058,10 +2944,9 @@ class AuthService {
     }
 
     try {
-      await _syncQueueService.syncScopesNowOrThrow(
-        const ['users'],
-        operationLabel: operationLabel,
-      );
+      await _syncQueueService.syncScopesNowOrThrow(const [
+        'users',
+      ], operationLabel: operationLabel);
     } on SyncOperationPendingException catch (error) {
       // Keep local pending state and let background retries continue.
       _scheduleUserSync(operationLabel);

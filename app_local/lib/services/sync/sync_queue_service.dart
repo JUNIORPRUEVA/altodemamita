@@ -40,6 +40,7 @@ class SyncQueueService {
     SyncConfigRepository? configRepository,
     SyncApiClient? apiClient,
     SyncConflictService? conflictService,
+    SystemConfigService? systemConfigService,
     Future<bool> Function(SyncSettings settings)? connectivityProbe,
     Stream<List<ConnectivityResult>>? connectivityChanges,
   }) {
@@ -48,6 +49,7 @@ class SyncQueueService {
       configRepository: configRepository,
       apiClient: apiClient,
       conflictService: conflictService,
+      systemConfigService: systemConfigService,
       connectivityProbe: connectivityProbe ?? ((_) async => true),
       connectivityChanges: connectivityChanges,
     );
@@ -58,12 +60,20 @@ class SyncQueueService {
     SyncConfigRepository? configRepository,
     SyncApiClient? apiClient,
     SyncConflictService? conflictService,
+    SystemConfigService? systemConfigService,
     Future<bool> Function(SyncSettings settings)? connectivityProbe,
     Stream<List<ConnectivityResult>>? connectivityChanges,
   }) : _appDatabase = appDatabase ?? AppDatabase.instance,
        _configRepository = configRepository ?? SyncConfigRepository(),
        _apiClient = apiClient ?? SyncApiClient(),
        _conflictService = conflictService ?? SyncConflictService(),
+       _systemConfigService =
+           systemConfigService ??
+           (configRepository == null
+               ? SystemConfigService.instance
+               : SystemConfigService.withSyncConfigRepository(
+                   syncConfigRepository: configRepository,
+                 )),
        _connectivityProbe = connectivityProbe ?? _defaultConnectivityProbe,
        _connectivityChanges =
            connectivityChanges ?? Connectivity().onConnectivityChanged;
@@ -74,6 +84,7 @@ class SyncQueueService {
   final SyncConfigRepository _configRepository;
   final SyncApiClient _apiClient;
   final SyncConflictService _conflictService;
+  final SystemConfigService _systemConfigService;
   final Future<bool> Function(SyncSettings settings) _connectivityProbe;
   final Stream<List<ConnectivityResult>> _connectivityChanges;
   final SyncLogger _syncLogger = SyncLogger.instance;
@@ -148,6 +159,11 @@ class SyncQueueService {
     'installments',
     'payments',
   };
+  static const Set<String> _legacyFinancialSyncScopes = {
+    'sales',
+    'installments',
+    'payments',
+  };
   static const Map<String, String> _businessBootstrapTables = {
     'clients': DatabaseSchema.clientsTable,
     'sellers': DatabaseSchema.sellersTable,
@@ -192,7 +208,8 @@ class SyncQueueService {
     if (_isDisposed) {
       return;
     }
-    if (manualCloudSyncOnly) {
+    if (manualCloudSyncOnly ||
+        cloudCutoverMode.usesAuthoritativeBusinessWrites) {
       _retryTimer?.cancel();
       await _connectivitySubscription?.cancel();
       _connectivitySubscription = null;
@@ -229,7 +246,7 @@ class SyncQueueService {
   }
 
   Future<void> _bootstrapLocalBusinessDataForCloud() async {
-    if (_isDisposed || SystemConfigService.instance.isReadOnly) {
+    if (_isDisposed || _systemConfigService.isReadOnly) {
       return;
     }
     if (await _configRepository.isLocalUploadBootstrapCompleted()) {
@@ -330,7 +347,7 @@ class SyncQueueService {
   }
 
   Future<int> requeueUnresolvedConflicts({Iterable<String>? scopes}) async {
-    if (SystemConfigService.instance.isReadOnly) {
+    if (_systemConfigService.isReadOnly) {
       return 0;
     }
 
@@ -462,7 +479,8 @@ class SyncQueueService {
     required Map<String, Object?> payload,
     bool triggerProcessing = true,
   }) {
-    SystemConfigService.instance.ensureWritable();
+    _ensureLegacySyncAllowedForScope(scope);
+    _systemConfigService.ensureWritable();
     unawaited(
       _syncLogger.log(
         action: 'enqueue',
@@ -487,7 +505,8 @@ class SyncQueueService {
     required Map<String, Object?> payload,
     bool triggerProcessing = true,
   }) {
-    SystemConfigService.instance.ensureWritable();
+    _ensureLegacySyncAllowedForScope(scope);
+    _systemConfigService.ensureWritable();
     unawaited(
       _syncLogger.log(
         action: 'enqueue',
@@ -513,7 +532,7 @@ class SyncQueueService {
     items,
     bool triggerProcessing = true,
   }) async {
-    SystemConfigService.instance.ensureWritable();
+    _systemConfigService.ensureWritable();
     final normalizedItems = items
         .where(
           (item) =>
@@ -521,6 +540,9 @@ class SyncQueueService {
               item.recordSyncId.trim().isNotEmpty,
         )
         .toList(growable: false);
+    _ensureLegacySyncAllowedForScopes(
+      normalizedItems.map((item) => item.scope),
+    );
     if (normalizedItems.isEmpty) {
       return;
     }
@@ -589,6 +611,7 @@ class SyncQueueService {
   }
 
   Future<void> refreshScope(String scope) async {
+    _ensureLegacySyncAllowedForScope(scope);
     final repository = _repositoriesByScope[scope];
     if (repository == null) {
       return;
@@ -693,7 +716,7 @@ class SyncQueueService {
     if (_isDisposed) {
       return 0;
     }
-    if (SystemConfigService.instance.isReadOnly) {
+    if (_systemConfigService.isReadOnly) {
       await _refreshState();
       return 0;
     }
@@ -851,7 +874,19 @@ class SyncQueueService {
                 'scope=$scope acked=${acknowledgedSyncIds.length} '
                 'recordSyncIds=${acknowledgedSyncIds.join(',')}',
               );
+              final acknowledgedDeleteSyncIds = entryItems
+                  .where(
+                    (item) =>
+                        item.operation == 'delete' &&
+                        acknowledgedSyncIds.contains(item.recordSyncId),
+                  )
+                  .map((item) => item.recordSyncId)
+                  .toList(growable: false);
               await repository.markAsSynced(acknowledgedSyncIds);
+              await _purgeAcknowledgedDeleteTombstones(
+                scope,
+                acknowledgedDeleteSyncIds,
+              );
               await _deleteQueuedRecords(scope, acknowledgedSyncIds);
               if (scope == 'products') {
                 await _syncLogger.log(
@@ -1148,6 +1183,7 @@ class SyncQueueService {
         .where((value) => value.isNotEmpty)
         .toSet()
         .toList(growable: false);
+    _ensureLegacySyncAllowedForScopes(targetScopes);
 
     try {
       await _waitForIdle();
@@ -1211,6 +1247,7 @@ class SyncQueueService {
     if (_isDisposed) {
       return;
     }
+    _ensureLegacySyncAllowedForScope(scope);
     final db = await _appDatabase.database;
     final now = DateTime.now().toIso8601String();
     final values = <String, Object?>{
@@ -1262,6 +1299,29 @@ class SyncQueueService {
     }
   }
 
+  void _ensureLegacySyncAllowedForScope(String scope) {
+    _ensureLegacySyncAllowedForScopes([scope]);
+  }
+
+  void _ensureLegacySyncAllowedForScopes(Iterable<String> scopes) {
+    if (!cloudCutoverMode.blocksLegacyFinancialSync) {
+      return;
+    }
+    final blocked =
+        scopes
+            .map((scope) => scope.trim())
+            .where(_legacyFinancialSyncScopes.contains)
+            .toSet()
+            .toList(growable: false)
+          ..sort();
+    if (blocked.isEmpty) {
+      return;
+    }
+    throw StateError(
+      'Legacy SQLite financial sync is disabled in $cloudCutoverMode for scopes: ${blocked.join(', ')}.',
+    );
+  }
+
   Future<void> _waitForIdle() async {
     while (_isProcessing) {
       await Future<void>.delayed(const Duration(milliseconds: 25));
@@ -1281,7 +1341,7 @@ class SyncQueueService {
     }
 
     _log('Internet detectado -> reintentando sincronizacion pendiente');
-    unawaited(SystemConfigService.instance.refresh());
+    unawaited(_systemConfigService.refresh());
     unawaited(syncPending());
   }
 
@@ -1459,6 +1519,43 @@ class SyncQueueService {
       }
       rethrow;
     }
+  }
+
+  Future<void> _purgeAcknowledgedDeleteTombstones(
+    String scope,
+    Iterable<String> recordSyncIds,
+  ) async {
+    if (scope != 'sales' || _isDisposed) {
+      return;
+    }
+
+    final ids = recordSyncIds
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toList(growable: false);
+    if (ids.isEmpty) {
+      return;
+    }
+
+    final db = await _appDatabase.database;
+    final placeholders = List.filled(ids.length, '?').join(', ');
+    await db.rawDelete('''
+      DELETE FROM ${DatabaseSchema.salesTable}
+      WHERE sync_id IN ($placeholders)
+        AND deleted_at IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM ${DatabaseSchema.installmentsTable} cuotas
+          WHERE cuotas.venta_id = ${DatabaseSchema.salesTable}.id
+          LIMIT 1
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM ${DatabaseSchema.paymentsTable} pagos
+          WHERE pagos.venta_id = ${DatabaseSchema.salesTable}.id
+          LIMIT 1
+        )
+      ''', ids);
   }
 
   Future<void> _repairFailedDeleteQueueEntries(

@@ -29,16 +29,19 @@ import 'package:sistema_solares/services/sync/sync_queue_service.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('sale sync scopes include quick-created client and seller references', () {
-    expect(
-      SalesRepository.createSaleSyncScopes,
-      containsAllInOrder(['clients', 'products', 'sellers', 'sales']),
-    );
-    expect(
-      SalesRepository.saleMutationSyncScopes,
-      containsAllInOrder(['clients', 'products', 'sellers', 'sales']),
-    );
-  });
+  test(
+    'sale sync scopes include quick-created client and seller references',
+    () {
+      expect(
+        SalesRepository.createSaleSyncScopes,
+        containsAllInOrder(['clients', 'products', 'sellers', 'sales']),
+      );
+      expect(
+        SalesRepository.saleMutationSyncScopes,
+        containsAllInOrder(['clients', 'products', 'sellers', 'sales']),
+      );
+    },
+  );
 
   late Directory tempDirectory;
   late AppDatabase appDatabase;
@@ -108,42 +111,47 @@ void main() {
     }
   });
 
-  test('scenario A quick-created client delete is uploaded as tombstone', () async {
-    final now = DateTime(2026, 5, 11, 10, 0);
-    await clientRepository.save(
-      Client(
-        fullName: 'Cliente Escenario A',
-        documentId: '001-1000001-1',
-        phone: '8095550001',
-        address: 'Direccion A',
-        createdAt: now,
-        updatedAt: now,
-      ),
-    );
+  test(
+    'scenario A quick-created client delete is uploaded as tombstone',
+    () async {
+      final now = DateTime(2026, 5, 11, 10, 0);
+      await clientRepository.save(
+        Client(
+          fullName: 'Cliente Escenario A',
+          documentId: '001-1000001-1',
+          phone: '8095550001',
+          address: 'Direccion A',
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
 
-    final client = (await clientRepository.fetchAll()).single;
-    final clientSyncId = await _readSyncId(
-      appDatabase,
-      DatabaseSchema.clientsTable,
-      client.id!,
-    );
+      final client = (await clientRepository.fetchAll()).single;
+      final clientSyncId = await _readSyncId(
+        appDatabase,
+        DatabaseSchema.clientsTable,
+        client.id!,
+      );
 
-    await syncQueueService.syncPending();
-    expect(apiClient.countUploads('clients', clientSyncId), 1);
+      await syncQueueService.syncPending();
+      expect(apiClient.countUploads('clients', clientSyncId), 1);
 
-    await clientRepository.delete(client.id!);
+      await clientRepository.delete(client.id!);
 
-    await syncQueueService.syncPending();
+      await syncQueueService.syncPending();
 
-    final deleteUploads = apiClient.uploadedRecordsByScope['clients']!
-        .where((record) => record['sync_id'] == clientSyncId)
-        .where((record) => (record['deleted_at']?.toString().isNotEmpty ?? false))
-        .toList(growable: false);
-    expect(deleteUploads, hasLength(1));
-  });
+      final deleteUploads = apiClient.uploadedRecordsByScope['clients']!
+          .where((record) => record['sync_id'] == clientSyncId)
+          .where(
+            (record) => (record['deleted_at']?.toString().isNotEmpty ?? false),
+          )
+          .toList(growable: false);
+      expect(deleteUploads, hasLength(1));
+    },
+  );
 
   test(
-    'scenario B deleting sale also deletes lot product tombstone',
+    'scenario B deleting sale releases lot without product tombstone',
     () async {
       final now = DateTime(2026, 5, 11, 11, 0);
 
@@ -180,8 +188,9 @@ void main() {
 
       final client = (await clientRepository.fetchAll()).single;
       final lot = (await lotRepository.fetchAll()).single;
-      final seller = (await sellerRepository.getAll())
-          .firstWhere((item) => item.id == sellerId);
+      final seller = (await sellerRepository.getAll()).firstWhere(
+        (item) => item.id == sellerId,
+      );
 
       final clientSyncId = await _readSyncId(
         appDatabase,
@@ -248,11 +257,12 @@ void main() {
       expect(
         lotRowBeforeUpload['sync_status'],
         anyOf(
-          DatabaseSchema.syncStatusPendingDelete,
+          DatabaseSchema.syncStatusPendingUpdate,
           DatabaseSchema.syncStatusSynced,
         ),
       );
-      expect(lotRowBeforeUpload['deleted_at'], isNotNull);
+      expect(lotRowBeforeUpload['deleted_at'], isNull);
+      expect(lotRowBeforeUpload['estado'], 'disponible');
       expect(
         sellerRowBeforeUpload['sync_status'],
         DatabaseSchema.syncStatusPendingDelete,
@@ -261,7 +271,7 @@ void main() {
       await syncQueueService.syncPending();
 
       expect(_countDeleteUploads(apiClient, 'clients', clientSyncId), 1);
-      expect(_countDeleteUploads(apiClient, 'products', lotSyncId), 1);
+      expect(_countDeleteUploads(apiClient, 'products', lotSyncId), 0);
       expect(_countDeleteUploads(apiClient, 'sellers', sellerSyncId), 1);
 
       final clientRow = await _readRowBySyncId(
@@ -281,7 +291,8 @@ void main() {
       );
 
       expect(clientRow['deleted_at'], isNotNull);
-      expect(lotRow['deleted_at'], isNotNull);
+      expect(lotRow['deleted_at'], isNull);
+      expect(lotRow['estado'], 'disponible');
       expect(sellerRow['deleted_at'], isNotNull);
       expect(clientRow['sync_status'], DatabaseSchema.syncStatusSynced);
       expect(lotRow['sync_status'], DatabaseSchema.syncStatusSynced);
@@ -359,9 +370,12 @@ int _countDeleteUploads(
   String scope,
   String syncId,
 ) {
-  return (apiClient.uploadedRecordsByScope[scope] ?? const <Map<String, dynamic>>[])
+  return (apiClient.uploadedRecordsByScope[scope] ??
+          const <Map<String, dynamic>>[])
       .where((record) => record['sync_id'] == syncId)
-      .where((record) => record['deleted_at']?.toString().trim().isNotEmpty ?? false)
+      .where(
+        (record) => record['deleted_at']?.toString().trim().isNotEmpty ?? false,
+      )
       .length;
 }
 

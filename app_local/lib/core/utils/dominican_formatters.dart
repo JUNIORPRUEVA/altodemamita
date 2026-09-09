@@ -18,7 +18,10 @@ double parseRdCurrency(String value) {
   }
 
   final sanitized = trimmed.replaceAll(RegExp(r'[^0-9,.-]'), '');
-  if (sanitized.isEmpty || sanitized == '-' || sanitized == '.' || sanitized == ',') {
+  if (sanitized.isEmpty ||
+      sanitized == '-' ||
+      sanitized == '.' ||
+      sanitized == ',') {
     return 0;
   }
 
@@ -154,14 +157,16 @@ class RdCurrencyInputFormatter extends TextInputFormatter {
 }
 
 class CurrencyTextFormatter extends RdCurrencyInputFormatter {
-  CurrencyTextFormatter({int decimalDigits = 2})
-    : super(decimalDigits: decimalDigits);
+  CurrencyTextFormatter({super.decimalDigits});
 }
 
 /// Formatter para cédula dominicana (XXX-XXXXXXX-X)
 class DominicanIdFormatter extends TextInputFormatter {
   @override
-  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
     final cleaned = newValue.text.replaceAll(RegExp(r'[^\d]'), '');
 
     if (cleaned.isEmpty) {
@@ -223,7 +228,10 @@ class DominicanIdFormatter extends TextInputFormatter {
 /// Formatter para teléfono dominicano (XXX) XXX-XXXX
 class DominicanPhoneFormatter extends TextInputFormatter {
   @override
-  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
     final cleaned = newValue.text.replaceAll(RegExp(r'[^\d]'), '');
 
     if (cleaned.isEmpty) {
@@ -236,13 +244,14 @@ class DominicanPhoneFormatter extends TextInputFormatter {
 
     // Aplicar formato: (XXX) XXX-XXXX
     String formatted = '';
-    
+
     if (cleaned.length <= 3) {
-      formatted = '(${cleaned}';
+      formatted = '($cleaned';
     } else if (cleaned.length <= 6) {
       formatted = '(${cleaned.substring(0, 3)}) ${cleaned.substring(3)}';
     } else {
-      formatted = '(${cleaned.substring(0, 3)}) ${cleaned.substring(3, 6)}-${cleaned.substring(6)}';
+      formatted =
+          '(${cleaned.substring(0, 3)}) ${cleaned.substring(3, 6)}-${cleaned.substring(6)}';
     }
 
     return TextEditingValue(
@@ -251,4 +260,3 @@ class DominicanPhoneFormatter extends TextInputFormatter {
     );
   }
 }
-

@@ -196,6 +196,33 @@ void main() {
       final db = await appDatabase.database;
       final now = DateTime.now().toIso8601String();
 
+      await db.insert(DatabaseSchema.clientsTable, {
+        'id': 1,
+        'sync_id': 'client-sync-1',
+        'version': 1,
+        'nombre': 'Cliente prueba',
+        'cedula': '00113745624',
+        'telefono': '8090000000',
+        'direccion': 'Direccion prueba',
+        'fecha_creacion': now,
+        'fecha_actualizacion': now,
+        'deleted_at': null,
+        'sync_status': DatabaseSchema.syncStatusSynced,
+      });
+      await db.insert(DatabaseSchema.lotsTable, {
+        'id': 1,
+        'sync_id': 'lot-sync-1',
+        'version': 1,
+        'manzana_numero': 'A',
+        'solar_numero': '1',
+        'metros_cuadrados': 100,
+        'precio_por_metro': 5000,
+        'estado': 'vendido',
+        'fecha_creacion': now,
+        'fecha_actualizacion': now,
+        'deleted_at': null,
+        'sync_status': DatabaseSchema.syncStatusSynced,
+      });
       await db.insert(DatabaseSchema.salesTable, {
         'sync_id': 'sale-sync-1',
         'version': 1,

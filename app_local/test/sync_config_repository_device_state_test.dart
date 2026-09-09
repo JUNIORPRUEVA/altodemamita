@@ -10,7 +10,7 @@ void main() {
   });
 
   test(
-    'device write state defaults to writable when nothing is persisted',
+    'device write state defaults to blocked until validated',
     () async {
       final repository = SyncConfigRepository(
         preferencesFactory: SharedPreferences.getInstance,
@@ -18,7 +18,7 @@ void main() {
 
       final state = await repository.loadDeviceWriteState();
 
-      expect(state.canWrite, isTrue);
+      expect(state.canWrite, isFalse);
       expect(state.isPrimary, isFalse);
       expect(state.lastValidatedAt, isNull);
       expect(state.reason, isEmpty);

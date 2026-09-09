@@ -24,13 +24,13 @@ class BackupPage extends StatefulWidget {
   final Future<String> Function()? onResetLocalOnly;
 
   const BackupPage({
-    Key? key,
+    super.key,
     this.controller,
     required this.backupService,
     required this.diskDetectionService,
     this.onResetBusinessData,
     this.onResetLocalOnly,
-  }) : super(key: key);
+  });
 
   @override
   State<BackupPage> createState() => _BackupPageState();
@@ -104,34 +104,34 @@ class _BackupPageState extends State<BackupPage> {
     return BaseLayout(
       title: 'Backup',
       child: ListenableBuilder(
-              listenable: _controller,
-              builder: (context, _) {
-                return SingleChildScrollView(
-                  child: Column(
-                    children: [
-                      if (_controller.statusMessage != null)
-                        _buildStatusBanner(
-                          message: _controller.statusMessage!,
-                          isError: false,
-                        ),
-                      if (_controller.errorMessage != null)
-                        _buildStatusBanner(
-                          message: _controller.errorMessage!,
-                          isError: true,
-                        ),
-                      if (_controller.primaryDrive != null ||
-                          _controller.secondaryDrive != null)
-                        _buildSystemStatusSection(_controller),
-                      if (_controller.config != null)
-                        _buildConfigurationSection(_controller),
-                      _buildManualBackupSection(_controller),
-                      _buildDangerZoneSection(),
-                      _buildBackupHistorySection(_controller),
-                    ],
+        listenable: _controller,
+        builder: (context, _) {
+          return SingleChildScrollView(
+            child: Column(
+              children: [
+                if (_controller.statusMessage != null)
+                  _buildStatusBanner(
+                    message: _controller.statusMessage!,
+                    isError: false,
                   ),
-                );
-              },
+                if (_controller.errorMessage != null)
+                  _buildStatusBanner(
+                    message: _controller.errorMessage!,
+                    isError: true,
+                  ),
+                if (_controller.primaryDrive != null ||
+                    _controller.secondaryDrive != null)
+                  _buildSystemStatusSection(_controller),
+                if (_controller.config != null)
+                  _buildConfigurationSection(_controller),
+                _buildManualBackupSection(_controller),
+                _buildDangerZoneSection(),
+                _buildBackupHistorySection(_controller),
+              ],
             ),
+          );
+        },
+      ),
     );
   }
 
@@ -513,6 +513,9 @@ class _BackupPageState extends State<BackupPage> {
                     if (!await _ensureAuthorized()) {
                       return;
                     }
+                    if (!mounted) {
+                      return;
+                    }
                     _showRetentionDialog(context, controller, config);
                   },
                   child: const Text('Cambiar'),
@@ -697,7 +700,7 @@ class _BackupPageState extends State<BackupPage> {
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
                 itemCount: backups.length,
-                separatorBuilder: (_, __) => Divider(color: Colors.grey[300]),
+                separatorBuilder: (_, _) => Divider(color: Colors.grey[300]),
                 itemBuilder: (context, index) {
                   final backup = backups[index];
                   return _buildBackupItem(context, backup, controller);
@@ -721,14 +724,15 @@ class _BackupPageState extends State<BackupPage> {
         child: ExpansionTile(
           tilePadding: EdgeInsets.zero,
           childrenPadding: const EdgeInsets.only(top: 8),
-          leading: const Icon(Icons.warning_amber_rounded, color: Color(0xFFB42318)),
+          leading: const Icon(
+            Icons.warning_amber_rounded,
+            color: Color(0xFFB42318),
+          ),
           title: const Text(
             'Zona avanzada: reseteo de datos',
             style: TextStyle(fontWeight: FontWeight.w700),
           ),
-          subtitle: const Text(
-            'Borra clientes, solares, vendedores y ventas.',
-          ),
+          subtitle: const Text('Borra clientes, solares, vendedores y ventas.'),
           children: [
             Container(
               width: double.infinity,
@@ -750,13 +754,13 @@ class _BackupPageState extends State<BackupPage> {
               child: FilledButton.icon(
                 onPressed: enabled && callbackBoth != null
                     ? () => _executeReset(
-                          callback: callbackBoth,
-                          title: 'Borrar nube + esta PC',
-                          warning:
-                              'Se eliminaran definitivamente los datos comerciales en la NUBE y en ESTA PC: clientes, solares, vendedores, ventas, cuotas y pagos.\n\n'
-                              'Requiere conexion con el servidor.',
-                          confirmLabel: 'Si, borrar nube y PC',
-                        )
+                        callback: callbackBoth,
+                        title: 'Borrar nube + esta PC',
+                        warning:
+                            'Se eliminaran definitivamente los datos comerciales en la NUBE y en ESTA PC: clientes, solares, vendedores, ventas, cuotas y pagos.\n\n'
+                            'Requiere conexion con el servidor.',
+                        confirmLabel: 'Si, borrar nube y PC',
+                      )
                     : null,
                 style: FilledButton.styleFrom(
                   backgroundColor: const Color(0xFFB42318),
@@ -784,13 +788,13 @@ class _BackupPageState extends State<BackupPage> {
               child: OutlinedButton.icon(
                 onPressed: enabled && callbackLocal != null
                     ? () => _executeReset(
-                          callback: callbackLocal,
-                          title: 'Borrar solo esta PC',
-                          warning:
-                              'Se eliminaran los datos comerciales SOLO EN ESTA PC: clientes, solares, vendedores, ventas, cuotas y pagos.\n\n'
-                              'La nube NO se toca. Usa esto si no tienes conexion.',
-                          confirmLabel: 'Si, borrar solo en esta PC',
-                        )
+                        callback: callbackLocal,
+                        title: 'Borrar solo esta PC',
+                        warning:
+                            'Se eliminaran los datos comerciales SOLO EN ESTA PC: clientes, solares, vendedores, ventas, cuotas y pagos.\n\n'
+                            'La nube NO se toca. Usa esto si no tienes conexion.',
+                        confirmLabel: 'Si, borrar solo en esta PC',
+                      )
                     : null,
                 style: OutlinedButton.styleFrom(
                   foregroundColor: const Color(0xFFB42318),
@@ -838,6 +842,9 @@ class _BackupPageState extends State<BackupPage> {
     }
 
     if (!await _ensureAuthorized()) {
+      return;
+    }
+    if (!mounted) {
       return;
     }
 
@@ -948,6 +955,9 @@ class _BackupPageState extends State<BackupPage> {
               PopupMenuButton<String>(
                 onSelected: (value) async {
                   if (!await _ensureAuthorized()) {
+                    return;
+                  }
+                  if (!context.mounted) {
                     return;
                   }
                   if (value == 'restore') {
@@ -1062,6 +1072,9 @@ class _BackupPageState extends State<BackupPage> {
     if (!await _ensureAuthorized()) {
       return;
     }
+    if (!context.mounted) {
+      return;
+    }
 
     showDialog(
       context: context,
@@ -1093,6 +1106,9 @@ class _BackupPageState extends State<BackupPage> {
     BackupController controller,
   ) async {
     if (!await _ensureAuthorized()) {
+      return;
+    }
+    if (!context.mounted) {
       return;
     }
 
@@ -1154,6 +1170,9 @@ class _BackupPageState extends State<BackupPage> {
     BackupController controller,
   ) async {
     if (!await _ensureAuthorized()) {
+      return;
+    }
+    if (!context.mounted) {
       return;
     }
 

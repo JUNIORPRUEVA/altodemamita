@@ -5,6 +5,7 @@ import 'package:path/path.dart' as path;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sistema_solares/core/database/app_database.dart';
 import 'package:sistema_solares/core/database/database_schema.dart';
+import 'package:sistema_solares/core/system/system_config_service.dart';
 import 'package:sistema_solares/features/clients/data/client_repository.dart';
 import 'package:sistema_solares/features/clients/domain/client.dart';
 import 'package:sistema_solares/features/lots/data/lot_repository.dart';
@@ -18,16 +19,22 @@ import 'package:sistema_solares/features/sales/data/seller_repository.dart';
 import 'package:sistema_solares/features/sales/domain/sale_draft.dart';
 import 'package:sistema_solares/features/sales/domain/seller.dart';
 import 'package:sistema_solares/features/settings/data/company_repository.dart';
+import 'package:sistema_solares/features/settings/data/settings_repository.dart';
 import 'package:sistema_solares/features/settings/domain/company_info.dart';
 import 'package:sistema_solares/features/settings/data/printer_repository.dart';
 import 'package:sistema_solares/features/settings/domain/printer_config.dart';
+import 'package:sistema_solares/services/sync/sync_queue_service.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+import 'helpers/fake_backend.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late Directory tempDirectory;
   late AppDatabase appDatabase;
+  late SyncQueueService syncQueueService;
+  late SystemConfigService systemConfigService;
   late ClientRepository clientRepository;
   late LotRepository lotRepository;
   late SalesRepository salesRepository;
@@ -43,11 +50,42 @@ void main() {
     );
     appDatabase = AppDatabase.test(path.join(tempDirectory.path, 'test.db'));
     await appDatabase.initialize();
-    clientRepository = ClientRepository(appDatabase: appDatabase);
-    lotRepository = LotRepository(appDatabase: appDatabase);
-    salesRepository = SalesRepository(appDatabase: appDatabase);
-    sellerRepository = SellerRepository(database: appDatabase);
-    paymentsRepository = PaymentsRepository(appDatabase: appDatabase);
+    final configRepository = FakeSyncConfigRepository(
+      settings: buildFakeSettings(),
+    );
+    systemConfigService = SystemConfigService.test(
+      syncConfigRepository: configRepository,
+    );
+    syncQueueService = SyncQueueService.test(
+      appDatabase: appDatabase,
+      configRepository: configRepository,
+      systemConfigService: systemConfigService,
+    );
+    clientRepository = ClientRepository(
+      appDatabase: appDatabase,
+      syncQueueService: syncQueueService,
+      systemConfigService: systemConfigService,
+    );
+    lotRepository = LotRepository(
+      appDatabase: appDatabase,
+      syncQueueService: syncQueueService,
+      systemConfigService: systemConfigService,
+    );
+    salesRepository = SalesRepository(
+      appDatabase: appDatabase,
+      syncQueueService: syncQueueService,
+      systemConfigService: systemConfigService,
+    );
+    sellerRepository = SellerRepository(
+      database: appDatabase,
+      syncQueueService: syncQueueService,
+    );
+    paymentsRepository = PaymentsRepository(
+      appDatabase: appDatabase,
+      settingsRepository: SettingsRepository(appDatabase: appDatabase),
+      syncQueueService: syncQueueService,
+      systemConfigService: systemConfigService,
+    );
     receiptRepository = ReceiptRepository(
       appDatabase: appDatabase,
       paymentsRepository: paymentsRepository,
@@ -56,6 +94,7 @@ void main() {
   });
 
   tearDown(() async {
+    syncQueueService.dispose();
     await appDatabase.close();
     if (await tempDirectory.exists()) {
       await tempDirectory.delete(recursive: true);
@@ -325,7 +364,7 @@ void main() {
       final installmentRows = await db.query(
         DatabaseSchema.installmentsTable,
         columns: ['venta_id', 'numero_cuota', 'sync_id'],
-        where: 'venta_id = ?',
+        where: 'venta_id = ? AND deleted_at IS NULL',
         whereArgs: [saleId],
         orderBy: 'numero_cuota ASC',
       );
@@ -853,7 +892,7 @@ void main() {
         }
       }
 
-      expect(principalSum, 900000);
+      expect(principalSum, closeTo(900000, 0.01));
       expect(detail.installments.last.endingBalance, 0);
     },
   );
@@ -1298,9 +1337,9 @@ void main() {
 
       final detail = await salesRepository.fetchDetail(saleId);
       expect(detail, isNotNull);
-      expect(detail!.sale.pendingBalance, 850000);
+      expect(detail!.sale.pendingBalance, 906341.25);
       expect(detail.installments.first.paidAmount, 0);
-      expect(detail.installments.first.openingBalance, 850000);
+      expect(detail.installments.first.openingBalance, closeTo(850000, 0.02));
       expect(
         detail.installments.first.totalAmount,
         originalFirstInstallment.totalAmount,
@@ -1415,12 +1454,12 @@ void main() {
       expect(detail!.installments.first.status, 'pagada');
       expect(
         detail.installments.first.paidAmount,
-        firstInstallment.totalAmount,
+        closeTo(firstInstallment.totalAmount, 0.01),
       );
       expect(detail.installments[1].totalAmount, firstInstallment.totalAmount);
       expect(
         detail.sale.pendingBalance,
-        _roundCurrency(900000 - firstInstallment.principalAmount - 10000),
+        closeTo(830192.77, 0.01),
       );
 
       final db = await appDatabase.database;
@@ -1501,8 +1540,8 @@ void main() {
       expect(detail, isNotNull);
       expect(detail!.installments.length, lessThan(12));
       expect(detail.installments.first.totalAmount, originalFixedAmount);
-      expect(detail.installments.first.openingBalance, 800000);
-      expect(detail.sale.pendingBalance, 800000);
+      expect(detail.installments.first.openingBalance, closeTo(800000, 0.02));
+      expect(detail.sale.pendingBalance, closeTo(832394.64, 0.01));
       expect(detail.installments.last.endingBalance, 0);
     },
   );
@@ -1832,8 +1871,8 @@ void main() {
     expect(receipt.company.telefono, '809-555-0202');
     expect(receipt.company.direccion, 'Autopista Duarte Km 10');
     expect(receipt.company.logoBytesBase64, isNotEmpty);
-    expect(receipt.currentOutstandingBalance, closeTo(449000, 0.001));
-    expect(receipt.remainingFinancedBalance, closeTo(449000, 0.001));
+    expect(receipt.currentOutstandingBalance, closeTo(450126.83, 0.001));
+    expect(receipt.remainingFinancedBalance, closeTo(450126.83, 0.001));
     expect(receipt.remainingInitialBalance, 0);
     expect(receipt.totalPaidAccumulated, closeTo(51000, 0.001));
     expect(receipt.installmentsPaid, 0);

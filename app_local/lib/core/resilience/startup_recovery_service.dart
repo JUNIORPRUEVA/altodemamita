@@ -350,7 +350,7 @@ class StartupRecoveryService {
             );
           }
 
-          if (_shouldRecreateDatabase(error)) {
+          if (_shouldRecreateDatabase(error, aggressiveRepair: aggressiveRepair)) {
             await _recreateDatabase(databasePath);
             repairs.add(
               'Se forzo la recreacion de la base local despues de detectar que no aceptaba escritura.',
@@ -383,13 +383,19 @@ class StartupRecoveryService {
     return fullRows.isNotEmpty ? '${fullRows.first.values.first}' : 'unknown';
   }
 
-  bool _shouldRecreateDatabase(Object error) {
+  bool _shouldRecreateDatabase(
+    Object error, {
+    required bool aggressiveRepair,
+  }) {
     final message = error.toString().toLowerCase();
-    return message.contains('readonly') ||
-        message.contains('read only') ||
+    return message.contains('readonly database') ||
+        message.contains('attempt to write a readonly database') ||
+        message.contains('read-only database') ||
+        message.contains('read only database') ||
         message.contains('writable') ||
-        message.contains('integrity_check=') ||
-        message.contains('missing_critical_tables=');
+        (aggressiveRepair &&
+            (message.contains('integrity_check=') ||
+                message.contains('missing_critical_tables=')));
   }
 
   Future<void> _recreateDatabase(String databasePath) async {

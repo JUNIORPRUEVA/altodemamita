@@ -103,6 +103,7 @@ class PaymentsSyncRepository implements SyncRepository {
 
     final affectedSaleIds = <int>{};
     final db = await _appDatabase.database;
+    final logDetailedRecords = records.length <= 200;
     await db.transaction((txn) async {
       for (final record in records) {
         final syncId = _readRequiredString(record['sync_id']);
@@ -118,13 +119,8 @@ class PaymentsSyncRepository implements SyncRepository {
         );
         if (_isDeleted(record['deleted_at'])) {
           if (_hasConflictProtectedPendingLocal(existingRows)) {
-            await _markFirstExistingRowAsConflict(
-              txn,
-              tableName: DatabaseSchema.paymentsTable,
-              existingRows: existingRows,
-            );
             _log(
-              'payments_remote_tombstone_conflict_pending_local sync_id=$syncId',
+              'payments_remote_tombstone_kept_pending_local sync_id=$syncId',
             );
             continue;
           }
@@ -195,7 +191,9 @@ class PaymentsSyncRepository implements SyncRepository {
             'deleted_at': _readNullableDate(record['deleted_at']),
             'sync_status': DatabaseSchema.syncStatusSynced,
           };
-          _log('UPSERT TOMBSTONE: payments $syncId');
+          if (logDetailedRecords) {
+            _log('UPSERT TOMBSTONE: payments $syncId');
+          }
           await _upsertPayment(txn, tombstoneValues);
           continue;
         }
@@ -256,14 +254,18 @@ class PaymentsSyncRepository implements SyncRepository {
         };
 
         if (existingRows.isEmpty) {
-          _log(
-            '[SYNC] Insert new record: table=payments id=$syncId remote_delete=false',
-          );
+          if (logDetailedRecords) {
+            _log(
+              '[SYNC] Insert new record: table=payments id=$syncId remote_delete=false',
+            );
+          }
           await txn.insert(DatabaseSchema.paymentsTable, values);
         } else {
-          _log(
-            '[SYNC] Updating local record: table=payments id=$syncId remote_delete=false',
-          );
+          if (logDetailedRecords) {
+            _log(
+              '[SYNC] Updating local record: table=payments id=$syncId remote_delete=false',
+            );
+          }
           await txn.update(
             DatabaseSchema.paymentsTable,
             values,
@@ -325,11 +327,15 @@ class PaymentsSyncRepository implements SyncRepository {
           );
           final totalAmount = _readDouble(installment['monto_cuota']);
           // Cap paid amount at total to handle duplicate pagos without breaking display.
-          final cappedPaidAmount = paidAmount > totalAmount ? _roundCurrency(totalAmount) : paidAmount;
+          final cappedPaidAmount = paidAmount > totalAmount
+              ? _roundCurrency(totalAmount)
+              : paidAmount;
           final interestAmount = _readDouble(installment['interes_cuota']);
           final principalAmount = _readDouble(installment['capital_cuota']);
           final interestPaid = _roundCurrency(
-            cappedPaidAmount > interestAmount ? interestAmount : cappedPaidAmount,
+            cappedPaidAmount > interestAmount
+                ? interestAmount
+                : cappedPaidAmount,
           );
           final principalPaid = _roundCurrency(
             (cappedPaidAmount - interestPaid).clamp(0, principalAmount),
@@ -345,7 +351,8 @@ class PaymentsSyncRepository implements SyncRepository {
 
           final statusChanged = currentStatus != newStatus;
           final paidChanged =
-              (_readDouble(installment['monto_pagado']) - cappedPaidAmount).abs() >
+              (_readDouble(installment['monto_pagado']) - cappedPaidAmount)
+                  .abs() >
               0.009;
           final principalChanged =
               (_readDouble(installment['capital_pagado']) - principalPaid)
@@ -544,26 +551,6 @@ bool _hasConflictProtectedPendingLocal(
       .toLowerCase();
   return localSyncStatus == DatabaseSchema.syncStatusPendingCreate ||
       localSyncStatus == DatabaseSchema.syncStatusPendingUpdate;
-}
-
-Future<void> _markFirstExistingRowAsConflict(
-  dynamic txn, {
-  required String tableName,
-  required List<Map<String, Object?>> existingRows,
-}) async {
-  if (existingRows.isEmpty) {
-    return;
-  }
-  final rowId = existingRows.first['id'];
-  if (rowId == null) {
-    return;
-  }
-  await txn.update(
-    tableName,
-    {'sync_status': DatabaseSchema.syncStatusConflict},
-    where: 'id = ?',
-    whereArgs: [rowId],
-  );
 }
 
 Future<void> _upsertPayment(dynamic txn, Map<String, Object?> values) async {

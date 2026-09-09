@@ -169,6 +169,11 @@ class DominicanValidators {
       return 'El teléfono no puede exceder 30 caracteres.';
     }
 
+    final digitCount = RegExp(r'\d').allMatches(trimmed).length;
+    if (digitCount < 10) {
+      return 'El teléfono debe tener al menos 10 dígitos.';
+    }
+
     return null;
   }
 

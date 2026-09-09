@@ -56,3 +56,40 @@ const bool allowManualCloudRestore = bool.fromEnvironment(
   'ALLOW_MANUAL_CLOUD_RESTORE',
   defaultValue: false,
 );
+
+/// Phase 2 transition mode.
+///
+/// Supported values:
+/// - LEGACY_LOCAL: current SQLite-authoritative behavior.
+/// - CLOUD_UAT: use cloud foundation services only in controlled UAT.
+/// - CLOUD_AUTHORITATIVE: backend-authoritative mode after final approval.
+const String cloudCutoverModeValue = String.fromEnvironment(
+  'CLOUD_CUTOVER_MODE',
+  defaultValue: 'LEGACY_LOCAL',
+);
+
+enum CloudCutoverMode {
+  legacyLocal,
+  cloudUat,
+  cloudAuthoritative;
+
+  bool get usesAuthoritativeBusinessWrites =>
+      this == CloudCutoverMode.cloudUat ||
+      this == CloudCutoverMode.cloudAuthoritative;
+
+  bool get blocksLegacyFinancialSync =>
+      this == CloudCutoverMode.cloudUat ||
+      this == CloudCutoverMode.cloudAuthoritative;
+}
+
+CloudCutoverMode get cloudCutoverMode {
+  switch (cloudCutoverModeValue.trim().toUpperCase()) {
+    case 'CLOUD_UAT':
+      return CloudCutoverMode.cloudUat;
+    case 'CLOUD_AUTHORITATIVE':
+      return CloudCutoverMode.cloudAuthoritative;
+    case 'LEGACY_LOCAL':
+    default:
+      return CloudCutoverMode.legacyLocal;
+  }
+}

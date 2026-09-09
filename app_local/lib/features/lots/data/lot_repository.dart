@@ -5,6 +5,7 @@ import '../../../core/network/backend_api_client.dart';
 import '../../../core/network/backend_entity_id_registry.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_schema.dart';
+import '../../../core/errors/active_sales_block_delete_exception.dart';
 import '../../../core/system/system_config_service.dart';
 import '../../../services/sync/sync_queue_service.dart';
 import '../domain/lot.dart';
@@ -33,13 +34,17 @@ class LotRepository {
     AppDatabase? appDatabase,
     SyncQueueService? syncQueueService,
     BackendApiClient? apiClient,
+    SystemConfigService? systemConfigService,
   }) : _appDatabase = appDatabase ?? AppDatabase.instance,
        _syncQueueService = syncQueueService ?? SyncQueueService.instance,
-       _apiClient = apiClient ?? BackendApiClient();
+       _apiClient = apiClient ?? BackendApiClient(),
+       _systemConfigService =
+           systemConfigService ?? SystemConfigService.instance;
 
   final AppDatabase _appDatabase;
   final SyncQueueService _syncQueueService;
   final BackendApiClient _apiClient;
+  final SystemConfigService _systemConfigService;
   final BackendEntityIdRegistry _idRegistry = BackendEntityIdRegistry.instance;
 
   bool get _shouldRunBackgroundSync =>
@@ -222,7 +227,7 @@ class LotRepository {
 
   Future<void> save(Lot lot) async {
     try {
-      SystemConfigService.instance.ensureWritable();
+      _systemConfigService.ensureWritable();
       if (_useBackendMode) {
         await _saveToBackend(lot);
         return;
@@ -324,7 +329,7 @@ class LotRepository {
 
   Future<void> delete(int id) async {
     try {
-      SystemConfigService.instance.ensureWritable();
+      _systemConfigService.ensureWritable();
       if (_useBackendMode) {
         final remoteId = _idRegistry.resolveRemoteId('products', id);
         if (remoteId == null || remoteId.isEmpty) {
@@ -338,8 +343,6 @@ class LotRepository {
 
       final db = await _appDatabase.database;
 
-      // Verificar ventas activas pero permitir soft delete (marca como deleted_at)
-      // El soft delete solo marca inactivo, no borra físicamente
       final activeSaleRows = await db.rawQuery(
         'SELECT COUNT(*) AS cnt FROM ${DatabaseSchema.salesTable} '
         'WHERE solar_id = ? AND deleted_at IS NULL '
@@ -349,12 +352,10 @@ class LotRepository {
       );
       final activeSaleCount =
           (activeSaleRows.first['cnt'] as num?)?.toInt() ?? 0;
-
-      // Log advertencia si intenta borrar con ventas activas
       if (activeSaleCount > 0) {
-        _log(
-          '⚠️  ADVERTENCIA LOT DELETE: solar id=$id tiene $activeSaleCount '
-          'venta(s) activa(s), pero se permite soft delete (deleted_at)',
+        throw const ActiveSalesBlockDeleteException(
+          'No puedes eliminar este solar porque tiene una venta activa '
+          'relacionada. Primero debes ir a Ventas y anular o eliminar esa venta.',
         );
       }
 

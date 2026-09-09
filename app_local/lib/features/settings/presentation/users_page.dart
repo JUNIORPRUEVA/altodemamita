@@ -241,6 +241,9 @@ class _UsersPageState extends State<UsersPage> {
     }
     Navigator.of(context).pop();
     await _loadUsers();
+    if (!mounted) {
+      return;
+    }
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Permisos guardados correctamente.')),
     );
@@ -324,7 +327,9 @@ class _UserCard extends StatelessWidget {
                 Icon(Icons.email_outlined, size: 18, color: Colors.grey[600]),
                 const SizedBox(width: 8),
                 Text(
-                  (user.email ?? '').isEmpty ? 'Sin correo electrónico' : user.email!,
+                  (user.email ?? '').isEmpty
+                      ? 'Sin correo electrónico'
+                      : user.email!,
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],

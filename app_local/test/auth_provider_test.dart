@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sistema_solares/core/database/app_database.dart';
+import 'package:sistema_solares/core/system/system_config_service.dart';
 import 'package:sistema_solares/features/auth/data/auth_service.dart';
 import 'package:sistema_solares/features/auth/domain/permission_model.dart';
 import 'package:sistema_solares/features/auth/domain/user_model.dart';
@@ -20,6 +21,7 @@ void main() {
   late AppDatabase appDatabase;
   late AuthService authService;
   late AuthProvider authProvider;
+  late SystemConfigService systemConfigService;
   late FakeBackendState backendState;
   late FakeSyncConfigRepository configRepository;
 
@@ -35,13 +37,20 @@ void main() {
     configRepository = FakeSyncConfigRepository(
       settings: buildFakeSettings(),
     );
+    systemConfigService = SystemConfigService.test(
+      syncConfigRepository: configRepository,
+    );
 
     authService = AuthService(
       appDatabase: appDatabase,
       syncConfigRepository: configRepository,
       httpClient: FakeBackendHttpClient(state: backendState),
+      systemConfigService: systemConfigService,
     );
-    authProvider = AuthProvider(authService: authService);
+    authProvider = AuthProvider(
+      authService: authService,
+      systemConfigService: systemConfigService,
+    );
   });
 
   tearDown(() async {
@@ -69,6 +78,7 @@ void main() {
       ],
     );
 
+    backendState.unreachableHosts.add('invalid.invalid');
     await configRepository.saveBaseUrl('http://invalid.invalid/api');
 
     final signedIn = await authProvider.signIn(
@@ -115,6 +125,7 @@ void main() {
       recoveryCode: recoveryCode,
     );
 
+    backendState.unreachableHosts.add('invalid.invalid');
     await configRepository.saveBaseUrl('http://invalid.invalid/api');
 
     final signedIn = await authProvider.signIn(

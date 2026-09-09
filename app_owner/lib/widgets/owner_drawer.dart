@@ -28,6 +28,8 @@ IconData _moduleIcon(OwnerModule module) {
       return Icons.payments_outlined;
     case OwnerModule.sellers:
       return Icons.badge_outlined;
+    case OwnerModule.documentation:
+      return Icons.menu_book_outlined;
   }
 }
 
@@ -47,9 +49,7 @@ class OwnerDrawer extends StatelessWidget {
       elevation: 0,
       backgroundColor: const Color(0xFFF6F9FC),
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.horizontal(
-          right: Radius.circular(26),
-        ),
+        borderRadius: BorderRadius.horizontal(right: Radius.circular(8)),
       ),
       child: SafeArea(
         bottom: false,
@@ -81,6 +81,21 @@ class OwnerDrawer extends StatelessWidget {
                 },
               ),
             ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 4, 14, 8),
+              child: _DrawerItem(
+                module: OwnerModule.documentation,
+                selected: selected == OwnerModule.documentation,
+                onTap: () {
+                  onSelected(OwnerModule.documentation);
+
+                  final navigator = Navigator.of(context);
+                  if (navigator.canPop()) {
+                    navigator.pop();
+                  }
+                },
+              ),
+            ),
             const _DrawerFooter(),
           ],
         ),
@@ -97,7 +112,7 @@ class _DrawerHeader extends StatelessWidget {
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: AppColors.primary,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(10),
         boxShadow: [
           BoxShadow(
             color: AppColors.primary.withValues(alpha: 0.22),
@@ -113,10 +128,8 @@ class _DrawerHeader extends StatelessWidget {
             height: 52,
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.14),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.18),
-              ),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
             ),
             child: const Icon(
               Icons.real_estate_agent_outlined,
@@ -130,7 +143,7 @@ class _DrawerHeader extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Sistema Solares',
+                  'Alto de Mamita',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -143,7 +156,7 @@ class _DrawerHeader extends StatelessWidget {
                 ),
                 SizedBox(height: 5),
                 Text(
-                  'Owner App',
+                  'App móvil',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -182,21 +195,18 @@ class _DrawerItem extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 7),
       child: Material(
         color: Colors.transparent,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(8),
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(8),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 180),
             curve: Curves.easeOut,
             constraints: const BoxConstraints(minHeight: 54),
-            padding: const EdgeInsets.symmetric(
-              horizontal: 13,
-              vertical: 10,
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
             decoration: BoxDecoration(
               color: selected ? Colors.white : Colors.transparent,
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(8),
               border: Border.all(
                 color: selected ? AppColors.border : Colors.transparent,
                 width: 1,
@@ -221,18 +231,14 @@ class _DrawerItem extends StatelessWidget {
                     color: selected
                         ? AppColors.primaryLight
                         : const Color(0xFFEAF0F6),
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(6),
                     border: Border.all(
                       color: selected
                           ? AppColors.primary.withValues(alpha: 0.16)
                           : AppColors.borderLight,
                     ),
                   ),
-                  child: Icon(
-                    _moduleIcon(module),
-                    size: 21,
-                    color: iconColor,
-                  ),
+                  child: Icon(_moduleIcon(module), size: 21, color: iconColor),
                 ),
                 const SizedBox(width: 13),
                 Expanded(
@@ -244,8 +250,7 @@ class _DrawerItem extends StatelessWidget {
                       color: textColor,
                       fontSize: 15,
                       height: 1.1,
-                      fontWeight:
-                          selected ? FontWeight.w800 : FontWeight.w600,
+                      fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
                       letterSpacing: -0.1,
                     ),
                   ),
@@ -281,7 +286,7 @@ class _DrawerFooter extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(color: AppColors.borderLight),
       ),
       child: Row(
@@ -291,10 +296,10 @@ class _DrawerFooter extends StatelessWidget {
             height: 34,
             decoration: BoxDecoration(
               color: AppColors.primaryLight,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(6),
             ),
             child: const Icon(
-              Icons.cloud_sync_outlined,
+              Icons.copyright_outlined,
               color: AppColors.primary,
               size: 19,
             ),
@@ -302,7 +307,7 @@ class _DrawerFooter extends StatelessWidget {
           const SizedBox(width: 11),
           const Expanded(
             child: Text(
-              'Actualización automática cada 3 segundos.',
+              'Alto de Mamita - Todos los derechos reservados',
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(

@@ -44,7 +44,7 @@ class InitialCloudUploadService {
   final SyncApiClient _apiClient;
 
   static const int _batchSize = 100;
-  static const String _appBuild = '1.0.0+14';
+  static const String _appBuild = '1.0.0+15';
   static const String _logPrefix = '[InitialCloudUpload]';
 
   /// Orden de subida respetando dependencias.
@@ -97,10 +97,21 @@ class InitialCloudUploadService {
     _log('initialUploadRequired=${diagnostics.currentInitialUploadRequired}');
     _log('shouldRun=${diagnostics.shouldRun} reason=${diagnostics.reason}');
 
+    final hasLocalUploadWork = await _hasLocalUploadWork();
+    _log('hasLocalUploadWork=$hasLocalUploadWork');
+    final cloudBehindLocal = await _isCloudBehindLocal(cloudIdentity.cloudData);
+    _log('cloudBehindLocal=$cloudBehindLocal');
+
     // 1. Verificar si ya se completó para esta URL y esta identidad de nube.
-    if (!diagnostics.shouldRun) {
+    if (!diagnostics.shouldRun && !hasLocalUploadWork && !cloudBehindLocal) {
       _log('already completed, skipping');
       return true;
+    }
+    if (!diagnostics.shouldRun && hasLocalUploadWork) {
+      _log('forcing upload because local pending data still exists');
+    }
+    if (!diagnostics.shouldRun && cloudBehindLocal) {
+      _log('forcing upload because cloud counts are behind local data');
     }
 
     _log('starting reason=${diagnostics.reason}');
@@ -161,6 +172,7 @@ class InitialCloudUploadService {
     }
 
     // 7. Marcar como completado con metadatos
+    await _markUploadedBusinessDataSynced();
     await _configRepository.markLocalUploadBootstrapCompleted(
       backendUrl: backendUrl,
       cloudIdentity: cloudIdentity,
@@ -170,6 +182,123 @@ class InitialCloudUploadService {
       'completed databaseName=${cloudIdentity.databaseName} cloudFingerprint=${cloudIdentity.cloudFingerprint}',
     );
     return true;
+  }
+
+  Future<bool> _hasLocalUploadWork() async {
+    final db = await _appDatabase.database;
+    final pendingRows = await db.rawQuery('''
+      SELECT
+        (SELECT COUNT(*) FROM ${DatabaseSchema.clientsTable}
+          WHERE COALESCE(sync_status, '') <> 'synced') +
+        (SELECT COUNT(*) FROM ${DatabaseSchema.sellersTable}
+          WHERE COALESCE(sync_status, '') <> 'synced') +
+        (SELECT COUNT(*) FROM ${DatabaseSchema.lotsTable}
+          WHERE COALESCE(sync_status, '') <> 'synced') +
+        (SELECT COUNT(*) FROM ${DatabaseSchema.salesTable}
+          WHERE COALESCE(sync_status, '') <> 'synced') +
+        (SELECT COUNT(*) FROM ${DatabaseSchema.installmentsTable}
+          WHERE COALESCE(sync_status, '') <> 'synced') +
+        (SELECT COUNT(*) FROM ${DatabaseSchema.paymentsTable}
+          WHERE COALESCE(sync_status, '') <> 'synced') +
+        (SELECT COUNT(*) FROM ${DatabaseSchema.syncQueueTable}
+          WHERE scope IN (
+            'clients',
+            'sellers',
+            'products',
+            'sales',
+            'installments',
+            'payments'
+          ))
+        AS pending_count
+    ''');
+    final value = pendingRows.first['pending_count'];
+    final count = value is int ? value : int.tryParse(value.toString()) ?? 0;
+    return count > 0;
+  }
+
+  Future<bool> _isCloudBehindLocal(CloudData? cloudData) async {
+    if (cloudData == null) {
+      return false;
+    }
+
+    final db = await _appDatabase.database;
+    final localCounts = {
+      'clients': await _countActiveRows(db, DatabaseSchema.clientsTable),
+      'sellers': await _countActiveRows(db, DatabaseSchema.sellersTable),
+      'lots': await _countActiveRows(db, DatabaseSchema.lotsTable),
+      'sales': await _countActiveRows(db, DatabaseSchema.salesTable),
+      'installments': await _countActiveRows(
+        db,
+        DatabaseSchema.installmentsTable,
+      ),
+      'payments': await _countActiveRows(db, DatabaseSchema.paymentsTable),
+    };
+    final cloudCounts = {
+      'clients': cloudData.clients,
+      'sellers': cloudData.sellers,
+      'lots': cloudData.lots,
+      'sales': cloudData.sales,
+      'installments': cloudData.installments,
+      'payments': cloudData.payments,
+    };
+
+    for (final entry in localCounts.entries) {
+      final cloudCount = cloudCounts[entry.key] ?? 0;
+      _log(
+        'count-check scope=${entry.key} local=${entry.value} cloud=$cloudCount',
+      );
+      if (entry.value > cloudCount) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  Future<int> _countActiveRows(dynamic db, String tableName) async {
+    final rows = await db.rawQuery(
+      'SELECT COUNT(*) AS total FROM $tableName WHERE deleted_at IS NULL',
+    );
+    final value = rows.first['total'];
+    return value is int ? value : int.tryParse(value.toString()) ?? 0;
+  }
+
+  Future<void> _markUploadedBusinessDataSynced() async {
+    final db = await _appDatabase.database;
+    await db.transaction((txn) async {
+      for (final tableName in [
+        DatabaseSchema.clientsTable,
+        DatabaseSchema.sellersTable,
+        DatabaseSchema.lotsTable,
+        DatabaseSchema.salesTable,
+        DatabaseSchema.installmentsTable,
+        DatabaseSchema.paymentsTable,
+      ]) {
+        await txn.update(
+          tableName,
+          {
+            'sync_status': DatabaseSchema.syncStatusSynced,
+            'last_modified_local': DateTime.now().toIso8601String(),
+          },
+          where: "COALESCE(sync_status, '') <> ?",
+          whereArgs: [DatabaseSchema.syncStatusSynced],
+        );
+      }
+
+      await txn.delete(
+        DatabaseSchema.syncQueueTable,
+        where: '''
+          scope IN (
+            'clients',
+            'sellers',
+            'products',
+            'sales',
+            'installments',
+            'payments'
+          )
+        ''',
+      );
+    });
+    _log('local business data marked as synced after initial upload');
   }
 
   Future<CloudIdentity?> _fetchCloudIdentity(SyncSettings settings) async {

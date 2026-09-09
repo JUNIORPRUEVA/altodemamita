@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../app/app_colors.dart';
 import '../core/utils.dart';
+import 'desktop_detail_pane.dart';
 import 'detail_page.dart';
 
 class RecordCard extends StatelessWidget {
@@ -18,35 +19,45 @@ class RecordCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final accent = accentColor ?? AppColors.primary;
+    final accent = view.accentColor ?? accentColor ?? AppColors.primary;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: onTap ??
+          onTap:
+              onTap ??
               () {
+                if (DesktopDetailScope.openIfAvailable(
+                  context,
+                  () => DetailPage(view: view),
+                )) {
+                  return;
+                }
                 Navigator.of(context).push(
                   PageRouteBuilder(
                     pageBuilder: (context, animation, secondaryAnimation) =>
                         DetailPage(view: view),
                     transitionsBuilder:
                         (context, animation, secondaryAnimation, child) {
-                      return FadeTransition(
-                        opacity: animation,
-                        child: SlideTransition(
-                          position: Tween<Offset>(
-                            begin: const Offset(0.02, 0),
-                            end: Offset.zero,
-                          ).animate(CurvedAnimation(
-                            parent: animation,
-                            curve: Curves.easeOutCubic,
-                          )),
-                          child: child,
-                        ),
-                      );
-                    },
+                          return FadeTransition(
+                            opacity: animation,
+                            child: SlideTransition(
+                              position:
+                                  Tween<Offset>(
+                                    begin: const Offset(0.02, 0),
+                                    end: Offset.zero,
+                                  ).animate(
+                                    CurvedAnimation(
+                                      parent: animation,
+                                      curve: Curves.easeOutCubic,
+                                    ),
+                                  ),
+                              child: child,
+                            ),
+                          );
+                        },
                     transitionDuration: const Duration(milliseconds: 300),
                   ),
                 );
@@ -89,7 +100,7 @@ class RecordCard extends StatelessWidget {
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
                                 fontSize: 14,
-                                fontWeight: FontWeight.w700,
+                                fontWeight: FontWeight.w600,
                                 color: AppColors.textPrimary,
                                 height: 1.2,
                               ),

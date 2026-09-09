@@ -18,7 +18,9 @@ void main() {
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
-    tempDir = await Directory.systemTemp.createTemp('cannot_delete_client_active_sale_');
+    tempDir = await Directory.systemTemp.createTemp(
+      'cannot_delete_client_active_sale_',
+    );
     appDatabase = AppDatabase.test(path.join(tempDir.path, 'test.db'));
     await appDatabase.initialize();
     repository = ClientRepository(appDatabase: appDatabase);
@@ -57,7 +59,9 @@ void main() {
       'sync_status': DatabaseSchema.syncStatusSynced,
     });
 
-    final userId = await db.rawQuery('SELECT id FROM ${DatabaseSchema.usersTable} LIMIT 1');
+    final userId = await db.rawQuery(
+      'SELECT id FROM ${DatabaseSchema.usersTable} LIMIT 1',
+    );
     final uid = userId.first['id'] as int;
 
     await db.insert(DatabaseSchema.salesTable, {
@@ -117,62 +121,226 @@ void main() {
     expect(rows.first['cedula'], '__DELETED__$clientId');
   });
 
-  test('blocks_duplicate_active_client_document_and_allows_recreate_after_delete', () async {
+  test(
+    'blocks_duplicate_active_client_document_and_allows_recreate_after_delete',
+    () async {
+      final db = await appDatabase.database;
+      final now = DateTime.now();
+      final document = '00100000999';
+
+      final firstId = await db.insert(DatabaseSchema.clientsTable, {
+        'sync_id': 'client-dup-1',
+        'cedula': document,
+        'nombre': 'Cliente Uno',
+        'telefono': '8090000001',
+        'fecha_creacion': now.toIso8601String(),
+        'fecha_actualizacion': now.toIso8601String(),
+        'sync_status': DatabaseSchema.syncStatusSynced,
+      });
+
+      await expectLater(
+        repository.save(
+          Client(
+            fullName: 'Cliente Dos',
+            documentId: document,
+            phone: '8090000002',
+            address: null,
+            createdAt: now,
+            updatedAt: now,
+          ),
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('cliente activo con esta cédula'),
+          ),
+        ),
+      );
+
+      await repository.delete(firstId);
+
+      await expectLater(
+        repository.save(
+          Client(
+            fullName: 'Cliente Recreado',
+            documentId: document,
+            phone: '8090000003',
+            address: null,
+            createdAt: now,
+            updatedAt: now,
+          ),
+        ),
+        completes,
+      );
+
+      final activeRows = await db.query(
+        DatabaseSchema.clientsTable,
+        where: 'TRIM(cedula) = ? AND deleted_at IS NULL',
+        whereArgs: [document],
+      );
+      expect(activeRows.length, 1);
+    },
+  );
+
+  test(
+    'active_pending_client_is_listed_and_deleted_client_does_not_block',
+    () async {
+      final db = await appDatabase.database;
+      final now = DateTime.now();
+      final deletedAt = now.subtract(const Duration(days: 1)).toIso8601String();
+
+      await db.insert(DatabaseSchema.clientsTable, {
+        'sync_id': 'client-yosayra-deleted',
+        'cedula': '__DELETED__37',
+        'nombre': 'YOSAYRA FELIX',
+        'telefono': '(829) 554-4479',
+        'fecha_creacion': now.toIso8601String(),
+        'fecha_actualizacion': now.toIso8601String(),
+        'deleted_at': deletedAt,
+        'sync_status': DatabaseSchema.syncStatusSynced,
+      });
+
+      final activeId = await db.insert(DatabaseSchema.clientsTable, {
+        'sync_id': 'client-yosaira-active',
+        'cedula': '02800984631',
+        'nombre': 'YOSAIRA FELIX',
+        'telefono': '8295544479',
+        'fecha_creacion': now.toIso8601String(),
+        'fecha_actualizacion': now.toIso8601String(),
+        'deleted_at': null,
+        'sync_status': DatabaseSchema.syncStatusPendingCreate,
+      });
+
+      final allClients = await repository.fetchAll();
+      expect(allClients.map((client) => client.id), contains(activeId));
+      expect(
+        allClients.any((client) => client.fullName == 'YOSAYRA FELIX'),
+        isFalse,
+      );
+
+      final byPlainPhone = await repository.fetchAll(query: '8295544479');
+      expect(byPlainPhone.map((client) => client.id), contains(activeId));
+      expect(
+        byPlainPhone.any((client) => client.fullName == 'YOSAYRA FELIX'),
+        isFalse,
+      );
+
+      final byFormattedPhone = await repository.fetchAll(
+        query: '(829) 554-4479',
+      );
+      expect(byFormattedPhone.map((client) => client.id), contains(activeId));
+      expect(
+        byFormattedPhone.any((client) => client.fullName == 'YOSAYRA FELIX'),
+        isFalse,
+      );
+
+      await expectLater(
+        repository.save(
+          Client(
+            fullName: 'Cliente Telefono Duplicado',
+            documentId: '02800984632',
+            phone: '(829) 554-4479',
+            address: null,
+            createdAt: now,
+            updatedAt: now,
+          ),
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('cliente activo con este teléfono'),
+          ),
+        ),
+      );
+
+      await db.update(
+        DatabaseSchema.clientsTable,
+        {
+          'deleted_at': now.toIso8601String(),
+          'sync_status': DatabaseSchema.syncStatusPendingDelete,
+        },
+        where: 'id = ?',
+        whereArgs: [activeId],
+      );
+
+      await expectLater(
+        repository.save(
+          Client(
+            fullName: 'Nuevo Cliente Mismo Telefono',
+            documentId: '02800984632',
+            phone: '(829) 554-4479',
+            address: null,
+            createdAt: now,
+            updatedAt: now,
+          ),
+        ),
+        completes,
+      );
+    },
+  );
+
+  test('client_phone_search_accepts_letters_and_free_text', () async {
     final db = await appDatabase.database;
     final now = DateTime.now();
-    final document = '00100000999';
 
-    final firstId = await db.insert(DatabaseSchema.clientsTable, {
-      'sync_id': 'client-dup-1',
-      'cedula': document,
-      'nombre': 'Cliente Uno',
-      'telefono': '8090000001',
+    final alphaPhoneId = await db.insert(DatabaseSchema.clientsTable, {
+      'sync_id': 'client-phone-alpha',
+      'cedula': '02800984633',
+      'nombre': 'Cliente Alfanumerico',
+      'telefono': '829ABC4479',
+      'direccion': 'Oficina Principal',
       'fecha_creacion': now.toIso8601String(),
       'fecha_actualizacion': now.toIso8601String(),
-      'sync_status': DatabaseSchema.syncStatusSynced,
+      'deleted_at': null,
+      'sync_status': DatabaseSchema.syncStatusPendingUpdate,
     });
 
-    await expectLater(
-      repository.save(
-        Client(
-          fullName: 'Cliente Dos',
-          documentId: document,
-          phone: '8090000002',
-          address: null,
-          createdAt: now,
-          updatedAt: now,
-        ),
-      ),
-      throwsA(
-        isA<StateError>().having(
-          (error) => error.message,
-          'message',
-          contains('cliente activo con esta cédula'),
-        ),
-      ),
+    final extPhoneId = await db.insert(DatabaseSchema.clientsTable, {
+      'sync_id': 'client-phone-ext',
+      'cedula': '02800984634',
+      'nombre': 'Cliente Extension',
+      'telefono': 'Ext. 23',
+      'direccion': 'Oficina 2',
+      'fecha_creacion': now.toIso8601String(),
+      'fecha_actualizacion': now.toIso8601String(),
+      'deleted_at': null,
+      'sync_status': DatabaseSchema.syncStatusPendingCreate,
+    });
+
+    final byLetters = await repository.fetchAll(query: 'ABC');
+    expect(byLetters.map((client) => client.id), contains(alphaPhoneId));
+
+    final byExtension = await repository.fetchAll(query: 'Ext');
+    expect(byExtension.map((client) => client.id), contains(extPhoneId));
+
+    final byNormalizedExtension = await repository.fetchAll(query: 'Ext23');
+    expect(
+      byNormalizedExtension.map((client) => client.id),
+      contains(extPhoneId),
     );
 
-    await repository.delete(firstId);
+    final byAddress = await repository.fetchAll(query: 'Oficina 2');
+    expect(byAddress.map((client) => client.id), contains(extPhoneId));
 
-    await expectLater(
-      repository.save(
-        Client(
-          fullName: 'Cliente Recreado',
-          documentId: document,
-          phone: '8090000003',
-          address: null,
-          createdAt: now,
-          updatedAt: now,
-        ),
+    await repository.save(
+      Client(
+        fullName: 'Cliente Texto Libre',
+        documentId: '02800984635',
+        phone: ' Oficina 99 ',
+        address: null,
+        createdAt: now,
+        updatedAt: now,
       ),
-      completes,
     );
-
-    final activeRows = await db.query(
+    final freeTextRows = await db.query(
       DatabaseSchema.clientsTable,
-      where: 'TRIM(cedula) = ? AND deleted_at IS NULL',
-      whereArgs: [document],
+      columns: ['telefono'],
+      where: 'cedula = ? AND deleted_at IS NULL',
+      whereArgs: ['02800984635'],
+      limit: 1,
     );
-    expect(activeRows.length, 1);
+    expect(freeTextRows.single['telefono'], ' Oficina 99 ');
   });
 }

@@ -54,6 +54,7 @@ void main() {
       configRepository: configRepository,
       apiClient: apiClient,
       syncQueueService: queue,
+      appDatabase: appDatabase,
     );
   }
 
@@ -98,6 +99,7 @@ void main() {
         configRepository: configRepository,
         apiClient: apiClient,
         syncQueueService: queue,
+        appDatabase: appDatabase,
         onCloudSessionExpired: (_) async {
           expiredNotifications += 1;
         },
@@ -117,7 +119,7 @@ void main() {
         expect(secondReport.wasSkipped, isTrue);
         expect(
           secondReport.errorMessage,
-          SyncService.cloudLoginRequiredMessage,
+          contains('Inicia sesion en linea'),
         );
         expect(expiredNotifications, 1);
         expect((await configRepository.loadSettings()).jwtToken, isEmpty);

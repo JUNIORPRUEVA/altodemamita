@@ -142,19 +142,15 @@ class _ClientFormDialogState extends State<ClientFormDialog> {
     final client = baseClient.copyWith(
       fullName: _fullNameController.text.trim(),
       documentId: documentId,
-      phone: _normalizeOptionalText(_phoneController.text),
+      phone: _preserveOptionalText(_phoneController.text),
       address: _formatAddress(_addressController.text),
     );
 
     Navigator.of(context).pop(client);
   }
 
-  String? _normalizeOptionalText(String value) {
-    final trimmed = value.trim();
-    if (trimmed.isEmpty) {
-      return null;
-    }
-    return trimmed;
+  String? _preserveOptionalText(String value) {
+    return value.trim().isEmpty ? null : value;
   }
 
   String? _formatAddress(String value) {

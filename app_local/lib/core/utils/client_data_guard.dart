@@ -43,13 +43,19 @@ class ClientDataGuard {
       return false;
     }
 
-    final name = payload['full_name']?.toString() ?? payload['nombre']?.toString();
-    final doc = payload['document_id']?.toString() ?? payload['cedula']?.toString();
+    final name =
+        payload['full_name']?.toString() ??
+        payload['name']?.toString() ??
+        payload['nombre']?.toString();
+    final doc =
+        payload['document_id']?.toString() ??
+        payload['document']?.toString() ??
+        payload['cedula']?.toString();
     final syncId = payload['sync_id']?.toString();
     final deletedAt =
-      payload['deleted_at']?.toString() ??
-      payload['deletedAt']?.toString() ??
-      '';
+        payload['deleted_at']?.toString() ??
+        payload['deletedAt']?.toString() ??
+        '';
     final isDelete = deletedAt.trim().isNotEmpty;
 
     // Deletes can carry anonymized document IDs (e.g. __DELETED__123).
@@ -68,10 +74,12 @@ class ClientDataGuard {
       return false;
     }
 
-    final name = record['full_name']?.toString() ?? record['nombre']?.toString();
+    final name =
+        record['full_name']?.toString() ??
+        record['name']?.toString() ??
+        record['nombre']?.toString();
     final syncId = record['sync_id']?.toString();
 
-    return isTestLikeName(name) ||
-        !hasValidSyncId(syncId);
+    return isTestLikeName(name) || !hasValidSyncId(syncId);
   }
 }

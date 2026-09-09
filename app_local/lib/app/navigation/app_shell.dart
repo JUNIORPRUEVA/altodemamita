@@ -86,7 +86,9 @@ Widget _safeTooltip({
 }
 
 class AppShell extends StatefulWidget {
-  const AppShell({super.key});
+  const AppShell({super.key, this.enableBackgroundSync = true});
+
+  final bool enableBackgroundSync;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -190,10 +192,14 @@ class _AppShellState extends State<AppShell> {
       unawaited(_refreshInternetStatus());
     });
     unawaited(_refreshInternetStatus());
-    _syncQueueService.setCloudSessionExpiredHandler(_handleCloudSessionExpired);
-    _syncManager.addListener(_handleSyncManagerChanged);
-    unawaited(_writeStartupDiagnostics());
-    unawaited(_syncManager.start());
+    if (widget.enableBackgroundSync) {
+      _syncQueueService.setCloudSessionExpiredHandler(
+        _handleCloudSessionExpired,
+      );
+      _syncManager.addListener(_handleSyncManagerChanged);
+      unawaited(_writeStartupDiagnostics());
+      unawaited(_syncManager.start());
+    }
   }
 
   Future<void> _writeStartupDiagnostics() async {
@@ -292,7 +298,9 @@ class _AppShellState extends State<AppShell> {
     _syncQueueService.setCloudSessionExpiredHandler(null);
     _authProvider?.removeListener(_handleAuthProviderChanged);
     _authProvider = null;
-    _syncManager.removeListener(_handleSyncManagerChanged);
+    if (widget.enableBackgroundSync) {
+      _syncManager.removeListener(_handleSyncManagerChanged);
+    }
     _syncManager.dispose();
     _syncConflictService.dispose();
     _realtimeSyncService.dispose();
@@ -391,8 +399,8 @@ class _AppShellState extends State<AppShell> {
       return;
     }
 
-    // Default to collapsed sidebar so the workspace is maximised. The user can
-    // manually expand it via the toggle, but it auto-collapses on navigation.
+    // Default to collapsed sidebar so the workspace is maximised. On desktop it
+    // expands while the cursor is over the navigation surface.
     final nextSidebarExpanded = false;
     final nextAdministrationExpanded =
         preferences.getBool(_sidebarAdministrationPreferenceKey) ?? false;
@@ -477,11 +485,6 @@ class _AppShellState extends State<AppShell> {
       if (module != AppModule.payments) {
         _selectedPaymentsSaleId = null;
       }
-      // Auto-collapse the sidebar on navigation to keep the layout clean.
-      if (_isSidebarExpanded) {
-        _isSidebarExpanded = false;
-        unawaited(_persistNavigationPreferences());
-      }
     });
   }
 
@@ -489,10 +492,6 @@ class _AppShellState extends State<AppShell> {
     setState(() {
       _selectedModule = AppModule.installments;
       _selectedInstallmentsSaleId = saleId;
-      if (_isSidebarExpanded) {
-        _isSidebarExpanded = false;
-        unawaited(_persistNavigationPreferences());
-      }
     });
   }
 
@@ -500,22 +499,24 @@ class _AppShellState extends State<AppShell> {
     setState(() {
       _selectedModule = AppModule.payments;
       _selectedPaymentsSaleId = saleId;
-      if (_isSidebarExpanded) {
-        _isSidebarExpanded = false;
-        unawaited(_persistNavigationPreferences());
-      }
     });
   }
 
-  Future<void> _toggleSidebar() async {
+  void _expandSidebarFromHover() {
+    _sidebarAutoCollapseTimer?.cancel();
+    _sidebarAutoCollapseTimer = null;
+
+    if (_isSidebarExpanded) {
+      return;
+    }
+
     setState(() {
-      _isSidebarExpanded = !_isSidebarExpanded;
+      _isSidebarExpanded = true;
     });
-    _syncSidebarAutoCollapseTimer();
-    await _persistNavigationPreferences();
+    unawaited(_persistNavigationPreferences());
   }
 
-  void _syncSidebarAutoCollapseTimer() {
+  void _scheduleSidebarCollapseFromHover() {
     _sidebarAutoCollapseTimer?.cancel();
     _sidebarAutoCollapseTimer = null;
 
@@ -523,16 +524,21 @@ class _AppShellState extends State<AppShell> {
       return;
     }
 
-    _sidebarAutoCollapseTimer = Timer(const Duration(minutes: 5), () {
+    _sidebarAutoCollapseTimer = Timer(const Duration(milliseconds: 260), () {
       if (!mounted || !_isSidebarExpanded) {
         return;
       }
 
       setState(() {
         _isSidebarExpanded = false;
+        _isAdministrationMenuExpanded = false;
       });
       unawaited(_persistNavigationPreferences());
     });
+  }
+
+  void _syncSidebarAutoCollapseTimer() {
+    _scheduleSidebarCollapseFromHover();
   }
 
   Future<void> _toggleAdministrationMenu() async {
@@ -540,6 +546,17 @@ class _AppShellState extends State<AppShell> {
       _isAdministrationMenuExpanded = !_isAdministrationMenuExpanded;
     });
     await _persistNavigationPreferences();
+  }
+
+  void _setAdministrationMenuHover(bool isHovered) {
+    if (_isAdministrationMenuExpanded == isHovered) {
+      return;
+    }
+
+    setState(() {
+      _isAdministrationMenuExpanded = isHovered;
+    });
+    unawaited(_persistNavigationPreferences());
   }
 
   Future<void> _openProfile() async {
@@ -659,12 +676,14 @@ class _AppShellState extends State<AppShell> {
         .where(accessibleModules.contains)
         .toList();
     final canAccessSettings = accessibleModules.contains(AppModule.settings);
+    final dataVersion = _syncManager.state.dataVersion;
     final currentPage = KeyedSubtree(
       key: ValueKey(
         Object.hash(
           resolvedModule,
           _selectedInstallmentsSaleId,
           _selectedPaymentsSaleId,
+          dataVersion,
         ),
       ),
       child: ShellLayoutScope(child: _buildCurrentPage(resolvedModule)),
@@ -709,13 +728,12 @@ class _AppShellState extends State<AppShell> {
                 showSettingsAction: canAccessSettings,
                 isCollapsed: false,
                 isAdministrationMenuExpanded: true,
-                allowCollapse: false,
                 onSelectModule: (module) {
                   Navigator.of(context).pop();
                   _openModule(module);
                 },
-                onToggleCollapse: null,
                 onToggleAdministrationMenu: null,
+                onAdministrationHoverChanged: null,
               ),
             ),
             body: Column(
@@ -730,70 +748,94 @@ class _AppShellState extends State<AppShell> {
         return Scaffold(
           backgroundColor: const Color(0xFFF0F3F8),
           body: SafeArea(
-            child: Row(
+            child: Stack(
               children: [
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 280),
-                  curve: Curves.easeOutCubic,
-                  width: _isSidebarExpanded
-                      ? _sidebarExpandedWidth
-                      : _sidebarCollapsedWidth,
-                  child: ClipRect(
-                    child: DecoratedBox(
-                      decoration: const BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [Color(0xFF0D2844), Color(0xFF071829)],
+                Row(
+                  children: [
+                    const SizedBox(width: _sidebarCollapsedWidth),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(0, 16, 16, 16),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(20),
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              border: Border.all(
+                                color: const Color(0xFFE4EAF2),
+                                width: 1,
+                              ),
+                              boxShadow: const [
+                                BoxShadow(
+                                  color: Color(0x0D000000),
+                                  blurRadius: 20,
+                                  offset: Offset(0, 4),
+                                ),
+                              ],
+                            ),
+                            child: Column(
+                              children: [
+                                _ShellHeader(
+                                  selectedModule: resolvedModule,
+                                  currentUser: user,
+                                  hasInternet: _hasInternet,
+                                  onOpenProfile: _openProfile,
+                                ),
+                                Expanded(child: currentPage),
+                                _ShellFooter(companyName: _companyDisplayName),
+                              ],
+                            ),
+                          ),
                         ),
-                      ),
-                      child: _ShellNavigation(
-                        selectedModule: resolvedModule,
-                        primaryModules: primaryModules,
-                        administrationModules: administrationModules,
-                        showSettingsAction: canAccessSettings,
-                        isCollapsed: !_isSidebarExpanded,
-                        isAdministrationMenuExpanded:
-                            _isAdministrationMenuExpanded,
-                        allowCollapse: true,
-                        onSelectModule: _openModule,
-                        onToggleCollapse: _toggleSidebar,
-                        onToggleAdministrationMenu: _toggleAdministrationMenu,
                       ),
                     ),
-                  ),
+                  ],
                 ),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(0, 16, 16, 16),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(20),
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          border: Border.all(
-                            color: const Color(0xFFE4EAF2),
-                            width: 1,
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: MouseRegion(
+                    onEnter: (_) => _expandSidebarFromHover(),
+                    onExit: (_) => _scheduleSidebarCollapseFromHover(),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 280),
+                      curve: Curves.easeOutCubic,
+                      width: _isSidebarExpanded
+                          ? _sidebarExpandedWidth
+                          : _sidebarCollapsedWidth,
+                      decoration: BoxDecoration(
+                        boxShadow: _isSidebarExpanded
+                            ? const [
+                                BoxShadow(
+                                  color: Color(0x33000000),
+                                  blurRadius: 24,
+                                  offset: Offset(8, 0),
+                                ),
+                              ]
+                            : null,
+                      ),
+                      child: ClipRect(
+                        child: DecoratedBox(
+                          decoration: const BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [Color(0xFF0D2844), Color(0xFF071829)],
+                            ),
                           ),
-                          boxShadow: const [
-                            BoxShadow(
-                              color: Color(0x0D000000),
-                              blurRadius: 20,
-                              offset: Offset(0, 4),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          children: [
-                            _ShellHeader(
-                              selectedModule: resolvedModule,
-                              currentUser: user,
-                              hasInternet: _hasInternet,
-                              onOpenProfile: _openProfile,
-                            ),
-                            Expanded(child: currentPage),
-                            _ShellFooter(companyName: _companyDisplayName),
-                          ],
+                          child: _ShellNavigation(
+                            selectedModule: resolvedModule,
+                            primaryModules: primaryModules,
+                            administrationModules: administrationModules,
+                            showSettingsAction: canAccessSettings,
+                            isCollapsed: !_isSidebarExpanded,
+                            isAdministrationMenuExpanded:
+                                _isAdministrationMenuExpanded,
+                            onSelectModule: _openModule,
+                            onToggleAdministrationMenu:
+                                _toggleAdministrationMenu,
+                            onAdministrationHoverChanged:
+                                _setAdministrationMenuHover,
+                          ),
                         ),
                       ),
                     ),
@@ -960,10 +1002,9 @@ class _ShellNavigation extends StatelessWidget {
     required this.showSettingsAction,
     required this.isCollapsed,
     required this.isAdministrationMenuExpanded,
-    required this.allowCollapse,
     required this.onSelectModule,
-    required this.onToggleCollapse,
     required this.onToggleAdministrationMenu,
+    required this.onAdministrationHoverChanged,
   });
 
   final AppModule selectedModule;
@@ -972,10 +1013,9 @@ class _ShellNavigation extends StatelessWidget {
   final bool showSettingsAction;
   final bool isCollapsed;
   final bool isAdministrationMenuExpanded;
-  final bool allowCollapse;
   final ValueChanged<AppModule> onSelectModule;
-  final VoidCallback? onToggleCollapse;
   final VoidCallback? onToggleAdministrationMenu;
+  final ValueChanged<bool>? onAdministrationHoverChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -985,7 +1025,6 @@ class _ShellNavigation extends StatelessWidget {
         final selectedInAdministration = administrationModules.contains(
           selectedModule,
         );
-        final toggleCollapse = onToggleCollapse ?? () {};
         final toggleAdministrationMenu = onToggleAdministrationMenu ?? () {};
         final effectiveCollapsed =
             isCollapsed ||
@@ -1069,39 +1108,31 @@ class _ShellNavigation extends StatelessWidget {
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Text(
-                                  'Sistema Solares',
+                                  'Alto de Mamita',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
                                     color: Colors.white,
-                                    fontSize: 15,
+                                    fontSize: 15.5,
                                     fontWeight: FontWeight.w800,
-                                    letterSpacing: 0.1,
+                                    letterSpacing: 0,
                                   ),
                                 ),
                                 SizedBox(height: 2),
                                 Text(
-                                  'Navegación ejecutiva',
+                                  'Sistema de solares',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
                                     color: Color(0x8AFFFFFF),
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w500,
-                                    letterSpacing: 0.35,
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w600,
+                                    letterSpacing: 0,
                                   ),
                                 ),
                               ],
                             ),
                           ),
-                          if (allowCollapse) ...[
-                            const SizedBox(width: 10),
-                            _SidebarCompactAction(
-                              icon: Icons.keyboard_double_arrow_left_rounded,
-                              tooltip: 'Ocultar menú',
-                              onTap: toggleCollapse,
-                            ),
-                          ],
                         ],
                       ),
               ),
@@ -1116,17 +1147,6 @@ class _ShellNavigation extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      if (allowCollapse && effectiveCollapsed) ...[
-                        Align(
-                          alignment: Alignment.center,
-                          child: _SidebarCompactAction(
-                            icon: Icons.keyboard_double_arrow_right_rounded,
-                            tooltip: 'Mostrar menú completo',
-                            onTap: toggleCollapse,
-                          ),
-                        ),
-                        const SizedBox(height: 18),
-                      ],
                       if (!effectiveCollapsed)
                         Padding(
                           padding: const EdgeInsets.only(left: 8, bottom: 10),
@@ -1181,6 +1201,7 @@ class _ShellNavigation extends StatelessWidget {
                                 isCollapsed: effectiveCollapsed,
                                 isExpanded: isAdministrationMenuExpanded,
                                 onToggle: toggleAdministrationMenu,
+                                onHoverChanged: onAdministrationHoverChanged,
                                 onSelectModule: onSelectModule,
                               ),
                             ],
@@ -1319,6 +1340,7 @@ class _AdministrationMenu extends StatelessWidget {
     required this.isCollapsed,
     required this.isExpanded,
     required this.onToggle,
+    required this.onHoverChanged,
     required this.onSelectModule,
   });
 
@@ -1328,6 +1350,7 @@ class _AdministrationMenu extends StatelessWidget {
   final bool isCollapsed;
   final bool isExpanded;
   final VoidCallback onToggle;
+  final ValueChanged<bool>? onHoverChanged;
   final ValueChanged<AppModule> onSelectModule;
 
   @override
@@ -1415,108 +1438,125 @@ class _AdministrationMenu extends StatelessWidget {
       );
     }
 
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.04),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-      ),
-      child: Column(
-        children: [
-          Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(18),
-              onTap: onToggle,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 12,
+    return MouseRegion(
+      onEnter: (_) => onHoverChanged?.call(true),
+      onExit: (_) => onHoverChanged?.call(false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+        decoration: BoxDecoration(
+          color: isExpanded
+              ? Colors.white.withValues(alpha: 0.06)
+              : Colors.white.withValues(alpha: 0.04),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: isExpanded
+                ? const Color(0xFF83CAFF).withValues(alpha: 0.18)
+                : Colors.white.withValues(alpha: 0.08),
+          ),
+        ),
+        child: Column(
+          children: [
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(18),
+                onTap: onToggle,
+                hoverColor: Colors.white.withValues(alpha: 0.05),
+                splashColor: Colors.white.withValues(alpha: 0.07),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 12,
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 38,
+                        height: 38,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(13),
+                          color: const Color(
+                            0xFF5BAEE8,
+                          ).withValues(alpha: 0.14),
+                        ),
+                        child: const Icon(
+                          Icons.admin_panel_settings_outlined,
+                          size: 19,
+                          color: Color(0xFF8ED2FF),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Administración',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              'Clientes, solares, cuotas y vendedores',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: Color(0x96FFFFFF),
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      AnimatedRotation(
+                        turns: isExpanded ? 0.5 : 0,
+                        duration: const Duration(milliseconds: 220),
+                        child: Icon(
+                          Icons.keyboard_arrow_down_rounded,
+                          color: Colors.white.withValues(alpha: 0.78),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-                child: Row(
+              ),
+            ),
+            AnimatedCrossFade(
+              duration: const Duration(milliseconds: 220),
+              sizeCurve: Curves.easeOutCubic,
+              crossFadeState: isExpanded
+                  ? CrossFadeState.showSecond
+                  : CrossFadeState.showFirst,
+              firstChild: const SizedBox.shrink(),
+              secondChild: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+                child: Column(
                   children: [
-                    Container(
-                      width: 38,
-                      height: 38,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(13),
-                        color: const Color(0xFF5BAEE8).withValues(alpha: 0.14),
+                    const Divider(color: Color(0x14FFFFFF), height: 1),
+                    const SizedBox(height: 8),
+                    for (final module in modules) ...[
+                      _SidebarItem(
+                        module: module,
+                        isSelected: module == selectedModule,
+                        textTheme: textTheme,
+                        isCollapsed: false,
+                        isPrimary: false,
+                        compactLeadingInset: 8,
+                        onTap: () => onSelectModule(module),
                       ),
-                      child: const Icon(
-                        Icons.admin_panel_settings_outlined,
-                        size: 19,
-                        color: Color(0xFF8ED2FF),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    const Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Administración',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 13.5,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          SizedBox(height: 2),
-                          Text(
-                            'Clientes, solares, cuotas y vendedores',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: Color(0x96FFFFFF),
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    AnimatedRotation(
-                      turns: isExpanded ? 0.5 : 0,
-                      duration: const Duration(milliseconds: 220),
-                      child: Icon(
-                        Icons.keyboard_arrow_down_rounded,
-                        color: Colors.white.withValues(alpha: 0.78),
-                      ),
-                    ),
+                      const SizedBox(height: 6),
+                    ],
                   ],
                 ),
               ),
             ),
-          ),
-          AnimatedCrossFade(
-            duration: const Duration(milliseconds: 220),
-            crossFadeState: isExpanded
-                ? CrossFadeState.showSecond
-                : CrossFadeState.showFirst,
-            firstChild: const SizedBox.shrink(),
-            secondChild: Padding(
-              padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
-              child: Column(
-                children: [
-                  const Divider(color: Color(0x14FFFFFF), height: 1),
-                  const SizedBox(height: 8),
-                  for (final module in modules) ...[
-                    _SidebarItem(
-                      module: module,
-                      isSelected: module == selectedModule,
-                      textTheme: textTheme,
-                      isCollapsed: false,
-                      isPrimary: false,
-                      compactLeadingInset: 8,
-                      onTap: () => onSelectModule(module),
-                    ),
-                    const SizedBox(height: 6),
-                  ],
-                ],
-              ),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

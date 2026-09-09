@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sistema_solares/core/database/app_database.dart';
+import 'package:sistema_solares/features/settings/data/settings_repository.dart';
 import 'package:sistema_solares/repositories/sync_repository.dart';
 import 'package:sistema_solares/services/sync/sync_config_repository.dart';
 import 'package:sistema_solares/services/sync/sync_conflict_service.dart';
@@ -30,7 +31,10 @@ void main() {
     );
     appDatabase = AppDatabase.test(path.join(tempDirectory.path, 'sync.db'));
     await appDatabase.initialize();
-    configRepository = SyncConfigRepository();
+    configRepository = SyncConfigRepository(
+      settingsRepository: SettingsRepository(appDatabase: appDatabase),
+      preferencesFactory: SharedPreferences.getInstance,
+    );
     apiClient = FakeSyncDownloadApiClient();
     repository = _RecordingSyncRepository('roles');
     queueService = SyncQueueService.test(
@@ -46,6 +50,7 @@ void main() {
       syncQueueService: queueService,
       appDatabase: appDatabase,
     );
+    await configRepository.saveBaseUrl('http://127.0.0.1:9999/api');
     await configRepository.saveJwtToken('jwt-test');
     apiClient.recordsByScope = {
       'roles': [

@@ -127,7 +127,7 @@ class _FakeSyncConfigRepository extends SyncConfigRepository {
   _FakeSyncConfigRepository({required SyncSettings settings})
     : _settings = settings;
 
-  SyncSettings _settings;
+  final SyncSettings _settings;
 
   @override
   Future<SyncSettings> loadSettings() async => _settings;

@@ -268,7 +268,7 @@ class RealtimeSyncService {
     if (!allowCloudPull) {
       return 0;
     }
-    if (_isApplyingRealtimeEvent) {
+    if (_isApplyingRealtimeEvent || _syncService.isSyncing) {
       return 0;
     }
 
@@ -349,6 +349,9 @@ class RealtimeSyncService {
         return;
       }
 
+      if (_syncService.isSyncing) {
+        return;
+      }
       int totalUpdated = 0;
       for (final scope in scopes) {
         totalUpdated += await _syncService.downloadUpdatesForScopes([scope]);

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../app/app_colors.dart';
 import '../../app/safe_area_padding.dart';
 import '../../core/utils.dart';
+import '../../widgets/animated_list_item.dart';
 
 class SaleInstallmentsPage extends StatelessWidget {
   const SaleInstallmentsPage({
@@ -18,14 +19,15 @@ class SaleInstallmentsPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final client = text(sale['client'], 'Cliente');
     final lot = text(sale['lot'], '-');
+    final orderedInstallments = [...installments]..sort(_compareInstallments);
 
     // Calculate totals
     double totalCapital = 0;
     double totalInterest = 0;
     double totalPaid = 0;
-    double totalEndingBalance = 0;
+    double totalPending = 0;
 
-    for (final inst in installments) {
+    for (final inst in orderedInstallments) {
       totalCapital +=
           num.tryParse(inst['totalAmount']?.toString() ?? '0')?.toDouble() ?? 0;
       totalInterest +=
@@ -33,9 +35,7 @@ class SaleInstallmentsPage extends StatelessWidget {
           0;
       totalPaid +=
           num.tryParse(inst['paidAmount']?.toString() ?? '0')?.toDouble() ?? 0;
-      totalEndingBalance +=
-          num.tryParse(inst['endingBalance']?.toString() ?? '0')?.toDouble() ??
-          0;
+      totalPending += _installmentDueAmount(inst);
     }
 
     return Scaffold(
@@ -59,7 +59,7 @@ class SaleInstallmentsPage extends StatelessWidget {
       ),
       body: SafeArea(
         top: false,
-        child: installments.isEmpty
+        child: orderedInstallments.isEmpty
             ? _buildEmptyState()
             : Column(
                 children: [
@@ -82,11 +82,14 @@ class SaleInstallmentsPage extends StatelessWidget {
                   Expanded(
                     child: ListView.builder(
                       padding: safeScrollPadding(context, top: 8),
-                      itemCount: installments.length,
+                      itemCount: orderedInstallments.length,
                       itemBuilder: (context, index) {
-                        return _InstallmentRow(
-                          installment: installments[index],
+                        return AnimatedListItem(
                           index: index,
+                          child: _InstallmentRow(
+                            installment: orderedInstallments[index],
+                            index: index,
+                          ),
                         );
                       },
                     ),
@@ -96,7 +99,7 @@ class SaleInstallmentsPage extends StatelessWidget {
                     totalCapital,
                     totalInterest,
                     totalPaid,
-                    totalEndingBalance,
+                    totalPending,
                   ),
                 ],
               ),
@@ -136,7 +139,7 @@ class SaleInstallmentsPage extends StatelessWidget {
     double totalCapital,
     double totalInterest,
     double totalPaid,
-    double totalEndingBalance,
+    double totalPending,
   ) {
     final totalPlan = totalCapital + totalInterest;
 
@@ -166,11 +169,7 @@ class SaleInstallmentsPage extends StatelessWidget {
           _SummaryRow('Total del plan', money(totalPlan), isBold: true),
           const Divider(height: 16),
           _SummaryRow('Total pagado', money(totalPaid)),
-          _SummaryRow(
-            'Saldo pendiente',
-            money(totalEndingBalance),
-            isBold: true,
-          ),
+          _SummaryRow('Pendiente real', money(totalPending), isBold: true),
         ],
       ),
     );
@@ -194,12 +193,13 @@ class _InstallmentRow extends StatelessWidget {
     final dueDate = dateText(installment['dueDate']);
     final totalAmount = money(installment['totalAmount']);
     final paidAmount = money(installment['paidAmount']);
-    final endingBalance = money(installment['endingBalance']);
+    final pendingAmount = money(_installmentDueAmount(installment));
     final capital = money(installment['capitalAmount']);
     final interest = money(installment['interestAmount']);
 
-    final statusColor = _statusColor(status);
-    final statusLabel = _statusLabel(status);
+    final isOverdue = _isOverdueInstallment(installment);
+    final statusColor = isOverdue ? AppColors.accentRose : _statusColor(status);
+    final statusLabel = isOverdue ? 'Vencida' : _statusLabel(status);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -228,7 +228,7 @@ class _InstallmentRow extends StatelessWidget {
                     number,
                     style: const TextStyle(
                       fontSize: 12,
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w600,
                       color: AppColors.primary,
                     ),
                   ),
@@ -268,7 +268,7 @@ class _InstallmentRow extends StatelessWidget {
               _Cell(label: 'Pagado', value: paidAmount),
               const SizedBox(width: 12),
               // Pendiente
-              _Cell(label: 'Pendiente', value: endingBalance),
+              _Cell(label: 'Pendiente', value: pendingAmount),
             ],
           ),
         ),
@@ -313,6 +313,55 @@ class _InstallmentRow extends StatelessWidget {
   }
 }
 
+int _compareInstallments(
+  Map<String, dynamic> left,
+  Map<String, dynamic> right,
+) {
+  final byNumber = _installmentNumber(
+    left,
+  ).compareTo(_installmentNumber(right));
+  if (byNumber != 0) return byNumber;
+  return _compareDates(left['dueDate'], right['dueDate']);
+}
+
+int _installmentNumber(Map<String, dynamic> installment) {
+  return int.tryParse(installment['installmentNumber']?.toString() ?? '') ??
+      999999;
+}
+
+int _compareDates(Object? left, Object? right) {
+  final leftDate = DateTime.tryParse(left?.toString() ?? '');
+  final rightDate = DateTime.tryParse(right?.toString() ?? '');
+  if (leftDate == null && rightDate == null) return 0;
+  if (leftDate == null) return 1;
+  if (rightDate == null) return -1;
+  return leftDate.compareTo(rightDate);
+}
+
+double _installmentDueAmount(Map<String, dynamic> installment) {
+  final total =
+      num.tryParse(installment['totalAmount']?.toString() ?? '')?.toDouble() ??
+      0;
+  final paid =
+      num.tryParse(installment['paidAmount']?.toString() ?? '')?.toDouble() ??
+      0;
+  final pending = total - paid;
+  if (pending > 0) return pending;
+  if (total > 0 && paid <= 0) return total;
+  return 0;
+}
+
+bool _isOverdueInstallment(Map<String, dynamic> installment) {
+  final status = installment['status']?.toString().toLowerCase() ?? '';
+  final isPaid = status.contains('pag') || status.contains('paid');
+  if (status.contains('venc') || status.contains('overdue')) return true;
+  final dueDate = DateTime.tryParse(installment['dueDate']?.toString() ?? '');
+  if (dueDate == null || isPaid) return false;
+  final today = DateTime.now();
+  final todayOnly = DateTime(today.year, today.month, today.day);
+  return dueDate.isBefore(todayOnly);
+}
+
 // ──────────────────────────────────────────────
 // Cell for horizontal row
 // ──────────────────────────────────────────────
@@ -342,7 +391,7 @@ class _Cell extends StatelessWidget {
           value,
           style: const TextStyle(
             fontSize: 12,
-            fontWeight: FontWeight.w600,
+            fontWeight: FontWeight.w500,
             color: AppColors.textPrimary,
           ),
         ),

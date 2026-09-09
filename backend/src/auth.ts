@@ -38,28 +38,38 @@ export function signAccessToken(user: AuthUser) {
 }
 
 export async function authGuard(req: Request, res: Response, next: NextFunction) {
-  const header = req.header('authorization') ?? '';
-  const [scheme, token] = header.split(' ');
-  if (scheme?.toLowerCase() !== 'bearer' || !token) {
+  const user = await authenticateRequest(req);
+  if (!user) {
     return res.status(401).json({ error: { message: 'No autenticado.' } });
   }
+  req.user = user;
+  return next();
+}
 
+export async function authenticateRequest(req: Request): Promise<AuthUser | null> {
+  const token = bearerToken(req);
+  if (!token) return null;
   try {
     const payload = tokenSchema.parse(jwt.verify(token, config.jwtSecret));
     const user = await prisma.user.findUnique({ where: { id: payload.sub } });
     if (!user || !user.active) {
-      return res.status(401).json({ error: { message: 'Usuario inactivo.' } });
+      return null;
     }
-    req.user = {
+    return {
       id: user.id,
       email: user.email,
       name: user.name,
       role: user.role,
     };
-    return next();
   } catch {
-    return res.status(401).json({ error: { message: 'Sesion invalida.' } });
+    return null;
   }
+}
+
+export function bearerToken(req: Request) {
+  const header = req.header('authorization') ?? '';
+  const [scheme, token] = header.split(' ');
+  return scheme?.toLowerCase() === 'bearer' && token ? token : null;
 }
 
 export function syncGuard(req: Request, res: Response, next: NextFunction) {

@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sistema_solares/core/database/app_database.dart';
+import 'package:sistema_solares/features/settings/data/settings_repository.dart';
 import 'package:sistema_solares/core/database/database_schema.dart';
 import 'package:sistema_solares/features/clients/data/client_repository.dart';
 import 'package:sistema_solares/models/sync/sync_conflict_strategy.dart';
@@ -33,7 +34,10 @@ void main() {
     );
     appDatabase = AppDatabase.test(path.join(tempDirectory.path, 'test.db'));
     await appDatabase.initialize();
-    configRepository = SyncConfigRepository();
+    configRepository = SyncConfigRepository(
+      settingsRepository: SettingsRepository(appDatabase: appDatabase),
+      preferencesFactory: SharedPreferences.getInstance,
+    );
     apiClient = _SalesConflictApiClient();
     service = SyncQueueService.test(
       appDatabase: appDatabase,
@@ -52,6 +56,7 @@ void main() {
     );
 
     await configRepository.saveJwtToken('jwt-test-token');
+    await configRepository.saveBaseUrl('http://127.0.0.1:9999/api');
   });
 
   tearDown(() async {

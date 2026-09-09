@@ -115,7 +115,7 @@ class BackupService {
       final backupFilename = 'sistema_solares_${backupType}_$timestamp.zip';
       final backupPath = path.join(typeDir.path, backupFilename);
       final tmpBackupPath = '$backupPath.tmp';
-      final checkFile = '${backupPath}.verified';
+      final checkFile = '$backupPath.verified';
 
       print('[BACKUP] Ruta de destino: $backupPath');
 
@@ -565,14 +565,19 @@ class BackupService {
       cleanHistory.sort((a, b) => b.timestamp.compareTo(a.timestamp));
 
       // Keep at least the last 7 calendar days, even if it exceeds maxBackupRetention.
-      final cutoff = DateTime.now().subtract(const Duration(days: _minHistoryDays));
-        final protected = cleanHistory
+      final cutoff = DateTime.now().subtract(
+        const Duration(days: _minHistoryDays),
+      );
+      final protected = cleanHistory
           .where((b) => !b.timestamp.isBefore(cutoff))
           .toList();
-        final candidates = cleanHistory.where((b) => b.timestamp.isBefore(cutoff)).toList();
+      final candidates = cleanHistory
+          .where((b) => b.timestamp.isBefore(cutoff))
+          .toList();
 
       // Delete only from older-than-cutoff candidates until we reach maxBackupRetention.
-      if (cleanHistory.length > config.maxBackupRetention && candidates.isNotEmpty) {
+      if (cleanHistory.length > config.maxBackupRetention &&
+          candidates.isNotEmpty) {
         var currentCount = cleanHistory.length;
         final targetCount = config.maxBackupRetention;
 
@@ -740,7 +745,10 @@ class BackupService {
     // Config files.
     final configDir = Directory(_appPaths.configDirectory);
     if (await configDir.exists()) {
-      await for (final entity in configDir.list(recursive: true, followLinks: false)) {
+      await for (final entity in configDir.list(
+        recursive: true,
+        followLinks: false,
+      )) {
         if (entity is! File) continue;
         final relative = path.relative(entity.path, from: configDir.path);
         encoder.addFile(
@@ -753,7 +761,10 @@ class BackupService {
     // Generated files.
     final generatedDir = Directory(_appPaths.generatedDirectory);
     if (await generatedDir.exists()) {
-      await for (final entity in generatedDir.list(recursive: true, followLinks: false)) {
+      await for (final entity in generatedDir.list(
+        recursive: true,
+        followLinks: false,
+      )) {
         if (entity is! File) continue;
         final relative = path.relative(entity.path, from: generatedDir.path);
         encoder.addFile(
@@ -817,15 +828,25 @@ class BackupService {
       );
       final extractedDb = File(extractedDbPath);
       if (!await extractedDb.exists()) {
-        throw StateError('El paquete ZIP no contiene la base de datos esperada.');
+        throw StateError(
+          'El paquete ZIP no contiene la base de datos esperada.',
+        );
       }
 
       // Restore config files.
-      final extractedConfigDir = Directory(path.join(extractDir.path, 'config'));
+      final extractedConfigDir = Directory(
+        path.join(extractDir.path, 'config'),
+      );
       if (await extractedConfigDir.exists()) {
-        await for (final entity in extractedConfigDir.list(recursive: true, followLinks: false)) {
+        await for (final entity in extractedConfigDir.list(
+          recursive: true,
+          followLinks: false,
+        )) {
           if (entity is! File) continue;
-          final relative = path.relative(entity.path, from: extractedConfigDir.path);
+          final relative = path.relative(
+            entity.path,
+            from: extractedConfigDir.path,
+          );
           final dest = File(path.join(_appPaths.configDirectory, relative));
           await dest.parent.create(recursive: true);
           await entity.copy(dest.path);
@@ -833,11 +854,19 @@ class BackupService {
       }
 
       // Restore generated files.
-      final extractedGeneratedDir = Directory(path.join(extractDir.path, 'generated'));
+      final extractedGeneratedDir = Directory(
+        path.join(extractDir.path, 'generated'),
+      );
       if (await extractedGeneratedDir.exists()) {
-        await for (final entity in extractedGeneratedDir.list(recursive: true, followLinks: false)) {
+        await for (final entity in extractedGeneratedDir.list(
+          recursive: true,
+          followLinks: false,
+        )) {
           if (entity is! File) continue;
-          final relative = path.relative(entity.path, from: extractedGeneratedDir.path);
+          final relative = path.relative(
+            entity.path,
+            from: extractedGeneratedDir.path,
+          );
           final dest = File(path.join(_appPaths.generatedDirectory, relative));
           await dest.parent.create(recursive: true);
           await entity.copy(dest.path);
@@ -879,10 +908,7 @@ class BackupService {
     try {
       db = await databaseFactoryFfi.openDatabase(
         databaseFile.path,
-        options: OpenDatabaseOptions(
-          readOnly: true,
-          singleInstance: false,
-        ),
+        options: OpenDatabaseOptions(readOnly: true, singleInstance: false),
       );
 
       final rows = await db.rawQuery('PRAGMA quick_check(1)');

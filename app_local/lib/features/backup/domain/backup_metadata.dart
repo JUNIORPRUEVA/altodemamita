@@ -27,8 +27,9 @@ class BackupMetadata {
 
   String get formattedSize {
     if (sizeBytes < 1024) return '$sizeBytes B';
-    if (sizeBytes < 1024 * 1024)
+    if (sizeBytes < 1024 * 1024) {
       return '${(sizeBytes / 1024).toStringAsFixed(2)} KB';
+    }
     return '${(sizeBytes / (1024 * 1024)).toStringAsFixed(2)} MB';
   }
 

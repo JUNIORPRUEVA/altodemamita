@@ -52,6 +52,12 @@ systemRouter.get("/status", async (_req, res) => {
     payments: 0,
     syncBatches: 0,
   };
+  let recentSyncBatches: Array<{
+    deviceId: string;
+    receivedCounts: unknown;
+    appliedCounts: unknown;
+    createdAt: string;
+  }> = [];
 
   try {
     const company = await resolveCompanyByTenantKey(tenantKey);
@@ -73,6 +79,17 @@ systemRouter.get("/status", async (_req, res) => {
       prisma.payment.count({ where }),
       prisma.syncBatch.count({ where: { companyId: company.id } }),
     ]);
+    const recentBatches = await prisma.syncBatch.findMany({
+      where: { companyId: company.id },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+      select: {
+        deviceId: true,
+        receivedCounts: true,
+        appliedCounts: true,
+        createdAt: true,
+      },
+    });
     cloudData = {
       clients,
       sellers,
@@ -82,6 +99,12 @@ systemRouter.get("/status", async (_req, res) => {
       payments,
       syncBatches,
     };
+    recentSyncBatches = recentBatches.map((batch) => ({
+      deviceId: batch.deviceId,
+      receivedCounts: batch.receivedCounts,
+      appliedCounts: batch.appliedCounts,
+      createdAt: batch.createdAt.toISOString(),
+    }));
   } catch (error) {
     console.error("[SystemStatus] cloudData count failed", error);
   }
@@ -106,7 +129,15 @@ systemRouter.get("/status", async (_req, res) => {
     tenantKey,
     cloudFingerprint,
     cloudData,
+    recentSyncBatches,
     initialUploadRequired,
+    paymentReminders: {
+      enabled: config.paymentRemindersEnabled,
+      emergencyStop: config.paymentRemindersEmergencyStop,
+      dryRun: config.paymentRemindersDryRun,
+      testMode: config.paymentRemindersTestMode,
+      allowRealRecipients: config.paymentRemindersAllowRealRecipients,
+    },
     timestamp: new Date().toISOString(),
   });
 });

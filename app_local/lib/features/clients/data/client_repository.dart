@@ -19,15 +19,19 @@ class ClientRepository implements SyncRepository {
     AppDatabase? appDatabase,
     SyncQueueService? syncQueueService,
     BackendApiClient? apiClient,
+    SystemConfigService? systemConfigService,
   }) : _appDatabase = appDatabase ?? AppDatabase.instance,
        _syncQueueService = syncQueueService ?? SyncQueueService.instance,
-       _apiClient = apiClient ?? BackendApiClient() {
+       _apiClient = apiClient ?? BackendApiClient(),
+       _systemConfigService =
+           systemConfigService ?? SystemConfigService.instance {
     _syncQueueService.registerRepository(this);
   }
 
   final AppDatabase _appDatabase;
   final SyncQueueService _syncQueueService;
   final BackendApiClient _apiClient;
+  final SystemConfigService _systemConfigService;
   final BackendEntityIdRegistry _idRegistry = BackendEntityIdRegistry.instance;
 
   void _log(String message, {Object? error, StackTrace? stackTrace}) {
@@ -61,18 +65,42 @@ class ClientRepository implements SyncRepository {
 
     final db = await _appDatabase.database;
     final normalizedQuery = query.trim();
-    final rows = await db.query(
-      DatabaseSchema.clientsTable,
-      where: normalizedQuery.isEmpty
-          ? 'deleted_at IS NULL'
-          : 'deleted_at IS NULL AND (nombre LIKE ? OR cedula LIKE ? OR telefono LIKE ?)',
-      whereArgs: normalizedQuery.isEmpty
-          ? null
-          : List.filled(3, '%$normalizedQuery%'),
-      orderBy: 'nombre COLLATE NOCASE ASC',
-    );
+    final rows = normalizedQuery.isEmpty
+        ? await db.query(
+            DatabaseSchema.clientsTable,
+            where: 'deleted_at IS NULL',
+            orderBy: 'nombre COLLATE NOCASE ASC',
+          )
+        : await db.rawQuery(
+            '''
+            SELECT *
+            FROM ${DatabaseSchema.clientsTable}
+            WHERE deleted_at IS NULL
+              AND (
+                nombre LIKE ?
+                OR cedula LIKE ?
+                OR telefono LIKE ?
+                OR direccion LIKE ?
+                OR (? <> '' AND ${_normalizedPhoneSql('telefono')} LIKE ?)
+              )
+            ORDER BY nombre COLLATE NOCASE ASC
+            ''',
+            [
+              '%$normalizedQuery%',
+              '%$normalizedQuery%',
+              '%$normalizedQuery%',
+              '%$normalizedQuery%',
+              _normalizePhoneForSearch(normalizedQuery),
+              '%${_normalizePhoneForSearch(normalizedQuery)}%',
+            ],
+          );
 
-    return rows.map(Client.fromMap).toList();
+    final clients = rows.map(Client.fromMap).toList();
+    await _logClientListDiagnostics(
+      query: normalizedQuery,
+      loadedClients: clients,
+    );
+    return clients;
   }
 
   Future<int> countAll() async {
@@ -129,11 +157,11 @@ class ClientRepository implements SyncRepository {
 
   Future<void> save(Client client) async {
     try {
-      SystemConfigService.instance.ensureWritable();
+      _systemConfigService.ensureWritable();
       final normalizedClientInput = client.copyWith(
         fullName: client.fullName.trim(),
         documentId: client.documentId.trim(),
-        phone: _nullIfBlank(client.phone),
+        phone: _nullIfBlankPreserve(client.phone),
         address: _nullIfBlank(client.address),
       );
 
@@ -170,8 +198,26 @@ class ClientRepository implements SyncRepository {
         excludeId: normalizedClient.id,
       );
       if (duplicateId != null) {
+        await _logDuplicateClientDiagnostics(
+          normalizedClient,
+          duplicateId: duplicateId,
+        );
         throw StateError(
           'Ya existe un cliente activo con esta cédula. Verifica los datos antes de continuar.',
+        );
+      }
+
+      final duplicatePhoneId = await _findActiveClientIdByPhone(
+        normalizedClient.phone,
+        excludeId: normalizedClient.id,
+      );
+      if (duplicatePhoneId != null) {
+        await _logDuplicateClientDiagnostics(
+          normalizedClient,
+          duplicateId: duplicatePhoneId,
+        );
+        throw StateError(
+          'Ya existe un cliente activo con este teléfono. Verifica los datos antes de continuar.',
         );
       }
 
@@ -235,7 +281,7 @@ class ClientRepository implements SyncRepository {
 
   Future<void> delete(int id) async {
     try {
-      SystemConfigService.instance.ensureWritable();
+      _systemConfigService.ensureWritable();
       if (_useBackendMode) {
         await _deleteFromBackend(id);
         return;
@@ -584,6 +630,13 @@ class ClientRepository implements SyncRepository {
     return trimmed.isEmpty ? null : trimmed;
   }
 
+  String? _nullIfBlankPreserve(String? value) {
+    if (value == null) {
+      return null;
+    }
+    return value.trim().isEmpty ? null : value;
+  }
+
   Future<int?> _findActiveClientIdByDocumentId(
     String documentId, {
     int? excludeId,
@@ -622,6 +675,112 @@ class ClientRepository implements SyncRepository {
       return id.toInt();
     }
     return int.tryParse(id?.toString() ?? '');
+  }
+
+  Future<int?> _findActiveClientIdByPhone(
+    String? phone, {
+    int? excludeId,
+  }) async {
+    final normalized = phone?.trim();
+    if (normalized == null || normalized.isEmpty) {
+      return null;
+    }
+
+    final normalizedForSearch = _normalizePhoneForSearch(normalized);
+    final db = await _appDatabase.database;
+    final where = StringBuffer(
+      'deleted_at IS NULL AND (LOWER(TRIM(telefono)) = LOWER(TRIM(?))',
+    );
+    final whereArgs = <Object>[normalized];
+
+    if (normalizedForSearch.isNotEmpty) {
+      where.write(' OR ${_normalizedPhoneSql('telefono')} = ?');
+      whereArgs.add(normalizedForSearch);
+    }
+
+    where.write(')');
+    if (excludeId != null) {
+      where.write(' AND id <> ?');
+      whereArgs.add(excludeId);
+    }
+
+    final rows = await db.query(
+      DatabaseSchema.clientsTable,
+      columns: ['id'],
+      where: where.toString(),
+      whereArgs: whereArgs,
+      limit: 1,
+    );
+    if (rows.isEmpty) {
+      return null;
+    }
+
+    final id = rows.first['id'];
+    if (id is int) {
+      return id;
+    }
+    if (id is num) {
+      return id.toInt();
+    }
+    return int.tryParse(id?.toString() ?? '');
+  }
+
+  Future<void> _logClientListDiagnostics({
+    required String query,
+    required List<Client> loadedClients,
+  }) async {
+    try {
+      final tracked = loadedClients.where(_isTrackedYosairaClient).toList();
+      final id127 = loadedClients.any((client) => client.id == 127);
+      _log(
+        '[CLIENT-DIAG][LIST] query="$query" loaded=${loadedClients.length} id127Visible=$id127 tracked=${tracked.map((client) => 'id=${client.id} name=${client.fullName} document=${client.documentId} phone=${client.phone} status=${client.syncStatus.storageValue}').join(' | ')}',
+      );
+    } catch (_) {
+      // Diagnostic logging must never affect client loading.
+    }
+  }
+
+  Future<void> _logDuplicateClientDiagnostics(
+    Client attemptedClient, {
+    required int duplicateId,
+  }) async {
+    try {
+      final db = await _appDatabase.database;
+      final rows = await db.query(
+        DatabaseSchema.clientsTable,
+        columns: [
+          'id',
+          'nombre',
+          'cedula',
+          'telefono',
+          'deleted_at',
+          'sync_status',
+        ],
+        where: 'id = ?',
+        whereArgs: [duplicateId],
+        limit: 1,
+      );
+      _log(
+        '[CLIENT-DIAG][DUPLICATE] attempted name=${attemptedClient.fullName} document=${attemptedClient.documentId} phone=${attemptedClient.phone} normalizedPhone=${_normalizePhoneForSearch(attemptedClient.phone ?? '')} blocker=${rows.isEmpty ? 'not-found' : rows.first}',
+      );
+    } catch (_) {
+      // Diagnostic logging must never affect duplicate validation.
+    }
+  }
+
+  bool _isTrackedYosairaClient(Client client) {
+    final name = client.fullName.toUpperCase();
+    return name.contains('YOSAIRA') ||
+        name.contains('YOSAYRA') ||
+        client.id == 127;
+  }
+
+  String _normalizePhoneForSearch(String value) {
+    return value.replaceAll(RegExp(r'[\s\-\(\)\.\+]'), '');
+  }
+
+  String _normalizedPhoneSql(String columnName) {
+    return "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE($columnName, ''), ' ', ''), '-', ''), '(', ''), ')', ''), '.', ''), '+', '')";
   }
 
   String _deletedDocumentPlaceholder(String documentId, int id) {

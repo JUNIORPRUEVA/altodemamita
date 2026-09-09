@@ -229,6 +229,9 @@ class _PrintersPageState extends State<PrintersPage> {
     if (!await _ensureAuthorized()) {
       return;
     }
+    if (!mounted) {
+      return;
+    }
 
     final printer = await PrinterFormDialog.show(
       context,
@@ -261,6 +264,9 @@ class _PrintersPageState extends State<PrintersPage> {
 
   Future<void> _editPrinter(PrinterConfig printer) async {
     if (!await _ensureAuthorized()) {
+      return;
+    }
+    if (!mounted) {
       return;
     }
 
@@ -298,6 +304,9 @@ class _PrintersPageState extends State<PrintersPage> {
 
   Future<void> _deletePrinter(PrinterConfig printer) async {
     if (!await _ensureAuthorized()) {
+      return;
+    }
+    if (!mounted) {
       return;
     }
 

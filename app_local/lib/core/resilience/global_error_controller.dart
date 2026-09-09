@@ -101,6 +101,18 @@ class GlobalErrorController extends ChangeNotifier {
     bool canGoHome = false,
     bool allowRepair = false,
   }) {
+    if (!_shouldShowBlockingDialog(
+      type: type,
+      severity: severity,
+      canContinue: canContinue,
+    )) {
+      debugPrint(
+        '[global-error] incidente registrado sin mostrar dialogo '
+        'category=$category type=${type.name} severity=${severity.name}',
+      );
+      return;
+    }
+
     _activeIncident = AppIncident(
       code: code,
       title: friendlyMessage.title,
@@ -127,6 +139,20 @@ class GlobalErrorController extends ChangeNotifier {
       onGoHome: onGoHome,
     );
     notifyListeners();
+  }
+
+  bool _shouldShowBlockingDialog({
+    required AppIncidentType type,
+    required AppIncidentSeverity severity,
+    required bool canContinue,
+  }) {
+    if (canContinue) {
+      return false;
+    }
+
+    return severity == AppIncidentSeverity.critical &&
+        (type == AppIncidentType.criticalRecovery ||
+            type == AppIncidentType.startup);
   }
 
   Future<void> retry() async {

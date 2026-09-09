@@ -10,6 +10,11 @@ void main() {
 
   test('incluye users en el payload de upload y procesa el ack', () async {
     final backendState = FakeBackendState()..initialized = true;
+    backendState.seedAuthorizedDevice(
+      deviceId: 'test-device',
+      isPrimary: true,
+      canWrite: true,
+    );
     final client = SyncApiClient(
       httpClient: FakeBackendHttpClient(state: backendState),
     );
@@ -49,6 +54,11 @@ void main() {
       ..initialized = true
       ..forceSyncUploadConflict = true
       ..wrapUploadConflictInErrorEnvelope = true;
+    backendState.seedAuthorizedDevice(
+      deviceId: 'test-device',
+      isPrimary: true,
+      canWrite: true,
+    );
     final client = SyncApiClient(
       httpClient: FakeBackendHttpClient(state: backendState),
     );

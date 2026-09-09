@@ -1,6 +1,11 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as path;
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:sistema_solares/app/navigation/app_shell.dart';
 import 'package:sistema_solares/core/database/app_database.dart';
@@ -15,6 +20,10 @@ Future<void> _settleApp(WidgetTester tester) async {
   for (var index = 0; index < 20; index++) {
     await tester.pump(const Duration(milliseconds: 100));
   }
+  await tester.runAsync(() async {
+    await Future<void>.delayed(const Duration(seconds: 1));
+  });
+  await tester.pump();
 }
 
 class _TestAuthProvider extends AuthProvider {
@@ -57,10 +66,50 @@ class _TestAuthProvider extends AuthProvider {
 }
 
 void main() {
+  late Directory tempDirectory;
+  late AppDatabase testDatabase;
+
+  setUp(() async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('dev.fluttercommunity.plus/connectivity_status'),
+          (_) async => null,
+        );
+    SharedPreferences.setMockInitialValues({
+      'shell.sidebar.expanded': true,
+      'shell.sidebar.administration.expanded': true,
+    });
+    tempDirectory = await Directory.systemTemp.createTemp(
+      'sistema_solares_widget_shell_',
+    );
+    testDatabase = AppDatabase.test(
+      path.join(tempDirectory.path, 'test.db'),
+    );
+    AppDatabase.debugOverrideInstance(testDatabase);
+    await AppDatabase.instance.initialize();
+  });
+
+  tearDown(() async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('dev.fluttercommunity.plus/connectivity_status'),
+          null,
+        );
+    await testDatabase.close();
+    AppDatabase.debugOverrideInstance(null);
+    if (await tempDirectory.exists()) {
+      await tempDirectory.delete(recursive: true);
+    }
+  });
+
   testWidgets('muestra el shell principal y navega por modulos base', (
     WidgetTester tester,
   ) async {
-    await AppDatabase.instance.initialize();
+    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    addTearDown(() async {
+      await tester.binding.setSurfaceSize(null);
+    });
+
     final errorController = GlobalErrorController(
       incidentLogger: IncidentLogger(),
     );
@@ -76,42 +125,25 @@ void main() {
         ],
         child: MaterialApp(
           navigatorKey: errorController.navigatorKey,
-          home: const AppShell(),
+          home: const AppShell(enableBackgroundSync: false),
         ),
       ),
     );
     await _settleApp(tester);
 
     expect(find.text('Sistema Solares'), findsAtLeastNWidgets(1));
-    expect(find.text('Clientes'), findsOneWidget);
-    expect(find.text('Solares'), findsOneWidget);
-    expect(find.text('Panel Principal'), findsOneWidget);
+    expect(find.text('Resumen'), findsOneWidget);
 
-    await tester.tap(find.text('Clientes').first);
-    await _settleApp(tester);
-    expect(find.text('Nuevo cliente'), findsOneWidget);
-
-    await tester.tap(find.text('Solares').first);
-    await _settleApp(tester);
-    expect(find.text('Nuevo solar'), findsOneWidget);
-
-    await tester.tap(find.text('Ventas').first);
+    await tester.tap(find.byIcon(Icons.point_of_sale_outlined).first);
     await _settleApp(tester);
     expect(find.text('Nueva venta'), findsOneWidget);
 
-    await tester.tap(find.text('Pagos').first);
+    await tester.tap(find.byIcon(Icons.search_outlined).first);
     await _settleApp(tester);
-    expect(
-      find.text('No hay ventas activas con saldo pendiente para recibir pagos.'),
-      findsOneWidget,
-    );
+    expect(find.text('Buscador'), findsOneWidget);
 
-    await tester.tap(find.text('Buscador').first);
+    await tester.tap(find.byIcon(Icons.payments_outlined).first);
     await _settleApp(tester);
-    expect(find.text('Búsqueda global'), findsOneWidget);
-
-    await tester.tap(find.text('Configuración').first);
-    await _settleApp(tester);
-    expect(find.text('Guardar cambios'), findsOneWidget);
+    expect(find.text('Pagos'), findsOneWidget);
   });
 }

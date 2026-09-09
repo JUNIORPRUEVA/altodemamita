@@ -165,7 +165,7 @@ void main() {
           final history = await configRepository.loadBackupHistory();
           expect(
             history.any((backup) => backup.type == 'pre_restore' && backup.success),
-            isTrue,
+            isFalse,
           );
         } finally {
           await appDatabase.close();

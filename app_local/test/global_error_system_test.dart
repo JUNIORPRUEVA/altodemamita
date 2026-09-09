@@ -25,7 +25,7 @@ void main() {
   });
 
   test(
-    'reportHandledOperation shows only friendly content and persists technical detail',
+    'reportHandledOperation logs technical detail without showing a blocking dialog',
     () async {
       final appPaths = AppPaths(supportDirectory: tempDirectory.path);
       final logger = IncidentLogger(appPaths: appPaths);
@@ -53,23 +53,11 @@ void main() {
         type: AppIncidentType.operationFailed,
       );
 
-      final incident = controller.activeIncident;
-      expect(incident, isNotNull);
-      expect(incident!.type, AppIncidentType.operationFailed);
-      expect(incident.module, 'clientes');
-      expect(incident.action, 'guardar el cliente');
-      expect(incident.title, friendly.title);
-      expect(incident.message, friendly.message);
-      expect(incident.details, friendly.details);
-      expect(incident.message.contains('sqlite'), isFalse);
-      expect(incident.details.contains('sqlite'), isFalse);
-      expect(incident.technicalDetails, contains('sqlite failure'));
+      expect(controller.activeIncident, isNull);
 
-      final files = await Directory(appPaths.incidentsDirectory)
-          .list()
-          .where((entity) => entity is File)
-          .cast<File>()
-          .toList();
+      final files = await Directory(
+        appPaths.incidentsDirectory,
+      ).list().where((entity) => entity is File).cast<File>().toList();
 
       expect(files, hasLength(1));
 
@@ -86,7 +74,7 @@ void main() {
   );
 
   test(
-    'reportUnexpected keeps technical path out of the visible incident and logs module context',
+    'reportUnexpected logs recoverable unexpected errors without showing dialog',
     () async {
       final appPaths = AppPaths(supportDirectory: tempDirectory.path);
       final logger = IncidentLogger(appPaths: appPaths);
@@ -104,32 +92,52 @@ void main() {
         canGoHome: true,
       );
 
-      final incident = controller.activeIncident;
-      expect(incident, isNotNull);
-      expect(incident!.code, startsWith('INC-'));
-      expect(incident.type, AppIncidentType.criticalRecovery);
-      expect(incident.module, 'backup');
-      expect(incident.action, 'crear la copia de seguridad');
-      expect(incident.canGoHome, isTrue);
-      expect(incident.message.contains(r'C:\secret'), isFalse);
-      expect(incident.details.contains(r'C:\secret'), isFalse);
-      expect(incident.technicalDetails, contains(r'C:\secret\sistema_solares\db.sqlite'));
+      expect(controller.activeIncident, isNull);
 
-      final files = await Directory(appPaths.incidentsDirectory)
-          .list()
-          .where((entity) => entity is File)
-          .cast<File>()
-          .toList();
+      final files = await Directory(
+        appPaths.incidentsDirectory,
+      ).list().where((entity) => entity is File).cast<File>().toList();
 
       expect(files, hasLength(1));
 
-      final payload = jsonDecode((await files.single.readAsLines()).single)
-          as Map<String, Object?>;
+      final payload =
+          jsonDecode((await files.single.readAsLines()).single)
+              as Map<String, Object?>;
 
       expect(payload['module'], 'backup');
       expect(payload['action'], 'crear la copia de seguridad');
       expect(payload['type'], AppIncidentType.criticalRecovery.name);
-      expect(payload['error'], contains(r'C:\secret\sistema_solares\db.sqlite'));
+      expect(
+        payload['error'],
+        contains(r'C:\secret\sistema_solares\db.sqlite'),
+      );
+    },
+  );
+
+  test(
+    'reportUnexpected shows dialog only for non-continuable critical recovery',
+    () async {
+      final appPaths = AppPaths(supportDirectory: tempDirectory.path);
+      final logger = IncidentLogger(appPaths: appPaths);
+      final controller = GlobalErrorController(incidentLogger: logger);
+      final rawError = StateError('database cannot be opened');
+
+      await controller.reportUnexpected(
+        error: rawError,
+        category: 'startup_unrecoverable',
+        module: 'nucleo del sistema',
+        action: 'abrir la aplicacion',
+        severity: AppIncidentSeverity.critical,
+        type: AppIncidentType.criticalRecovery,
+        canContinue: false,
+      );
+
+      final incident = controller.activeIncident;
+      expect(incident, isNotNull);
+      expect(incident!.type, AppIncidentType.criticalRecovery);
+      expect(incident.severity, AppIncidentSeverity.critical);
+      expect(incident.canContinue, isFalse);
+      expect(incident.technicalDetails, contains('database cannot be opened'));
     },
   );
 }

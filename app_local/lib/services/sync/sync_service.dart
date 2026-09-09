@@ -156,14 +156,20 @@ class SyncService {
                 scopes: _repositoriesByScope.keys,
               ));
 
+      final legacyUploadEnabled =
+          !cloudCutoverMode.usesAuthoritativeBusinessWrites;
       var uploadedCount = 0;
       var downloadedCount = 0;
       if (shouldRunPreUploadFullDownload) {
         downloadedCount += await downloadUpdates(forceFullDownload: true);
-        uploadedCount = await uploadPendingData();
+        if (legacyUploadEnabled) {
+          uploadedCount = await uploadPendingData();
+        }
         downloadedCount += await downloadUpdates();
       } else {
-        uploadedCount = await uploadPendingData();
+        if (legacyUploadEnabled) {
+          uploadedCount = await uploadPendingData();
+        }
         downloadedCount = _downloadFromCloudEnabled
             ? await downloadUpdates(forceFullDownload: forceFullDownload)
             : 0;
@@ -521,6 +527,7 @@ class SyncService {
 
     if (await _shouldForceFullBusinessDownload(targetScopes)) {
       for (final scope in const [
+        'clients',
         'sellers',
         'products',
         'sales',
@@ -1027,6 +1034,13 @@ class SyncService {
     String scope,
     List<Map<String, dynamic>> records,
   ) {
+    const maxDetailedRecordLogs = 200;
+    if (records.length > maxDetailedRecordLogs) {
+      debugPrint(
+        '[SYNC] Applying remote batch: table=$scope records=${records.length}',
+      );
+      return;
+    }
     for (final record in records) {
       final syncId = record['sync_id']?.toString().trim();
       if (syncId == null || syncId.isEmpty) {
@@ -1044,6 +1058,8 @@ class SyncService {
     Set<String> targetScopes,
   ) async {
     final touchesBusinessData =
+        targetScopes.contains('clients') ||
+        targetScopes.contains('sellers') ||
         targetScopes.contains('products') ||
         targetScopes.contains('sales') ||
         targetScopes.contains('installments') ||
@@ -1054,8 +1070,12 @@ class SyncService {
 
     final db = await _appDatabase.database;
     final clientsCount = await _countRows(db, DatabaseSchema.clientsTable);
+    final sellersCount = await _countRows(db, DatabaseSchema.sellersTable);
     final lotsCount = await _countRows(db, DatabaseSchema.lotsTable);
     final salesCount = await _countRows(db, DatabaseSchema.salesTable);
+    if (clientsCount == 0 && sellersCount == 0 && lotsCount == 0) {
+      return _hasAnyBusinessCursor(targetScopes);
+    }
     if (clientsCount > 0 && lotsCount == 0) {
       return true;
     }
@@ -1069,6 +1089,7 @@ class SyncService {
   Future<bool> _hasAnyBusinessCursor(Set<String> targetScopes) async {
     for (final scope in const [
       'clients',
+      'sellers',
       'products',
       'sales',
       'installments',

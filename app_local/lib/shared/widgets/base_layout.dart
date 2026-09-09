@@ -20,13 +20,13 @@ class BaseLayout extends StatelessWidget {
   final bool centerTitle;
 
   const BaseLayout({
-    Key? key,
+    super.key,
     required this.title,
     required this.child,
     this.showPageTitle = true,
     this.appBarToolbarHeight,
     this.centerTitle = true,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

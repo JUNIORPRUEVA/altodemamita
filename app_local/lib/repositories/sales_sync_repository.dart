@@ -98,14 +98,7 @@ class SalesSyncRepository implements SyncRepository {
         );
         if (_isDeleted(record['deleted_at'])) {
           if (_hasConflictProtectedPendingLocal(existingRows)) {
-            await _markFirstExistingRowAsConflict(
-              txn,
-              tableName: DatabaseSchema.salesTable,
-              existingRows: existingRows,
-            );
-            _log(
-              'sales_remote_tombstone_conflict_pending_local sync_id=$syncId',
-            );
+            _log('sales_remote_tombstone_kept_pending_local sync_id=$syncId');
             continue;
           }
           final clientSyncId = _readRequiredString(record['client_sync_id']);
@@ -163,9 +156,13 @@ class SalesSyncRepository implements SyncRepository {
             'solar_id': productId,
             'usuario_id': 1,
             'vendedor_id': sellerId,
-            'fecha_venta': _readDate(record['sale_date'] ?? record['created_at']),
+            'fecha_venta': _readDate(
+              record['sale_date'] ?? record['created_at'],
+            ),
             'precio_venta': _readDouble(record['sale_price']),
-            'inicial_porcentaje': _readDouble(record['down_payment_percentage']),
+            'inicial_porcentaje': _readDouble(
+              record['down_payment_percentage'],
+            ),
             'inicial_monto': _readDouble(record['down_payment_amount']),
             'monto_inicial_requerido': _readDouble(
               record['required_initial_payment'],
@@ -244,7 +241,13 @@ class SalesSyncRepository implements SyncRepository {
         final matchedRows = existingRows.isNotEmpty
             ? existingRows
             : uniqueProductRows;
+        final replacesDeletedSaleForSameProduct =
+            existingRows.isEmpty &&
+            matchedRows.isNotEmpty &&
+            (matchedRows.first['deleted_at']?.toString().trim().isNotEmpty ??
+                false);
         if (matchedRows.isNotEmpty &&
+            !replacesDeletedSaleForSameProduct &&
             _shouldKeepLocal(
               matchedRows,
               record,
@@ -294,10 +297,14 @@ class SalesSyncRepository implements SyncRepository {
         };
 
         if (matchedRows.isEmpty) {
-          _log('[SYNC] Insert new record: table=sales id=$syncId remote_delete=false');
+          _log(
+            '[SYNC] Insert new record: table=sales id=$syncId remote_delete=false',
+          );
           await txn.insert(DatabaseSchema.salesTable, values);
         } else {
-          _log('[SYNC] Updating local record: table=sales id=$syncId remote_delete=false');
+          _log(
+            '[SYNC] Updating local record: table=sales id=$syncId remote_delete=false',
+          );
           await txn.update(
             DatabaseSchema.salesTable,
             values,
@@ -342,6 +349,9 @@ class SalesSyncRepository implements SyncRepository {
           where: 'venta_id = ? AND deleted_at IS NULL AND estado <> ?',
           whereArgs: [saleId, 'ajustada'],
         );
+        if (installmentRows.isEmpty) {
+          continue;
+        }
 
         for (final installment in installmentRows) {
           final currentStatus = (installment['estado'] as String? ?? '').trim();
@@ -359,9 +369,13 @@ class SalesSyncRepository implements SyncRepository {
           );
 
           final totalAmount = _readDouble(installment['monto_cuota']);
-          final rawPaid = _roundCurrency(_readDouble(paidRows.first['paid_total']));
+          final rawPaid = _roundCurrency(
+            _readDouble(paidRows.first['paid_total']),
+          );
           // Cap at totalAmount to avoid over-payment display from duplicate pagos.
-          final paidAmount = rawPaid > totalAmount ? _roundCurrency(totalAmount) : rawPaid;
+          final paidAmount = rawPaid > totalAmount
+              ? _roundCurrency(totalAmount)
+              : rawPaid;
           final interestAmount = _readDouble(installment['interes_cuota']);
           final principalAmount = _readDouble(installment['capital_cuota']);
           final interestPaid = _roundCurrency(
@@ -384,13 +398,18 @@ class SalesSyncRepository implements SyncRepository {
               (_readDouble(installment['monto_pagado']) - paidAmount).abs() >
               0.009;
           final principalChanged =
-              (_readDouble(installment['capital_pagado']) - principalPaid).abs() >
+              (_readDouble(installment['capital_pagado']) - principalPaid)
+                  .abs() >
               0.009;
           final interestChanged =
-              (_readDouble(installment['interes_pagado']) - interestPaid).abs() >
+              (_readDouble(installment['interes_pagado']) - interestPaid)
+                  .abs() >
               0.009;
 
-          if (!statusChanged && !paidChanged && !principalChanged && !interestChanged) {
+          if (!statusChanged &&
+              !paidChanged &&
+              !principalChanged &&
+              !interestChanged) {
             continue;
           }
 
@@ -593,16 +612,22 @@ bool _shouldKeepLocal(
   final local = existingRows.first;
   final localDeletedAt = local['deleted_at']?.toString().trim() ?? '';
   final remoteDeleted = _isDeleted(remoteRecord['deleted_at']);
-  // Never revive a locally tombstoned commercial record from a non-deleted remote payload.
-  if (localDeletedAt.isNotEmpty && !remoteDeleted) {
-    return true;
-  }
   final localSyncStatus = (local['sync_status'] as String? ?? '')
       .trim()
       .toLowerCase();
   if (localSyncStatus == DatabaseSchema.syncStatusPendingDelete &&
       !remoteDeleted) {
     return true;
+  }
+  if (localDeletedAt.isNotEmpty &&
+      !remoteDeleted &&
+      localSyncStatus != DatabaseSchema.syncStatusSynced) {
+    return true;
+  }
+  if (localDeletedAt.isNotEmpty &&
+      !remoteDeleted &&
+      localSyncStatus == DatabaseSchema.syncStatusSynced) {
+    return false;
   }
   // When local is in conflict, always accept the server's authoritative version.
   if (localSyncStatus == DatabaseSchema.syncStatusConflict) {
@@ -631,7 +656,9 @@ bool _shouldKeepLocal(
       localUpdated.isAfter(remoteUpdated);
 }
 
-bool _hasConflictProtectedPendingLocal(List<Map<String, Object?>> existingRows) {
+bool _hasConflictProtectedPendingLocal(
+  List<Map<String, Object?>> existingRows,
+) {
   if (existingRows.isEmpty) {
     return false;
   }
@@ -642,30 +669,7 @@ bool _hasConflictProtectedPendingLocal(List<Map<String, Object?>> existingRows) 
       localSyncStatus == DatabaseSchema.syncStatusPendingUpdate;
 }
 
-Future<void> _markFirstExistingRowAsConflict(
-  dynamic txn, {
-  required String tableName,
-  required List<Map<String, Object?>> existingRows,
-}) async {
-  if (existingRows.isEmpty) {
-    return;
-  }
-  final rowId = existingRows.first['id'];
-  if (rowId == null) {
-    return;
-  }
-  await txn.update(
-    tableName,
-    {'sync_status': DatabaseSchema.syncStatusConflict},
-    where: 'id = ?',
-    whereArgs: [rowId],
-  );
-}
-
-Future<void> _upsertSale(
-  dynamic txn,
-  Map<String, Object?> values,
-) async {
+Future<void> _upsertSale(dynamic txn, Map<String, Object?> values) async {
   final updated = await txn.update(
     DatabaseSchema.salesTable,
     values,

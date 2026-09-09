@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import '../app/app_colors.dart';
 
 class EmptyCard extends StatelessWidget {
-  const EmptyCard({super.key});
+  const EmptyCard({super.key, this.title = 'No hay datos para mostrar.'});
+
+  final String title;
 
   @override
   Widget build(BuildContext context) {
@@ -15,10 +17,10 @@ class EmptyCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.border),
       ),
-      child: const Center(
+      child: Center(
         child: Text(
-          'No hay datos para mostrar.',
-          style: TextStyle(
+          title,
+          style: const TextStyle(
             color: AppColors.textSecondary,
             fontSize: 14,
             fontWeight: FontWeight.w500,

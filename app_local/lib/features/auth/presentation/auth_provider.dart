@@ -7,8 +7,12 @@ import '../domain/permission_model.dart';
 import '../domain/user_model.dart';
 
 class AuthProvider extends ChangeNotifier {
-  AuthProvider({AuthService? authService})
-    : _authService = authService ?? AuthService();
+  AuthProvider({
+    AuthService? authService,
+    SystemConfigService? systemConfigService,
+  }) : _authService = authService ?? AuthService(),
+       _systemConfigService =
+           systemConfigService ?? SystemConfigService.instance;
 
   static const Duration _adminOverrideLifetime = Duration(minutes: 10);
   static const Set<String> _localFirstModules = {
@@ -21,6 +25,7 @@ class AuthProvider extends ChangeNotifier {
   };
 
   final AuthService _authService;
+  final SystemConfigService _systemConfigService;
   final Map<String, DateTime> _adminOverrideExpirations = {};
 
   bool _isInitializing = true;
@@ -50,7 +55,7 @@ class AuthProvider extends ChangeNotifier {
   UserModel? get currentUser => _currentUser;
   String? get errorMessage => _errorMessage;
   bool get isAdmin => _currentUser?.isAdmin ?? false;
-  bool get isReadOnly => SystemConfigService.instance.isReadOnly;
+  bool get isReadOnly => _systemConfigService.isReadOnly;
   AuthService get authService => _authService;
   String? get lastGeneratedRecoveryCode => _lastGeneratedRecoveryCode;
 
@@ -69,7 +74,7 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
     try {
       final bootstrap = await _authService.bootstrap();
-      await SystemConfigService.instance.refresh();
+      await _systemConfigService.refresh();
       _requiresInitialSetup = bootstrap.requiresInitialSetup;
       _isOnline = bootstrap.isOnline;
       _isCloudInitialized = bootstrap.isCloudInitialized;
@@ -116,7 +121,7 @@ class AuthProvider extends ChangeNotifier {
         email: email,
         password: password,
       );
-      await SystemConfigService.instance.refresh();
+      await _systemConfigService.refresh();
       _currentUser = result.user;
       _requiresInitialSetup = false;
       _isCloudInitialized = true;
@@ -169,7 +174,7 @@ class AuthProvider extends ChangeNotifier {
         email: email,
         password: password,
       );
-      await SystemConfigService.instance.refresh();
+      await _systemConfigService.refresh();
       _currentUser = result.user;
       _isOnline = result.mode == AuthSignInMode.online;
       _isCloudInitialized = true;
@@ -386,7 +391,7 @@ class AuthProvider extends ChangeNotifier {
     required String scope,
     required String password,
   }) async {
-    if (!SystemConfigService.instance.canWrite) {
+    if (!_systemConfigService.canWrite) {
       return false;
     }
 
@@ -464,7 +469,6 @@ class AuthProvider extends ChangeNotifier {
   }
 
   bool _blocksWriteByDevice({required PermissionAction action}) {
-    return action != PermissionAction.read &&
-        !SystemConfigService.instance.canWrite;
+    return action != PermissionAction.read && !_systemConfigService.canWrite;
   }
 }

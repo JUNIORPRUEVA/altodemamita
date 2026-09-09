@@ -22,13 +22,17 @@ class PaymentsRepository {
     AppDatabase? appDatabase,
     SettingsRepository? settingsRepository,
     SyncQueueService? syncQueueService,
+    SystemConfigService? systemConfigService,
   }) : _appDatabase = appDatabase ?? AppDatabase.instance,
        _settingsRepository = settingsRepository ?? SettingsRepository(),
-       _syncQueueService = syncQueueService ?? SyncQueueService.instance;
+       _syncQueueService = syncQueueService ?? SyncQueueService.instance,
+       _systemConfigService =
+           systemConfigService ?? SystemConfigService.instance;
 
   final AppDatabase _appDatabase;
   final SettingsRepository _settingsRepository;
   final SyncQueueService _syncQueueService;
+  final SystemConfigService _systemConfigService;
 
   bool get _shouldRunBackgroundSync =>
       identical(_appDatabase, AppDatabase.instance);
@@ -212,7 +216,7 @@ class PaymentsRepository {
   }
 
   Future<void> registerPayment(PaymentDraft draft) async {
-    SystemConfigService.instance.ensureWritable();
+    _systemConfigService.ensureWritable();
 
     // Reconcile installment states from actual pagos before applying this
     // payment. This guards against sync race conditions where conflict recovery
@@ -264,7 +268,7 @@ class PaymentsRepository {
   }
 
   Future<void> deletePayment(int paymentId) async {
-    SystemConfigService.instance.ensureWritable();
+    _systemConfigService.ensureWritable();
     final deleteQueue =
         <({String scope, String syncId, Map<String, Object?> payload})>[];
 

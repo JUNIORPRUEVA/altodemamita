@@ -9,6 +9,10 @@ import {
 let timer: NodeJS.Timeout | null = null;
 
 export function startPaymentReminderJob() {
+  if (config.paymentRemindersEmergencyStop) {
+    console.log(JSON.stringify({ event: 'payment_reminder_job_emergency_stopped' }));
+    return;
+  }
   if (!config.paymentRemindersEnabled) {
     console.log(JSON.stringify({ event: 'payment_reminder_job_disabled' }));
     return;

@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
@@ -28,7 +28,7 @@ void main() {
   late SalesRepository salesRepo;
   late PaymentsRepository paymentsRepo;
   late SyncQueueService syncQueue;
-  var _seq = 0;
+  var seq = 0;
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
@@ -52,28 +52,28 @@ void main() {
     if (await tempDir.exists()) await tempDir.delete(recursive: true);
   });
 
-  Future<int> _createActiveSaleWithOverdue({
+  Future<int> createActiveSaleWithOverdue({
     int overdueMonths = 2,
     double salePrice = 480000,
     double downPct = 20,
     int installmentCount = 12,
     double monthlyInterest = 1.5,
   }) async {
-    _seq++;
+    seq++;
     final saleDate = overdueMonths > 0
         ? DateTime.now().subtract(Duration(days: overdueMonths * 31 + 5))
         : DateTime.now();
     final createdAt = saleDate;
     await clientRepo.save(Client(
-      fullName: 'Test Client $_seq',
-      documentId: '001-0000${_seq.toString().padLeft(5, "0")}-1',
+      fullName: 'Test Client $seq',
+      documentId: '001-0000${seq.toString().padLeft(5, "0")}-1',
       phone: '8091234567',
       createdAt: createdAt,
       updatedAt: createdAt,
     ));
     await lotRepo.save(Lot(
       blockNumber: 'A',
-      lotNumber: _seq.toString().padLeft(2, '0'),
+      lotNumber: seq.toString().padLeft(2, '0'),
       area: 200,
       price: salePrice,
       status: 'disponible',
@@ -99,7 +99,7 @@ void main() {
   }
 
   test('cannot_save_zero_payment_test', () async {
-    final saleId = await _createActiveSaleWithOverdue(overdueMonths: 0);
+    final saleId = await createActiveSaleWithOverdue(overdueMonths: 0);
     await expectLater(
       () async => paymentsRepo.registerPayment(PaymentDraft(
         saleId: saleId,
@@ -116,7 +116,7 @@ void main() {
   });
 
   test('overdue_installments_are_shown_in_payment_screen_test', () async {
-    final saleId = await _createActiveSaleWithOverdue(overdueMonths: 3);
+    final saleId = await createActiveSaleWithOverdue(overdueMonths: 3);
     final ctx = await paymentsRepo.fetchSaleContext(saleId);
     expect(ctx, isNotNull);
     final overdue = ctx!.overdueInstallments;
@@ -130,7 +130,7 @@ void main() {
 
   test('cannot_apply_capital_payment_when_overdue_installments_exist_test',
       () async {
-    final saleId = await _createActiveSaleWithOverdue(overdueMonths: 2);
+    final saleId = await createActiveSaleWithOverdue(overdueMonths: 2);
     final ctx = await paymentsRepo.fetchSaleContext(saleId);
     expect(ctx!.overdueInstallments, isNotEmpty);
     await expectLater(
@@ -150,7 +150,7 @@ void main() {
   });
 
   test('can_apply_payment_to_oldest_overdue_installment_test', () async {
-    final saleId = await _createActiveSaleWithOverdue(overdueMonths: 2);
+    final saleId = await createActiveSaleWithOverdue(overdueMonths: 2);
     final ctxBefore = await paymentsRepo.fetchSaleContext(saleId);
     expect(ctxBefore!.overdueInstallments, isNotEmpty);
     final oldestOverdue = ctxBefore.overdueInstallments.first;
@@ -168,7 +168,7 @@ void main() {
   });
 
   test('payment_summary_updates_when_payment_type_changes_test', () async {
-    final saleId = await _createActiveSaleWithOverdue(overdueMonths: 2);
+    final saleId = await createActiveSaleWithOverdue(overdueMonths: 2);
     final ctx = await paymentsRepo.fetchSaleContext(saleId);
     expect(ctx, isNotNull);
     expect(ctx!.overdueInstallments, isNotEmpty);
@@ -190,7 +190,7 @@ void main() {
   });
 
   test('cannot_pay_already_paid_installment_test', () async {
-    final saleId = await _createActiveSaleWithOverdue(overdueMonths: 0);
+    final saleId = await createActiveSaleWithOverdue(overdueMonths: 0);
     final ctx = await paymentsRepo.fetchSaleContext(saleId);
     expect(ctx, isNotNull);
     final fullBalance = ctx!.sale.pendingBalance;
@@ -222,7 +222,7 @@ void main() {
 
   test('capital_payment_allowed_only_when_no_overdue_or_initial_pending_test',
       () async {
-    final saleId = await _createActiveSaleWithOverdue(overdueMonths: 0);
+    final saleId = await createActiveSaleWithOverdue(overdueMonths: 0);
     final ctx = await paymentsRepo.fetchSaleContext(saleId);
     expect(ctx!.overdueInstallments, isEmpty,
         reason: 'A fresh sale should have no overdue installments');
@@ -240,7 +240,7 @@ void main() {
   });
 
   test('offline_payment_validation_uses_local_sqlite_test', () async {
-    final saleId = await _createActiveSaleWithOverdue(overdueMonths: 1);
+    final saleId = await createActiveSaleWithOverdue(overdueMonths: 1);
     final ctxBefore = await paymentsRepo.fetchSaleContext(saleId);
     expect(ctxBefore, isNotNull,
         reason: 'Context must load from local SQLite without network');
@@ -268,7 +268,7 @@ void main() {
 
   test('todas_cuotas_vencidas_pays_all_overdue_in_one_transaction_test',
       () async {
-    final saleId = await _createActiveSaleWithOverdue(overdueMonths: 3);
+    final saleId = await createActiveSaleWithOverdue(overdueMonths: 3);
     final ctxBefore = await paymentsRepo.fetchSaleContext(saleId);
     final overdueList = ctxBefore!.overdueInstallments;
     expect(overdueList.length, greaterThanOrEqualTo(2),
@@ -300,7 +300,7 @@ void main() {
 
   test('payment_correctly_marks_sale_pagada_when_all_installments_paid',
       () async {
-    final saleId = await _createActiveSaleWithOverdue(
+    final saleId = await createActiveSaleWithOverdue(
       overdueMonths: 12,
       installmentCount: 12,
     );
@@ -328,18 +328,18 @@ void main() {
 
   test('payment_only_targets_active_installments_not_soft_deleted_ones',
       () async {
-    _seq++;
+    seq++;
     final saleDate = DateTime.now().subtract(const Duration(days: 62));
     await clientRepo.save(Client(
-      fullName: 'Regression Client $_seq',
-      documentId: '001-0000${_seq.toString().padLeft(5, "0")}-9',
+      fullName: 'Regression Client $seq',
+      documentId: '001-0000${seq.toString().padLeft(5, "0")}-9',
       phone: '8091234567',
       createdAt: saleDate,
       updatedAt: saleDate,
     ));
     await lotRepo.save(Lot(
       blockNumber: 'R',
-      lotNumber: _seq.toString().padLeft(2, '0'),
+      lotNumber: seq.toString().padLeft(2, '0'),
       area: 200,
       price: 480000,
       status: 'disponible',

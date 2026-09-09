@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:sistema_solares/models/sync/sync_conflict_strategy.dart';
+import 'package:sistema_solares/models/sync/sync_runtime_state.dart';
 import 'package:sistema_solares/models/sync/sync_settings.dart';
 import 'package:sistema_solares/services/sync/sync_config_repository.dart';
 
@@ -18,6 +19,7 @@ class FakeBackendState {
   String adminPassword = '';
   String adminFullName = '';
   String authClientType = 'desktop';
+  bool omitAuthSub = false;
   List<String> authRoles = const ['SUPER_ADMIN'];
   List<String> authPermissions = const [
     'sync.manage',
@@ -492,7 +494,7 @@ class _FakeHttpClientRequest implements HttpClientRequest {
         body: {
           'success': true,
           'data': {
-            'sub': 'remote-admin-1',
+            if (!_state.omitAuthSub) 'sub': 'remote-admin-1',
             'email': _state.adminEmail,
             'username': 'admin.general',
             'fullName': _state.adminFullName,
@@ -507,7 +509,11 @@ class _FakeHttpClientRequest implements HttpClientRequest {
 
     if (_method == 'POST' && path.endsWith('/auth/login')) {
       final identifier =
-          payload['identifier']?.toString().trim().toLowerCase() ?? '';
+          (payload['email'] ?? payload['identifier'])
+              ?.toString()
+              .trim()
+              .toLowerCase() ??
+          '';
       final password = payload['password']?.toString() ?? '';
 
       if (!_state.initialized ||
@@ -526,7 +532,7 @@ class _FakeHttpClientRequest implements HttpClientRequest {
           'data': {
             'accessToken': 'jwt-test-token',
             'user': {
-              'sub': 'remote-admin-1',
+              if (!_state.omitAuthSub) 'sub': 'remote-admin-1',
               'email': _state.adminEmail,
               'username': 'admin.general',
               'fullName': _state.adminFullName,
@@ -605,10 +611,7 @@ class _FakeHttpClientRequest implements HttpClientRequest {
       if (!_state.canDeviceWrite(requestDeviceId)) {
         return _jsonResponse(
           status: HttpStatus.forbidden,
-          body: {
-            'success': false,
-            'message': 'DEVICE_NOT_AUTHORIZED',
-          },
+          body: {'success': false, 'message': 'DEVICE_NOT_AUTHORIZED'},
         );
       }
 
@@ -661,10 +664,7 @@ class _FakeHttpClientRequest implements HttpClientRequest {
       if (_state.rejectSyncDownloadForDeviceUnauthorized) {
         return _jsonResponse(
           status: HttpStatus.forbidden,
-          body: {
-            'success': false,
-            'message': 'DEVICE_NOT_AUTHORIZED',
-          },
+          body: {'success': false, 'message': 'DEVICE_NOT_AUTHORIZED'},
         );
       }
 
@@ -776,6 +776,12 @@ class FakeSyncConfigRepository extends SyncConfigRepository {
     : _settings = settings;
 
   SyncSettings _settings;
+  DeviceWriteState _deviceWriteState = const DeviceWriteState(
+    isPrimary: true,
+    canWrite: true,
+    lastValidatedAt: null,
+    reason: '',
+  );
   String savedJwtToken = '';
 
   @override
@@ -818,6 +824,28 @@ class FakeSyncConfigRepository extends SyncConfigRepository {
       deviceId: _settings.deviceId,
     );
   }
+
+  @override
+  Future<DeviceWriteState> loadDeviceWriteState() async => _deviceWriteState;
+
+  @override
+  Future<void> saveDeviceWriteState(DeviceWriteState state) async {
+    _deviceWriteState = state;
+  }
+
+  @override
+  Future<bool> isLocalUploadBootstrapCompleted({
+    String? backendUrl,
+    CloudIdentity? cloudIdentity,
+  }) async {
+    return true;
+  }
+
+  @override
+  Future<void> saveLastRun({
+    String? errorMessage,
+    SyncRuntimeStatus status = SyncRuntimeStatus.ok,
+  }) async {}
 }
 
 SyncSettings buildFakeSettings() {

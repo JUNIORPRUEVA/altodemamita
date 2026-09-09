@@ -6,6 +6,7 @@ import 'package:path/path.dart' as path;
 import 'package:provider/provider.dart';
 import 'package:sistema_solares/core/database/app_database.dart';
 import 'package:sistema_solares/features/auth/domain/permission_model.dart';
+import 'package:sistema_solares/features/auth/domain/user_model.dart';
 import 'package:sistema_solares/features/auth/presentation/auth_provider.dart';
 import 'package:sistema_solares/features/clients/data/client_repository.dart';
 import 'package:sistema_solares/features/clients/domain/client.dart';
@@ -16,6 +17,12 @@ import 'package:sistema_solares/features/sales/domain/sale_draft.dart';
 import 'package:sistema_solares/features/sales/domain/seller.dart';
 import 'package:sistema_solares/features/sales/data/seller_repository.dart';
 import 'package:sistema_solares/features/sales/presentation/sale_form_dialog.dart';
+import 'package:sistema_solares/models/sync/sync_conflict_strategy.dart';
+import 'package:sistema_solares/models/sync/sync_runtime_state.dart';
+import 'package:sistema_solares/models/sync/sync_settings.dart';
+import 'package:sistema_solares/services/sync/sync_config_repository.dart';
+import 'package:sistema_solares/services/sync/sync_conflict_service.dart';
+import 'package:sistema_solares/services/sync/sync_queue_service.dart';
 
 Future<void> _settle(WidgetTester tester) async {
   await tester.pump();
@@ -68,15 +75,185 @@ Lot _testLot({
 }
 
 class _TestAuthProvider extends AuthProvider {
+  final UserModel _testUser = UserModel(
+    id: 1,
+    nombre: 'Admin Test',
+    email: 'admin@test.local',
+    passwordHash: 'hash',
+    passwordResetRequired: false,
+    role: UserRole.admin,
+    permissions: const [],
+    activo: true,
+    fechaCreacion: DateTime(2026, 1, 1),
+    fechaActualizacion: DateTime(2026, 1, 1),
+  );
+
+  @override
+  bool get isAuthenticated => true;
+
+  @override
+  UserModel? get currentUser => _testUser;
+
   @override
   bool canAccess(String module, PermissionAction action) => true;
+}
+
+class _InMemoryClientRepository extends ClientRepository {
+  _InMemoryClientRepository({required super.appDatabase});
+
+  final List<Client> _clients = [];
+  int _nextId = 1;
+
+  @override
+  Future<List<Client>> fetchAll({String query = ''}) async {
+    return _clients.toList(growable: false);
+  }
+
+  @override
+  Future<Client?> findByDocumentId(String documentId) async {
+    final normalized = documentId.trim();
+    for (final client in _clients) {
+      if (client.documentId.trim() == normalized) {
+        return client;
+      }
+    }
+    return null;
+  }
+
+  @override
+  Future<void> save(Client client) async {
+    final id = client.id ?? _nextId++;
+    final normalizedClient = client.copyWith(id: id);
+    final index = _clients.indexWhere((existing) => existing.id == id);
+    if (index == -1) {
+      _clients.add(normalizedClient);
+    } else {
+      _clients[index] = normalizedClient;
+    }
+  }
+}
+
+class _InMemoryLotRepository extends LotRepository {
+  _InMemoryLotRepository({required super.appDatabase});
+
+  final List<Lot> _lots = [];
+  int _nextId = 1;
+
+  @override
+  Future<List<Lot>> fetchAvailable({String query = ''}) async {
+    return _lots
+        .where((lot) => lot.status == 'disponible')
+        .toList(growable: false);
+  }
+
+  @override
+  Future<Lot?> findById(int id) async {
+    for (final lot in _lots) {
+      if (lot.id == id) {
+        return lot;
+      }
+    }
+    return null;
+  }
+
+  @override
+  Future<void> save(Lot lot) async {
+    final duplicate = _lots.where(
+      (existing) =>
+          existing.id != lot.id &&
+          existing.blockNumber.trim().toLowerCase() ==
+              lot.blockNumber.trim().toLowerCase() &&
+          existing.lotNumber.trim().toLowerCase() ==
+              lot.lotNumber.trim().toLowerCase(),
+    );
+    if (duplicate.isNotEmpty) {
+      throw DuplicateLotException(duplicate.first);
+    }
+
+    final id = lot.id ?? _nextId++;
+    final normalizedLot = lot.copyWith(id: id);
+    final index = _lots.indexWhere((existing) => existing.id == id);
+    if (index == -1) {
+      _lots.add(normalizedLot);
+    } else {
+      _lots[index] = normalizedLot;
+    }
+  }
+}
+
+class _InMemorySellerRepository extends SellerRepository {
+  _InMemorySellerRepository({required super.database});
+
+  final List<Seller> _sellers = [];
+  int _nextId = 1;
+
+  @override
+  Future<List<Seller>> getAll() async {
+    return _sellers.toList(growable: false);
+  }
+
+  @override
+  Future<List<Seller>> search(String query) async {
+    final normalizedQuery = query.trim().toLowerCase();
+    return _sellers
+        .where(
+          (seller) =>
+              seller.name.toLowerCase().contains(normalizedQuery) ||
+              seller.documentId.toLowerCase().contains(normalizedQuery) ||
+              seller.phone.toLowerCase().contains(normalizedQuery),
+        )
+        .toList(growable: false);
+  }
+
+  @override
+  Future<int> insert(Seller seller) async {
+    final id = seller.id ?? _nextId++;
+    _sellers.add(seller.copyWith(id: id));
+    return id;
+  }
+
+  @override
+  Future<void> update(Seller seller) async {
+    final id = seller.id;
+    if (id == null) {
+      throw ArgumentError('Seller must have an ID to update');
+    }
+    final index = _sellers.indexWhere((existing) => existing.id == id);
+    if (index == -1) {
+      _sellers.add(seller);
+    } else {
+      _sellers[index] = seller;
+    }
+  }
+}
+
+class _FakeSyncConfigRepository extends SyncConfigRepository {
+  @override
+  Future<SyncSettings> loadSettings() async {
+    return SyncSettings(
+      baseUrl: 'https://sync.example.com',
+      jwtToken: 'token',
+      queueRetryInterval: const Duration(seconds: 10),
+      realtimePollingInterval: const Duration(seconds: 5),
+      conflictStrategy: SyncConflictStrategy.manual,
+      deviceId: 'sale-form-dialog-test-device',
+    );
+  }
+
+  @override
+  Future<void> saveLastRun({
+    String? errorMessage,
+    SyncRuntimeStatus status = SyncRuntimeStatus.ok,
+  }) async {}
 }
 
 void main() {
   late Directory tempDirectory;
   late AppDatabase appDatabase;
+  late SyncQueueService syncQueueService;
   late ClientRepository clientRepository;
   late LotRepository lotRepository;
+  late SellerRepository sellerRepository;
 
   setUp(() async {
     tempDirectory = await Directory.systemTemp.createTemp(
@@ -84,11 +261,20 @@ void main() {
     );
     appDatabase = AppDatabase.test(path.join(tempDirectory.path, 'test.db'));
     await appDatabase.initialize();
-    clientRepository = ClientRepository(appDatabase: appDatabase);
-    lotRepository = LotRepository(appDatabase: appDatabase);
+    syncQueueService = SyncQueueService.test(
+      appDatabase: appDatabase,
+      configRepository: _FakeSyncConfigRepository(),
+      conflictService: SyncConflictService(appDatabase: appDatabase),
+      connectivityProbe: (_) async => false,
+    );
+    clientRepository = _InMemoryClientRepository(appDatabase: appDatabase);
+    lotRepository = _InMemoryLotRepository(appDatabase: appDatabase);
+    sellerRepository = _InMemorySellerRepository(database: appDatabase);
   });
 
   tearDown(() async {
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    syncQueueService.dispose();
     await appDatabase.close();
     if (await tempDirectory.exists()) {
       await tempDirectory.delete(recursive: true);
@@ -99,35 +285,23 @@ void main() {
     'muestra el formulario completo de venta sin excepciones en desktop',
     (tester) async {
       final now = DateTime(2026, 3, 26);
-      final sellerRepository = SellerRepository(database: appDatabase);
-
-      await clientRepository.save(
-        Client(
-          fullName: 'Maria Gomez',
-          documentId: '001-1234567-8',
-          phone: '8095550199',
-          address: 'Calle 1',
-          createdAt: now,
-          updatedAt: now,
-        ),
-      );
-
-      await sellerRepository.insert(
-        Seller(
-          name: 'Pedro Vendedor',
-          phone: '8095550111',
-          documentId: '001-7654321-0',
-          createdAt: now,
-          updatedAt: now,
-        ),
-      );
 
       await _configureDesktopSurface(tester, const Size(1280, 860));
 
       await tester.pumpWidget(
         _buildTestApp(
           SaleFormDialog(
-            clients: await clientRepository.fetchAll(),
+            clients: [
+              Client(
+                id: 1,
+                fullName: 'Maria Gomez',
+                documentId: '001-1234567-8',
+                phone: '8095550199',
+                address: 'Calle 1',
+                createdAt: now,
+                updatedAt: now,
+              ),
+            ],
             availableLots: [
               _testLot(
                 id: 1,
@@ -145,7 +319,16 @@ void main() {
             ),
             clientRepository: clientRepository,
             lotRepository: lotRepository,
-            sellers: await sellerRepository.getAll(),
+            sellers: [
+              Seller(
+                id: 1,
+                name: 'Pedro Vendedor',
+                phone: '8095550111',
+                documentId: '001-7654321-0',
+                createdAt: now,
+                updatedAt: now,
+              ),
+            ],
             sellerRepository: sellerRepository,
           ),
         ),
@@ -156,7 +339,7 @@ void main() {
       expect(find.text('Seleccionar vendedor'), findsOneWidget);
       expect(find.text('Seleccionar solar'), findsOneWidget);
       expect(find.text('Precio total'), findsOneWidget);
-      expect(find.textContaining('Inicial minimo:'), findsOneWidget);
+      expect(find.text('Inicial minimo requerido'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
@@ -181,7 +364,7 @@ void main() {
             ),
             clientRepository: clientRepository,
             lotRepository: lotRepository,
-            sellerRepository: SellerRepository(database: appDatabase),
+            sellerRepository: sellerRepository,
             initialDraft: SaleDraft(
               clientId: 1,
               lotId: 1,
@@ -202,7 +385,7 @@ void main() {
       final deadlineField = tester.widget<TextFormField>(
         find.widgetWithText(TextFormField, 'Fecha límite'),
       );
-      expect(deadlineField.controller?.text, '20/04/2026');
+      expect(deadlineField.controller?.text, '19/04/2026');
 
       await tester.enterText(
         find.widgetWithText(TextFormField, 'Inicial real pagado'),
@@ -221,10 +404,9 @@ void main() {
     'agregar solar adicional desde el dialogo no lanza excepcion y actualiza el precio total',
     (tester) async {
       final now = DateTime(2026, 3, 26);
-      final sellerRepository = SellerRepository(database: appDatabase);
-
-      await clientRepository.save(
+      final clients = [
         Client(
+          id: 1,
           fullName: 'Maria Gomez',
           documentId: '001-1234567-8',
           phone: '8095550199',
@@ -232,20 +414,17 @@ void main() {
           createdAt: now,
           updatedAt: now,
         ),
-      );
-
-      final sellerId = await sellerRepository.insert(
+      ];
+      final sellers = [
         Seller(
+          id: 1,
           name: 'Pedro Vendedor',
           phone: '8095550111',
           documentId: '001-7654321-0',
           createdAt: now,
           updatedAt: now,
         ),
-      );
-
-      final clients = await clientRepository.fetchAll();
-      final sellers = await sellerRepository.getAll();
+      ];
 
       await _configureDesktopSurface(tester, const Size(1400, 1000));
 
@@ -292,12 +471,18 @@ void main() {
           .toList();
 
       dropdowns[0].onChanged?.call(clients.single.id);
-      dropdowns[1].onChanged?.call(sellerId);
+      dropdowns[1].onChanged?.call(sellers.single.id);
       dropdowns[2].onChanged?.call(1);
       await _settle(tester);
 
       expect(find.text('Agregar solar'), findsOneWidget);
-      await tester.tap(find.text('Agregar solar'));
+      final addLotChip = tester.widget<ActionChip>(
+        find.ancestor(
+          of: find.text('Agregar solar'),
+          matching: find.byType(ActionChip),
+        ),
+      );
+      addLotChip.onPressed?.call();
       await _settle(tester);
 
       await tester.enterText(find.byType(TextField).last, 'MA-S11');
@@ -345,7 +530,7 @@ void main() {
             clientRepository: clientRepository,
             lotRepository: lotRepository,
             sellers: const [],
-            sellerRepository: SellerRepository(database: appDatabase),
+            sellerRepository: sellerRepository,
           ),
         ),
       );
@@ -430,7 +615,7 @@ void main() {
             clientRepository: clientRepository,
             lotRepository: lotRepository,
             sellers: const [],
-            sellerRepository: SellerRepository(database: appDatabase),
+            sellerRepository: sellerRepository,
           ),
         ),
       );
@@ -498,7 +683,7 @@ void main() {
             clientRepository: clientRepository,
             lotRepository: lotRepository,
             sellers: const [],
-            sellerRepository: SellerRepository(database: appDatabase),
+            sellerRepository: sellerRepository,
           ),
         ),
       );
@@ -548,9 +733,9 @@ void main() {
     'permite crear un solar desde ventas sin perder los datos escritos',
     (tester) async {
       final now = DateTime(2026, 3, 26);
-
-      await clientRepository.save(
+      final clients = [
         Client(
+          id: 1,
           fullName: 'Maria Gomez',
           documentId: '001-1234567-8',
           phone: '8095550199',
@@ -558,14 +743,14 @@ void main() {
           createdAt: now,
           updatedAt: now,
         ),
-      );
+      ];
 
       await _configureDesktopSurface(tester, const Size(1400, 1000));
 
       await tester.pumpWidget(
         _buildTestApp(
           SaleFormDialog(
-            clients: await clientRepository.fetchAll(),
+            clients: clients,
             availableLots: [
               _testLot(
                 id: 1,
@@ -584,7 +769,7 @@ void main() {
             clientRepository: clientRepository,
             lotRepository: lotRepository,
             sellers: const [],
-            sellerRepository: SellerRepository(database: appDatabase),
+            sellerRepository: sellerRepository,
           ),
         ),
       );
@@ -648,7 +833,7 @@ void main() {
             clientRepository: clientRepository,
             lotRepository: lotRepository,
             sellers: const [],
-            sellerRepository: SellerRepository(database: appDatabase),
+            sellerRepository: sellerRepository,
           ),
         ),
       );
@@ -725,7 +910,7 @@ void main() {
             ),
             clientRepository: clientRepository,
             lotRepository: lotRepository,
-            sellerRepository: SellerRepository(database: appDatabase),
+            sellerRepository: sellerRepository,
           ),
         ),
       );
@@ -786,7 +971,7 @@ void main() {
             clientRepository: clientRepository,
             lotRepository: lotRepository,
             sellers: const [],
-            sellerRepository: SellerRepository(database: appDatabase),
+            sellerRepository: sellerRepository,
           ),
         ),
       );
@@ -829,9 +1014,9 @@ void main() {
   ) async {
     final now = DateTime(2026, 3, 26);
     SaleDraft? submittedDraft;
-
-    await clientRepository.save(
+    final clients = [
       Client(
+        id: 1,
         fullName: 'Maria Gomez',
         documentId: '001-1234567-8',
         phone: '8095550199',
@@ -839,7 +1024,7 @@ void main() {
         createdAt: now,
         updatedAt: now,
       ),
-    );
+    ];
 
     await _configureDesktopSurface(tester, const Size(1280, 860));
 
@@ -850,7 +1035,7 @@ void main() {
             onPressed: () async {
               submittedDraft = await SaleFormDialog.show(
                 context,
-                clients: await clientRepository.fetchAll(),
+                clients: clients,
                 availableLots: [
                   _testLot(
                     id: 1,
@@ -869,7 +1054,7 @@ void main() {
                 ),
                 clientRepository: clientRepository,
                 lotRepository: lotRepository,
-                sellerRepository: SellerRepository(database: appDatabase),
+                sellerRepository: sellerRepository,
               );
             },
             child: const Text('Abrir venta'),
@@ -886,6 +1071,12 @@ void main() {
     _dropdownByLabel(tester, 'Seleccionar solar').onChanged?.call(1);
     await _settle(tester);
 
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Inicial real pagado'),
+      '85000',
+    );
+    await _settle(tester);
+
     await tester.tap(find.text('Crear venta'));
     await _settle(tester);
 
@@ -899,10 +1090,9 @@ void main() {
     'permite crear vendedor desde ventas con cedula en cualquier formato',
     (tester) async {
       final now = DateTime(2026, 3, 26);
-      final sellerRepository = SellerRepository(database: appDatabase);
-
-      await clientRepository.save(
+      final clients = [
         Client(
+          id: 1,
           fullName: 'Maria Gomez',
           documentId: '001-1234567-8',
           phone: '8095550199',
@@ -910,14 +1100,14 @@ void main() {
           createdAt: now,
           updatedAt: now,
         ),
-      );
+      ];
 
       await _configureDesktopSurface(tester, const Size(1400, 1000));
 
       await tester.pumpWidget(
         _buildTestApp(
           SaleFormDialog(
-            clients: await clientRepository.fetchAll(),
+            clients: clients,
             availableLots: [
               _testLot(
                 id: 1,
@@ -961,9 +1151,15 @@ void main() {
       );
 
       await tester.tap(find.text('Crear vendedor'));
-      await _settle(tester);
+      List<Seller> sellers = const [];
+      for (var attempt = 0; attempt < 20; attempt += 1) {
+        await tester.pumpAndSettle(const Duration(milliseconds: 100));
+        sellers = await sellerRepository.getAll();
+        if (sellers.isNotEmpty) {
+          break;
+        }
+      }
 
-      final sellers = await sellerRepository.getAll();
       expect(sellers, hasLength(1));
       expect(sellers.single.documentId, 'A-001/VENTA-77');
 
@@ -977,8 +1173,6 @@ void main() {
     'crear cliente en una venta cancelada y luego editarlo en nueva venta no lanza excepciones',
     (tester) async {
       final now = DateTime(2026, 3, 26);
-      final sellerRepository = SellerRepository(database: appDatabase);
-
       await _configureDesktopSurface(tester, const Size(1400, 1000));
 
       await tester.pumpWidget(

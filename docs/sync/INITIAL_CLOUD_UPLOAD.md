@@ -1,5 +1,22 @@
 # Sincronización Inicial Completa Local -> Nube
 
+> STATUS: LEGACY / SUPERSEDED FOR PRODUCTION MIGRATION
+>
+> This document describes historical initial cloud upload behavior. It MUST NOT be used for the new production migration.
+>
+> Current approved migration strategy is:
+>
+> ```text
+> customer SQLite safe copy
+> -> controlled inspection
+> -> controlled migration
+> -> reconciliation
+> -> validation
+> -> cutover
+> ```
+>
+> Automatic production DB upload on app startup is prohibited by current project architecture decisions. Current production migration guidance lives in `docs/DATA_MIGRATION.md`, `docs/DECISIONS.md`, and `AGENTS.md`.
+
 ## Resumen
 
 Implementación de la sincronización inicial completa (bootstrap) que sube todos los datos

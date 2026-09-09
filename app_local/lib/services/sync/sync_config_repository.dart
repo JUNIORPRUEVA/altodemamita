@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import '../../core/config/app_flags.dart';
 import '../../core/config/backend_config.dart' as backend_config;
 import '../../core/security/sensitive_storage.dart';
 import '../../core/system/system_config_service.dart';
@@ -84,8 +85,14 @@ class SyncConfigRepository {
     ]);
 
     final configuredBaseUrl = values[syncBaseUrlKey]?.value;
+    final buildTimeBaseUrl = defaultSyncBaseUrl.trim();
+    final mustUseBuildTimeBaseUrl =
+        cloudCutoverMode.usesAuthoritativeBusinessWrites &&
+        buildTimeBaseUrl.isNotEmpty;
     final baseUrl = normalizeBackendBaseUrl(
-      (configuredBaseUrl == null || configuredBaseUrl.trim().isEmpty)
+      mustUseBuildTimeBaseUrl
+          ? buildTimeBaseUrl
+          : (configuredBaseUrl == null || configuredBaseUrl.trim().isEmpty)
           ? defaultSyncBaseUrl
           : configuredBaseUrl,
     );

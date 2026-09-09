@@ -57,12 +57,11 @@ class _UsersScreenState extends State<UsersScreen> {
         ).message;
       });
     } finally {
-      if (!mounted) {
-        return;
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
       }
-      setState(() {
-        _isLoading = false;
-      });
     }
   }
 
@@ -91,6 +90,9 @@ class _UsersScreenState extends State<UsersScreen> {
 
   Future<void> _openEditor({UserModel? user}) async {
     if (!await _ensureAuthorized()) {
+      return;
+    }
+    if (!mounted) {
       return;
     }
 
@@ -175,6 +177,9 @@ class _UsersScreenState extends State<UsersScreen> {
     if (!await _ensureAuthorized()) {
       return;
     }
+    if (!mounted) {
+      return;
+    }
 
     final currentUserId = context.read<AuthProvider>().currentUser?.id;
     if (currentUserId == user.id) {
@@ -201,6 +206,9 @@ class _UsersScreenState extends State<UsersScreen> {
 
   Future<void> _deleteUser(UserModel user) async {
     if (!await _ensureAuthorized()) {
+      return;
+    }
+    if (!mounted) {
       return;
     }
 
@@ -468,12 +476,11 @@ class _RecoveryCodeDialogState extends State<_RecoveryCodeDialog> {
         _errorMessage = 'No se pudo cargar la clave de recuperacion.';
       });
     } finally {
-      if (!mounted) {
-        return;
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
       }
-      setState(() {
-        _isLoading = false;
-      });
     }
   }
 
@@ -510,12 +517,11 @@ class _RecoveryCodeDialogState extends State<_RecoveryCodeDialog> {
         _errorMessage = 'No se pudo regenerar la clave de recuperacion.';
       });
     } finally {
-      if (!mounted) {
-        return;
+      if (mounted) {
+        setState(() {
+          _isRegenerating = false;
+        });
       }
-      setState(() {
-        _isRegenerating = false;
-      });
     }
   }
 
@@ -925,7 +931,7 @@ class _UserEditorDialogState extends State<_UserEditorDialog> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: DropdownButtonFormField<UserRole>(
-                        value: _selectedRole,
+                        initialValue: _selectedRole,
                         decoration: const InputDecoration(
                           labelText: 'Rol',
                           prefixIcon: Icon(Icons.verified_user_outlined),

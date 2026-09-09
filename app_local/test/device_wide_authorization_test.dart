@@ -10,12 +10,14 @@ void main() {
       // Arrange
       const userAId = 'user-a-uuid';
       const deviceId = 'device-001-aabbccdd';
-      
+
       // Act: User A calls /devices/activate
       // Expected: POST succeeds (no @RequirePermissions guard)
       // Expected: Device record created with isPrimary=true, canWrite=true
-      
+
       // Assert
+      expect(userAId, isNotEmpty);
+      expect(deviceId, startsWith('device-'));
       expect(true, true); // Placeholder for actual backend call
     });
 
@@ -24,17 +26,19 @@ void main() {
       // Arrange
       const userBId = 'user-b-uuid';
       const deviceId = 'device-001-aabbccdd';
-      
+
       // Setup: Device already activated by User A
       // (in real scenario: User A call would create record)
-      
+
       // Act: User B calls GET /devices/current with same deviceId
       // Backend logic:
       // 1. Searches for (userB, device) — NOT FOUND
       // 2. Searches globally: (*, device) with isPrimary=true, canWrite=true — FOUND
       // 3. Returns canWrite=true
-      
+
       // Assert: canWrite should be true via global device authorization
+      expect(userBId, isNotEmpty);
+      expect(deviceId, startsWith('device-'));
       expect(true, true); // Placeholder for actual backend call
     });
 
@@ -42,29 +46,34 @@ void main() {
     test('Device revocation blocks ALL users on that device', () async {
       // Arrange
       const deviceId = 'device-001-aabbccdd';
-      
+
       // Act: Admin calls POST /devices/revoke
       // Backend logic:
       // 1. Updates ALL (*, deviceId) records: isPrimary=false, canWrite=false, revokedAt=now
-      
+
       // Assert
       // - User A gets canWrite=false
       // - User B gets canWrite=false
+      expect(deviceId, startsWith('device-'));
       expect(true, true); // Placeholder
     });
 
     // Test 4: Admin override still works
-    test('Admin with system.config permission always has write access', () async {
-      // Arrange
-      const adminId = 'admin-uuid';
-      
-      // Act: Admin accesses PWA
-      // Has permission: system.config
-      
-      // Assert: canWrite should be true regardless of device state
-      // (admin override not blocked by device authorization)
-      expect(true, true); // Placeholder
-    });
+    test(
+      'Admin with system.config permission always has write access',
+      () async {
+        // Arrange
+        const adminId = 'admin-uuid';
+
+        // Act: Admin accesses PWA
+        // Has permission: system.config
+
+        // Assert: canWrite should be true regardless of device state
+        // (admin override not blocked by device authorization)
+        expect(adminId, isNotEmpty);
+        expect(true, true); // Placeholder
+      },
+    );
 
     // Test 5: Multiple devices per user still work
     test('User can activate multiple devices, one at a time', () async {
@@ -72,12 +81,14 @@ void main() {
       const userId = 'user-uuid';
       const device1 = 'device-001';
       const device2 = 'device-002';
-      
+
       // Act: User activates device1
       // Then: User activates device2
       // Backend: Revokes only device1 instances, activates device2
-      
+
       // Assert: Only device2 is primary/canWrite for this user
+      expect(userId, isNotEmpty);
+      expect(device1, isNot(device2));
       expect(true, true); // Placeholder
     });
 
@@ -86,14 +97,19 @@ void main() {
       // Arrange
       const nonAdminId = 'user-uuid';
       const deviceId = 'device-001';
-      
+
       // Setup: User has NO system.config permission
-      final permissions = <String>['sales.read']; // Example: only sales permissions
-      
+      final permissions = <String>[
+        'sales.read',
+      ]; // Example: only sales permissions
+
       // Act: Non-admin calls POST /devices/activate
       // Expected: SUCCEEDS (no @RequirePermissions guard)
-      
+
       // Assert
+      expect(nonAdminId, isNotEmpty);
+      expect(deviceId, startsWith('device-'));
+      expect(permissions, contains('sales.read'));
       expect(true, true); // Placeholder
     });
 
@@ -103,11 +119,13 @@ void main() {
       const userBId = 'user-b-uuid';
       const deviceId = 'device-001-aabbccdd';
       // Device already authorized in previous test
-      
+
       // Act: User B logs out, logs back in
       // Calls GET /devices/current again
-      
+
       // Assert: Still gets canWrite=true via global device authorization
+      expect(userBId, isNotEmpty);
+      expect(deviceId, startsWith('device-'));
       expect(true, true); // Placeholder
     });
   });

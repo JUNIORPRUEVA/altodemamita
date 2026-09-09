@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sistema_solares/core/database/app_database.dart';
+import 'package:sistema_solares/features/settings/data/settings_repository.dart';
 import 'package:sistema_solares/core/database/database_schema.dart';
 import 'package:sistema_solares/features/clients/data/client_repository.dart';
 import 'package:sistema_solares/models/sync/sync_settings.dart';
@@ -32,7 +33,10 @@ void main() {
     );
     appDatabase = AppDatabase.test(path.join(tempDirectory.path, 'test.db'));
     await appDatabase.initialize();
-    configRepository = SyncConfigRepository();
+    configRepository = SyncConfigRepository(
+      settingsRepository: SettingsRepository(appDatabase: appDatabase),
+      preferencesFactory: SharedPreferences.getInstance,
+    );
     apiClient = _CursorAwareSyncApiClient();
     queueService = SyncQueueService.test(
       appDatabase: appDatabase,
@@ -54,6 +58,7 @@ void main() {
       syncQueueService: queueService,
       appDatabase: appDatabase,
     );
+    await configRepository.saveBaseUrl('http://127.0.0.1:9999/api');
     await configRepository.saveJwtToken('jwt-test-token');
   });
 
@@ -72,6 +77,38 @@ void main() {
       final saleUpdatedAt = DateTime(2026, 5, 1, 10, 0).toIso8601String();
       final staleCursor = DateTime(2026, 5, 5, 12, 0);
 
+      final cloudUserValues = {
+        'sync_id': 'cloud-admin-1',
+        'id_remote': 'cloud-admin-1',
+        'email': 'admin@sistema.local',
+        'nombre': 'Admin Cloud',
+        'rol': 'admin',
+        'activo': 1,
+        'password_hash': 'cloud-authenticated',
+        'fecha_creacion': createdAt,
+        'fecha_actualizacion': createdAt,
+        'deleted_at': null,
+        'sync_status': DatabaseSchema.syncStatusSynced,
+        'auth_source': 'cloud',
+        'remote_auth_id': 'cloud-admin-1',
+      };
+      final seededUsers = await db.query(
+        DatabaseSchema.usersTable,
+        columns: ['id'],
+        where: 'LOWER(email) = ?',
+        whereArgs: ['admin@sistema.local'],
+        limit: 1,
+      );
+      if (seededUsers.isEmpty) {
+        await db.insert(DatabaseSchema.usersTable, cloudUserValues);
+      } else {
+        await db.update(
+          DatabaseSchema.usersTable,
+          cloudUserValues,
+          where: 'id = ?',
+          whereArgs: [seededUsers.first['id']],
+        );
+      }
       await db.insert(DatabaseSchema.clientsTable, {
         'sync_id': 'client-missing-sale-1',
         'version': 1,

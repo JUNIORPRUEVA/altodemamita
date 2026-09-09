@@ -20,7 +20,9 @@ void main() {
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
-    tempDirectory = await Directory.systemTemp.createTemp('offline_login_cached_');
+    tempDirectory = await Directory.systemTemp.createTemp(
+      'offline_login_cached_',
+    );
     appDatabase = AppDatabase.test(path.join(tempDirectory.path, 'auth.db'));
     await appDatabase.initialize();
 
@@ -46,50 +48,53 @@ void main() {
     }
   });
 
-  test('offline login succeeds after online cache with normalized email variants', () async {
-    await authService.signInHybrid(
-      email: 'Admin@gmail.com',
-      password: 'Ayleen10',
-    );
+  test(
+    'offline login succeeds after online cache with normalized email variants',
+    () async {
+      await authService.loginOnline(
+        email: 'Admin@gmail.com',
+        password: 'Ayleen10',
+      );
 
-    final db = await appDatabase.database;
-    final rows = await db.query(
-      DatabaseSchema.usersTable,
-      columns: ['email', 'password_hash', 'id_remote', 'remote_auth_id'],
-      where: 'LOWER(email) = ?',
-      whereArgs: ['admin@gmail.com'],
-      limit: 1,
-    );
-    expect(rows, hasLength(1));
-    expect((rows.first['password_hash'] as String? ?? '').trim(), isNotEmpty);
+      final db = await appDatabase.database;
+      final rows = await db.query(
+        DatabaseSchema.usersTable,
+        columns: ['email', 'password_hash', 'id_remote', 'remote_auth_id'],
+        where: 'LOWER(email) = ?',
+        whereArgs: ['admin@gmail.com'],
+        limit: 1,
+      );
+      expect(rows, hasLength(1));
+      expect((rows.first['password_hash'] as String? ?? '').trim(), isNotEmpty);
 
-    await authService.signOut();
-    await appDatabase.close();
+      await authService.signOut();
+      await appDatabase.close();
 
-    appDatabase = AppDatabase.test(path.join(tempDirectory.path, 'auth.db'));
-    await appDatabase.initialize();
+      appDatabase = AppDatabase.test(path.join(tempDirectory.path, 'auth.db'));
+      await appDatabase.initialize();
 
-    authService = AuthService(
-      appDatabase: appDatabase,
-      syncConfigRepository: configRepository,
-      httpClient: FakeBackendHttpClient(state: backendState),
-    );
+      authService = AuthService(
+        appDatabase: appDatabase,
+        syncConfigRepository: configRepository,
+        httpClient: FakeBackendHttpClient(state: backendState),
+      );
 
-    backendState.offline = true;
-    final result = await authService.signInHybrid(
-      email: 'Admin@gmail.com',
-      password: 'Ayleen10',
-    );
+      backendState.offline = true;
+      final result = await authService.signInHybrid(
+        email: 'Admin@gmail.com',
+        password: 'Ayleen10',
+      );
 
-    expect(result.mode, AuthSignInMode.offline);
-    expect(result.user.email, 'admin@gmail.com');
+      expect(result.mode, AuthSignInMode.offline);
+      expect(result.user.email, 'admin@gmail.com');
 
-    await authService.signOut();
-    final resultWithSpaces = await authService.signInHybrid(
-      email: ' Admin@gmail.com ',
-      password: 'Ayleen10',
-    );
-    expect(resultWithSpaces.mode, AuthSignInMode.offline);
-    expect(resultWithSpaces.user.email, 'admin@gmail.com');
-  });
+      await authService.signOut();
+      final resultWithSpaces = await authService.signInHybrid(
+        email: ' Admin@gmail.com ',
+        password: 'Ayleen10',
+      );
+      expect(resultWithSpaces.mode, AuthSignInMode.offline);
+      expect(resultWithSpaces.user.email, 'admin@gmail.com');
+    },
+  );
 }

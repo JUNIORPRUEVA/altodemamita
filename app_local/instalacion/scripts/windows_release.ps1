@@ -3,7 +3,12 @@ param(
   [switch]$CompileInstaller,
   [switch]$PerUserInstaller,
   [switch]$SkipAnalyze,
-  [string]$Version
+  [string]$Version,
+  [string]$SyncApiBaseUrl,
+  [string]$CloudCutoverMode,
+  [switch]$DisableCloudPull,
+  [switch]$EnableLegacyMigration,
+  [switch]$EnableAuthBootstrap
 )
 
 $ErrorActionPreference = 'Stop'
@@ -29,6 +34,21 @@ if ($SkipAnalyze) {
 }
 if ($PerUserInstaller) {
   $forwardArgs += '-PerUserInstaller'
+}
+if ($SyncApiBaseUrl) {
+  $forwardArgs += @('-SyncApiBaseUrl', $SyncApiBaseUrl)
+}
+if ($CloudCutoverMode) {
+  $forwardArgs += @('-CloudCutoverMode', $CloudCutoverMode)
+}
+if ($DisableCloudPull) {
+  $forwardArgs += '-DisableCloudPull'
+}
+if ($EnableLegacyMigration) {
+  $forwardArgs += '-EnableLegacyMigration'
+}
+if ($EnableAuthBootstrap) {
+  $forwardArgs += '-EnableAuthBootstrap'
 }
 if (-not $Build) {
   $forwardArgs += '-SkipFlutterBuild'

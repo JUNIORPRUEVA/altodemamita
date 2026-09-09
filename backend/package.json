@@ -12,7 +12,8 @@
     "start": "node dist/server.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate deploy",
-    "prisma:dev": "prisma migrate dev"
+    "prisma:dev": "prisma migrate dev",
+    "migration:sqlite": "tsx src/scripts/customerSqliteMigration.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

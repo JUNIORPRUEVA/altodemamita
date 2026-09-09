@@ -13,7 +13,11 @@ param(
   [switch]$SkipAnalyze = $false,
   [switch]$PerUserInstaller = $false,
   [switch]$IncludeWebView2Runtime = $false,
-  [string]$SyncApiBaseUrl = "https://altodemanita-altodemamita-backent.onqyr1.easypanel.host"
+  [string]$SyncApiBaseUrl = "",
+  [string]$CloudCutoverMode = "CLOUD_AUTHORITATIVE",
+  [switch]$DisableCloudPull = $false,
+  [switch]$EnableLegacyMigration = $false,
+  [switch]$EnableAuthBootstrap = $false
 )
 
 $ErrorActionPreference = 'Stop'
@@ -104,6 +108,18 @@ if (-not (Test-Path $VcRedistPath)) {
 if ($IncludeWebView2Runtime -and -not (Test-Path $WebView2Path)) {
   throw "WebView2 runtime was requested but not found at $WebView2Path."
 }
+if (-not $SyncApiBaseUrl.Trim()) {
+  throw "SyncApiBaseUrl is required for release builds. Pass the verified production backend URL with -SyncApiBaseUrl."
+}
+if ($SyncApiBaseUrl -match 'onqyr1\.easypanel\.host|25432') {
+  throw "Refusing to build with a legacy EasyPanel host or database port in SyncApiBaseUrl."
+}
+$allowedCutoverModes = @('LEGACY_LOCAL', 'CLOUD_UAT', 'CLOUD_AUTHORITATIVE')
+$ResolvedCloudCutoverMode = $CloudCutoverMode.Trim().ToUpperInvariant()
+if ($allowedCutoverModes -notcontains $ResolvedCloudCutoverMode) {
+  throw "Invalid CloudCutoverMode '$CloudCutoverMode'. Allowed values: $($allowedCutoverModes -join ', ')."
+}
+$AllowCloudPull = -not $DisableCloudPull
 
 $AppVersion = if ($Version.Trim()) { $Version.Trim() } else { Get-PubspecVersion -Path $PubspecPath }
 $VersionParts = Get-VersionParts -AppVersion $AppVersion
@@ -125,6 +141,10 @@ Write-Host "Output dir:   $OutputDir"
 Write-Host "Version:      $AppVersion"
 Write-Host "VersionInfo:  $ResolvedVersionInfo"
 Write-Host "Sync API URL: $SyncApiBaseUrl"
+Write-Host "Cutover mode: $ResolvedCloudCutoverMode"
+Write-Host "Cloud pull:   $AllowCloudPull"
+Write-Host "Legacy mig.:  $EnableLegacyMigration"
+Write-Host "Auth boot.:   $EnableAuthBootstrap"
 Write-Host ''
 
 if (-not $SkipAnalyze) {
@@ -141,7 +161,22 @@ if (-not $SkipFlutterBuild) {
   Write-Host '[2/4] Building Flutter Windows release...'
   Push-Location $AppDir
   try {
-    & flutter build windows --release --dart-define=SYNC_API_BASE_URL=$SyncApiBaseUrl --build-name $VersionParts.BuildName --build-number $VersionParts.BuildNumber
+    $dartDefines = @(
+      "--dart-define=SYNC_API_BASE_URL=$SyncApiBaseUrl",
+      "--dart-define=ALLOW_CLOUD_PULL=$AllowCloudPull",
+      "--dart-define=CLOUD_CUTOVER_MODE=$ResolvedCloudCutoverMode"
+    )
+    if ($EnableLegacyMigration) {
+      $dartDefines += '--dart-define=ALLOW_LEGACY_MIGRATION=true'
+    }
+    if ($EnableAuthBootstrap) {
+      $dartDefines += '--dart-define=ALLOW_AUTH_BOOTSTRAP=true'
+    }
+
+    & flutter build windows --release `
+      @dartDefines `
+      --build-name $VersionParts.BuildName `
+      --build-number $VersionParts.BuildNumber
   } finally {
     Pop-Location
   }
@@ -217,6 +252,10 @@ $manifest = @(
   "Version: $AppVersion",
   "VersionInfo: $ResolvedVersionInfo",
   "SyncApiBaseUrl: $SyncApiBaseUrl",
+  "AllowCloudPull: $AllowCloudPull",
+  "CloudCutoverMode: $ResolvedCloudCutoverMode",
+  "AllowLegacyMigration: $EnableLegacyMigration",
+  "AllowAuthBootstrap: $EnableAuthBootstrap",
   "DiagnosticsLogPath: $diagnosticsLogPath",
   "PerUserInstaller: $PerUserInstaller",
   "IncludeWebView2Runtime: $IncludeWebView2Runtime",

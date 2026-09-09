@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as developer;
 import 'dart:io';
@@ -6,6 +7,10 @@ import 'package:flutter/foundation.dart';
 
 import '../constants.dart';
 import '../models/owner_snapshot.dart';
+
+const Duration _ownerRequestTimeout = Duration(seconds: 45);
+const int _ownerPageSize = 200;
+const int _ownerPageBatchSize = 6;
 
 class ApiClient {
   const ApiClient(this.baseUrl);
@@ -25,15 +30,21 @@ class ApiClient {
 
   Future<OwnerSnapshot> fetchSnapshot() async {
     _logUrl();
-    final results = await Future.wait([
-      _get('/owner/dashboard'),
-      _listAll('/owner/clients'),
-      _listAll('/owner/sellers'),
-      _listAll('/owner/lots'),
-      _listAll('/owner/sales'),
-      _listAll('/owner/installments'),
-      _listAll('/owner/payments'),
-    ]);
+    final client = _createHttpClient();
+    final List<Object?> results;
+    try {
+      results = await Future.wait([
+        _get('/owner/dashboard', client: client),
+        _listAll('/owner/clients', client: client),
+        _listAll('/owner/sellers', client: client),
+        _listAll('/owner/lots', client: client),
+        _listAll('/owner/sales', client: client),
+        _listAll('/owner/installments', client: client),
+        _listAll('/owner/payments', client: client),
+      ]);
+    } finally {
+      client.close(force: true);
+    }
     final clients = _normalizeClients(listOfMaps(results[1]));
     final sellers = _normalizeSellers(listOfMaps(results[2]));
     final lots = _normalizeLots(listOfMaps(results[3]));
@@ -65,28 +76,63 @@ class ApiClient {
     );
   }
 
-  Future<List<Map<String, dynamic>>> _listAll(String path) async {
-    const pageSize = 200;
-    var page = 1;
-    var total = 0;
-    final allItems = <Map<String, dynamic>>[];
+  Future<OwnerSnapshot> fetchDashboardSnapshot() async {
+    _logUrl();
+    final dashboardBody = await _get('/owner/dashboard');
+    return OwnerSnapshot(
+      dashboard: (dashboardBody['data'] as Map).cast<String, dynamic>(),
+      clients: const [],
+      sellers: const [],
+      lots: const [],
+      sales: const [],
+      installments: const [],
+      payments: const [],
+    );
+  }
 
-    do {
-      final body = await _get('$path?page=$page&pageSize=$pageSize');
-      final data = (body['data'] as Map).cast<String, dynamic>();
-      final items = listOfMaps(data['items']);
-      total = _readInt(data['total']);
-      allItems.addAll(items);
-      if (items.isEmpty) {
-        break;
+  Future<List<Map<String, dynamic>>> _listAll(
+    String path, {
+    required HttpClient client,
+  }) async {
+    final firstPage = await _get(
+      '$path?page=1&pageSize=$_ownerPageSize',
+      client: client,
+    );
+    final firstPageData = (firstPage['data'] as Map).cast<String, dynamic>();
+    final firstItems = listOfMaps(firstPageData['items']);
+    final total = _readInt(firstPageData['total']);
+    final allItems = <Map<String, dynamic>>[...firstItems];
+
+    if (firstItems.isEmpty || allItems.length >= total) {
+      return allItems;
+    }
+
+    final pageCount = (total / _ownerPageSize).ceil();
+    for (
+      var startPage = 2;
+      startPage <= pageCount;
+      startPage += _ownerPageBatchSize
+    ) {
+      final endPage = (startPage + _ownerPageBatchSize - 1).clamp(
+        startPage,
+        pageCount,
+      );
+      final pageBodies = await Future.wait([
+        for (var page = startPage; page <= endPage; page++)
+          _get('$path?page=$page&pageSize=$_ownerPageSize', client: client),
+      ]);
+
+      for (final body in pageBodies) {
+        final data = (body['data'] as Map).cast<String, dynamic>();
+        final items = listOfMaps(data['items']);
+        allItems.addAll(items);
       }
-      page += 1;
-    } while (allItems.length < total);
+    }
 
     return allItems;
   }
 
-  Future<Map<String, dynamic>> _get(String path) async {
+  Future<Map<String, dynamic>> _get(String path, {HttpClient? client}) async {
     final parsed = Uri.parse('$baseUrl$path');
     final uri = parsed.replace(
       queryParameters: {
@@ -94,18 +140,22 @@ class ApiClient {
         'companyTenantKey': companyTenantKey,
       },
     );
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 15);
+    final httpClient = client ?? _createHttpClient();
     try {
       if (kDebugMode) {
         debugPrint('[OwnerApi] request url=$uri');
         developer.log('request url=$uri', name: 'SistemaSolares.OwnerApi');
       }
-      final request = await client.getUrl(uri);
+      final request = await httpClient
+          .getUrl(uri)
+          .timeout(_ownerRequestTimeout);
       request.headers.set('x-company-tenant-key', companyTenantKey);
       request.headers.set(HttpHeaders.acceptHeader, ContentType.json.mimeType);
-      final response = await request.close();
-      final responseBody = await utf8.decoder.bind(response).join();
+      final response = await request.close().timeout(_ownerRequestTimeout);
+      final responseBody = await utf8.decoder
+          .bind(response)
+          .join()
+          .timeout(_ownerRequestTimeout);
       if (kDebugMode) {
         debugPrint(
           '[OwnerApi] response status=${response.statusCode} url=$uri',
@@ -149,9 +199,26 @@ class ApiClient {
         );
       }
       rethrow;
+    } on TimeoutException catch (e) {
+      if (kDebugMode) {
+        debugPrint('[OwnerApi] timeout error url=$uri error=$e');
+        developer.log(
+          'timeout error url=$uri error=$e',
+          name: 'SistemaSolares.OwnerApi',
+        );
+      }
+      rethrow;
     } finally {
-      client.close(force: true);
+      if (client == null) {
+        httpClient.close(force: true);
+      }
     }
+  }
+
+  HttpClient _createHttpClient() {
+    return HttpClient()
+      ..connectionTimeout = const Duration(seconds: 30)
+      ..idleTimeout = const Duration(seconds: 30);
   }
 }
 

@@ -9,6 +9,7 @@ import 'package:sistema_solares/features/auth/domain/permission_model.dart';
 import 'package:sistema_solares/features/auth/presentation/auth_provider.dart';
 import 'package:sistema_solares/features/clients/data/client_repository.dart';
 import 'package:sistema_solares/features/lots/data/lot_repository.dart';
+import 'package:sistema_solares/features/lots/domain/lot.dart';
 import 'package:sistema_solares/features/sales/data/seller_repository.dart';
 import 'package:sistema_solares/features/sales/domain/sale_defaults.dart';
 import 'package:sistema_solares/features/sales/presentation/sale_form_dialog.dart';
@@ -16,6 +17,25 @@ import 'package:sistema_solares/features/sales/presentation/sale_form_dialog.dar
 class _TestAuthProvider extends AuthProvider {
   @override
   bool canAccess(String module, PermissionAction action) => true;
+}
+
+class _InMemoryLotRepository extends LotRepository {
+  _InMemoryLotRepository({required super.appDatabase});
+
+  final List<Lot> _lots = [];
+  int _nextId = 1;
+
+  @override
+  Future<void> save(Lot lot) async {
+    _lots.add(lot.copyWith(id: _nextId++, status: 'disponible'));
+  }
+
+  @override
+  Future<List<Lot>> fetchAvailable({String query = ''}) async {
+    return _lots
+        .where((lot) => lot.status == 'disponible')
+        .toList(growable: false);
+  }
 }
 
 Future<void> _settle(WidgetTester tester) async {
@@ -34,7 +54,7 @@ void main() {
     );
     appDatabase = AppDatabase.test(path.join(tempDirectory.path, 'test.db'));
     await appDatabase.initialize();
-    lotRepository = LotRepository(appDatabase: appDatabase);
+    lotRepository = _InMemoryLotRepository(appDatabase: appDatabase);
   });
 
   tearDown(() async {

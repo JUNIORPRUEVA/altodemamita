@@ -43,7 +43,7 @@ void main() {
     }
   });
 
-  Future<int> _seedSaleAsApartado({
+  Future<int> seedSaleAsApartado({
     required DateTime saleDate,
     required double apartadoAmount,
     required DateTime? deadline,
@@ -96,7 +96,7 @@ void main() {
       final saleDate = DateTime(2026, 5, 6);
       final deadline = saleDate.add(const Duration(days: 25));
 
-      final saleId = await _seedSaleAsApartado(
+      final saleId = await seedSaleAsApartado(
         saleDate: saleDate,
         apartadoAmount: 10000,
         deadline: deadline,

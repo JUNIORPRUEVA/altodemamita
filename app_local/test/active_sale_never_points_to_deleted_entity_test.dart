@@ -24,7 +24,9 @@ void main() {
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
-    tempDir = await Directory.systemTemp.createTemp('active_sale_never_deleted_entity_');
+    tempDir = await Directory.systemTemp.createTemp(
+      'active_sale_never_deleted_entity_',
+    );
     appDatabase = AppDatabase.test(path.join(tempDir.path, 'test.db'));
     await appDatabase.initialize();
   });
@@ -36,7 +38,7 @@ void main() {
     }
   });
 
-  Future<void> _insertBaseSaleData(
+  Future<void> insertBaseSaleData(
     Map<String, dynamic> extra, {
     required int clientId,
     required int lotId,
@@ -97,10 +99,12 @@ void main() {
       'fecha_actualizacion': now,
       'sync_status': DatabaseSchema.syncStatusSynced,
     });
-    final userRows = await db.rawQuery('SELECT id FROM ${DatabaseSchema.usersTable} LIMIT 1');
+    final userRows = await db.rawQuery(
+      'SELECT id FROM ${DatabaseSchema.usersTable} LIMIT 1',
+    );
     final uid = (userRows.isEmpty ? 1 : userRows.first['id']) as int;
 
-    await _insertBaseSaleData(
+    await insertBaseSaleData(
       {'sync_id': 'c1'},
       clientId: clientId,
       lotId: lotId,
@@ -116,7 +120,11 @@ void main() {
     } on ActiveSalesBlockDeleteException {
       threw = true;
     }
-    expect(threw, isTrue, reason: 'Delete must be blocked when active sale exists');
+    expect(
+      threw,
+      isTrue,
+      reason: 'Delete must be blocked when active sale exists',
+    );
 
     // Verify client still not deleted in DB
     final rows = await db.query(
@@ -124,8 +132,11 @@ void main() {
       where: 'id = ?',
       whereArgs: [clientId],
     );
-    expect(rows.first['deleted_at'], isNull,
-        reason: 'Client must remain non-deleted after blocked attempt');
+    expect(
+      rows.first['deleted_at'],
+      isNull,
+      reason: 'Client must remain non-deleted after blocked attempt',
+    );
   });
 
   test('active_sale_never_points_to_deleted_product_test', () async {
@@ -153,10 +164,12 @@ void main() {
       'fecha_actualizacion': now,
       'sync_status': DatabaseSchema.syncStatusSynced,
     });
-    final userRows = await db.rawQuery('SELECT id FROM ${DatabaseSchema.usersTable} LIMIT 1');
+    final userRows = await db.rawQuery(
+      'SELECT id FROM ${DatabaseSchema.usersTable} LIMIT 1',
+    );
     final uid = (userRows.isEmpty ? 1 : userRows.first['id']) as int;
 
-    await _insertBaseSaleData(
+    await insertBaseSaleData(
       {'sync_id': 'p2'},
       clientId: clientId,
       lotId: lotId,
@@ -215,10 +228,12 @@ void main() {
       'fecha_actualizacion': now,
       'sync_status': DatabaseSchema.syncStatusSynced,
     });
-    final userRows = await db.rawQuery('SELECT id FROM ${DatabaseSchema.usersTable} LIMIT 1');
+    final userRows = await db.rawQuery(
+      'SELECT id FROM ${DatabaseSchema.usersTable} LIMIT 1',
+    );
     final uid = (userRows.isEmpty ? 1 : userRows.first['id']) as int;
 
-    await _insertBaseSaleData(
+    await insertBaseSaleData(
       {'sync_id': 's3'},
       clientId: clientId,
       lotId: lotId,

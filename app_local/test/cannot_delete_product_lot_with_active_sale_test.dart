@@ -6,13 +6,19 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sistema_solares/core/database/app_database.dart';
 import 'package:sistema_solares/core/database/database_schema.dart';
 import 'package:sistema_solares/core/errors/active_sales_block_delete_exception.dart';
+import 'package:sistema_solares/core/system/system_config_service.dart';
 import 'package:sistema_solares/features/lots/data/lot_repository.dart';
+import 'package:sistema_solares/services/sync/sync_queue_service.dart';
+
+import 'helpers/fake_backend.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late Directory tempDir;
   late AppDatabase appDatabase;
+  late SyncQueueService syncQueueService;
+  late SystemConfigService systemConfigService;
   late LotRepository repository;
 
   setUp(() async {
@@ -20,10 +26,26 @@ void main() {
     tempDir = await Directory.systemTemp.createTemp('cannot_delete_product_lot_active_sale_');
     appDatabase = AppDatabase.test(path.join(tempDir.path, 'test.db'));
     await appDatabase.initialize();
-    repository = LotRepository(appDatabase: appDatabase);
+    final configRepository = FakeSyncConfigRepository(
+      settings: buildFakeSettings(),
+    );
+    systemConfigService = SystemConfigService.test(
+      syncConfigRepository: configRepository,
+    );
+    syncQueueService = SyncQueueService.test(
+      appDatabase: appDatabase,
+      configRepository: configRepository,
+      systemConfigService: systemConfigService,
+    );
+    repository = LotRepository(
+      appDatabase: appDatabase,
+      syncQueueService: syncQueueService,
+      systemConfigService: systemConfigService,
+    );
   });
 
   tearDown(() async {
+    syncQueueService.dispose();
     await appDatabase.close();
     if (await tempDir.exists()) {
       await tempDir.delete(recursive: true);

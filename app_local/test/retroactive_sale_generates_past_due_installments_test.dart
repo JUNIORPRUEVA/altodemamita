@@ -190,7 +190,7 @@ void main() {
     )).single;
 
     expect(paidRow['estado'], 'pagada');
-    expect((paidRow['monto_pagado'] as num).toDouble(), amount);
+    expect((paidRow['monto_pagado'] as num).toDouble(), closeTo(amount, 0.01));
     expect((saleRow['saldo_pendiente'] as num).toDouble(), lessThan(900000));
   });
 

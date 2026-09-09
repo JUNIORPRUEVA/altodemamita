@@ -32,7 +32,15 @@ class AppDatabase {
     );
   }
 
-  static final AppDatabase instance = AppDatabase._();
+  static final AppDatabase _instance = AppDatabase._();
+  static AppDatabase? _debugInstanceOverride;
+
+  static AppDatabase get instance => _debugInstanceOverride ?? _instance;
+
+  @visibleForTesting
+  static void debugOverrideInstance(AppDatabase? database) {
+    _debugInstanceOverride = database;
+  }
 
   final String? _customDatabasePath;
   final AppPaths? _appPaths;
@@ -66,6 +74,7 @@ class AppDatabase {
 
       print('✅ DB ABIERTA: $openedDatabase');
       await _logTables(openedDatabase);
+      await _logClientDiagnostics(openedDatabase);
       await _runWritableProbe(openedDatabase);
 
       if (kDebugMode) {
@@ -153,6 +162,35 @@ class AppDatabase {
       "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
     );
     print('📦 TABLAS: $tables');
+  }
+
+  Future<void> _logClientDiagnostics(Database db) async {
+    try {
+      final dbPath = await databasePath;
+      final totals = await db.rawQuery('''
+        SELECT
+          COUNT(*) AS total,
+          SUM(CASE WHEN deleted_at IS NULL THEN 1 ELSE 0 END) AS active,
+          SUM(CASE WHEN deleted_at IS NOT NULL THEN 1 ELSE 0 END) AS deleted
+        FROM ${DatabaseSchema.clientsTable}
+      ''');
+      final trackedRows = await db.rawQuery('''
+        SELECT id, nombre, cedula, telefono, deleted_at, sync_status
+        FROM ${DatabaseSchema.clientsTable}
+        WHERE UPPER(nombre) LIKE '%YOSAIRA%'
+           OR UPPER(nombre) LIKE '%YOSAYRA%'
+           OR REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(telefono, ''), ' ', ''), '-', ''), '(', ''), ')', ''), '.', ''), '+', '') = '8295544479'
+           OR cedula = '02800984631'
+        ORDER BY id
+      ''');
+
+      print('[CLIENT-DIAG][DB] path=$dbPath');
+      print('[CLIENT-DIAG][DB] counts=${totals.isEmpty ? '{}' : totals.first}');
+      print('[CLIENT-DIAG][DB] yosaira_rows=$trackedRows');
+    } catch (error, stackTrace) {
+      print('[CLIENT-DIAG][DB] error=$error');
+      print(stackTrace);
+    }
   }
 
   Future<void> _runWritableProbe(Database db) async {
@@ -310,7 +348,7 @@ class AppDatabase {
               'fecha_actualizacion': nowIso,
               'sync_status': DatabaseSchema.syncStatusSynced,
               // Keep UNIQUE(cedula) from blocking normalization of live rows.
-              'cedula': '__DELETED__${id}',
+              'cedula': '__DELETED__$id',
             },
             where: 'id = ?',
             whereArgs: [id],
@@ -407,7 +445,7 @@ class AppDatabase {
               if (conflictId != null) {
                 await txn.update(
                   DatabaseSchema.clientsTable,
-                  {'cedula': '__CEDULA_CONFLICT__${conflictId}'},
+                  {'cedula': '__CEDULA_CONFLICT__$conflictId'},
                   where: 'id = ?',
                   whereArgs: [conflictId],
                 );

@@ -1,25 +1,33 @@
 import 'package:flutter/material.dart';
 
-import '../../core/utils.dart';
-import '../../widgets/records_page.dart';
+import '../../widgets/owner_entity_records_page.dart';
 
 class LotsPage extends StatelessWidget {
   const LotsPage({
     super.key,
     required this.items,
-    this.searchNotifier,
+    this.searchQueryNotifier,
+    this.filterNotifier,
+    this.allSales = const [],
+    this.allClients = const [],
   });
 
   final List<Map<String, dynamic>> items;
-  final ValueNotifier<bool>? searchNotifier;
+  final ValueNotifier<String>? searchQueryNotifier;
+  final ValueNotifier<String>? filterNotifier;
+  final List<Map<String, dynamic>> allSales;
+  final List<Map<String, dynamic>> allClients;
 
   @override
   Widget build(BuildContext context) {
-    return RecordsPage(
+    return OwnerEntityRecordsPage(
+      kind: OwnerEntityKind.lot,
       items: items,
-      builder: RecordBuilders.lot,
-      searchHint: 'Buscar por número, manzana...',
-      searchNotifier: searchNotifier,
+      searchQueryNotifier: searchQueryNotifier,
+      filterNotifier: filterNotifier,
+      allLots: items,
+      allSales: allSales,
+      allClients: allClients,
     );
   }
 }

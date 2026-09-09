@@ -102,6 +102,7 @@ class InstallmentsSyncRepository implements SyncRepository {
 
     final affectedSaleIds = <int>{};
     final db = await _appDatabase.database;
+    final logDetailedRecords = records.length <= 200;
     await db.transaction((txn) async {
       for (final record in records) {
         final syncId = _readRequiredString(record['sync_id']);
@@ -117,13 +118,8 @@ class InstallmentsSyncRepository implements SyncRepository {
         );
         if (_isDeleted(record['deleted_at'])) {
           if (_hasConflictProtectedPendingLocal(existingRows)) {
-            await _markFirstExistingRowAsConflict(
-              txn,
-              tableName: DatabaseSchema.installmentsTable,
-              existingRows: existingRows,
-            );
             _log(
-              'installments_remote_tombstone_conflict_pending_local sync_id=$syncId',
+              'installments_remote_tombstone_kept_pending_local sync_id=$syncId',
             );
             continue;
           }
@@ -177,7 +173,9 @@ class InstallmentsSyncRepository implements SyncRepository {
             'deleted_at': _readNullableDate(record['deleted_at']),
             'sync_status': DatabaseSchema.syncStatusSynced,
           };
-          _log('UPSERT TOMBSTONE: installments $syncId');
+          if (logDetailedRecords) {
+            _log('UPSERT TOMBSTONE: installments $syncId');
+          }
           await _upsertInstallment(txn, tombstoneValues);
           continue;
         }
@@ -190,7 +188,6 @@ class InstallmentsSyncRepository implements SyncRepository {
         if (saleId == null) {
           continue;
         }
-        affectedSaleIds.add(saleId);
 
         final installmentNumber = _readInt(record['installment_number']);
         final matchingSlotRows = existingRows.isEmpty
@@ -211,6 +208,9 @@ class InstallmentsSyncRepository implements SyncRepository {
           updatedAtField: 'fecha_actualizacion',
         )) {
           continue;
+        }
+        if (!_hasLocalConflict(resolvedExistingRows)) {
+          affectedSaleIds.add(saleId);
         }
 
         final values = {
@@ -240,14 +240,18 @@ class InstallmentsSyncRepository implements SyncRepository {
         };
 
         if (resolvedExistingRows.isEmpty) {
-          _log(
-            '[SYNC] Insert new record: table=installments id=$syncId remote_delete=false',
-          );
+          if (logDetailedRecords) {
+            _log(
+              '[SYNC] Insert new record: table=installments id=$syncId remote_delete=false',
+            );
+          }
           await txn.insert(DatabaseSchema.installmentsTable, values);
         } else {
-          _log(
-            '[SYNC] Updating local record: table=installments id=$syncId remote_delete=false',
-          );
+          if (logDetailedRecords) {
+            _log(
+              '[SYNC] Updating local record: table=installments id=$syncId remote_delete=false',
+            );
+          }
           await txn.update(
             DatabaseSchema.installmentsTable,
             values,
@@ -309,11 +313,15 @@ class InstallmentsSyncRepository implements SyncRepository {
           );
           final totalAmount = _readDouble(installment['monto_cuota']);
           // Cap paid amount at total to handle duplicate pagos without breaking display.
-          final cappedPaidAmount = paidAmount > totalAmount ? _roundCurrency(totalAmount) : paidAmount;
+          final cappedPaidAmount = paidAmount > totalAmount
+              ? _roundCurrency(totalAmount)
+              : paidAmount;
           final interestAmount = _readDouble(installment['interes_cuota']);
           final principalAmount = _readDouble(installment['capital_cuota']);
           final interestPaid = _roundCurrency(
-            cappedPaidAmount > interestAmount ? interestAmount : cappedPaidAmount,
+            cappedPaidAmount > interestAmount
+                ? interestAmount
+                : cappedPaidAmount,
           );
           final principalPaid = _roundCurrency(
             (cappedPaidAmount - interestPaid).clamp(0, principalAmount),
@@ -329,7 +337,8 @@ class InstallmentsSyncRepository implements SyncRepository {
 
           final statusChanged = currentStatus != newStatus;
           final paidChanged =
-              (_readDouble(installment['monto_pagado']) - cappedPaidAmount).abs() >
+              (_readDouble(installment['monto_pagado']) - cappedPaidAmount)
+                  .abs() >
               0.009;
           final principalChanged =
               (_readDouble(installment['capital_pagado']) - principalPaid)
@@ -532,24 +541,14 @@ bool _hasConflictProtectedPendingLocal(
       localSyncStatus == DatabaseSchema.syncStatusPendingUpdate;
 }
 
-Future<void> _markFirstExistingRowAsConflict(
-  dynamic txn, {
-  required String tableName,
-  required List<Map<String, Object?>> existingRows,
-}) async {
+bool _hasLocalConflict(List<Map<String, Object?>> existingRows) {
   if (existingRows.isEmpty) {
-    return;
+    return false;
   }
-  final rowId = existingRows.first['id'];
-  if (rowId == null) {
-    return;
-  }
-  await txn.update(
-    tableName,
-    {'sync_status': DatabaseSchema.syncStatusConflict},
-    where: 'id = ?',
-    whereArgs: [rowId],
-  );
+  final localSyncStatus = (existingRows.first['sync_status'] as String? ?? '')
+      .trim()
+      .toLowerCase();
+  return localSyncStatus == DatabaseSchema.syncStatusConflict;
 }
 
 Future<void> _upsertInstallment(

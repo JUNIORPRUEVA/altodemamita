@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sistema_solares/core/database/app_database.dart';
 import 'package:sistema_solares/core/database/database_schema.dart';
 import 'package:sistema_solares/models/sync/sync_conflict_strategy.dart';
+import 'package:sistema_solares/models/sync/sync_runtime_state.dart';
 import 'package:sistema_solares/models/sync/sync_settings.dart';
 import 'package:sistema_solares/repositories/sync_repository.dart';
 import 'package:sistema_solares/services/sync/sync_api_client.dart';
@@ -58,6 +59,8 @@ void main() {
   });
 
   tearDown(() async {
+    service.dispose();
+    await Future<void>.delayed(const Duration(milliseconds: 100));
     await appDatabase.close();
     if (await tempDirectory.exists()) {
       await tempDirectory.delete(recursive: true);
@@ -306,10 +309,16 @@ void main() {
 
       await _insertQueuedRecord(appDatabase, scope: 'sales', syncId: 'sale-1');
       await service.start();
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+      for (var attempt = 0; attempt < 20; attempt += 1) {
+        if (await service.pendingCount() == 0) {
+          break;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
 
       final queueRows = await _readQueueRows(appDatabase);
-      expect(apiClient.uploadedScopes, ['sales']);
+      expect(apiClient.uploadedScopes, contains('sales'));
+      expect(apiClient.uploadedScopes.toSet(), {'sales'});
       expect(queueRows.containsKey('sales'), isFalse);
       expect(await service.pendingCount(), 0);
     },
@@ -534,7 +543,12 @@ void main() {
       await service.start();
       online = true;
       connectivityController.add(const [ConnectivityResult.wifi]);
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+      for (var attempt = 0; attempt < 20; attempt += 1) {
+        if (await service.pendingCount() == 0) {
+          break;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
 
       final queueRows = await _readQueueRows(appDatabase);
       expect(apiClient.uploadedScopes, contains('sales'));
@@ -562,7 +576,12 @@ void main() {
     );
 
     await service.start();
-    await Future<void>.delayed(const Duration(milliseconds: 50));
+    for (var attempt = 0; attempt < 20; attempt += 1) {
+      if (await service.pendingCount() == 0) {
+        break;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
 
     final queueRows = await _readQueueRows(appDatabase);
     expect(apiClient.uploadedScopes, contains('clients'));
@@ -658,6 +677,28 @@ class _FakeSyncConfigRepository extends SyncConfigRepository {
 
   @override
   Future<SyncSettings> loadSettings() async => _settings;
+
+  @override
+  Future<void> saveLastRun({
+    String? errorMessage,
+    SyncRuntimeStatus status = SyncRuntimeStatus.ok,
+  }) async {}
+
+  @override
+  Future<bool> isLocalUploadBootstrapCompleted({
+    String? backendUrl,
+    CloudIdentity? cloudIdentity,
+  }) async => true;
+
+  @override
+  Future<DeviceWriteState> loadDeviceWriteState() async {
+    return const DeviceWriteState(
+      isPrimary: true,
+      canWrite: true,
+      lastValidatedAt: null,
+      reason: '',
+    );
+  }
 }
 
 class _RecordingSyncApiClient extends SyncApiClient {

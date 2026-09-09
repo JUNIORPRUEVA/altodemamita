@@ -1,47 +1,32 @@
 import 'package:flutter/material.dart';
 
 import '../../app/app_colors.dart';
+import '../../app/responsive.dart';
 import '../../core/constants.dart';
 import '../../core/models/owner_snapshot.dart';
 import '../../core/utils.dart';
+import '../../widgets/owner_desktop_page_frame.dart';
 
 class DashboardPage extends StatelessWidget {
-  const DashboardPage({
-    super.key,
-    required this.snapshot,
-    this.onOpenModule,
-    this.filterLabel = 'Hoy',
-  });
+  const DashboardPage({super.key, required this.snapshot, this.onOpenModule});
 
   final OwnerSnapshot snapshot;
   final ValueChanged<OwnerModule>? onOpenModule;
-  final String filterLabel;
 
   @override
   Widget build(BuildContext context) {
     final counts = snapshot.dashboard['counts'] as Map<String, dynamic>? ?? {};
+    final totals = snapshot.dashboard['totals'] as Map<String, dynamic>? ?? {};
     final sellersCount = counts['sellers'] ?? snapshot.sellers.length;
-    final filteredSales = snapshot.sales.where(_matchesFilter).toList();
-    final filteredPayments = snapshot.payments.where(_matchesFilter).toList();
-    final paid = filteredPayments.fold<num>(
-      0,
-      (total, payment) => total + _asNum(payment['amount']),
-    );
-    final pending = filteredSales.fold<num>(
-      0,
-      (total, sale) => total + _asNum(sale['balance']),
-    );
-    final sold = filteredSales.fold<num>(
-      0,
-      (total, sale) => total + _asNum(sale['total']),
-    );
+    final paid = _asNum(totals['paid']);
+    final pending = _asNum(totals['balance']);
+    final sold = _asNum(totals['sold']);
 
     final items = <_DashboardItem>[
       _DashboardItem(
         label: 'Cobrado',
         value: money(paid),
         icon: Icons.account_balance_wallet_outlined,
-        color: AppColors.accentGreen,
         module: OwnerModule.payments,
         isMoney: true,
       ),
@@ -49,7 +34,6 @@ class DashboardPage extends StatelessWidget {
         label: 'Pendiente',
         value: money(pending),
         icon: Icons.receipt_long_outlined,
-        color: AppColors.accentAmber,
         module: OwnerModule.installments,
         isMoney: true,
       ),
@@ -57,7 +41,6 @@ class DashboardPage extends StatelessWidget {
         label: 'Vendido',
         value: money(sold),
         icon: Icons.trending_up,
-        color: AppColors.accentBlue,
         module: OwnerModule.sales,
         isMoney: true,
       ),
@@ -65,72 +48,48 @@ class DashboardPage extends StatelessWidget {
         label: 'Ventas',
         value: text(counts['sales'], '0'),
         icon: Icons.point_of_sale_outlined,
-        color: AppColors.accentGreen,
         module: OwnerModule.sales,
       ),
       _DashboardItem(
         label: 'Cuotas pendientes',
         value: text(counts['installments'], '0'),
         icon: Icons.event_note_outlined,
-        color: AppColors.accentAmber,
         module: OwnerModule.installments,
       ),
       _DashboardItem(
         label: 'Solares',
         value: text(counts['lots'], '0'),
         icon: Icons.map_outlined,
-        color: AppColors.accentBlue,
         module: OwnerModule.lots,
       ),
       _DashboardItem(
         label: 'Clientes',
         value: text(counts['clients'], '0'),
         icon: Icons.people_alt_outlined,
-        color: AppColors.accentBlue,
         module: OwnerModule.clients,
       ),
       _DashboardItem(
         label: 'Vendedores',
         value: text(sellersCount, '0'),
         icon: Icons.badge_outlined,
-        color: AppColors.accentRose,
         module: OwnerModule.sellers,
       ),
     ];
 
-    return SingleChildScrollView(
-      physics: const ClampingScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-      child: _DashboardGrid(items: items, onTap: onOpenModule),
+    return OwnerDesktopPageFrame(
+      maxWidth: 1180,
+      mobileHorizontalPadding: 16,
+      child: SingleChildScrollView(
+        physics: const ClampingScrollPhysics(),
+        padding: EdgeInsets.fromLTRB(
+          0,
+          Responsive.isDesktop(context) ? 22 : 16,
+          0,
+          24,
+        ),
+        child: _DashboardGrid(items: items, onTap: onOpenModule),
+      ),
     );
-  }
-
-  bool _matchesFilter(Map<String, dynamic> item) {
-    final normalized = filterLabel.trim().toLowerCase();
-    if (normalized == 'personalizado') return true;
-    final date = DateTime.tryParse(
-      text(item['saleDate'] ?? item['paidAt'] ?? item['updatedAt'], ''),
-    );
-    if (date == null) return true;
-
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final itemDay = DateTime(date.year, date.month, date.day);
-
-    switch (normalized) {
-      case 'hoy':
-        return itemDay == today;
-      case 'ayer':
-        return itemDay == today.subtract(const Duration(days: 1));
-      case 'esta semana':
-        final weekStart = today.subtract(Duration(days: today.weekday - 1));
-        final weekEnd = weekStart.add(const Duration(days: 6));
-        return !itemDay.isBefore(weekStart) && !itemDay.isAfter(weekEnd);
-      case 'este mes':
-        return itemDay.year == today.year && itemDay.month == today.month;
-      default:
-        return true;
-    }
   }
 
   num _asNum(Object? value) {
@@ -151,8 +110,14 @@ class _DashboardGrid extends StatelessWidget {
       builder: (context, constraints) {
         final availableWidth = constraints.maxWidth;
 
-        final columns = availableWidth < 320 ? 1 : 2;
-        const spacing = 12.0;
+        final columns = availableWidth >= 1060
+            ? 4
+            : availableWidth >= 760
+            ? 3
+            : availableWidth < 320
+            ? 1
+            : 2;
+        final spacing = Responsive.isDesktop(context) ? 14.0 : 10.0;
         final itemWidth =
             (availableWidth - ((columns - 1) * spacing)) / columns;
 
@@ -182,26 +147,35 @@ class _DashboardCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final valueSize = item.isMoney ? 17.0 : 26.0;
+    final isDesktop = Responsive.isDesktop(context);
+    final valueSize = item.isMoney ? (isDesktop ? 17.0 : 15.5) : 24.0;
+    final radius = isDesktop ? 14.0 : 16.0;
 
     return Material(
       color: Colors.transparent,
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(radius),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(radius),
         child: Ink(
-          height: 126,
-          padding: const EdgeInsets.fromLTRB(13, 13, 13, 12),
+          height: isDesktop ? 124 : 112,
+          padding: EdgeInsets.fromLTRB(
+            isDesktop ? 16 : 13,
+            isDesktop ? 16 : 13,
+            isDesktop ? 16 : 13,
+            isDesktop ? 14 : 12,
+          ),
           decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: const Color(0xFFE4EAF1)),
-            boxShadow: const [
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(radius),
+            border: Border.all(color: AppColors.borderLight),
+            boxShadow: [
               BoxShadow(
-                color: Color(0x07000000),
-                blurRadius: 12,
-                offset: Offset(0, 5),
+                color: AppColors.primary.withValues(
+                  alpha: isDesktop ? 0.025 : 0.035,
+                ),
+                blurRadius: isDesktop ? 8 : 10,
+                offset: Offset(0, isDesktop ? 3 : 4),
               ),
             ],
           ),
@@ -214,16 +188,17 @@ class _DashboardCard extends StatelessWidget {
                     width: 35,
                     height: 35,
                     decoration: BoxDecoration(
-                      color: item.color.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(12),
+                      color: AppColors.primaryLight,
+                      borderRadius: BorderRadius.circular(11),
+                      border: Border.all(color: AppColors.borderLight),
                     ),
-                    child: Icon(item.icon, color: item.color, size: 18),
+                    child: Icon(item.icon, color: AppColors.primary, size: 18),
                   ),
                   const Spacer(),
-                  Icon(
+                  const Icon(
                     Icons.chevron_right_rounded,
-                    color: item.color.withValues(alpha: 0.36),
-                    size: 21,
+                    color: AppColors.textMuted,
+                    size: 19,
                   ),
                 ],
               ),
@@ -233,11 +208,10 @@ class _DashboardCard extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  color: item.color,
+                  color: AppColors.primary,
                   fontSize: valueSize,
                   height: 1,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.4,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
               const SizedBox(height: 6),
@@ -246,10 +220,10 @@ class _DashboardCard extends StatelessWidget {
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
-                  color: Color(0xFF7D8B9C),
+                  color: AppColors.textSecondary,
                   fontSize: 11.8,
                   height: 1.12,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ],
@@ -265,7 +239,6 @@ class _DashboardItem {
     required this.label,
     required this.value,
     required this.icon,
-    required this.color,
     required this.module,
     this.isMoney = false,
   });
@@ -273,7 +246,6 @@ class _DashboardItem {
   final String label;
   final String value;
   final IconData icon;
-  final Color color;
   final OwnerModule module;
   final bool isMoney;
 }

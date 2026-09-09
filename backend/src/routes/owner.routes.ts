@@ -1,8 +1,14 @@
 import { Router } from 'express';
+import { authGuard } from '../auth';
+import { config } from '../config';
 import { resolveCompanyForRequest } from '../companyIdentity';
 import { prisma } from '../prisma';
 
 export const ownerRouter = Router();
+
+if (!config.ownerReadAllowAnonymous) {
+  ownerRouter.use(authGuard);
+}
 
 ownerRouter.get('/dashboard', async (req, res) => {
   const company = await resolveCompanyForRequest(req);

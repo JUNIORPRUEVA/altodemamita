@@ -7,30 +7,70 @@ import 'package:sistema_solares/core/database/app_database.dart';
 import 'package:sistema_solares/core/database/database_schema.dart';
 import 'package:sistema_solares/features/sales/data/seller_repository.dart';
 import 'package:sistema_solares/features/sales/domain/seller.dart';
+import 'package:sistema_solares/models/sync/sync_conflict_strategy.dart';
+import 'package:sistema_solares/models/sync/sync_runtime_state.dart';
+import 'package:sistema_solares/models/sync/sync_settings.dart';
+import 'package:sistema_solares/services/sync/sync_config_repository.dart';
+import 'package:sistema_solares/services/sync/sync_conflict_service.dart';
+import 'package:sistema_solares/services/sync/sync_queue_service.dart';
+
+class _FakeSyncConfigRepository extends SyncConfigRepository {
+  @override
+  Future<SyncSettings> loadSettings() async {
+    return SyncSettings(
+      baseUrl: 'https://sync.example.com',
+      jwtToken: 'token',
+      queueRetryInterval: const Duration(seconds: 10),
+      realtimePollingInterval: const Duration(seconds: 5),
+      conflictStrategy: SyncConflictStrategy.manual,
+      deviceId: 'seller-test-device',
+    );
+  }
+
+  @override
+  Future<void> saveLastRun({
+    String? errorMessage,
+    SyncRuntimeStatus status = SyncRuntimeStatus.ok,
+  }) async {}
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late Directory tempDir;
   late AppDatabase appDatabase;
+  late SyncQueueService syncQueueService;
   late SellerRepository repository;
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
-    tempDir = await Directory.systemTemp.createTemp('cannot_delete_seller_active_sale_');
+    tempDir = await Directory.systemTemp.createTemp(
+      'cannot_delete_seller_active_sale_',
+    );
     appDatabase = AppDatabase.test(path.join(tempDir.path, 'test.db'));
     await appDatabase.initialize();
-    repository = SellerRepository(database: appDatabase);
+    syncQueueService = SyncQueueService.test(
+      appDatabase: appDatabase,
+      configRepository: _FakeSyncConfigRepository(),
+      conflictService: SyncConflictService(appDatabase: appDatabase),
+      connectivityProbe: (_) async => false,
+    );
+    repository = SellerRepository(
+      database: appDatabase,
+      syncQueueService: syncQueueService,
+    );
   });
 
   tearDown(() async {
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    syncQueueService.dispose();
     await appDatabase.close();
     if (await tempDir.exists()) {
       await tempDir.delete(recursive: true);
     }
   });
 
-  test('can_soft_delete_seller_with_active_sale_test', () async {
+  test('cannot_soft_delete_seller_with_active_sale_test', () async {
     final db = await appDatabase.database;
     final now = DateTime.now().toIso8601String();
 
@@ -66,7 +106,9 @@ void main() {
       'sync_status': DatabaseSchema.syncStatusSynced,
     });
 
-    final userId = await db.rawQuery('SELECT id FROM ${DatabaseSchema.usersTable} LIMIT 1');
+    final userId = await db.rawQuery(
+      'SELECT id FROM ${DatabaseSchema.usersTable} LIMIT 1',
+    );
     final uid = (userId.isEmpty ? 1 : userId.first['id']) as int;
 
     await db.insert(DatabaseSchema.salesTable, {
@@ -94,7 +136,16 @@ void main() {
       'sync_status': DatabaseSchema.syncStatusSynced,
     });
 
-    await expectLater(repository.delete(sellerId), completes);
+    await expectLater(
+      repository.delete(sellerId),
+      throwsA(
+        isA<Exception>().having(
+          (error) => error.toString(),
+          'message',
+          contains('venta activa relacionada'),
+        ),
+      ),
+    );
 
     final sellerRows = await db.query(
       DatabaseSchema.sellersTable,
@@ -102,8 +153,8 @@ void main() {
       whereArgs: [sellerId],
       limit: 1,
     );
-    expect(sellerRows.single['deleted_at'], isNotNull);
-    expect(sellerRows.single['sync_status'], DatabaseSchema.syncStatusPendingDelete);
+    expect(sellerRows.single['deleted_at'], isNull);
+    expect(sellerRows.single['sync_status'], DatabaseSchema.syncStatusSynced);
 
     final activeSales = await db.query(
       DatabaseSchema.salesTable,
@@ -138,60 +189,63 @@ void main() {
     expect(rows.first['cedula'], '__DELETED__$sellerId');
   });
 
-  test('blocks_duplicate_active_seller_document_and_allows_recreate_after_delete', () async {
-    final db = await appDatabase.database;
-    final now = DateTime.now();
-    final document = '00300000999';
+  test(
+    'blocks_duplicate_active_seller_document_and_allows_recreate_after_delete',
+    () async {
+      final db = await appDatabase.database;
+      final now = DateTime.now();
+      final document = '00300000999';
 
-    final firstId = await db.insert(DatabaseSchema.sellersTable, {
-      'sync_id': 'seller-dup-1',
-      'nombre': 'Vendedor Uno',
-      'cedula': document,
-      'telefono': '8099990001',
-      'fecha_creacion': now.toIso8601String(),
-      'fecha_actualizacion': now.toIso8601String(),
-      'sync_status': DatabaseSchema.syncStatusSynced,
-    });
+      final firstId = await db.insert(DatabaseSchema.sellersTable, {
+        'sync_id': 'seller-dup-1',
+        'nombre': 'Vendedor Uno',
+        'cedula': document,
+        'telefono': '8099990001',
+        'fecha_creacion': now.toIso8601String(),
+        'fecha_actualizacion': now.toIso8601String(),
+        'sync_status': DatabaseSchema.syncStatusSynced,
+      });
 
-    await expectLater(
-      repository.insert(
-        Seller(
-          name: 'Vendedor Dos',
-          phone: '8099990002',
-          documentId: document,
-          createdAt: now,
-          updatedAt: now,
+      await expectLater(
+        repository.insert(
+          Seller(
+            name: 'Vendedor Dos',
+            phone: '8099990002',
+            documentId: document,
+            createdAt: now,
+            updatedAt: now,
+          ),
         ),
-      ),
-      throwsA(
-        isA<StateError>().having(
-          (error) => error.message,
-          'message',
-          contains('vendedor activo con esta cédula'),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('vendedor activo con esta cédula'),
+          ),
         ),
-      ),
-    );
+      );
 
-    await repository.delete(firstId);
+      await repository.delete(firstId);
 
-    await expectLater(
-      repository.insert(
-        Seller(
-          name: 'Vendedor Recreado',
-          phone: '8099990003',
-          documentId: document,
-          createdAt: now,
-          updatedAt: now,
+      await expectLater(
+        repository.insert(
+          Seller(
+            name: 'Vendedor Recreado',
+            phone: '8099990003',
+            documentId: document,
+            createdAt: now,
+            updatedAt: now,
+          ),
         ),
-      ),
-      completes,
-    );
+        completes,
+      );
 
-    final activeRows = await db.query(
-      DatabaseSchema.sellersTable,
-      where: 'TRIM(cedula) = ? AND deleted_at IS NULL',
-      whereArgs: [document],
-    );
-    expect(activeRows.length, 1);
-  });
+      final activeRows = await db.query(
+        DatabaseSchema.sellersTable,
+        where: 'TRIM(cedula) = ? AND deleted_at IS NULL',
+        whereArgs: [document],
+      );
+      expect(activeRows.length, 1);
+    },
+  );
 }

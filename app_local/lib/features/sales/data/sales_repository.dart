@@ -41,13 +41,17 @@ class SalesRepository {
     AppDatabase? appDatabase,
     SyncQueueService? syncQueueService,
     BackendApiClient? apiClient,
+    SystemConfigService? systemConfigService,
   }) : _appDatabase = appDatabase ?? AppDatabase.instance,
        _syncQueueService = syncQueueService ?? SyncQueueService.instance,
-       _apiClient = apiClient ?? BackendApiClient();
+       _apiClient = apiClient ?? BackendApiClient(),
+       _systemConfigService =
+           systemConfigService ?? SystemConfigService.instance;
 
   final AppDatabase _appDatabase;
   final SyncQueueService _syncQueueService;
   final BackendApiClient _apiClient;
+  final SystemConfigService _systemConfigService;
   final BackendEntityIdRegistry _idRegistry = BackendEntityIdRegistry.instance;
 
   bool get _shouldRunBackgroundSync =>
@@ -287,7 +291,7 @@ class SalesRepository {
   }
 
   Future<int> createSale(SaleDraft draft) async {
-    SystemConfigService.instance.ensureWritable();
+    _systemConfigService.ensureWritable();
     if (_useBackendMode) {
       return _createSaleInBackend(draft);
     }
@@ -565,7 +569,7 @@ class SalesRepository {
   }
 
   Future<void> updateSale(int saleId, SaleDraft draft) async {
-    SystemConfigService.instance.ensureWritable();
+    _systemConfigService.ensureWritable();
     if (_useBackendMode) {
       await _updateSaleInBackend(saleId, draft);
       return;
@@ -913,10 +917,7 @@ class SalesRepository {
       _log(
         'Guardado en local -> scope=sales operation=update saleId=$saleId sync_status=${DatabaseSchema.syncStatusPending}',
       );
-      _scheduleSaleMutationSync(
-        'update-sale:$saleId',
-        saleMutationSyncScopes,
-      );
+      _scheduleSaleMutationSync('update-sale:$saleId', saleMutationSyncScopes);
     } catch (error, stack) {
       print('[SALES][DB] updateSale ERROR $error');
       print(stack);
@@ -936,7 +937,7 @@ class SalesRepository {
   }
 
   Future<void> deleteSale(int saleId) async {
-    SystemConfigService.instance.ensureWritable();
+    _systemConfigService.ensureWritable();
     if (_useBackendMode) {
       await _deleteSaleInBackend(saleId);
       return;
@@ -1060,45 +1061,22 @@ class SalesRepository {
             (activeSaleRows.first['cnt'] as num?)?.toInt() ?? 0;
 
         if (activeSaleCount <= 0) {
-          final lotRows = await txn.query(
-            DatabaseSchema.lotsTable,
-            where: 'id = ?',
-            whereArgs: [lotId],
-            limit: 1,
-          );
-          if (lotRows.isNotEmpty) {
-            final lotRow = lotRows.first;
-            final lotSyncId = (lotRow['sync_id'] as String?)?.trim();
-            final lotDeletePayload = _buildLotDeletePayload(
-              lotRow,
-              deletedAt: deletedAt,
-            );
-
-            await txn.update(
-              DatabaseSchema.lotsTable,
-              {
-                'deleted_at': deletedAt,
-                'fecha_actualizacion': deletedAt,
-                'last_modified_local': deletedAt,
-                'sync_status': DatabaseSchema.syncStatusPendingDelete,
-              },
-              where: 'id = ?',
-              whereArgs: [lotId],
-            );
-
-            if (lotSyncId != null && lotSyncId.isNotEmpty) {
-              deleteQueue.add((
-                scope: 'products',
-                syncId: lotSyncId,
-                payload: lotDeletePayload,
-              ));
-            }
-          }
-        } else {
           await txn.update(
             DatabaseSchema.lotsTable,
             {
               'estado': 'disponible',
+              'fecha_actualizacion': deletedAt,
+              'last_modified_local': deletedAt,
+              'sync_status': DatabaseSchema.syncStatusPendingUpdate,
+            },
+            where: 'id = ?',
+            whereArgs: [lotId],
+          );
+        } else {
+          await txn.update(
+            DatabaseSchema.lotsTable,
+            {
+              'estado': 'vendido',
               'fecha_actualizacion': deletedAt,
               'last_modified_local': deletedAt,
               'sync_status': DatabaseSchema.syncStatusPendingUpdate,
@@ -1126,10 +1104,7 @@ class SalesRepository {
     _log(
       'Guardado en local -> scope=sales operation=delete saleId=$saleId sync_status=${DatabaseSchema.syncStatusPendingDelete}',
     );
-    _scheduleSaleMutationSync(
-      'delete-sale:$saleId',
-      saleMutationSyncScopes,
-    );
+    _scheduleSaleMutationSync('delete-sale:$saleId', saleMutationSyncScopes);
   }
 
   Future<void> _ensureReferencedRowsExist(
@@ -1250,7 +1225,9 @@ class SalesRepository {
 
     try {
       await Future.wait(
-        createSaleSyncScopes.map((scope) => _syncQueueService.refreshScope(scope)),
+        createSaleSyncScopes.map(
+          (scope) => _syncQueueService.refreshScope(scope),
+        ),
       );
 
       final processed = await _syncQueueService.processQueue(
@@ -1342,26 +1319,6 @@ class SalesRepository {
       'created_at': row['fecha_creacion'],
       'updated_at': now,
       'deleted_at': now,
-      'sync_status': DatabaseSchema.syncStatusPendingDelete,
-    };
-  }
-
-  Map<String, Object?> _buildLotDeletePayload(
-    Map<String, Object?> row, {
-    required String deletedAt,
-  }) {
-    return {
-      'id': row['id'],
-      'sync_id': row['sync_id'],
-      'version': ((row['version'] as int?) ?? 1) + 1,
-      'block_number': row['manzana_numero'],
-      'lot_number': row['solar_numero'],
-      'area': row['metros_cuadrados'],
-      'price_per_square_meter': row['precio_por_metro'],
-      'status': row['estado'],
-      'created_at': row['fecha_creacion'],
-      'updated_at': deletedAt,
-      'deleted_at': deletedAt,
       'sync_status': DatabaseSchema.syncStatusPendingDelete,
     };
   }

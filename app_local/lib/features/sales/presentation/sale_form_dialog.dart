@@ -26,6 +26,8 @@ import '../presentation/seller_form_dialog.dart';
 const Key saleFormCreateClientButtonKey = Key('sale_form_create_client');
 const Key saleFormCreateSellerButtonKey = Key('sale_form_create_seller');
 const Key saleFormCreateLotButtonKey = Key('sale_form_create_lot');
+const Key saleFormClientDropdownKey = Key('sale_form_client_dropdown');
+const Key saleFormLotDropdownKey = Key('sale_form_lot_dropdown');
 
 class SaleFormDialog extends StatefulWidget {
   const SaleFormDialog({
@@ -75,23 +77,27 @@ class SaleFormDialog extends StatefulWidget {
     Future<void> Function()? onLotCreated,
     Future<void> Function()? onSellerCreated,
   }) {
+    final authProvider = context.read<AuthProvider>();
     return showDialog<SaleDraft>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => SaleFormDialog(
-        clients: clients,
-        availableLots: availableLots,
-        sellers: sellers,
-        defaults: defaults,
-        clientRepository: clientRepository,
-        lotRepository: lotRepository,
-        sellerRepository: sellerRepository,
-        initialDraft: initialDraft,
-        dialogTitle: dialogTitle,
-        submitLabel: submitLabel,
-        onClientCreated: onClientCreated,
-        onLotCreated: onLotCreated,
-        onSellerCreated: onSellerCreated,
+      builder: (_) => ChangeNotifierProvider<AuthProvider>.value(
+        value: authProvider,
+        child: SaleFormDialog(
+          clients: clients,
+          availableLots: availableLots,
+          sellers: sellers,
+          defaults: defaults,
+          clientRepository: clientRepository,
+          lotRepository: lotRepository,
+          sellerRepository: sellerRepository,
+          initialDraft: initialDraft,
+          dialogTitle: dialogTitle,
+          submitLabel: submitLabel,
+          onClientCreated: onClientCreated,
+          onLotCreated: onLotCreated,
+          onSellerCreated: onSellerCreated,
+        ),
       ),
     );
   }
@@ -189,8 +195,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
         : _clients.where((client) {
             return client.fullName.toLowerCase().contains(normalizedQuery) ||
                 client.documentId.toLowerCase().contains(normalizedQuery) ||
-                (client.phone?.toLowerCase().contains(normalizedQuery) ??
-                    false);
+                _clientPhoneMatches(client.phone, normalizedQuery);
           }).toList();
 
     if (_selectedClientId != null &&
@@ -700,6 +705,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
     final selectedClient = _findClientById(_selectedClientId);
     return _buildSelectorLine(
       field: DropdownButtonFormField<int>(
+        key: saleFormClientDropdownKey,
         initialValue: _selectedClientId,
         isExpanded: true,
         menuMaxHeight: 320,
@@ -806,6 +812,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
       children: [
         _buildSelectorLine(
           field: DropdownButtonFormField<int>(
+            key: saleFormLotDropdownKey,
             initialValue: _selectedLotId,
             isExpanded: true,
             menuMaxHeight: 320,
@@ -1052,6 +1059,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
         SizedBox(
           width: 190,
           child: DropdownButtonFormField<String>(
+            isExpanded: true,
             initialValue: _selectedInitialPaymentMethod,
             decoration: const InputDecoration(
               labelText: 'Metodo del primer pago',
@@ -1060,7 +1068,10 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
                 .map(
                   (method) => DropdownMenuItem<String>(
                     value: method,
-                    child: Text(_formatPaymentMethod(method)),
+                    child: Text(
+                      _formatPaymentMethod(method),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 )
                 .toList(),
@@ -1517,7 +1528,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
       matches: (client, query) {
         return client.fullName.toLowerCase().contains(query) ||
             client.documentId.toLowerCase().contains(query) ||
-            (client.phone?.toLowerCase().contains(query) ?? false);
+            _clientPhoneMatches(client.phone, query);
       },
       idBuilder: (client) => client.id,
     );
@@ -1685,7 +1696,9 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
         },
       );
     } finally {
-      searchController.dispose();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        searchController.dispose();
+      });
     }
   }
 
@@ -2282,6 +2295,27 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
     return int.tryParse(value.trim()) ?? fallback;
   }
 
+  bool _clientPhoneMatches(String? phone, String query) {
+    final rawPhone = phone?.toLowerCase().trim() ?? '';
+    final rawQuery = query.toLowerCase().trim();
+    if (rawPhone.isEmpty || rawQuery.isEmpty) {
+      return false;
+    }
+
+    if (rawPhone.contains(rawQuery)) {
+      return true;
+    }
+
+    final normalizedPhone = _normalizePhoneSearchText(rawPhone);
+    final normalizedQuery = _normalizePhoneSearchText(rawQuery);
+    return normalizedQuery.isNotEmpty &&
+        normalizedPhone.contains(normalizedQuery);
+  }
+
+  String _normalizePhoneSearchText(String value) {
+    return value.replaceAll(RegExp(r'[\s\-\(\)\.\+]'), '');
+  }
+
   Client? _findClientById(int? clientId) {
     if (clientId == null) {
       return null;
@@ -2548,7 +2582,9 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
         });
       }
     } finally {
-      searchController.dispose();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        searchController.dispose();
+      });
     }
   }
 

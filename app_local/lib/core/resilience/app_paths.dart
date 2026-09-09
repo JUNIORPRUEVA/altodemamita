@@ -24,7 +24,15 @@ class AppPaths {
   String get dataDirectory => path.join(supportDirectory, 'data');
   String get databaseDirectory => path.join(dataDirectory, 'database');
   String get databasePath => path.join(databaseDirectory, 'sistema_solares.db');
+  String get dataCacheDirectory => path.join(dataDirectory, 'cache');
+  String get dataOutboxDirectory => path.join(dataDirectory, 'outbox');
+  String get dataStateDirectory => path.join(dataDirectory, 'state');
+  String get cacheDatabasePath => path.join(dataCacheDirectory, 'cache.db');
+  String get outboxDatabasePath => path.join(dataOutboxDirectory, 'outbox.db');
+  String get deviceStateDatabasePath =>
+      path.join(dataStateDirectory, 'device_state.db');
   String get backupsDirectory => path.join(supportDirectory, 'backups');
+  String get localBackupsDirectory => path.join(backupsDirectory, 'local');
   String get professionalLocalBackupsDirectory {
     if (_supportDirectory != null) {
       return path.join(backupsDirectory, 'local');
@@ -56,6 +64,7 @@ class AppPaths {
   String get mediaDirectory => path.join(supportDirectory, 'media');
   String get tempDirectory => path.join(supportDirectory, 'temp');
   String get cacheDirectory => path.join(supportDirectory, 'cache');
+  String get migrationDirectory => path.join(supportDirectory, 'migration');
   String get recoveryDirectory => path.join(supportDirectory, 'recovery');
   String get quarantineDirectory => path.join(recoveryDirectory, 'quarantine');
   String get snapshotsDirectory => path.join(recoveryDirectory, 'snapshots');
@@ -81,7 +90,11 @@ class AppPaths {
       supportDirectory,
       dataDirectory,
       databaseDirectory,
+      dataCacheDirectory,
+      dataOutboxDirectory,
+      dataStateDirectory,
       backupsDirectory,
+      localBackupsDirectory,
       configDirectory,
       logsDirectory,
       incidentsDirectory,
@@ -89,6 +102,7 @@ class AppPaths {
       mediaDirectory,
       tempDirectory,
       cacheDirectory,
+      migrationDirectory,
       recoveryDirectory,
       quarantineDirectory,
       snapshotsDirectory,

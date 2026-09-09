@@ -14,6 +14,7 @@ class SaleDetailPage extends StatelessWidget {
     this.allPayments = const [],
     this.allClients = const [],
     this.allSellers = const [],
+    this.allLots = const [],
   });
 
   final Map<String, dynamic> sale;
@@ -21,16 +22,12 @@ class SaleDetailPage extends StatelessWidget {
   final List<Map<String, dynamic>> allPayments;
   final List<Map<String, dynamic>> allClients;
   final List<Map<String, dynamic>> allSellers;
+  final List<Map<String, dynamic>> allLots;
 
   String? get _syncId => _read('syncId', 'saleSyncId');
   String? get _saleId => _read('saleId', 'id', 'localId');
 
-  String? _read(
-    String key1, [
-    String? key2,
-    String? key3,
-    String? key4,
-  ]) {
+  String? _read(String key1, [String? key2, String? key3, String? key4]) {
     final keys = [key1, key2, key3, key4].whereType<String>();
 
     for (final key in keys) {
@@ -52,20 +49,13 @@ class SaleDetailPage extends StatelessWidget {
     return text(_read(key1, key2, key3), fallback);
   }
 
-  String _amount(
-    String key1, {
-    String? key2,
-    String? key3,
-  }) {
+  String _amount(String key1, {String? key2, String? key3}) {
     final value = _read(key1, key2, key3);
     if (value == null) return money(0);
     return money(value);
   }
 
-  String _date(
-    String key1, {
-    String? key2,
-  }) {
+  String _date(String key1, {String? key2}) {
     final raw = _read(key1, key2);
     if (raw == null) return '-';
 
@@ -80,81 +70,40 @@ class SaleDetailPage extends StatelessWidget {
   }
 
   String get _client => _label(
-        'client',
-        key2: 'clientName',
-        key3: 'customerName',
-        fallback: 'Cliente',
-      );
+    'client',
+    key2: 'clientName',
+    key3: 'customerName',
+    fallback: 'Cliente',
+  );
 
-  String get _lot => _label(
-        'lot',
-        key2: 'lotName',
-        key3: 'solar',
-      );
+  String get _lot => _label('lot', key2: 'lotName', key3: 'solar');
 
-  String get _cedula => _label(
-        'cedula',
-        key2: 'document',
-        key3: 'clientDocument',
-      );
+  String get _cedula =>
+      _label('cedula', key2: 'document', key3: 'clientDocument');
 
-  String get _status => _label(
-        'status',
-        fallback: 'Activa',
-      );
+  String get _status => _label('status', fallback: 'Activa');
 
-  String get _seller => _label(
-        'seller',
-        key2: 'sellerName',
-        key3: 'vendor',
-      );
+  String get _seller => _label('seller', key2: 'sellerName', key3: 'vendor');
 
-  String get _plan => _label(
-        'plan',
-        key2: 'paymentPlan',
-        key3: 'installmentPlan',
-      );
+  String get _plan =>
+      _label('plan', key2: 'paymentPlan', key3: 'installmentPlan');
 
-  String get _modality => _label(
-        'modalidad',
-        key2: 'modality',
-        key3: 'saleType',
-      );
+  String get _modality =>
+      _label('modalidad', key2: 'modality', key3: 'saleType');
 
-  String get _meters => _label(
-        'metros',
-        key2: 'area',
-        key3: 'meters',
-      );
+  String get _meters => _label('metros', key2: 'area', key3: 'meters');
 
-  String get _saleDate => _date(
-        'saleDate',
-        key2: 'date',
-      );
+  String get _saleDate => _date('saleDate', key2: 'date');
 
-  String get _total => _amount(
-        'total',
-        key2: 'price',
-        key3: 'amount',
-      );
+  String get _total => _amount('total', key2: 'price', key3: 'amount');
 
-  String get _initial => _amount(
-        'initialPaid',
-        key2: 'initial',
-        key3: 'downPayment',
-      );
+  String get _initial =>
+      _amount('initialPaid', key2: 'initial', key3: 'downPayment');
 
-  String get _balance => _amount(
-        'balance',
-        key2: 'pending',
-        key3: 'remaining',
-      );
+  String get _balance => _amount('balance', key2: 'pending', key3: 'remaining');
 
-  String get _monthlyPayment => _amount(
-        'monthlyPayment',
-        key2: 'installmentAmount',
-        key3: 'cuota',
-      );
+  String get _monthlyPayment =>
+      _amount('monthlyPayment', key2: 'installmentAmount', key3: 'cuota');
 
   List<String> get _relationIds {
     return [
@@ -249,10 +198,8 @@ class SaleDetailPage extends StatelessWidget {
   void _openPayments(BuildContext context) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => SalePaymentsPage(
-          sale: sale,
-          payments: _relatedPayments,
-        ),
+        builder: (_) =>
+            SalePaymentsPage(sale: sale, payments: _relatedPayments),
       ),
     );
   }
@@ -273,6 +220,24 @@ class SaleDetailPage extends StatelessWidget {
       (s) => s?['syncId']?.toString() == sellerSyncId,
       orElse: () => null,
     );
+  }
+
+  Map<String, dynamic>? get _foundLot {
+    if (allLots.isEmpty) return null;
+    final lotSyncId = sale['lotSyncId']?.toString();
+    final lotId = sale['lotId']?.toString();
+    final lotLabel = _lot.toLowerCase().replaceFirst('solar ', '').trim();
+
+    return allLots.cast<Map<String, dynamic>?>().firstWhere((lot) {
+      if (lot == null) return false;
+      return (lotSyncId != null && lot['syncId']?.toString() == lotSyncId) ||
+          (lotId != null &&
+              (lot['id']?.toString() == lotId ||
+                  lot['localId']?.toString() == lotId)) ||
+          (lotLabel.isNotEmpty &&
+              lotLabel != '-' &&
+              lot['number']?.toString().toLowerCase().trim() == lotLabel);
+    }, orElse: () => null);
   }
 
   void _openClientDetail(BuildContext context) {
@@ -297,6 +262,17 @@ class SaleDetailPage extends StatelessWidget {
     );
   }
 
+  void _openLotDetail(BuildContext context) {
+    final lotData = _foundLot;
+    if (lotData == null) return;
+    final view = RecordBuilders.lot(lotData);
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => DetailPage(view: view, title: 'Solar'),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final statusColor = _statusColor(_status);
@@ -304,6 +280,7 @@ class SaleDetailPage extends StatelessWidget {
     final payments = _relatedPayments;
     final hasClient = _foundClient != null;
     final hasSeller = _foundSeller != null;
+    final hasLot = _foundLot != null;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -329,11 +306,7 @@ class SaleDetailPage extends StatelessWidget {
         ),
         bottom: const PreferredSize(
           preferredSize: Size.fromHeight(1),
-          child: Divider(
-            height: 1,
-            thickness: 1,
-            color: AppColors.border,
-          ),
+          child: Divider(height: 1, thickness: 1, color: AppColors.border),
         ),
       ),
       body: SafeArea(
@@ -394,6 +367,12 @@ class SaleDetailPage extends StatelessWidget {
               icon: Icons.receipt_long_outlined,
               rows: [
                 _DetailRow(label: 'Fecha', value: _saleDate),
+                if (_lot != '-')
+                  _TappableDetailRow(
+                    label: 'Solar',
+                    value: _lot,
+                    onTap: hasLot ? () => _openLotDetail(context) : null,
+                  ),
                 if (_seller != '-')
                   _TappableDetailRow(
                     label: 'Vendedor',
@@ -461,7 +440,10 @@ class _TopIdentity extends StatelessWidget {
                     onTap: onClientTap,
                     borderRadius: BorderRadius.circular(8),
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 2,
+                        horizontal: 2,
+                      ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -471,12 +453,18 @@ class _TopIdentity extends StatelessWidget {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
-                                color: onClientTap != null ? AppColors.primary : AppColors.textPrimary,
+                                color: onClientTap != null
+                                    ? AppColors.primary
+                                    : AppColors.textPrimary,
                                 fontSize: 18,
                                 height: 1.15,
                                 fontWeight: FontWeight.w900,
-                                decoration: onClientTap != null ? TextDecoration.underline : null,
-                                decorationColor: AppColors.primary.withOpacity(0.3),
+                                decoration: onClientTap != null
+                                    ? TextDecoration.underline
+                                    : null,
+                                decorationColor: AppColors.primary.withValues(
+                                  alpha: 0.3,
+                                ),
                               ),
                             ),
                           ),
@@ -485,7 +473,7 @@ class _TopIdentity extends StatelessWidget {
                             Icon(
                               Icons.open_in_new_rounded,
                               size: 14,
-                              color: AppColors.primary.withOpacity(0.6),
+                              color: AppColors.primary.withValues(alpha: 0.6),
                             ),
                           ],
                         ],
@@ -498,15 +486,9 @@ class _TopIdentity extends StatelessWidget {
                   spacing: 10,
                   runSpacing: 4,
                   children: [
-                    _TinyMeta(
-                      icon: Icons.location_on_outlined,
-                      value: lot,
-                    ),
+                    _TinyMeta(icon: Icons.location_on_outlined, value: lot),
                     if (cedula != '-')
-                      _TinyMeta(
-                        icon: Icons.badge_outlined,
-                        value: cedula,
-                      ),
+                      _TinyMeta(icon: Icons.badge_outlined, value: cedula),
                   ],
                 ),
               ],
@@ -521,10 +503,7 @@ class _TopIdentity extends StatelessWidget {
 }
 
 class _TinyMeta extends StatelessWidget {
-  const _TinyMeta({
-    required this.icon,
-    required this.value,
-  });
+  const _TinyMeta({required this.icon, required this.value});
 
   final IconData icon;
   final String value;
@@ -534,11 +513,7 @@ class _TinyMeta extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(
-          icon,
-          size: 13,
-          color: AppColors.textSecondary,
-        ),
+        Icon(icon, size: 13, color: AppColors.textSecondary),
         const SizedBox(width: 4),
         Text(
           value,
@@ -575,7 +550,8 @@ class _ActionRow extends StatelessWidget {
         Expanded(
           child: _ActionButton(
             title: 'Cuotas',
-            subtitle: '$installmentsCount registro${installmentsCount == 1 ? '' : 's'}',
+            subtitle:
+                '$installmentsCount registro${installmentsCount == 1 ? '' : 's'}',
             icon: Icons.calendar_month_rounded,
             color: AppColors.accentBlue,
             onTap: onInstallments,
@@ -614,7 +590,7 @@ class _ActionButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: color.withOpacity(0.06),
+      color: color.withValues(alpha: 0.06),
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
         onTap: onTap,
@@ -624,9 +600,7 @@ class _ActionButton extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: color.withOpacity(0.15),
-            ),
+            border: Border.all(color: color.withValues(alpha: 0.15)),
           ),
           child: Row(
             children: [
@@ -634,14 +608,10 @@ class _ActionButton extends StatelessWidget {
                 width: 34,
                 height: 34,
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.70),
+                  color: Colors.white.withValues(alpha: 0.70),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Icon(
-                  icon,
-                  color: color,
-                  size: 20,
-                ),
+                child: Icon(icon, color: color, size: 20),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -675,7 +645,7 @@ class _ActionButton extends StatelessWidget {
               ),
               Icon(
                 Icons.chevron_right_rounded,
-                color: color.withOpacity(0.50),
+                color: color.withValues(alpha: 0.50),
                 size: 20,
               ),
             ],
@@ -738,10 +708,7 @@ class _SectionBlock extends StatelessWidget {
 }
 
 class _SectionTitle extends StatelessWidget {
-  const _SectionTitle({
-    required this.title,
-    required this.icon,
-  });
+  const _SectionTitle({required this.title, required this.icon});
 
   final String title;
   final IconData icon;
@@ -816,10 +783,7 @@ class _DetailRow extends StatelessWidget {
 }
 
 class _StatusChip extends StatelessWidget {
-  const _StatusChip({
-    required this.label,
-    required this.color,
-  });
+  const _StatusChip({required this.label, required this.color});
 
   final String label;
   final Color color;
@@ -829,7 +793,7 @@ class _StatusChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.11),
+        color: color.withValues(alpha: 0.11),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
@@ -881,7 +845,10 @@ class _TappableDetailRow extends StatelessWidget {
                 onTap: onTap,
                 borderRadius: BorderRadius.circular(8),
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 2,
+                    horizontal: 4,
+                  ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     mainAxisAlignment: MainAxisAlignment.end,
@@ -893,12 +860,18 @@ class _TappableDetailRow extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            color: onTap != null ? AppColors.primary : AppColors.textPrimary,
+                            color: onTap != null
+                                ? AppColors.primary
+                                : AppColors.textPrimary,
                             fontSize: 13.2,
                             height: 1.28,
                             fontWeight: FontWeight.w800,
-                            decoration: onTap != null ? TextDecoration.underline : null,
-                            decorationColor: AppColors.primary.withOpacity(0.3),
+                            decoration: onTap != null
+                                ? TextDecoration.underline
+                                : null,
+                            decorationColor: AppColors.primary.withValues(
+                              alpha: 0.3,
+                            ),
                           ),
                         ),
                       ),
@@ -907,7 +880,7 @@ class _TappableDetailRow extends StatelessWidget {
                         Icon(
                           Icons.open_in_new_rounded,
                           size: 13,
-                          color: AppColors.primary.withOpacity(0.6),
+                          color: AppColors.primary.withValues(alpha: 0.6),
                         ),
                       ],
                     ],

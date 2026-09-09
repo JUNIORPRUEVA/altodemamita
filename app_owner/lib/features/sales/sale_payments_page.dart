@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../app/app_colors.dart';
 import '../../app/safe_area_padding.dart';
 import '../../core/utils.dart';
+import '../../widgets/animated_list_item.dart';
 
 class SalePaymentsPage extends StatelessWidget {
   const SalePaymentsPage({
@@ -18,10 +19,11 @@ class SalePaymentsPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final client = text(sale['client'], 'Cliente');
     final lot = text(sale['lot'], '-');
+    final orderedPayments = [...payments]..sort(_comparePayments);
 
     // Calculate totals
     double totalPaid = 0;
-    for (final pay in payments) {
+    for (final pay in orderedPayments) {
       totalPaid +=
           num.tryParse(pay['amount']?.toString() ?? '0')?.toDouble() ?? 0;
     }
@@ -49,7 +51,7 @@ class SalePaymentsPage extends StatelessWidget {
       ),
       body: SafeArea(
         top: false,
-        child: payments.isEmpty
+        child: orderedPayments.isEmpty
             ? _buildEmptyState()
             : Column(
                 children: [
@@ -72,9 +74,12 @@ class SalePaymentsPage extends StatelessWidget {
                   Expanded(
                     child: ListView.builder(
                       padding: safeScrollPadding(context, top: 8),
-                      itemCount: payments.length,
+                      itemCount: orderedPayments.length,
                       itemBuilder: (context, index) {
-                        return _PaymentRow(payment: payments[index]);
+                        return AnimatedListItem(
+                          index: index,
+                          child: _PaymentRow(payment: orderedPayments[index]),
+                        );
                       },
                     ),
                   ),
@@ -205,7 +210,7 @@ class _PaymentRow extends StatelessWidget {
                     concept,
                     style: const TextStyle(
                       fontSize: 12,
-                      fontWeight: FontWeight.w700,
+                      fontWeight: FontWeight.w600,
                       color: AppColors.textPrimary,
                     ),
                   ),
@@ -246,6 +251,15 @@ class _PaymentRow extends StatelessWidget {
   }
 }
 
+int _comparePayments(Map<String, dynamic> left, Map<String, dynamic> right) {
+  final leftDate = DateTime.tryParse(left['paidAt']?.toString() ?? '');
+  final rightDate = DateTime.tryParse(right['paidAt']?.toString() ?? '');
+  if (leftDate == null && rightDate == null) return 0;
+  if (leftDate == null) return 1;
+  if (rightDate == null) return -1;
+  return leftDate.compareTo(rightDate);
+}
+
 // ──────────────────────────────────────────────
 // Cell for horizontal payment row
 // ──────────────────────────────────────────────
@@ -275,7 +289,7 @@ class _PCell extends StatelessWidget {
           value,
           style: const TextStyle(
             fontSize: 12,
-            fontWeight: FontWeight.w600,
+            fontWeight: FontWeight.w500,
             color: AppColors.textPrimary,
           ),
         ),

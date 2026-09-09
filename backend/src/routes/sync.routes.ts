@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { authenticateRequest } from '../auth';
+import { config } from '../config';
 import { resolveCompanyForRequest } from '../companyIdentity';
 import { prisma } from '../prisma';
 
@@ -26,6 +28,19 @@ type Row = Record<string, unknown>;
 export const syncRouter = Router();
 
 syncRouter.post('/upload', async (req, res) => {
+  const authUser = await authenticateRequest(req);
+  if (!authUser && !config.legacySyncAllowAnonymous) {
+    console.warn('[LegacySync] anonymous upload rejected');
+    return res.status(401).json({
+      error: {
+        code: 'LEGACY_SYNC_AUTH_REQUIRED',
+        message: 'Sync requiere autenticacion durante la transicion autoritativa.',
+      },
+    });
+  }
+  if (!authUser) {
+    console.warn('[LegacySync] anonymous upload accepted by transition flag');
+  }
   const parsed = uploadSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({
@@ -35,6 +50,15 @@ syncRouter.post('/upload', async (req, res) => {
   }
 
   const records = parsed.data.records;
+  if (config.authoritativeMode && hasFinancialSyncRecords(records)) {
+    return res.status(409).json({
+      error: {
+        code: 'LEGACY_FINANCIAL_SYNC_FROZEN',
+        message:
+          'Las ventas, cuotas y pagos deben escribirse por endpoints autoritativos en modo autoritativo.',
+      },
+    });
+  }
   const deviceId = stringValue(parsed.data.device_id, parsed.data.deviceId) ?? 'unknown-device';
   const company = await resolveCompanyForRequest(req);
 
@@ -98,6 +122,15 @@ syncRouter.post('/upload', async (req, res) => {
     rejected: rejected,
   });
 });
+
+function hasFinancialSyncRecords(records: Record<string, Row[] | undefined>) {
+  return [
+    records.sales,
+    records.installments,
+    records.cuotas,
+    records.payments,
+  ].some((rows) => (rows?.length ?? 0) > 0);
+}
 
 syncRouter.get('/download', handleDownload);
 syncRouter.get('/changes', handleDownload);
@@ -197,6 +230,18 @@ function decimalValue(...values: unknown[]) {
 
 function rawJson(row: Row): any {
   return row;
+}
+
+async function findBySyncId<T extends { id: string }>(
+  delegate: { findFirst: (args: any) => Promise<T | null> },
+  companyId: string,
+  syncId?: string | null,
+) {
+  if (!syncId) return null;
+  return delegate.findFirst({
+    where: { companyId, syncId, deletedAt: null },
+    select: { id: true },
+  });
 }
 
 function whereUpdatedSince(companyId: string, updatedSince?: Date | null) {
@@ -394,14 +439,35 @@ async function upsertSales(companyId: string, rows: Row[], rejected: any[]) {
       clientSyncId: stringValue(row.client_sync_id, row.cliente_sync_id),
       lotSyncId: stringValue(row.product_sync_id, row.lot_sync_id, row.solar_sync_id),
       sellerSyncId: stringValue(row.seller_sync_id, row.vendedor_sync_id),
+      operatorUserSyncId: stringValue(row.user_sync_id, row.usuario_sync_id, row.operator_user_sync_id),
       saleDate: dateValue(row.sale_date ?? row.fecha_venta),
       status: stringValue(row.status, row.estado),
       total: decimalValue(row.sale_price, row.precio_venta, row.total),
-      initialPaid: decimalValue(row.paid_initial_payment, row.inicial, row.initialPaid),
+      initialPercentage: stringValue(row.down_payment_percentage, row.inicial_porcentaje, row.initialPercentage)
+        ? decimalValue(row.down_payment_percentage, row.inicial_porcentaje, row.initialPercentage)
+        : null,
+      initialRequiredAmount: decimalValue(row.required_initial_payment, row.monto_inicial_requerido),
+      initialPaid: decimalValue(row.paid_initial_payment, row.monto_inicial_pagado, row.inicial, row.initialPaid),
+      initialPendingAmount: decimalValue(row.pending_initial_payment, row.monto_inicial_pendiente),
+      reservationMinimumAmount: decimalValue(row.minimum_reserve_amount, row.monto_apartado_minimo),
+      reservationPaidAmount: decimalValue(row.reserve_paid_amount, row.monto_apartado_pagado),
+      initialPaymentDeadline: dateValue(row.initial_payment_deadline ?? row.fecha_limite_inicial),
+      activationDate: dateValue(row.activation_date ?? row.fecha_activacion),
+      financedBalance: decimalValue(row.financed_balance, row.saldo_financiado),
+      monthlyInterestRate: stringValue(row.monthly_interest, row.interes_mensual)
+        ? decimalValue(row.monthly_interest, row.interes_mensual)
+        : null,
+      installmentCount: intValue(row.installment_count ?? row.cantidad_cuotas),
       balance: decimalValue(row.pending_balance, row.saldo_pendiente, row.balance),
       raw: rawJson(row),
       version: versionValue(row),
       deletedAt: deletedAt(row),
+    };
+    const relationIds = {
+      clientId: null as string | null,
+      lotId: null as string | null,
+      sellerId: null as string | null,
+      operatorUserId: null as string | null,
     };
 
     // Validar dependencias solo si no es soft delete
@@ -409,27 +475,26 @@ async function upsertSales(companyId: string, rows: Row[], rejected: any[]) {
       const missingDeps: string[] = [];
 
       if (data.clientSyncId) {
-        const clientExists = await prisma.client.findFirst({
-          where: { companyId, syncId: data.clientSyncId, deletedAt: null },
-          select: { id: true },
-        });
-        if (!clientExists) missingDeps.push('clientSyncId');
+        const client = await findBySyncId(prisma.client, companyId, data.clientSyncId);
+        if (!client) missingDeps.push('clientSyncId');
+        relationIds.clientId = client?.id ?? null;
       }
 
       if (data.lotSyncId) {
-        const lotExists = await prisma.lot.findFirst({
-          where: { companyId, syncId: data.lotSyncId, deletedAt: null },
-          select: { id: true },
-        });
-        if (!lotExists) missingDeps.push('lotSyncId');
+        const lot = await findBySyncId(prisma.lot, companyId, data.lotSyncId);
+        if (!lot) missingDeps.push('lotSyncId');
+        relationIds.lotId = lot?.id ?? null;
       }
 
       if (data.sellerSyncId) {
-        const sellerExists = await prisma.seller.findFirst({
-          where: { companyId, syncId: data.sellerSyncId, deletedAt: null },
-          select: { id: true },
-        });
-        if (!sellerExists) missingDeps.push('sellerSyncId');
+        const seller = await findBySyncId(prisma.seller, companyId, data.sellerSyncId);
+        if (!seller) missingDeps.push('sellerSyncId');
+        relationIds.sellerId = seller?.id ?? null;
+      }
+
+      if (data.operatorUserSyncId) {
+        const operator = await findBySyncId(prisma.user, companyId, data.operatorUserSyncId);
+        relationIds.operatorUserId = operator?.id ?? null;
       }
 
       if (missingDeps.length > 0) {
@@ -448,8 +513,8 @@ async function upsertSales(companyId: string, rows: Row[], rejected: any[]) {
 
     const saved = await prisma.sale.upsert({
       where: { companyId_syncId: { companyId, syncId: id } },
-      create: { companyId, syncId: id, ...data },
-      update: data,
+      create: { companyId, syncId: id, ...data, ...relationIds },
+      update: { ...data, ...relationIds },
     });
     ack.push(saleRecord(saved));
   }
@@ -478,14 +543,13 @@ async function upsertInstallments(companyId: string, rows: Row[], rejected: any[
       version: versionValue(row),
       deletedAt: deletedAt(row),
     };
+    let saleId: string | null = null;
 
     // Validar dependencia saleSyncId solo si no es soft delete
     if (!data.deletedAt && data.saleSyncId) {
-      const saleExists = await prisma.sale.findFirst({
-        where: { companyId, syncId: data.saleSyncId, deletedAt: null },
-        select: { id: true },
-      });
-      if (!saleExists) {
+      const sale = await findBySyncId(prisma.sale, companyId, data.saleSyncId);
+      saleId = sale?.id ?? null;
+      if (!sale) {
         console.log(
           `[DependencyCheck][Installment] companyId=${companyId} syncId=${id} missing=saleSyncId -> rejected`,
         );
@@ -501,8 +565,8 @@ async function upsertInstallments(companyId: string, rows: Row[], rejected: any[
 
     const saved = await prisma.installment.upsert({
       where: { companyId_syncId: { companyId, syncId: id } },
-      create: { companyId, syncId: id, ...data },
-      update: data,
+      create: { companyId, syncId: id, ...data, saleId },
+      update: { ...data, saleId },
     });
     ack.push(installmentRecord(saved));
   }
@@ -518,15 +582,26 @@ async function upsertPayments(companyId: string, rows: Row[], rejected: any[]) {
       saleSyncId: stringValue(row.sale_sync_id, row.venta_sync_id),
       clientSyncId: stringValue(row.client_sync_id, row.cliente_sync_id),
       installmentSyncId: stringValue(row.installment_sync_id, row.cuota_sync_id),
+      receivedByUserSyncId: stringValue(row.user_sync_id, row.usuario_sync_id, row.received_by_user_sync_id),
       paidAt: dateValue(row.payment_date ?? row.fecha_pago ?? row.paidAt),
       amount: decimalValue(row.amount_paid, row.monto_pagado, row.amount),
       method: stringValue(row.payment_method, row.metodo_pago, row.method),
       paymentType: stringValue(row.payment_type, row.tipo_pago),
       reference: stringValue(row.reference, row.referencia),
       yearToPay: intValue(row.year_to_pay ?? row.ano_a_pagar),
+      principalApplied: decimalValue(row.principal_applied, row.capital_aplicado),
+      interestApplied: decimalValue(row.interest_applied, row.interes_aplicado),
+      annulledAt: dateValue(row.annulled_at ?? row.anulado_en),
+      annulmentReason: stringValue(row.annulment_reason, row.motivo_anulacion),
       raw: rawJson(row),
       version: versionValue(row),
       deletedAt: deletedAt(row),
+    };
+    const relationIds = {
+      saleId: null as string | null,
+      clientId: null as string | null,
+      installmentId: null as string | null,
+      receivedByUserId: null as string | null,
     };
 
     // Validar dependencias solo si no es soft delete
@@ -534,27 +609,26 @@ async function upsertPayments(companyId: string, rows: Row[], rejected: any[]) {
       const missingDeps: string[] = [];
 
       if (data.saleSyncId) {
-        const saleExists = await prisma.sale.findFirst({
-          where: { companyId, syncId: data.saleSyncId, deletedAt: null },
-          select: { id: true },
-        });
-        if (!saleExists) missingDeps.push('saleSyncId');
+        const sale = await findBySyncId(prisma.sale, companyId, data.saleSyncId);
+        if (!sale) missingDeps.push('saleSyncId');
+        relationIds.saleId = sale?.id ?? null;
       }
 
       if (data.clientSyncId) {
-        const clientExists = await prisma.client.findFirst({
-          where: { companyId, syncId: data.clientSyncId, deletedAt: null },
-          select: { id: true },
-        });
-        if (!clientExists) missingDeps.push('clientSyncId');
+        const client = await findBySyncId(prisma.client, companyId, data.clientSyncId);
+        if (!client) missingDeps.push('clientSyncId');
+        relationIds.clientId = client?.id ?? null;
       }
 
       if (data.installmentSyncId) {
-        const installmentExists = await prisma.installment.findFirst({
-          where: { companyId, syncId: data.installmentSyncId, deletedAt: null },
-          select: { id: true },
-        });
-        if (!installmentExists) missingDeps.push('installmentSyncId');
+        const installment = await findBySyncId(prisma.installment, companyId, data.installmentSyncId);
+        if (!installment) missingDeps.push('installmentSyncId');
+        relationIds.installmentId = installment?.id ?? null;
+      }
+
+      if (data.receivedByUserSyncId) {
+        const user = await findBySyncId(prisma.user, companyId, data.receivedByUserSyncId);
+        relationIds.receivedByUserId = user?.id ?? null;
       }
 
       if (missingDeps.length > 0) {
@@ -573,8 +647,8 @@ async function upsertPayments(companyId: string, rows: Row[], rejected: any[]) {
 
     const saved = await prisma.payment.upsert({
       where: { companyId_syncId: { companyId, syncId: id } },
-      create: { companyId, syncId: id, ...data },
-      update: data,
+      create: { companyId, syncId: id, ...data, ...relationIds },
+      update: { ...data, ...relationIds },
     });
     ack.push(paymentRecord(saved));
   }
@@ -698,12 +772,23 @@ function saleRecord(row: any): Row {
     client_sync_id: row.clientSyncId,
     product_sync_id: row.lotSyncId,
     seller_sync_id: row.sellerSyncId,
+    user_sync_id: row.operatorUserSyncId,
     sale_date: row.saleDate?.toISOString() ?? null,
     status: row.status,
     sale_price: row.total?.toString() ?? '0',
     total: row.total?.toString() ?? '0',
+    down_payment_percentage: row.initialPercentage?.toString() ?? null,
+    required_initial_payment: row.initialRequiredAmount?.toString() ?? '0',
     paid_initial_payment: row.initialPaid?.toString() ?? '0',
     initial_paid: row.initialPaid?.toString() ?? '0',
+    pending_initial_payment: row.initialPendingAmount?.toString() ?? '0',
+    minimum_reserve_amount: row.reservationMinimumAmount?.toString() ?? '0',
+    reserve_paid_amount: row.reservationPaidAmount?.toString() ?? '0',
+    initial_payment_deadline: row.initialPaymentDeadline?.toISOString() ?? null,
+    activation_date: row.activationDate?.toISOString() ?? null,
+    financed_balance: row.financedBalance?.toString() ?? '0',
+    monthly_interest: row.monthlyInterestRate?.toString() ?? null,
+    installment_count: row.installmentCount,
     pending_balance: row.balance?.toString() ?? '0',
     saldo_pendiente: row.balance?.toString() ?? '0',
     balance: row.balance?.toString() ?? '0',
@@ -744,12 +829,17 @@ function paymentRecord(row: any): Row {
     sale_sync_id: row.saleSyncId,
     client_sync_id: row.clientSyncId,
     installment_sync_id: row.installmentSyncId,
+    user_sync_id: row.receivedByUserSyncId,
     payment_date: row.paidAt?.toISOString() ?? null,
     amount_paid: row.amount?.toString() ?? '0',
     payment_method: row.method,
     payment_type: row.paymentType,
     reference: row.reference,
     year_to_pay: row.yearToPay,
+    principal_applied: row.principalApplied?.toString() ?? '0',
+    interest_applied: row.interestApplied?.toString() ?? '0',
+    annulled_at: row.annulledAt?.toISOString() ?? null,
+    annulment_reason: row.annulmentReason,
     created_at: row.createdAt?.toISOString(),
     updated_at: row.updatedAt?.toISOString(),
     deleted_at: row.deletedAt?.toISOString() ?? null,

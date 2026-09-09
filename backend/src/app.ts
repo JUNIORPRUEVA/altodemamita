@@ -3,6 +3,8 @@ import express from 'express';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import { authRouter } from './routes/auth.routes';
+import { authoritativeRouter } from './routes/authoritative.routes';
+import { businessRouter } from './routes/business.routes';
 import { ownerRouter } from './routes/owner.routes';
 import { paymentReminderRouter } from './routes/paymentReminder.routes';
 import { syncRouter } from './routes/sync.routes';
@@ -26,6 +28,10 @@ export function createApp() {
 
   app.use('/api/auth', authRouter);
   app.use('/auth', authRouter);
+  app.use('/api/authoritative', authoritativeRouter);
+  app.use('/authoritative', authoritativeRouter);
+  app.use('/api/business', businessRouter);
+  app.use('/business', businessRouter);
   app.use('/api/owner', ownerRouter);
   app.use('/owner', ownerRouter);
   app.use('/api/payment-reminders', paymentReminderRouter);

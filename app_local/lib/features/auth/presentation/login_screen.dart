@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/config/app_flags.dart';
 import '../data/auth_service.dart';
 import 'auth_provider.dart';
 
@@ -164,7 +165,10 @@ class _LoginScreenState extends State<LoginScreen> {
                                   ),
                                   const SizedBox(height: 6),
                                   Text(
-                                    'Iniciar sesion local',
+                                    cloudCutoverMode
+                                            .usesAuthoritativeBusinessWrites
+                                        ? 'Iniciar sesion'
+                                        : 'Iniciar sesion local',
                                     textAlign: TextAlign.center,
                                     style: TextStyle(
                                       color: Colors.white.withValues(
@@ -334,8 +338,9 @@ class _LoginScreenState extends State<LoginScreen> {
                                         fontWeight: FontWeight.w400,
                                       ),
                                     ),
-                                    child:
-                                        const Text('Recuperar la contrasena'),
+                                    child: const Text(
+                                      'Recuperar la contrasena',
+                                    ),
                                   ),
                                 ],
                               ),
@@ -808,7 +813,7 @@ class _RecoveryDataTile extends StatelessWidget {
               ],
             ),
           ),
-          if (trailing != null) trailing!,
+          ?trailing,
         ],
       ),
     );

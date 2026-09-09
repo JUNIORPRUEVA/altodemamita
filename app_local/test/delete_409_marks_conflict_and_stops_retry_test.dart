@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sistema_solares/core/database/app_database.dart';
 import 'package:sistema_solares/core/database/database_schema.dart';
 import 'package:sistema_solares/models/sync/sync_conflict_strategy.dart';
+import 'package:sistema_solares/models/sync/sync_runtime_state.dart';
 import 'package:sistema_solares/models/sync/sync_settings.dart';
 import 'package:sistema_solares/repositories/sync_repository.dart';
 import 'package:sistema_solares/services/sync/sync_api_client.dart';
@@ -371,6 +372,13 @@ Future<void> _insertQueue(
 }
 
 class _FakeSyncConfigRepository extends SyncConfigRepository {
+  DeviceWriteState _deviceWriteState = const DeviceWriteState(
+    isPrimary: true,
+    canWrite: true,
+    lastValidatedAt: null,
+    reason: '',
+  );
+
   @override
   Future<SyncSettings> loadSettings() async {
     return SyncSettings(
@@ -382,6 +390,28 @@ class _FakeSyncConfigRepository extends SyncConfigRepository {
       deviceId: 'desktop-test',
     );
   }
+
+  @override
+  Future<DeviceWriteState> loadDeviceWriteState() async => _deviceWriteState;
+
+  @override
+  Future<void> saveDeviceWriteState(DeviceWriteState state) async {
+    _deviceWriteState = state;
+  }
+
+  @override
+  Future<bool> isLocalUploadBootstrapCompleted({
+    String? backendUrl,
+    CloudIdentity? cloudIdentity,
+  }) async {
+    return true;
+  }
+
+  @override
+  Future<void> saveLastRun({
+    String? errorMessage,
+    SyncRuntimeStatus status = SyncRuntimeStatus.ok,
+  }) async {}
 }
 
 class _ConflictSyncApiClient extends SyncApiClient {

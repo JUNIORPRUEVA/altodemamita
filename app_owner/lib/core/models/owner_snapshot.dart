@@ -16,6 +16,30 @@ class OwnerSnapshot {
   final List<Map<String, dynamic>> sales;
   final List<Map<String, dynamic>> installments;
   final List<Map<String, dynamic>> payments;
+
+  factory OwnerSnapshot.fromJson(Map<String, dynamic> json) {
+    return OwnerSnapshot(
+      dashboard: (json['dashboard'] as Map?)?.cast<String, dynamic>() ?? {},
+      clients: listOfMaps(json['clients']),
+      sellers: listOfMaps(json['sellers']),
+      lots: listOfMaps(json['lots']),
+      sales: listOfMaps(json['sales']),
+      installments: listOfMaps(json['installments']),
+      payments: listOfMaps(json['payments']),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'dashboard': dashboard,
+      'clients': clients,
+      'sellers': sellers,
+      'lots': lots,
+      'sales': sales,
+      'installments': installments,
+      'payments': payments,
+    };
+  }
 }
 
 List<Map<String, dynamic>> listOfMaps(Object? maybeList) {

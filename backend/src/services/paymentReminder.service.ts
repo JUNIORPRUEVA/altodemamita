@@ -103,6 +103,18 @@ export class PaymentReminderService {
     dryRun?: boolean;
     forceTestMode?: boolean;
   }) {
+    if (config.paymentRemindersEmergencyStop) {
+      logEvent('payment_reminder_emergency_stopped', {
+        companyId: input.companyId,
+        saleSyncId: input.saleSyncId,
+      });
+      return {
+        status: 'DISABLED_EMERGENCY_STOP',
+        summary: null,
+        message: 'Recordatorios de pago deshabilitados temporalmente.',
+      };
+    }
+
     if (!isPaymentReminderSendWindowOpen(input.calculationDate ?? new Date())) {
       return {
         status: 'SKIPPED_OUTSIDE_WINDOW',
@@ -266,6 +278,22 @@ export class PaymentReminderService {
   }
 
   async processCompany(companyId: string, calculationDate = new Date()) {
+    if (config.paymentRemindersEmergencyStop) {
+      const stats = {
+        checkedSales: 0,
+        overdueSales: 0,
+        sent: 0,
+        skipped: 0,
+        failed: 0,
+        durationMs: 0,
+        skippedReason: 'EMERGENCY_STOP',
+      };
+      logEvent('payment_reminder_process_emergency_stopped', {
+        companyId,
+      });
+      return stats;
+    }
+
     if (!isPaymentReminderSendWindowOpen(calculationDate)) {
       const stats = {
         checkedSales: 0,

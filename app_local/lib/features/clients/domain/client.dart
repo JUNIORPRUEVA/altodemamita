@@ -53,8 +53,16 @@ class Client {
       id: _readInt(map['id']),
       syncId: (map['sync_id'] as String?)?.trim(),
       version: _readInt(map['version']) ?? 1,
-      fullName: map['full_name'] as String? ?? '',
-      documentId: map['document_id'] as String? ?? '',
+      fullName:
+          map['full_name'] as String? ??
+          map['name'] as String? ??
+          map['nombre'] as String? ??
+          '',
+      documentId:
+          map['document_id'] as String? ??
+          map['document'] as String? ??
+          map['cedula'] as String? ??
+          '',
       phone: map['phone'] as String?,
       address: map['address'] as String?,
       createdAt: DateTime.parse(map['created_at'] as String),

@@ -118,13 +118,16 @@ class SaleDetailDialog extends StatelessWidget {
     final screenSize = MediaQuery.sizeOf(context);
     final isWindows =
         !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
-    final windowsDialogWidth = math.min(760.0, screenSize.width - 24.0);
+    final windowsDialogWidth = math.min(
+      math.max(920.0, screenSize.width * 0.42),
+      screenSize.width - 24.0,
+    );
     final dialogInsetPadding = isWindows
         ? EdgeInsets.fromLTRB(
             math.max(0, screenSize.width - windowsDialogWidth - 12),
+            0,
             12,
-            12,
-            12,
+            0,
           )
         : EdgeInsets.symmetric(
             horizontal: screenSize.width * 0.10,
@@ -135,13 +138,18 @@ class SaleDetailDialog extends StatelessWidget {
         ? math.max(520.0, windowsDialogWidth)
         : screenSize.width * 0.80;
     final double maxDialogHeight = isWindows
-        ? math.max(520.0, screenSize.height - 24.0)
+        ? screenSize.height
         : screenSize.height * 0.80;
     final dialog = Dialog(
       insetPadding: dialogInsetPadding,
       clipBehavior: Clip.antiAlias,
       backgroundColor: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.horizontal(
+          left: Radius.circular(isWindows ? 18 : 16),
+          right: Radius.circular(isWindows ? 0 : 16),
+        ),
+      ),
       child: ConstrainedBox(
         constraints: BoxConstraints(
           maxWidth: maxDialogWidth,
@@ -154,7 +162,7 @@ class SaleDetailDialog extends StatelessWidget {
             const Divider(height: 1),
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 14),
+                padding: const EdgeInsets.fromLTRB(24, 18, 24, 18),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
@@ -242,7 +250,7 @@ class _DialogHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final statusColor = _saleDetailStatusColor(detail.sale.status);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 18, 16, 18),
+      padding: const EdgeInsets.fromLTRB(26, 20, 18, 20),
       child: Row(
         children: [
           Container(
@@ -268,8 +276,8 @@ class _DialogHeader extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
                     color: Color(0xFF1A2235),
                   ),
                 ),
@@ -277,7 +285,8 @@ class _DialogHeader extends StatelessWidget {
                 Text(
                   detail.lotDisplayCode,
                   style: const TextStyle(
-                    fontSize: 13,
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w600,
                     color: Color(0xFF6B7494),
                   ),
                 ),
@@ -288,8 +297,9 @@ class _DialogHeader extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
             decoration: BoxDecoration(
-              color: statusColor.withValues(alpha: 0.12),
+              color: statusColor.withValues(alpha: 0.10),
               borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: statusColor.withValues(alpha: 0.18)),
             ),
             child: Text(
               detail.sale.status,
@@ -422,9 +432,9 @@ class _TopDetailsBand extends StatelessWidget {
     final syncId = sale.syncId?.trim();
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 17),
       decoration: BoxDecoration(
-        color: const Color(0xFFF9FBFE),
+        color: const Color(0xFFFAFCFF),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: const Color(0xFFE4EAF2)),
       ),
@@ -434,19 +444,19 @@ class _TopDetailsBand extends StatelessWidget {
             _TopInfoColumn(
               title: 'Cliente y solar',
               items: [
-                _CompactInfoItem('Cédula', detail.clientDocumentId),
+                _CompactInfoItem('Documento', detail.clientDocumentId),
                 _CompactInfoItem(
-                  'Solar',
+                  'Solar asignado',
                   '${detail.lotDisplayCode} · ${detail.lotArea.toStringAsFixed(2)} m²',
                 ),
               ],
             ),
             _TopInfoColumn(
-              title: 'Venta y seguimiento',
+              title: 'Condiciones de venta',
               items: [
-                _CompactInfoItem('Fecha venta', _formatDate(sale.saleDate)),
+                _CompactInfoItem('Fecha de venta', _formatDate(sale.saleDate)),
                 _CompactInfoItem(
-                  'Inicial',
+                  'Inicial pagada',
                   '${_money(sale.paidInitialPayment)} / ${_money(sale.requiredInitialPayment)}'
                       '${sale.initialPaymentDeadline == null ? '' : ' · Límite ${_formatDate(sale.initialPaymentDeadline!)}'}',
                 ),
@@ -463,16 +473,16 @@ class _TopDetailsBand extends StatelessWidget {
               ],
             ),
             _TopInfoColumn(
-              title: 'Vendedor y plan',
+              title: 'Responsable y plan',
               items: [
                 _CompactInfoItem(
-                  'Vendedor',
+                  'Vendedor responsable',
                   (detail.sellerName ?? '').trim().isEmpty
                       ? detail.userName
                       : detail.sellerName!,
                 ),
                 _CompactInfoItem(
-                  'Plan',
+                  'Plan de pago',
                   '${sale.installmentCount} cuotas · ${sale.monthlyInterest.toStringAsFixed(2)}% mensual',
                 ),
               ],
@@ -495,9 +505,9 @@ class _TopDetailsBand extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(child: columns[0]),
-              const SizedBox(width: 18),
+              const SizedBox(width: 22),
               Expanded(child: columns[1]),
-              const SizedBox(width: 18),
+              const SizedBox(width: 22),
               Expanded(child: columns[2]),
             ],
           );
@@ -523,36 +533,36 @@ class _SummarySection extends StatelessWidget {
         : '${detail.remainingInstallmentCount} cuotas';
     return LayoutBuilder(
       builder: (context, constraints) {
-        final cardWidth = (constraints.maxWidth - 10) / 2;
+        final cardWidth = (constraints.maxWidth - 14) / 2;
 
         return Wrap(
-          spacing: 10,
-          runSpacing: 10,
+          spacing: 14,
+          runSpacing: 12,
           children: [
             _SummaryCard(
               width: cardWidth,
-              label: 'Precio total',
+              label: 'Valor de la venta',
               value: _money(detail.sale.salePrice),
               icon: Icons.sell_outlined,
               color: const Color(0xFF3B5BDB),
             ),
             _SummaryCard(
               width: cardWidth,
-              label: 'Cuota fija mensual',
+              label: 'Cuota mensual estimada',
               value: _money(fixedInstallmentAmount),
               icon: Icons.calendar_view_month_outlined,
               color: const Color(0xFF1565C0),
             ),
             _SummaryCard(
               width: cardWidth,
-              label: 'Saldo pendiente',
+              label: 'Balance pendiente',
               value: _money(detail.sale.pendingBalance),
               icon: Icons.account_balance_wallet_outlined,
               color: pendingColor,
             ),
             _SummaryCard(
               width: cardWidth,
-              label: 'Plazo restante',
+              label: 'Tiempo por cobrar',
               value: remainingTermLabel,
               icon: Icons.format_list_numbered_outlined,
               color: const Color(0xFF6A1B9A),
@@ -584,24 +594,24 @@ class _SummaryCard extends StatelessWidget {
     return SizedBox(
       width: width ?? 205,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
         decoration: BoxDecoration(
-          color: const Color(0xFFF5F7FA),
+          color: const Color(0xFFF8FAFD),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: const Color(0xFFE4EAF2)),
         ),
         child: Row(
           children: [
             Container(
-              width: 34,
-              height: 34,
+              width: 38,
+              height: 38,
               decoration: BoxDecoration(
                 color: color.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: Icon(icon, size: 18, color: color),
+              child: Icon(icon, size: 19, color: color),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -610,15 +620,17 @@ class _SummaryCard extends StatelessWidget {
                     label,
                     style: const TextStyle(
                       fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.15,
                       color: Color(0xFF8893AA),
                     ),
                   ),
-                  const SizedBox(height: 3),
+                  const SizedBox(height: 4),
                   Text(
                     value,
                     style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w800,
                       color: Color(0xFF1A2235),
                     ),
                   ),
@@ -656,11 +668,11 @@ class _InstallmentsSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SectionTitle(title: 'Cuotas amortizadas'),
+        const _SectionTitle(title: 'Estado de las cuotas'),
         const SizedBox(height: 10),
         Container(
           width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
           decoration: BoxDecoration(
             color: const Color(0xFFFCFDFE),
             border: Border.all(color: const Color(0xFFE4EAF2)),
@@ -675,21 +687,21 @@ class _InstallmentsSection extends StatelessWidget {
                   children: [
                     Text(
                       hasInstallments
-                          ? 'Resumen rápido de cuotas'
-                          : 'Sin cuotas activas',
+                          ? 'Seguimiento de pagos programados'
+                          : 'Sin cuotas programadas',
                       style: const TextStyle(
-                        fontSize: 13.5,
-                        fontWeight: FontWeight.w700,
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w800,
                         color: Color(0xFF1A2235),
                       ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 5),
                     Text(
                       hasInstallments
-                          ? '$totalCount cuotas · $paidCount pagadas · $pendingCount pendientes'
+                          ? '$totalCount cuotas generadas · $paidCount pagadas · $pendingCount pendientes'
                           : emptyMessage,
                       style: const TextStyle(
-                        fontSize: 12,
+                        fontSize: 12.5,
                         color: Color(0xFF6B7494),
                         height: 1.35,
                       ),
@@ -708,7 +720,7 @@ class _InstallmentsSection extends StatelessWidget {
                       onPressed: () =>
                           openInstallmentsFullscreen(context, detail),
                       icon: Icons.open_in_full,
-                      label: 'Ver cuotas',
+                      label: 'Detalle de cuotas',
                     ),
                   if (hasInstallments && saleId != null && hasAppliedPayments)
                     const SizedBox(height: 8),
@@ -718,7 +730,7 @@ class _InstallmentsSection extends StatelessWidget {
                       onPressed: () =>
                           openSalePaymentsHistory(context, saleId: saleId),
                       icon: Icons.list_alt_outlined,
-                      label: 'Ver lista de pago',
+                      label: 'Historial de pagos',
                     ),
                 ],
               ),
@@ -992,10 +1004,10 @@ class _BottomBar extends StatelessWidget {
     final pendingCount = detail.installments.length - paidCount;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 14),
+      padding: const EdgeInsets.fromLTRB(24, 14, 24, 16),
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 11),
+        padding: const EdgeInsets.fromLTRB(16, 13, 16, 14),
         decoration: BoxDecoration(
           color: const Color(0xFFF9FBFE),
           borderRadius: BorderRadius.circular(14),
@@ -1015,15 +1027,15 @@ class _BottomBar extends StatelessWidget {
                   ),
                   child: const Icon(
                     Icons.summarize_outlined,
-                    size: 14,
+                    size: 15,
                     color: Color(0xFF1F4B99),
                   ),
                 ),
                 const SizedBox(width: 6),
                 Text(
-                  'Resumen de amortización',
+                  'Resumen financiero del plan',
                   style: const TextStyle(
-                    fontSize: 12,
+                    fontSize: 12.5,
                     fontWeight: FontWeight.w800,
                     color: Color(0xFF1A2235),
                   ),
@@ -1032,7 +1044,7 @@ class _BottomBar extends StatelessWidget {
                 Text(
                   '${detail.installments.length} cuotas · $paidCount pagadas · $pendingCount pendientes',
                   style: const TextStyle(
-                    fontSize: 10.5,
+                    fontSize: 11,
                     color: Color(0xFF8893AA),
                   ),
                 ),
@@ -1060,7 +1072,7 @@ class _BottomBar extends StatelessWidget {
                 const _MetricDivider(),
                 Expanded(
                   child: _FlatMetric(
-                    label: 'Total del plan',
+                    label: 'Total proyectado',
                     value: _money(totalPlan),
                     color: const Color(0xFF2E7D32),
                   ),
@@ -1075,7 +1087,7 @@ class _BottomBar extends StatelessWidget {
               children: [
                 Expanded(
                   child: _FlatMetric(
-                    label: 'Total pagado',
+                    label: 'Pagado a la fecha',
                     value: _money(totalPaid),
                     color: const Color(0xFF00897B),
                   ),
@@ -1083,7 +1095,7 @@ class _BottomBar extends StatelessWidget {
                 const _MetricDivider(),
                 Expanded(
                   child: _FlatMetric(
-                    label: 'Saldo pendiente',
+                    label: 'Balance pendiente',
                     value: _money(totalPending),
                     color: const Color(0xFFAD1457),
                   ),
@@ -1171,7 +1183,7 @@ class _TopInfoColumn extends StatelessWidget {
           style: const TextStyle(
             fontSize: 10,
             fontWeight: FontWeight.w700,
-            letterSpacing: 0.7,
+            letterSpacing: 0.65,
             color: Color(0xFF8893AA),
           ),
         ),
@@ -1233,21 +1245,22 @@ class _CompactInfoRow extends StatelessWidget {
           child: Text(
             label,
             style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-              color: Color(0xFF8893AA),
+              fontSize: 12.2,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF7F8AA3),
             ),
           ),
         ),
-        const SizedBox(width: 10),
+        const SizedBox(width: 12),
         Expanded(
           child: Text(
             value,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
+              fontSize: 12.8,
+              fontWeight: FontWeight.w800,
+              height: 1.25,
               color: Color(0xFF1A2235),
             ),
           ),

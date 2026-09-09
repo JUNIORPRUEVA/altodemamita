@@ -5,10 +5,14 @@ import 'package:path/path.dart' as path;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sistema_solares/core/database/app_database.dart';
 import 'package:sistema_solares/core/database/database_schema.dart';
+import 'package:sistema_solares/core/system/system_config_service.dart';
 import 'package:sistema_solares/features/auth/data/auth_service.dart';
 import 'package:sistema_solares/features/auth/domain/permission_model.dart';
 import 'package:sistema_solares/features/auth/domain/user_model.dart';
 import 'package:sistema_solares/repositories/users_sync_repository.dart';
+import 'package:sistema_solares/services/sync/sync_queue_service.dart';
+
+import 'helpers/fake_backend.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -17,6 +21,7 @@ void main() {
 
   late Directory tempDirectory;
   late AppDatabase appDatabase;
+  late SyncQueueService syncQueueService;
   late AuthService authService;
   late UsersSyncRepository usersSyncRepository;
 
@@ -27,7 +32,24 @@ void main() {
     );
     appDatabase = AppDatabase.test(path.join(tempDirectory.path, 'auth.db'));
     await appDatabase.initialize();
-    authService = AuthService(appDatabase: appDatabase);
+    final configRepository = FakeSyncConfigRepository(
+      settings: buildFakeSettings(),
+    );
+    final systemConfigService = SystemConfigService.test(
+      syncConfigRepository: configRepository,
+    );
+    syncQueueService = SyncQueueService.test(
+      appDatabase: appDatabase,
+      configRepository: configRepository,
+      systemConfigService: systemConfigService,
+    );
+    authService = AuthService(
+      appDatabase: appDatabase,
+      syncConfigRepository: configRepository,
+      syncQueueService: syncQueueService,
+      systemConfigService: systemConfigService,
+      httpClient: FakeBackendHttpClient(state: FakeBackendState()),
+    );
     usersSyncRepository = UsersSyncRepository(appDatabase: appDatabase);
 
     await authService.completeInitialSetup(
@@ -39,6 +61,7 @@ void main() {
   });
 
   tearDown(() async {
+    syncQueueService.dispose();
     await appDatabase.close();
     if (await tempDirectory.exists()) {
       await tempDirectory.delete(recursive: true);

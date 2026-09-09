@@ -118,30 +118,24 @@ class ProductsSyncRepository implements SyncRepository {
           whereArgs: [syncId],
           limit: 1,
         );
-        final matchingSlotRows = existingRows.isEmpty &&
-            blockNumber != null &&
-            lotNumber != null &&
-            !_isDeleted(record['deleted_at'])
-          ? await txn.query(
-            DatabaseSchema.lotsTable,
-            where: 'manzana_numero = ? AND solar_numero = ?',
-            whereArgs: [blockNumber, lotNumber],
-            limit: 1,
-            )
-          : const <Map<String, Object?>>[];
+        final matchingSlotRows =
+            existingRows.isEmpty &&
+                blockNumber != null &&
+                lotNumber != null &&
+                !_isDeleted(record['deleted_at'])
+            ? await txn.query(
+                DatabaseSchema.lotsTable,
+                where: 'manzana_numero = ? AND solar_numero = ?',
+                whereArgs: [blockNumber, lotNumber],
+                limit: 1,
+              )
+            : const <Map<String, Object?>>[];
         final resolvedExistingRows = existingRows.isEmpty
-          ? matchingSlotRows
-          : existingRows;
+            ? matchingSlotRows
+            : existingRows;
         if (_isDeleted(record['deleted_at'])) {
           if (_hasConflictProtectedPendingLocal(resolvedExistingRows)) {
-            await _markFirstExistingRowAsConflict(
-              txn,
-              tableName: DatabaseSchema.lotsTable,
-              existingRows: resolvedExistingRows,
-            );
-            _log(
-              'product_remote_tombstone_conflict_pending_local sync_id=$syncId',
-            );
+            _log('product_remote_tombstone_kept_pending_local sync_id=$syncId');
             continue;
           }
           final tombstoneValues = {
@@ -195,10 +189,14 @@ class ProductsSyncRepository implements SyncRepository {
         };
 
         if (resolvedExistingRows.isEmpty) {
-          _log('[SYNC] Insert new record: table=products id=$syncId remote_delete=false');
+          _log(
+            '[SYNC] Insert new record: table=products id=$syncId remote_delete=false',
+          );
           await txn.insert(DatabaseSchema.lotsTable, values);
         } else {
-          _log('[SYNC] Updating local record: table=products id=$syncId remote_delete=false');
+          _log(
+            '[SYNC] Updating local record: table=products id=$syncId remote_delete=false',
+          );
           await txn.update(
             DatabaseSchema.lotsTable,
             values,
@@ -228,10 +226,7 @@ class ProductsSyncRepository implements SyncRepository {
   }
 }
 
-Future<void> _upsertProduct(
-  dynamic txn,
-  Map<String, Object?> values,
-) async {
+Future<void> _upsertProduct(dynamic txn, Map<String, Object?> values) async {
   final updated = await txn.update(
     DatabaseSchema.lotsTable,
     values,
@@ -274,13 +269,19 @@ bool _shouldKeepLocal(
   final local = existingRows.first;
   final localDeletedAt = local['deleted_at']?.toString().trim() ?? '';
   final remoteDeleted = _isDeleted(remoteRecord['deleted_at']);
-  // Never revive a locally tombstoned commercial record from a non-deleted remote payload.
-  if (localDeletedAt.isNotEmpty && !remoteDeleted) {
-    return true;
-  }
   final localSyncStatus = (local['sync_status'] as String? ?? '')
       .trim()
       .toLowerCase();
+  if (localDeletedAt.isNotEmpty &&
+      !remoteDeleted &&
+      localSyncStatus != DatabaseSchema.syncStatusSynced) {
+    return true;
+  }
+  if (localDeletedAt.isNotEmpty &&
+      !remoteDeleted &&
+      localSyncStatus == DatabaseSchema.syncStatusSynced) {
+    return false;
+  }
   final localPending = DatabaseSchema.writableSyncStatuses.contains(
     localSyncStatus,
   );
@@ -310,7 +311,9 @@ bool _shouldKeepLocal(
       localUpdated.isAfter(remoteUpdated);
 }
 
-bool _hasConflictProtectedPendingLocal(List<Map<String, Object?>> existingRows) {
+bool _hasConflictProtectedPendingLocal(
+  List<Map<String, Object?>> existingRows,
+) {
   if (existingRows.isEmpty) {
     return false;
   }
@@ -319,26 +322,6 @@ bool _hasConflictProtectedPendingLocal(List<Map<String, Object?>> existingRows) 
       .toLowerCase();
   return localSyncStatus == DatabaseSchema.syncStatusPendingCreate ||
       localSyncStatus == DatabaseSchema.syncStatusPendingUpdate;
-}
-
-Future<void> _markFirstExistingRowAsConflict(
-  dynamic txn, {
-  required String tableName,
-  required List<Map<String, Object?>> existingRows,
-}) async {
-  if (existingRows.isEmpty) {
-    return;
-  }
-  final rowId = existingRows.first['id'];
-  if (rowId == null) {
-    return;
-  }
-  await txn.update(
-    tableName,
-    {'sync_status': DatabaseSchema.syncStatusConflict},
-    where: 'id = ?',
-    whereArgs: [rowId],
-  );
 }
 
 DateTime? _parseDate(String? value) {

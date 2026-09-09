@@ -16,6 +16,8 @@ export const config = {
   companyName: process.env.COMPANY_NAME ?? 'EL ALTO DE DONA MAMITA',
   paymentRemindersEnabled:
     String(process.env.PAYMENT_REMINDERS_ENABLED ?? 'false').toLowerCase() === 'true',
+  paymentRemindersEmergencyStop:
+    String(process.env.PAYMENT_REMINDERS_EMERGENCY_STOP ?? 'true').toLowerCase() === 'true',
   paymentRemindersDryRun:
     String(process.env.PAYMENT_REMINDERS_DRY_RUN ?? 'true').toLowerCase() === 'true',
   paymentRemindersTestMode:
@@ -40,6 +42,12 @@ export const config = {
   whatsappAccessToken: process.env.WHATSAPP_ACCESS_TOKEN ?? '',
   whatsappPhoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID ?? '',
   whatsappBusinessAccountId: process.env.WHATSAPP_BUSINESS_ACCOUNT_ID ?? '',
+  legacySyncAllowAnonymous:
+    String(process.env.LEGACY_SYNC_ALLOW_ANONYMOUS ?? 'false').toLowerCase() === 'true',
+  authoritativeMode:
+    String(process.env.AUTHORITATIVE_MODE ?? 'true').toLowerCase() === 'true',
+  ownerReadAllowAnonymous:
+    String(process.env.OWNER_READ_ALLOW_ANONYMOUS ?? 'false').toLowerCase() === 'true',
 };
 
 export function validateConfig() {

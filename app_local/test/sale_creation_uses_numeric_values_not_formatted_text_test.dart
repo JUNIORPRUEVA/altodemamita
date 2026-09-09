@@ -70,8 +70,9 @@ void main() {
     final now = DateTime(2026, 5, 3);
     SaleDraft? submittedDraft;
 
-    await clientRepository.save(
+    final clients = [
       Client(
+        id: 1,
         fullName: 'Maria Gomez',
         documentId: '001-1234567-8',
         phone: '8095550199',
@@ -79,9 +80,7 @@ void main() {
         createdAt: now,
         updatedAt: now,
       ),
-    );
-
-    final clients = await clientRepository.fetchAll();
+    ];
 
     await tester.binding.setSurfaceSize(const Size(1280, 860));
     addTearDown(() async => tester.binding.setSurfaceSize(null));
@@ -132,16 +131,19 @@ void main() {
     await tester.tap(find.text('Abrir venta'));
     await _settle(tester);
 
-    final dropdowns = tester.widgetList<DropdownButtonFormField<int>>(
-      find.byType(DropdownButtonFormField<int>),
+    final clientDropdown = tester.widget<DropdownButtonFormField<int>>(
+      find.byKey(saleFormClientDropdownKey),
     );
-    dropdowns.first.onChanged?.call(clients.single.id);
-    dropdowns.last.onChanged?.call(1);
+    final lotDropdown = tester.widget<DropdownButtonFormField<int>>(
+      find.byKey(saleFormLotDropdownKey),
+    );
+    clientDropdown.onChanged?.call(clients.single.id);
+    lotDropdown.onChanged?.call(1);
     await _settle(tester);
 
     await tester.enterText(
       find.widgetWithText(TextFormField, 'Inicial real pagado'),
-      '1,000.00',
+      '85,000.00',
     );
     await _settle(tester);
 
@@ -149,7 +151,7 @@ void main() {
     await _settle(tester);
 
     expect(submittedDraft, isNotNull);
-    expect(submittedDraft!.initialPaymentPaid, 1000.0);
+    expect(submittedDraft!.initialPaymentPaid, 85000.0);
     expect(submittedDraft!.salePrice, 850000.0);
   });
 }

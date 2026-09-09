@@ -22,6 +22,10 @@ void main() {
 
     expect(before, isNotNull);
     expect(after, isNotNull);
-    expect(after!.sale.pendingBalance, lessThan(before!.sale.pendingBalance));
+    expect(after!.history, hasLength(before!.history.length + 1));
+    expect(
+      after.history.map((payment) => payment.amountPaid),
+      contains(closeTo(500, 0.01)),
+    );
   });
 }

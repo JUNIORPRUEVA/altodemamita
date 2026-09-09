@@ -14,172 +14,424 @@ enum UserRole {
 }
 
 model User {
-  id           String   @id @default(uuid())
-  email        String   @unique
-  name         String
-  passwordHash String
-  role         UserRole
-  active       Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                    String    @id @default(uuid())
+  companyId             String?
+  company               Company?  @relation(fields: [companyId], references: [id])
+  syncId                String?
+  email                 String    @unique
+  name                  String
+  passwordHash          String
+  role                  UserRole
+  localRole             String?
+  phone                 String?
+  active                Boolean   @default(true)
+  passwordResetRequired Boolean   @default(false)
+  passwordUpdatedAt     DateTime?
+  remoteAuthId          String?
+  authSource            String?
+  lastOnlineLoginAt     DateTime?
+  raw                   Json?
+  version               Int       @default(1)
+  deletedAt             DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  operatedSales     Sale[]             @relation("SaleOperator")
+  receivedPayments  Payment[]          @relation("PaymentReceiver")
+  annulledPayments  Payment[]          @relation("PaymentAnnulledBy")
+  roleAssignments   BusinessUserRole[]
+  directPermissions Permission[]
+
+  @@unique([companyId, syncId])
+  @@index([companyId, updatedAt])
+  @@index([companyId, remoteAuthId])
 }
 
 model Company {
-  id         String        @id @default(uuid())
-  tenantKey String        @unique
-  name       String
-  active     Boolean       @default(true)
-  createdAt  DateTime      @default(now())
-  updatedAt  DateTime      @updatedAt
+  id        String   @id @default(uuid())
+  tenantKey String   @unique
+  name      String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  clients      Client[]
-  sellers      Seller[]
-  lots         Lot[]
-  sales        Sale[]
-  installments Installment[]
-  payments     Payment[]
+  clients                      Client[]
+  sellers                      Seller[]
+  lots                         Lot[]
+  sales                        Sale[]
+  installments                 Installment[]
+  payments                     Payment[]
+  users                        User[]
+  roles                        BusinessRole[]
+  userRoleAssignments          BusinessUserRole[]
+  permissions                  Permission[]
+  rolePermissions              BusinessRolePermission[]
+  companyProfile               CompanyProfile?
+  financialParameters          FinancialParameters?
+  businessConfigurations       BusinessConfiguration[]
   paymentReminderNotifications PaymentReminderNotification[]
-  lateFeeSnapshots LateFeeSnapshot[]
-  syncBatches  SyncBatch[]
+  lateFeeSnapshots             LateFeeSnapshot[]
+  syncBatches                  SyncBatch[]
+  authoritativeOperations      AuthoritativeOperation[]
 }
 
 model Client {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   companyId String
-  company   Company  @relation(fields: [companyId], references: [id])
+  company   Company   @relation(fields: [companyId], references: [id])
   syncId    String
   name      String
   document  String?
   phone     String?
   address   String?
-  raw        Json?
-  version   Int      @default(1)
+  raw       Json?
+  version   Int       @default(1)
   deletedAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  sales    Sale[]
+  payments Payment[]
 
   @@unique([companyId, syncId])
   @@index([companyId, updatedAt])
 }
 
 model Seller {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   companyId String
-  company   Company  @relation(fields: [companyId], references: [id])
+  company   Company   @relation(fields: [companyId], references: [id])
   syncId    String
   name      String
   document  String?
   phone     String?
-  active    Boolean  @default(true)
+  active    Boolean   @default(true)
   raw       Json?
-  version   Int      @default(1)
+  version   Int       @default(1)
   deletedAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  sales Sale[]
 
   @@unique([companyId, syncId])
   @@index([companyId, updatedAt])
 }
 
 model Lot {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   companyId String
-  company   Company  @relation(fields: [companyId], references: [id])
+  company   Company   @relation(fields: [companyId], references: [id])
   syncId    String
   block     String?
   number    String?
   status    String?
-  area      Decimal? @db.Decimal(14, 2)
-  price     Decimal? @db.Decimal(14, 2)
+  area      Decimal?  @db.Decimal(14, 2)
+  price     Decimal?  @db.Decimal(14, 2)
   raw       Json?
-  version   Int      @default(1)
+  version   Int       @default(1)
   deletedAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  sales Sale[]
 
   @@unique([companyId, syncId])
   @@index([companyId, updatedAt])
 }
 
 model Sale {
-  id           String   @id @default(uuid())
-  companyId    String
-  company      Company  @relation(fields: [companyId], references: [id])
-  syncId       String
-  clientSyncId String?
-  lotSyncId    String?
-  sellerSyncId String?
-  saleDate     DateTime?
-  status       String?
-  total        Decimal  @default(0) @db.Decimal(14, 2)
-  initialPaid  Decimal  @default(0) @db.Decimal(14, 2)
-  balance      Decimal  @default(0) @db.Decimal(14, 2)
-  raw          Json?
-  version      Int      @default(1)
-  deletedAt    DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                       String    @id @default(uuid())
+  companyId                String
+  company                  Company   @relation(fields: [companyId], references: [id])
+  syncId                   String
+  clientId                 String?
+  client                   Client?   @relation(fields: [clientId], references: [id])
+  lotId                    String?
+  lot                      Lot?      @relation(fields: [lotId], references: [id])
+  sellerId                 String?
+  seller                   Seller?   @relation(fields: [sellerId], references: [id])
+  operatorUserId           String?
+  operatorUser             User?     @relation("SaleOperator", fields: [operatorUserId], references: [id])
+  clientSyncId             String?
+  lotSyncId                String?
+  sellerSyncId             String?
+  operatorUserSyncId       String?
+  saleDate                 DateTime?
+  status                   String?
+  total                    Decimal   @default(0) @db.Decimal(14, 2)
+  initialPercentage        Decimal?  @db.Decimal(8, 4)
+  initialRequiredAmount    Decimal   @default(0) @db.Decimal(14, 2)
+  initialPaid              Decimal   @default(0) @db.Decimal(14, 2)
+  initialPendingAmount     Decimal   @default(0) @db.Decimal(14, 2)
+  reservationMinimumAmount Decimal   @default(0) @db.Decimal(14, 2)
+  reservationPaidAmount    Decimal   @default(0) @db.Decimal(14, 2)
+  initialPaymentDeadline   DateTime?
+  activationDate           DateTime?
+  financedBalance          Decimal   @default(0) @db.Decimal(14, 2)
+  monthlyInterestRate      Decimal?  @db.Decimal(8, 4)
+  installmentCount         Int?
+  balance                  Decimal   @default(0) @db.Decimal(14, 2)
+  raw                      Json?
+  version                  Int       @default(1)
+  deletedAt                DateTime?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  installments Installment[]
+  payments     Payment[]
 
   @@unique([companyId, syncId])
   @@index([companyId, updatedAt])
+  @@index([companyId, lotId])
+  @@index([companyId, clientId])
+  @@index([companyId, operatorUserId])
 }
 
 model Installment {
-  id                  String   @id @default(uuid())
+  id                  String    @id @default(uuid())
   companyId           String
-  company             Company  @relation(fields: [companyId], references: [id])
+  company             Company   @relation(fields: [companyId], references: [id])
   syncId              String
+  saleId              String?
+  sale                Sale?     @relation(fields: [saleId], references: [id])
   saleSyncId          String?
   installmentNumber   Int?
   dueDate             DateTime?
-  openingBalance      Decimal  @default(0) @db.Decimal(14, 2)
-  principalAmount     Decimal  @default(0) @db.Decimal(14, 2)
-  interestAmount      Decimal  @default(0) @db.Decimal(14, 2)
-  totalAmount         Decimal  @default(0) @db.Decimal(14, 2)
-  paidAmount          Decimal  @default(0) @db.Decimal(14, 2)
-  paidPrincipalAmount Decimal  @default(0) @db.Decimal(14, 2)
-  paidInterestAmount  Decimal  @default(0) @db.Decimal(14, 2)
-  endingBalance       Decimal  @default(0) @db.Decimal(14, 2)
+  openingBalance      Decimal   @default(0) @db.Decimal(14, 2)
+  principalAmount     Decimal   @default(0) @db.Decimal(14, 2)
+  interestAmount      Decimal   @default(0) @db.Decimal(14, 2)
+  totalAmount         Decimal   @default(0) @db.Decimal(14, 2)
+  paidAmount          Decimal   @default(0) @db.Decimal(14, 2)
+  paidPrincipalAmount Decimal   @default(0) @db.Decimal(14, 2)
+  paidInterestAmount  Decimal   @default(0) @db.Decimal(14, 2)
+  endingBalance       Decimal   @default(0) @db.Decimal(14, 2)
   status              String?
   raw                 Json?
-  version             Int      @default(1)
+  version             Int       @default(1)
   deletedAt           DateTime?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  payments Payment[]
+
+  @@unique([companyId, syncId])
+  @@index([companyId, updatedAt])
+  @@index([companyId, saleId])
+}
+
+model Payment {
+  id                   String       @id @default(uuid())
+  companyId            String
+  company              Company      @relation(fields: [companyId], references: [id])
+  syncId               String
+  saleId               String?
+  sale                 Sale?        @relation(fields: [saleId], references: [id])
+  clientId             String?
+  client               Client?      @relation(fields: [clientId], references: [id])
+  installmentId        String?
+  installment          Installment? @relation(fields: [installmentId], references: [id])
+  receivedByUserId     String?
+  receivedByUser       User?        @relation("PaymentReceiver", fields: [receivedByUserId], references: [id])
+  saleSyncId           String?
+  clientSyncId         String?
+  installmentSyncId    String?
+  receivedByUserSyncId String?
+  paidAt               DateTime?
+  amount               Decimal      @default(0) @db.Decimal(14, 2)
+  method               String?
+  paymentType          String?
+  reference            String?
+  yearToPay            Int?
+  principalApplied     Decimal      @default(0) @db.Decimal(14, 2)
+  interestApplied      Decimal      @default(0) @db.Decimal(14, 2)
+  annulledAt           DateTime?
+  annulledByUserId     String?
+  annulledByUser       User?        @relation("PaymentAnnulledBy", fields: [annulledByUserId], references: [id])
+  annulmentReason      String?
+  reversesPaymentId    String?
+  reversesPayment      Payment?     @relation("PaymentReversal", fields: [reversesPaymentId], references: [id])
+  reversedByPayments   Payment[]    @relation("PaymentReversal")
+  raw                  Json?
+  version              Int          @default(1)
+  deletedAt            DateTime?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  @@unique([companyId, syncId])
+  @@index([companyId, updatedAt])
+  @@index([companyId, saleId])
+  @@index([companyId, clientId])
+  @@index([companyId, installmentId])
+  @@index([companyId, receivedByUserId])
+}
+
+model AuthoritativeOperation {
+  id            String   @id @default(uuid())
+  companyId     String
+  company       Company  @relation(fields: [companyId], references: [id])
+  operationKey  String
+  operationType String
+  requestHash   String
+  status        String   @default("completed")
+  resourceType  String?
+  resourceId    String?
+  response      Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([companyId, operationKey])
+  @@index([companyId, operationType, createdAt])
+}
+
+model BusinessRole {
+  id          String    @id @default(uuid())
+  companyId   String
+  company     Company   @relation(fields: [companyId], references: [id])
+  syncId      String?
+  code        String
+  name        String
+  description String?
+  raw         Json?
+  version     Int       @default(1)
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  userAssignments BusinessUserRole[]
+  permissions     BusinessRolePermission[]
+
+  @@unique([companyId, syncId])
+  @@unique([companyId, code])
+  @@index([companyId, updatedAt])
+}
+
+model BusinessUserRole {
+  id        String       @id @default(uuid())
+  companyId String
+  company   Company      @relation(fields: [companyId], references: [id])
+  userId    String
+  user      User         @relation(fields: [userId], references: [id])
+  roleId    String
+  role      BusinessRole @relation(fields: [roleId], references: [id])
+  syncId    String?
+  raw       Json?
+  version   Int          @default(1)
+  deletedAt DateTime?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@unique([companyId, syncId])
+  @@unique([companyId, userId, roleId])
+  @@index([companyId, updatedAt])
+}
+
+model Permission {
+  id        String    @id @default(uuid())
+  companyId String
+  company   Company   @relation(fields: [companyId], references: [id])
+  syncId    String?
+  userId    String?
+  user      User?     @relation(fields: [userId], references: [id])
+  module    String
+  actions   Json      @default("[]")
+  raw       Json?
+  version   Int       @default(1)
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  rolePermissions BusinessRolePermission[]
+
+  @@unique([companyId, syncId])
+  @@unique([companyId, userId, module])
+  @@index([companyId, updatedAt])
+}
+
+model BusinessRolePermission {
+  id           String       @id @default(uuid())
+  companyId    String
+  company      Company      @relation(fields: [companyId], references: [id])
+  roleId       String
+  role         BusinessRole @relation(fields: [roleId], references: [id])
+  permissionId String
+  permission   Permission   @relation(fields: [permissionId], references: [id])
+  syncId       String?
+  raw          Json?
+  version      Int          @default(1)
+  deletedAt    DateTime?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@unique([companyId, syncId])
+  @@unique([companyId, roleId, permissionId])
+  @@index([companyId, updatedAt])
+}
+
+model CompanyProfile {
+  id               String    @id @default(uuid())
+  companyId        String    @unique
+  company          Company   @relation(fields: [companyId], references: [id])
+  syncId           String?
+  name             String
+  phone            String?
+  address          String?
+  logoBase64       String?
+  logoLocalPath    String?
+  logoRemoteUrl    String?
+  logoUploadStatus String?
+  raw              Json?
+  version          Int       @default(1)
+  deletedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   @@unique([companyId, syncId])
   @@index([companyId, updatedAt])
 }
 
-model Payment {
-  id                String   @id @default(uuid())
-  companyId         String
-  company           Company  @relation(fields: [companyId], references: [id])
-  syncId            String
-  saleSyncId        String?
-  clientSyncId      String?
-  installmentSyncId String?
-  paidAt            DateTime?
-  amount            Decimal  @default(0) @db.Decimal(14, 2)
-  method            String?
-  paymentType       String?
-  reference         String?
-  yearToPay         Int?
-  raw               Json?
-  version           Int      @default(1)
-  deletedAt         DateTime?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+model FinancialParameters {
+  id                  String    @id @default(uuid())
+  companyId           String    @unique
+  company             Company   @relation(fields: [companyId], references: [id])
+  syncId              String?
+  initialPercentage   Decimal?  @db.Decimal(8, 4)
+  monthlyInterestRate Decimal?  @db.Decimal(8, 4)
+  installmentCount    Int?
+  currencySymbol      String?
+  decimalPlaces       Int?
+  raw                 Json?
+  version             Int       @default(1)
+  deletedAt           DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   @@unique([companyId, syncId])
+}
+
+model BusinessConfiguration {
+  id          String    @id @default(uuid())
+  companyId   String
+  company     Company   @relation(fields: [companyId], references: [id])
+  key         String
+  value       String?
+  valueJson   Json?
+  description String?
+  raw         Json?
+  version     Int       @default(1)
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([companyId, key])
   @@index([companyId, updatedAt])
 }
 
 model SyncBatch {
-  id            String   @id @default(uuid())
-  companyId     String
-  company       Company  @relation(fields: [companyId], references: [id])
-  deviceId      String
+  id             String   @id @default(uuid())
+  companyId      String
+  company        Company  @relation(fields: [companyId], references: [id])
+  deviceId       String
   receivedCounts Json
   appliedCounts  Json
   createdAt      DateTime @default(now())
@@ -188,33 +440,33 @@ model SyncBatch {
 }
 
 model PaymentReminderNotification {
-  id                            String   @id @default(uuid())
-  companyId                     String
-  company                       Company  @relation(fields: [companyId], references: [id])
-  clientSyncId                  String?
-  saleSyncId                    String
-  type                          String
-  period                        String?
-  lastOverdueInstallmentSyncId  String
-  overdueInstallmentCount       Int
-  pendingPrincipal              Decimal  @default(0) @db.Decimal(14, 2)
-  lateFeeTotal                  Decimal  @default(0) @db.Decimal(14, 2)
-  totalDue                      Decimal  @default(0) @db.Decimal(14, 2)
-  destinationPhone              String?
-  templateName                  String?
-  whatsappMessageId             String?
-  status                        String   @default("PENDING")
-  attempts                      Int      @default(0)
-  error                         String?
-  scheduledAt                   DateTime?
-  sentAt                        DateTime?
-  payload                       Json?
-  testMode                      Boolean  @default(false)
-  redirected                    Boolean  @default(false)
-  originalRecipientMasked       String?
-  createdAt                     DateTime @default(now())
-  updatedAt                     DateTime @updatedAt
-  deliveries                    PaymentReminderDelivery[]
+  id                           String                    @id @default(uuid())
+  companyId                    String
+  company                      Company                   @relation(fields: [companyId], references: [id])
+  clientSyncId                 String?
+  saleSyncId                   String
+  type                         String
+  period                       String?
+  lastOverdueInstallmentSyncId String
+  overdueInstallmentCount      Int
+  pendingPrincipal             Decimal                   @default(0) @db.Decimal(14, 2)
+  lateFeeTotal                 Decimal                   @default(0) @db.Decimal(14, 2)
+  totalDue                     Decimal                   @default(0) @db.Decimal(14, 2)
+  destinationPhone             String?
+  templateName                 String?
+  whatsappMessageId            String?
+  status                       String                    @default("PENDING")
+  attempts                     Int                       @default(0)
+  error                        String?
+  scheduledAt                  DateTime?
+  sentAt                       DateTime?
+  payload                      Json?
+  testMode                     Boolean                   @default(false)
+  redirected                   Boolean                   @default(false)
+  originalRecipientMasked      String?
+  createdAt                    DateTime                  @default(now())
+  updatedAt                    DateTime                  @updatedAt
+  deliveries                   PaymentReminderDelivery[]
 
   @@unique([companyId, saleSyncId, type, lastOverdueInstallmentSyncId])
   @@index([companyId, status, createdAt])
@@ -222,22 +474,22 @@ model PaymentReminderNotification {
 }
 
 model PaymentReminderDelivery {
-  id                       String   @id @default(uuid())
-  notificationId           String
-  notification             PaymentReminderNotification @relation(fields: [notificationId], references: [id])
-  actualRecipient          String
-  originalRecipientMasked  String?
-  testMode                 Boolean  @default(false)
-  redirected               Boolean  @default(false)
-  whatsappMessageId        String?
-  status                   String   @default("PENDING")
-  attempts                 Int      @default(0)
-  error                    String?
-  sentAt                   DateTime?
-  deliveredAt              DateTime?
-  readAt                   DateTime?
-  createdAt                DateTime @default(now())
-  updatedAt                DateTime @updatedAt
+  id                      String                      @id @default(uuid())
+  notificationId          String
+  notification            PaymentReminderNotification @relation(fields: [notificationId], references: [id])
+  actualRecipient         String
+  originalRecipientMasked String?
+  testMode                Boolean                     @default(false)
+  redirected              Boolean                     @default(false)
+  whatsappMessageId       String?
+  status                  String                      @default("PENDING")
+  attempts                Int                         @default(0)
+  error                   String?
+  sentAt                  DateTime?
+  deliveredAt             DateTime?
+  readAt                  DateTime?
+  createdAt               DateTime                    @default(now())
+  updatedAt               DateTime                    @updatedAt
 
   @@unique([notificationId, actualRecipient])
   @@index([whatsappMessageId])
@@ -245,20 +497,20 @@ model PaymentReminderDelivery {
 }
 
 model LateFeeSnapshot {
-  id                  String   @id @default(uuid())
-  companyId           String
-  company             Company  @relation(fields: [companyId], references: [id])
-  clientSyncId        String?
-  saleSyncId          String
-  installmentSyncId   String
-  calculatedAt        DateTime
-  baseBalance         Decimal  @default(0) @db.Decimal(14, 2)
-  overdueDays         Int
-  dailyRate           Decimal  @default(0) @db.Decimal(8, 6)
-  calculatedLateFee   Decimal  @default(0) @db.Decimal(14, 2)
-  eventType           String
-  notificationId      String?
-  createdAt           DateTime @default(now())
+  id                String   @id @default(uuid())
+  companyId         String
+  company           Company  @relation(fields: [companyId], references: [id])
+  clientSyncId      String?
+  saleSyncId        String
+  installmentSyncId String
+  calculatedAt      DateTime
+  baseBalance       Decimal  @default(0) @db.Decimal(14, 2)
+  overdueDays       Int
+  dailyRate         Decimal  @default(0) @db.Decimal(8, 6)
+  calculatedLateFee Decimal  @default(0) @db.Decimal(14, 2)
+  eventType         String
+  notificationId    String?
+  createdAt         DateTime @default(now())
 
   @@index([companyId, saleSyncId, calculatedAt])
   @@index([companyId, installmentSyncId])

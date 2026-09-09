@@ -79,9 +79,7 @@ class _UserFormDialogState extends State<UserFormDialog> {
                 const SizedBox(height: 16),
                 TextFormField(
                   controller: _nombreController,
-                  decoration: const InputDecoration(
-                    labelText: 'Nombre',
-                  ),
+                  decoration: const InputDecoration(labelText: 'Nombre'),
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
                       return 'Obligatorio';
@@ -99,19 +97,16 @@ class _UserFormDialogState extends State<UserFormDialog> {
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _telefonoController,
-                  decoration: const InputDecoration(
-                    labelText: 'Teléfono',
-                  ),
+                  decoration: const InputDecoration(labelText: 'Teléfono'),
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  value: _selectedRol,
+                  initialValue: _selectedRol,
                   decoration: const InputDecoration(labelText: 'Rol'),
                   items: SettingsUser.roles
-                      .map((rol) => DropdownMenuItem(
-                            value: rol,
-                            child: Text(rol),
-                          ))
+                      .map(
+                        (rol) => DropdownMenuItem(value: rol, child: Text(rol)),
+                      )
                       .toList(),
                   onChanged: (value) {
                     if (value != null) {

@@ -7,6 +7,8 @@ import 'package:sistema_solares/core/database/app_database.dart';
 import 'package:sistema_solares/core/database/database_schema.dart';
 import 'package:sistema_solares/features/auth/data/auth_service.dart';
 
+import 'helpers/fake_backend.dart';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -19,7 +21,13 @@ void main() {
     tempDirectory = await Directory.systemTemp.createTemp('offline_without_hash_');
     appDatabase = AppDatabase.test(path.join(tempDirectory.path, 'auth.db'));
     await appDatabase.initialize();
-    authService = AuthService(appDatabase: appDatabase);
+    authService = AuthService(
+      appDatabase: appDatabase,
+      syncConfigRepository: FakeSyncConfigRepository(
+        settings: buildFakeSettings(),
+      ),
+      httpClient: FakeBackendHttpClient(state: FakeBackendState()..offline = true),
+    );
 
     final db = await appDatabase.database;
     final now = DateTime.now().toIso8601String();

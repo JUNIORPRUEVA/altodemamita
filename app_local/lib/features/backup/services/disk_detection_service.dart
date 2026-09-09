@@ -80,10 +80,10 @@ class DiskDetectionService {
 
     // On Windows, check all drive letters from C: to Z:
     for (int i = 67; i <= 90; i++) {
-      final drive = String.fromCharCode(i) + ':';
+      final drive = '${String.fromCharCode(i)}:';
 
       try {
-        final directory = Directory(drive + '\\');
+        final directory = Directory('$drive\\');
 
         // Check if drive exists and is accessible
         if (await directory.exists()) {
@@ -131,7 +131,7 @@ class DiskDetectionService {
                 await Process.run('fsutil', [
                   'volume',
                   'diskfree',
-                  '${drive}\\',
+                  '$drive\\',
                 ]).timeout(
                   const Duration(seconds: 5),
                   onTimeout: () => ProcessResult(0, 1, '', 'fsutil timeout'),

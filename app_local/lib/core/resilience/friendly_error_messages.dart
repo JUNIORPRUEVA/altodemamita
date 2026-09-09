@@ -82,7 +82,7 @@ class FriendlyErrorMessages {
       return const FriendlyErrorMessage(
         title: 'No pudimos conectar con el servidor',
         message:
-            'No pudimos conectar con el servidor. Revisa tu internet e intenta nuevamente.',
+            'No pudimos conectar con el servidor. La app seguira usando los datos locales.',
         details:
             'Puedes seguir trabajando localmente; la app intentará sincronizar nuevamente.',
         suggestions: [
@@ -98,9 +98,7 @@ class FriendlyErrorMessages {
         message: 'No tienes permiso para realizar esta accion.',
         details:
             'La accion fue detenida para mantener la seguridad de tu cuenta.',
-        suggestions: [
-          'Contacta a un administrador si necesitas acceso.',
-        ],
+        suggestions: ['Contacta a un administrador si necesitas acceso.'],
       );
     }
 
@@ -110,9 +108,7 @@ class FriendlyErrorMessages {
         message: 'Revisa los datos ingresados e intentalo nuevamente.',
         details:
             'Algunos campos no cumplen el formato esperado y no se pudo completar la accion.',
-        suggestions: [
-          'Corrige los campos marcados e intenta otra vez.',
-        ],
+        suggestions: ['Corrige los campos marcados e intenta otra vez.'],
       );
     }
 
@@ -160,12 +156,10 @@ class FriendlyErrorMessages {
 
     return const FriendlyErrorMessage(
       title: 'No pudimos completar esta accion',
-      message: 'No pudimos completar la acción. Intenta nuevamente o contacta al administrador.',
-      details:
-          'La app sigue funcionando. Puedes intentarlo otra vez.',
-      suggestions: [
-        'Si vuelve a pasar, copia el detalle y envialo a soporte.',
-      ],
+      message:
+          'No pudimos completar la acción. Intenta nuevamente o contacta al administrador.',
+      details: 'La app sigue funcionando. Puedes intentarlo otra vez.',
+      suggestions: ['Si vuelve a pasar, copia el detalle y envialo a soporte.'],
     );
   }
 
@@ -196,10 +190,10 @@ class FriendlyErrorMessages {
         raw.contains('unauthorized') ||
         raw.contains('permission') ||
         raw.contains('permiso') ||
-      raw.contains('access denied') ||
-      raw.contains('authorized for write') ||
-      raw.contains('no esta autorizado para escribir') ||
-      raw.contains('no esta registrado para escribir');
+        raw.contains('access denied') ||
+        raw.contains('authorized for write') ||
+        raw.contains('no esta autorizado para escribir') ||
+        raw.contains('no esta registrado para escribir');
   }
 
   static bool _looksLikeValidationIssue(String raw) {

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../app/app_colors.dart';
+import '../app/safe_area_padding.dart';
 import '../core/utils.dart';
+import 'animated_list_item.dart';
 import 'record_card.dart';
 import 'empty_card.dart';
 
@@ -61,53 +63,81 @@ class RecordsPageState extends State<RecordsPage> {
     }
   }
 
-  List<RecordView> get filteredViews {
-    return widget.items.map(widget.builder).where((view) {
-      if (_query.trim().isEmpty) return true;
-      return view.searchText.toLowerCase().contains(_query.toLowerCase());
-    }).toList();
+  List<Map<String, dynamic>> get filteredItems {
+    final query = _query.trim().toLowerCase();
+    if (query.isEmpty) return widget.items;
+    return widget.items
+        .where((item) {
+          return widget.builder(item).searchText.toLowerCase().contains(query);
+        })
+        .toList(growable: false);
   }
 
   @override
   Widget build(BuildContext context) {
-    final views = filteredViews;
+    final items = filteredItems;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Search bar (toggleable)
-        AnimatedContainer(
-          duration: const Duration(milliseconds: 250),
-          curve: Curves.easeInOutCubic,
-          height: _showSearch ? 48 : 0,
-          child: AnimatedOpacity(
-            duration: const Duration(milliseconds: 200),
-            opacity: _showSearch ? 1.0 : 0.0,
-            child: _showSearch ? _buildSearchField() : const SizedBox.shrink(),
-          ),
-        ),
-        if (_showSearch) const SizedBox(height: 8),
-        // Count label
-        Padding(
-          padding: const EdgeInsets.only(left: 2, bottom: 8),
-          child: Text(
-            '${views.length} registros',
-            style: const TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 12.5,
-              fontWeight: FontWeight.w500,
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Search bar (toggleable)
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeInOutCubic,
+            height: _showSearch ? 48 : 0,
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 200),
+              opacity: _showSearch ? 1.0 : 0.0,
+              child: _showSearch
+                  ? _buildSearchField()
+                  : const SizedBox.shrink(),
             ),
           ),
-        ),
-        // Records list
-        if (views.isEmpty)
-          const EmptyCard()
-        else
-          ...views.map((view) => RecordCard(
-                view: view,
-                accentColor: widget.accentColor,
-              )),
-      ],
+          if (_showSearch) const SizedBox(height: 8),
+          // Records list
+          Expanded(
+            child: ListView.builder(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: EdgeInsets.only(
+                top: _showSearch ? 8 : 16,
+                bottom: mobileSafeBottomPadding(context),
+              ),
+              itemCount: items.isEmpty ? 2 : items.length + 1,
+              itemBuilder: (context, index) {
+                if (index == 0) {
+                  return Padding(
+                    padding: const EdgeInsets.only(left: 2, bottom: 8),
+                    child: Text(
+                      '${items.length} registros',
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  );
+                }
+
+                if (items.isEmpty) {
+                  return const EmptyCard();
+                }
+
+                final itemIndex = index - 1;
+                final view = widget.builder(items[itemIndex]);
+                return AnimatedListItem(
+                  index: itemIndex,
+                  child: RecordCard(
+                    view: view,
+                    accentColor: widget.accentColor,
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -133,10 +163,7 @@ class RecordsPageState extends State<RecordsPage> {
               )
             : null,
         hintText: widget.searchHint ?? 'Buscar...',
-        hintStyle: const TextStyle(
-          color: AppColors.textMuted,
-          fontSize: 14,
-        ),
+        hintStyle: const TextStyle(color: AppColors.textMuted, fontSize: 14),
         filled: true,
         fillColor: Colors.white,
         contentPadding: const EdgeInsets.symmetric(vertical: 12),

@@ -122,8 +122,10 @@ class SyncManager extends ChangeNotifier {
       ),
     );
 
-    // Ejecutar sincronización inicial completa local -> nube (una sola vez)
-    if (runInitialSync && !manualCloudSyncOnly) {
+    // Legacy local bootstrap is not allowed once cloud is business authority.
+    if (runInitialSync &&
+        !manualCloudSyncOnly &&
+        cloudCutoverMode == CloudCutoverMode.legacyLocal) {
       unawaited(_runInitialCloudUpload());
     }
 
@@ -148,9 +150,7 @@ class SyncManager extends ChangeNotifier {
       }
       await _initialCloudUploadService.run(settings: settings);
     } catch (error) {
-      debugPrint(
-        '[SyncManager] InitialCloudUpload error: $error',
-      );
+      debugPrint('[SyncManager] InitialCloudUpload error: $error');
     }
   }
 
@@ -159,9 +159,7 @@ class SyncManager extends ChangeNotifier {
   /// Útil para forzar una nueva sincronización inicial en desarrollo.
   Future<void> resetInitialCloudUploadFlag() async {
     await _configRepository.resetLocalUploadBootstrapCompleted();
-    debugPrint(
-      '[SyncManager] InitialCloudUpload flag reset for DEV testing',
-    );
+    debugPrint('[SyncManager] InitialCloudUpload flag reset for DEV testing');
   }
 
   Future<void> stop({String? reason}) async {
@@ -215,12 +213,17 @@ class SyncManager extends ChangeNotifier {
 
     _manualSyncInProgress = false;
 
+    final shouldRefreshDataViews =
+        report.downloadedRecords > 0 || report.uploadedRecords > 0;
     _setState(
       _state.copyWith(
         isSyncing: _syncQueueService.state.isProcessing,
         pendingCount: report.pendingRecords,
         lastSyncIssues: syncIssues,
         currentErrors: errors,
+        dataVersion: shouldRefreshDataViews
+            ? _state.dataVersion + 1
+            : _state.dataVersion,
       ),
     );
     await _syncConflictService.unresolvedConflictCount();

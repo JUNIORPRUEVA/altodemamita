@@ -5,7 +5,10 @@ import 'app_colors.dart';
 final ThemeData appTheme = ThemeData(
   colorScheme: ColorScheme.fromSeed(
     seedColor: AppColors.primary,
+    primary: AppColors.primary,
+    secondary: AppColors.secondary,
     surface: AppColors.surface,
+    outline: AppColors.border,
   ),
   scaffoldBackgroundColor: AppColors.background,
   useMaterial3: true,
@@ -20,4 +23,5 @@ final ThemeData appTheme = ThemeData(
     elevation: 0,
     surfaceTintColor: Colors.transparent,
   ),
+  dividerColor: AppColors.border,
 );
