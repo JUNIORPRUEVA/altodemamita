@@ -21,7 +21,8 @@ class SaleSummary {
     required this.status,
     required this.generatedInstallments,
     this.overdueInstallmentCount = 0,
-  });
+    bool isFullyPaid = false,
+  }) : _isFullyPaid = isFullyPaid;
 
   final int id;
   final String syncStatus;
@@ -45,6 +46,7 @@ class SaleSummary {
   final String status;
   final int generatedInstallments;
   final int overdueInstallmentCount;
+  final bool _isFullyPaid;
 
   factory SaleSummary.fromMap(Map<String, Object?> map) {
     return SaleSummary(
@@ -86,6 +88,13 @@ class SaleSummary {
   }
 
   bool get isFinancingActive => status == 'activa' || status == 'pagada';
+
+  /// Clasificacion autoritativa del backend: venta saldada sin obligaciones
+  /// pendientes. No debe confundirse con una venta cancelada.
+  bool get isFullyPaid => _isFullyPaid;
+
+  /// Presentacion compacta exigida por operacion.
+  String get settlementLabel => 'Saldada · Venta definitiva';
 
   bool get isPendingSync =>
       syncStatus == 'pending' ||

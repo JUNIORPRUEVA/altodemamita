@@ -65,9 +65,15 @@ class SalesRepository {
     developer.log(message, name: 'SistemaSolares.SalesSync');
   }
 
-  Future<List<SaleSummary>> fetchAll({String query = ''}) async {
+  Future<List<SaleSummary>> fetchAll({
+    String query = '',
+    String? settlementFilter,
+  }) async {
     if (_useBackendMode) {
-      return _fetchAllFromBackend(query: query);
+      return _fetchAllFromBackend(
+        query: query,
+        settlementFilter: settlementFilter,
+      );
     }
 
     final db = await _appDatabase.database;
@@ -1333,6 +1339,7 @@ class SalesRepository {
   Future<List<SaleSummary>> _fetchAllFromBackend({
     String query = '',
     String? sellerRemoteId,
+    String? settlementFilter,
   }) async {
     final response = await _apiClient.get(
       '/owner/sales',
@@ -1342,6 +1349,8 @@ class SalesRepository {
         if (query.trim().isNotEmpty) 'search': query.trim(),
         if (sellerRemoteId != null && sellerRemoteId.isNotEmpty)
           'sellerId': sellerRemoteId,
+        if (settlementFilter != null && settlementFilter.trim().isNotEmpty)
+          'settlement': settlementFilter.trim(),
       },
     );
     final payload = response is Map<String, dynamic>
@@ -1363,9 +1372,11 @@ class SalesRepository {
         )
         .toList(growable: false);
     // Cache de solo lectura: guardamos la ultima lista valida completa
-    // (sin query, sin filtro de vendedor) para el arranque visual de Ventas.
+    // (sin query, sin filtro de vendedor, sin filtro de clasificacion)
+    // para el arranque visual de Ventas.
     if (query.trim().isEmpty &&
-        (sellerRemoteId == null || sellerRemoteId.isEmpty)) {
+        (sellerRemoteId == null || sellerRemoteId.isEmpty) &&
+        (settlementFilter == null || settlementFilter.trim().isEmpty)) {
       await _writeListCache(rawItems);
     }
     return rawItems
@@ -1688,6 +1699,8 @@ class SalesRepository {
       generatedInstallments:
           (item['installments'] as List?)?.length ??
           _toInt(item['installmentCount'] ?? item['termMonths']),
+      isFullyPaid: item['isFullyPaid'] == true ||
+          (_asMap(item['settlement'])?['isFullyPaid'] == true),
     );
   }
 
@@ -1762,6 +1775,8 @@ class SalesRepository {
         status: _mapSaleStatusFromBackend(
           item['status']?.toString() ?? 'activa',
         ),
+        isFullyPaid: item['isFullyPaid'] == true ||
+            (_asMap(item['settlement'])?['isFullyPaid'] == true),
         createdAt:
             DateTime.tryParse(item['createdAt']?.toString() ?? '') ??
             DateTime.now(),

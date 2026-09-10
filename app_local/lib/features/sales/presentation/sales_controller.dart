@@ -86,14 +86,31 @@ class SalesController extends ChangeNotifier {
 
   bool get isDisposed => _isDisposed;
 
-  /// True cuando la lista visible pertenece a la consulta actual.
-  bool get hasVisibleData => sales.isNotEmpty && _loadedQuery == currentQuery;
+  /// Filtro de clasificacion autoritativa. `null` = sin filtro.
+  static const String fullyPaidFilter = 'fully_paid';
 
-  Future<void> load({String? query}) async {
-    await _performLoad(query: query);
+  String? _settlementFilter;
+  String? get settlementFilter => _settlementFilter;
+  bool get isFullyPaidFilter => _settlementFilter == fullyPaidFilter;
+
+  /// Clave de alcance: consulta + filtro de clasificacion.
+  String get _scopeKey => '$currentQuery|${_settlementFilter ?? ''}';
+
+  /// True cuando la lista visible pertenece a la consulta actual.
+  bool get hasVisibleData => sales.isNotEmpty && _loadedQuery == _scopeKey;
+
+  Future<void> load({String? query, String? settlementFilter}) async {
+    await _performLoad(query: query, settlementFilter: settlementFilter);
   }
 
-  Future<void> _performLoad({String? query}) async {
+  /// Activa o desactiva el filtro "Venta definitiva" preservando la busqueda.
+  Future<void> toggleFullyPaidFilter() async {
+    await _performLoad(
+      settlementFilter: isFullyPaidFilter ? null : fullyPaidFilter,
+    );
+  }
+
+  Future<void> _performLoad({String? query, String? settlementFilter}) async {
     if (_isDisposed) {
       return;
     }
@@ -101,7 +118,11 @@ class SalesController extends ChangeNotifier {
     if (query != null) {
       currentQuery = query;
     }
-    final scope = currentQuery;
+    if (settlementFilter != null || query != null) {
+      _settlementFilter = settlementFilter;
+    }
+    final scope = _scopeKey;
+    final isUnfilteredScope = currentQuery.isEmpty && _settlementFilter == null;
 
     // ── Arranque visual ────────────────────────────────────────────────
     loadError = null;
@@ -120,8 +141,8 @@ class SalesController extends ChangeNotifier {
     }
     _notifyIfActive();
 
-    // ── Cache-first bootstrap (solo lista completa) ────────────────────
-    if (!hadVisible && scope.isEmpty) {
+    // ── Cache-first bootstrap (solo lista completa sin filtros) ────────
+    if (!hadVisible && isUnfilteredScope) {
       final cached = await _salesRepository.fetchCachedList();
       if (_isDisposed || generation != _generation) {
         return;
@@ -140,7 +161,10 @@ class SalesController extends ChangeNotifier {
     List<SaleSummary>? listResult;
     Object? listError;
     try {
-      listResult = await _salesRepository.fetchAll(query: scope);
+      listResult = await _salesRepository.fetchAll(
+        query: currentQuery,
+        settlementFilter: _settlementFilter,
+      );
     } catch (error) {
       listError = error;
     }
@@ -163,7 +187,7 @@ class SalesController extends ChangeNotifier {
       isRefreshing = false;
       if (stillVisible) {
         refreshFailed = true;
-      } else if (scope.isNotEmpty) {
+      } else if (currentQuery.isNotEmpty) {
         searchFailed = true;
       } else {
         loadError = _noDataLoadFailure(listError);

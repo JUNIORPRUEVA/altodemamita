@@ -120,7 +120,11 @@ class FakePaymentsRepository extends PaymentsRepository {
   }
 
   @override
-  Future<void> deletePayment(int paymentId) async {
+  Future<void> deletePayment(
+    int paymentId, {
+    String? reason,
+    String? adminAuthorizationId,
+  }) async {
     final gate = deleteGate;
     if (gate != null && !gate.isCompleted) {
       await gate.future;

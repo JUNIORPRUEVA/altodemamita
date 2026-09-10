@@ -196,6 +196,17 @@ class _SalesPageState extends State<SalesPage> {
                   final actions = Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      FilterChip(
+                        label: const Text(
+                          'Venta definitiva',
+                          style: TextStyle(fontSize: 13),
+                        ),
+                        selected: _controller.isFullyPaidFilter,
+                        tooltip:
+                            'Mostrar solo ventas saldadas (completamente pagadas)',
+                        onSelected: (_) => _controller.toggleFullyPaidFilter(),
+                      ),
+                      const SizedBox(width: 8),
                       FilledButton.icon(
                         style: FilledButton.styleFrom(
                           minimumSize: const Size(0, 38),
@@ -1060,7 +1071,9 @@ class _SaleRow extends StatelessWidget {
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: Text(
-                            _saleRowStatusLabel(sale.status),
+                            sale.isFullyPaid
+                                ? 'Saldada'
+                                : _saleRowStatusLabel(sale.status),
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w700,
@@ -1068,6 +1081,34 @@ class _SaleRow extends StatelessWidget {
                             ),
                           ),
                         ),
+                        if (sale.isFullyPaid) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(
+                                0xFF1B5E20,
+                              ).withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color: const Color(
+                                  0xFF1B5E20,
+                                ).withValues(alpha: 0.28),
+                              ),
+                            ),
+                            child: const Text(
+                              'Venta definitiva',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF1B5E20),
+                              ),
+                            ),
+                          ),
+                        ],
                         if ((sale.status == 'apartado' ||
                                 sale.status == 'inicial_incompleto') &&
                             sale.paidApartadoPayment > 0.009) ...[

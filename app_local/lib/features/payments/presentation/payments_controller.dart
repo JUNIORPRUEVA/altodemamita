@@ -221,12 +221,18 @@ class PaymentsController extends ChangeNotifier {
   Future<String?> deletePayment({
     required int paymentId,
     int? preferredSaleId,
+    String? reason,
+    String? adminAuthorizationId,
   }) async {
     isSaving = true;
     notifyListeners();
 
     try {
-      await _paymentsRepository.deletePayment(paymentId);
+      await _paymentsRepository.deletePayment(
+        paymentId,
+        reason: reason,
+        adminAuthorizationId: adminAuthorizationId,
+      );
       if (_isDisposed) {
         return null;
       }
@@ -242,6 +248,33 @@ class PaymentsController extends ChangeNotifier {
     } finally {
       isSaving = false;
       notifyListeners();
+    }
+  }
+
+  /// Solicita al backend una autorizacion administrativa de un solo uso para
+  /// anular un pago. Devuelve `authorizationId` o el mensaje de error.
+  Future<({String? authorizationId, String? error})> requestAdminAuthorization({
+    required int paymentId,
+    required String email,
+    required String password,
+  }) async {
+    try {
+      final authorizationId = await _paymentsRepository
+          .authorizePaymentCancellation(
+            paymentId: paymentId,
+            email: email,
+            password: password,
+          );
+      return (authorizationId: authorizationId, error: null);
+    } catch (error) {
+      return (
+        authorizationId: null,
+        error: FriendlyErrorMessages.forOperation(
+          'solicitar la autorizacion del administrador',
+          error,
+          module: 'pagos',
+        ),
+      );
     }
   }
 

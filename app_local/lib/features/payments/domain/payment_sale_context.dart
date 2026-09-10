@@ -9,6 +9,7 @@ class PaymentSaleContext {
     required this.installments,
     required this.history,
     this.actionableInstallment,
+    this.annulledHistory = const [],
   });
 
   final PaymentSaleOption sale;
@@ -16,6 +17,10 @@ class PaymentSaleContext {
   final List<Installment> installments;
   final List<PaymentHistoryItem> history;
   final Installment? actionableInstallment;
+
+  /// Pagos anulados de la venta. Se conservan como historial/auditoria y nunca
+  /// participan de los calculos financieros ni de la cola de cobro.
+  final List<PaymentHistoryItem> annulledHistory;
 
   /// Returns overdue installments using due date + open balance criteria,
   /// matching the behavior shown in the installments table UI.

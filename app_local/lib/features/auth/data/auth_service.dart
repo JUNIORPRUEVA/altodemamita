@@ -2421,6 +2421,67 @@ class AuthService {
     return UserRole.user;
   }
 
+  /// Traduce un recurso canonico del backend al modulo local del catalogo.
+  String? _localModuleForResource(String resource) {
+    switch (resource) {
+      case 'clients':
+        return PermissionCatalog.clients;
+      case 'sellers':
+        return PermissionCatalog.sellers;
+      case 'lots':
+      case 'products':
+        return PermissionCatalog.lots;
+      case 'sales':
+        return PermissionCatalog.sales;
+      case 'payments':
+        return PermissionCatalog.payments;
+      case 'installments':
+        return PermissionCatalog.installments;
+      case 'users':
+      case 'configuration':
+      case 'settings':
+        return PermissionCatalog.settings;
+      case 'reports':
+        return PermissionCatalog.dashboard;
+      case 'search':
+        return PermissionCatalog.search;
+      default:
+        return null;
+    }
+  }
+
+  /// Traduce una accion canonica (o legacy) a las acciones locales.
+  Set<PermissionAction> _permissionActionsForCode(String action) {
+    switch (action.trim().toLowerCase()) {
+      case 'read':
+      case 'ver':
+        return <PermissionAction>{PermissionAction.read};
+      case 'create':
+      case 'crear':
+        return <PermissionAction>{PermissionAction.create};
+      case 'update':
+      case 'editar':
+        return <PermissionAction>{PermissionAction.update};
+      case 'delete':
+      case 'eliminar':
+        return <PermissionAction>{PermissionAction.delete};
+      case 'annul':
+      case 'anular':
+      case 'cancel':
+      case 'cancelar':
+        // Anular es una capacidad propia: no se hereda de otras acciones.
+        return <PermissionAction>{PermissionAction.cancel};
+      case 'write':
+        return <PermissionAction>{
+          PermissionAction.create,
+          PermissionAction.update,
+          PermissionAction.delete,
+        };
+      default:
+        return const <PermissionAction>{};
+    }
+  }
+
   List<PermissionModel> _mapRemotePermissions(Object? rawPermissions) {
     if (rawPermissions is! List) {
       return PermissionCatalog.modules
@@ -2435,6 +2496,22 @@ class AuthService {
 
     for (final rawPermission in rawPermissions) {
       final code = rawPermission.toString().trim().toLowerCase();
+
+      // Contrato canonico del backend: `<recurso>.<accion>`.
+      final separator = code.indexOf('.');
+      if (separator > 0 && separator < code.length - 1) {
+        final resource = code.substring(0, separator);
+        final action = code.substring(separator + 1);
+        final module = _localModuleForResource(resource);
+        if (module != null) {
+          final actions = _permissionActionsForCode(action);
+          if (actions.isNotEmpty) {
+            grant(module, actions);
+          }
+        }
+        continue;
+      }
+
       switch (code) {
         case 'clients.read':
           grant(PermissionCatalog.clients, [PermissionAction.read]);
@@ -2485,6 +2562,11 @@ class AuthService {
             PermissionAction.update,
             PermissionAction.delete,
           ]);
+          break;
+        case 'payments.cancel':
+        case 'pagos.cancel':
+        case 'payments.anular':
+          grant(PermissionCatalog.payments, [PermissionAction.cancel]);
           break;
         case 'installments.read':
           grant(PermissionCatalog.installments, [PermissionAction.read]);

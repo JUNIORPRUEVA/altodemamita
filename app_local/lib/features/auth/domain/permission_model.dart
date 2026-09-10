@@ -1,4 +1,4 @@
-enum PermissionAction { read, create, update, delete }
+enum PermissionAction { read, create, update, delete, cancel }
 
 extension PermissionActionX on PermissionAction {
   String get key {
@@ -11,6 +11,8 @@ extension PermissionActionX on PermissionAction {
         return 'update';
       case PermissionAction.delete:
         return 'delete';
+      case PermissionAction.cancel:
+        return 'anular';
     }
   }
 
@@ -24,6 +26,8 @@ extension PermissionActionX on PermissionAction {
         return 'Editar';
       case PermissionAction.delete:
         return 'Eliminar';
+      case PermissionAction.cancel:
+        return 'Anular pagos';
     }
   }
 
@@ -41,6 +45,10 @@ extension PermissionActionX on PermissionAction {
       case 'eliminar':
       case 'delete':
         return PermissionAction.delete;
+      case 'anular':
+      case 'cancelar':
+      case 'cancel':
+        return PermissionAction.cancel;
       default:
         throw ArgumentError('Accion no soportada: $action');
     }
@@ -142,6 +150,7 @@ class PermissionModel {
     this.create = false,
     this.update = false,
     this.delete = false,
+    this.cancel = false,
   });
 
   final String module;
@@ -149,6 +158,10 @@ class PermissionModel {
   final bool create;
   final bool update;
   final bool delete;
+
+  /// Permiso granular para anular pagos. Es independiente de crear, ver o
+  /// editar pagos: el backend lo valida por separado.
+  final bool cancel;
 
   factory PermissionModel.empty(String module) {
     return PermissionModel(module: module);
@@ -161,6 +174,7 @@ class PermissionModel {
       create: true,
       update: true,
       delete: true,
+      cancel: true,
     );
   }
 
@@ -179,6 +193,7 @@ class PermissionModel {
       create: normalized.contains(PermissionAction.create),
       update: normalized.contains(PermissionAction.update),
       delete: normalized.contains(PermissionAction.delete),
+      cancel: normalized.contains(PermissionAction.cancel),
     );
   }
 
@@ -192,6 +207,8 @@ class PermissionModel {
         return update;
       case PermissionAction.delete:
         return delete;
+      case PermissionAction.cancel:
+        return cancel;
     }
   }
 
@@ -209,6 +226,9 @@ class PermissionModel {
     if (delete) {
       actions.add('eliminar');
     }
+    if (cancel) {
+      actions.add('anular');
+    }
     return actions;
   }
 
@@ -218,6 +238,7 @@ class PermissionModel {
     bool? create,
     bool? update,
     bool? delete,
+    bool? cancel,
   }) {
     return PermissionModel(
       module: module ?? this.module,
@@ -225,6 +246,7 @@ class PermissionModel {
       create: create ?? this.create,
       update: update ?? this.update,
       delete: delete ?? this.delete,
+      cancel: cancel ?? this.cancel,
     );
   }
 }

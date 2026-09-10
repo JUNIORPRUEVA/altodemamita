@@ -409,8 +409,6 @@ class _PermissionsDialogState extends State<_PermissionsDialog> {
 
   final modules = Permission.availableModules;
 
-  final actions = Permission.availableActions;
-
   @override
   void initState() {
     super.initState();
@@ -462,7 +460,7 @@ class _PermissionsDialogState extends State<_PermissionsDialog> {
                           spacing: 8,
                           runSpacing: 8,
                           children: [
-                            for (final action in actions)
+                            for (final action in Permission.actionsFor(module))
                               FilterChip(
                                 label: Text(action),
                                 selected: _hasPermission(module, action),

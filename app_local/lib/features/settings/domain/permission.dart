@@ -30,9 +30,24 @@ class Permission {
     'crear',
     'editar',
     'eliminar',
+    'anular',
     'imprimir',
     'registrar_pagos',
   ];
+
+  /// Acciones ofrecidas por modulo. `anular` solo aplica a Pagos: es la
+  /// operacion financiera segura (no existe borrado fisico de pagos).
+  static const Map<String, List<String>> _actionsByModule = {
+    'pagos': ['ver', 'crear', 'editar', 'anular'],
+    'ventas': ['ver', 'crear', 'editar', 'eliminar'],
+    'cuotas': ['ver', 'crear', 'editar'],
+    'clientes': ['ver', 'crear', 'editar', 'eliminar'],
+    'solares': ['ver', 'crear', 'editar', 'eliminar'],
+  };
+
+  static List<String> actionsFor(String module) {
+    return _actionsByModule[module] ?? availableActions;
+  }
 
   factory Permission.empty({required int usuarioId}) {
     return Permission(

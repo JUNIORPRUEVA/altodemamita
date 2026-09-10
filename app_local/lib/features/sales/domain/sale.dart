@@ -23,6 +23,7 @@ class Sale {
     required this.status,
     required this.createdAt,
     required this.updatedAt,
+    this.isFullyPaid = false,
   });
 
   final int? id;
@@ -48,6 +49,14 @@ class Sale {
   final String status;
   final DateTime createdAt;
   final DateTime updatedAt;
+
+  /// Clasificacion autoritativa enviada por el backend: la venta esta saldada
+  /// (sin saldo, sin inicial pendiente y sin obligaciones cobrables).
+  /// No se deduce del texto de estado.
+  final bool isFullyPaid;
+
+  /// Presentacion compacta exigida por operacion.
+  String get settlementLabel => 'Saldada · Venta definitiva';
 
   factory Sale.fromMap(Map<String, Object?> map) {
     return Sale(

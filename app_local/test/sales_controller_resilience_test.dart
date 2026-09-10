@@ -255,7 +255,10 @@ class _FakeSalesRepository extends SalesRepository {
   List<SaleSummary> cached = const [];
 
   @override
-  Future<List<SaleSummary>> fetchAll({String query = ''}) async {
+  Future<List<SaleSummary>> fetchAll({
+    String query = '',
+    String? settlementFilter,
+  }) async {
     final gate = fetchGate;
     if (gate != null) {
       await gate.future;

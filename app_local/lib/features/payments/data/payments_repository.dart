@@ -413,10 +413,18 @@ class PaymentsRepository {
     ]);
   }
 
-  Future<void> deletePayment(int paymentId) async {
+  Future<void> deletePayment(
+    int paymentId, {
+    String? reason,
+    String? adminAuthorizationId,
+  }) async {
     _systemConfigService.ensureWritable();
     if (_useBackendMode) {
-      await _annulPaymentInBackend(paymentId);
+      await _annulPaymentInBackend(
+        paymentId,
+        reason: reason,
+        adminAuthorizationId: adminAuthorizationId,
+      );
       await _queueSnapshot.clear();
       return;
     }
@@ -1915,11 +1923,27 @@ class PaymentsRepository {
       );
     }
 
+    final annulledHistory = <PaymentHistoryItem>[];
+    for (final raw in (dataMap['annulledPayments'] as List?) ?? const []) {
+      if (raw is! Map) {
+        continue;
+      }
+      annulledHistory.add(
+        _paymentHistoryFromBackend(
+          raw.map((key, value) => MapEntry(key.toString(), value)),
+          saleId: saleId,
+          installmentNumbersByRemoteId: numberByRemoteId,
+          installmentNumbersByRemoteSyncId: numberByRemoteSyncId,
+        ),
+      );
+    }
+
     return PaymentSaleContext(
       sale: _paymentSaleOptionFromBackend(sale),
       monthlyInterest: _toDouble(sale['monthlyInterestRate']),
       installments: installments,
       history: history,
+      annulledHistory: annulledHistory,
       actionableInstallment: _findActionableInstallment(
         installments,
         DateTime.now(),
@@ -1958,7 +1982,11 @@ class PaymentsRepository {
     );
   }
 
-  Future<void> _annulPaymentInBackend(int paymentId) async {
+  Future<void> _annulPaymentInBackend(
+    int paymentId, {
+    String? reason,
+    String? adminAuthorizationId,
+  }) async {
     final paymentRemoteId = _idRegistry.resolveRemoteId('payments', paymentId);
     if (paymentRemoteId == null || paymentRemoteId.isEmpty) {
       throw const BackendApiException(
@@ -1967,14 +1995,57 @@ class PaymentsRepository {
     }
     final operationId =
         'desktop-payment-annul-$paymentId-${DateTime.now().microsecondsSinceEpoch}';
+    final trimmedReason = (reason ?? '').trim();
     await _apiClient.post(
       '/authoritative/payments/$paymentRemoteId/annul',
       idempotencyKey: operationId,
       body: {
-        'reason': 'Anulado desde desktop cloud-first.',
+        'reason': trimmedReason.isEmpty
+            ? 'Anulado desde desktop cloud-first.'
+            : trimmedReason,
+        if (adminAuthorizationId != null && adminAuthorizationId.isNotEmpty)
+          'adminAuthorizationId': adminAuthorizationId,
         'operationId': operationId,
       },
     );
+  }
+
+  ///
+  /// Solicita al backend una autorizacion administrativa de un solo uso para
+  /// anular un pago. La contrasena viaja una sola vez y el backend la valida;
+  /// el cliente nunca la almacena ni la registra.
+  Future<String> authorizePaymentCancellation({
+    required int paymentId,
+    required String email,
+    required String password,
+  }) async {
+    _systemConfigService.ensureWritable();
+    final paymentRemoteId = _idRegistry.resolveRemoteId('payments', paymentId);
+    if (paymentRemoteId == null || paymentRemoteId.isEmpty) {
+      throw const BackendApiException(
+        'No se pudo identificar el pago remoto para anularlo.',
+      );
+    }
+    final response = await _apiClient.post(
+      '/auth/authorize-action',
+      body: {
+        'action': 'payments.cancel',
+        'resourceType': 'PAYMENT',
+        'resourceId': paymentRemoteId,
+        'email': email.trim(),
+        'password': password,
+      },
+    );
+    final data = response is Map ? response['data'] : null;
+    final authorizationId = data is Map
+        ? data['authorizationId']?.toString().trim()
+        : null;
+    if (authorizationId == null || authorizationId.isEmpty) {
+      throw const BackendApiException(
+        'No se pudo obtener la autorizacion del administrador.',
+      );
+    }
+    return authorizationId;
   }
 
   PaymentSaleOption _paymentSaleOptionFromBackend(Map<String, dynamic> item) {
@@ -2063,6 +2134,10 @@ class PaymentsRepository {
       paymentType: item['paymentType']?.toString() ?? 'cuota',
       reference: item['reference']?.toString(),
       installmentNumber: installmentNumber,
+      annulledAt: DateTime.tryParse(item['annulledAt']?.toString() ?? ''),
+      annulledByName: item['annulledByName']?.toString(),
+      annulmentReason: item['annulmentReason']?.toString(),
+      authorizedByAdmin: item['authorizedByAdmin'] == true,
     );
   }
 
