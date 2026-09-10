@@ -134,10 +134,12 @@ async function listSales(req: any, res: any) {
   const page = Math.max(Number(req.query.page ?? 1), 1);
   const pageSize = Math.min(Math.max(Number(req.query.pageSize ?? 50), 1), 200);
   const includeDeleted = String(req.query.includeDeleted ?? 'false') === 'true';
+  const settlementFilter = String(req.query.settlement ?? '').trim().toLowerCase();
+  const onlyFullyPaid = settlementFilter === 'fully_paid';
   const skip = (page - 1) * pageSize;
   const company = await resolveCompanyForRequest(req);
   const lotIdFilter = String(req.query.lotId ?? '').trim();
-  const where = lotIdFilter
+  const baseWhere = lotIdFilter
     ? {
         companyId: company.id,
         deletedAt: null,
@@ -147,19 +149,77 @@ async function listSales(req: any, res: any) {
       ? { companyId: company.id }
       : { companyId: company.id, deletedAt: null };
 
-  const [sales, total] = await Promise.all([
+  // La clasificacion "venta definitiva" es derivada: se pre-filtra en SQL por lo
+  // que es verificable en la fila (saldo, inicial, no cancelada) y se confirma
+  // despues contra las obligaciones pendientes reales de cada venta.
+  const where = onlyFullyPaid
+    ? {
+        ...baseWhere,
+        deletedAt: null,
+        NOT: { status: 'cancelada' },
+        balance: { lte: SETTLEMENT_TOLERANCE },
+        initialPendingAmount: { lte: SETTLEMENT_TOLERANCE },
+      }
+    : baseWhere;
+
+  const FULLY_PAID_FETCH_CAP = 500;
+
+  const [candidateSales, unfilteredTotal] = await Promise.all([
     prisma.sale.findMany({
       where,
       orderBy: { updatedAt: 'desc' },
-      skip,
-      take: pageSize,
+      skip: onlyFullyPaid ? 0 : skip,
+      take: onlyFullyPaid ? FULLY_PAID_FETCH_CAP : pageSize,
     }),
-    prisma.sale.count({ where }),
+    onlyFullyPaid ? Promise.resolve(0) : prisma.sale.count({ where }),
   ]);
 
-  const clientSyncIds = uniqueSyncIds(sales.map((sale) => sale.clientSyncId));
-  const lotSyncIds = uniqueSyncIds(sales.map((sale) => sale.lotSyncId));
-  const sellerSyncIds = uniqueSyncIds(sales.map((sale) => sale.sellerSyncId));
+  const candidateIds = candidateSales.map((sale: any) => sale.id);
+  const outstandingBySaleId = new Map<string, number>();
+  if (candidateIds.length > 0) {
+    const grouped = await prisma.installment.groupBy({
+      by: ['saleId'],
+      where: {
+        companyId: company.id,
+        deletedAt: null,
+        saleId: { in: candidateIds },
+      },
+      _sum: { totalAmount: true, paidAmount: true },
+    });
+    for (const row of grouped as Array<any>) {
+      const saleId = row.saleId;
+      if (!saleId) continue;
+      outstandingBySaleId.set(
+        saleId,
+        roundMoney(
+          Math.max(
+            toNumber(row._sum?.totalAmount) - toNumber(row._sum?.paidAmount),
+            0,
+          ),
+        ),
+      );
+    }
+  }
+
+  const settlementBySaleId = new Map<string, SaleSettlement>();
+  for (const sale of candidateSales as Array<any>) {
+    settlementBySaleId.set(
+      sale.id,
+      deriveSettlement(sale, outstandingBySaleId.get(sale.id) ?? 0),
+    );
+  }
+
+  const salesPage = onlyFullyPaid
+    ? (candidateSales as Array<any>).filter(
+        (sale) => settlementBySaleId.get(sale.id)?.isFullyPaid === true,
+      )
+    : (candidateSales as Array<any>);
+  const total = onlyFullyPaid ? salesPage.length : unfilteredTotal;
+  const pageSales = onlyFullyPaid ? salesPage.slice(skip, skip + pageSize) : salesPage;
+
+  const clientSyncIds = uniqueSyncIds(pageSales.map((sale) => sale.clientSyncId));
+  const lotSyncIds = uniqueSyncIds(pageSales.map((sale) => sale.lotSyncId));
+  const sellerSyncIds = uniqueSyncIds(pageSales.map((sale) => sale.sellerSyncId));
 
   const [clients, lots, sellers] = await Promise.all([
     prisma.client.findMany({
@@ -180,12 +240,19 @@ async function listSales(req: any, res: any) {
   return res.json({
     data: {
       company: { id: company.id, tenantKey: company.tenantKey, name: company.name },
-      items: sales.map((sale) =>
-        serializeSaleRow(sale, clientsBySyncId, lotsBySyncId, sellersBySyncId),
+      items: pageSales.map((sale) =>
+        serializeSaleRow(
+          sale,
+          clientsBySyncId,
+          lotsBySyncId,
+          sellersBySyncId,
+          settlementBySaleId.get(sale.id),
+        ),
       ),
       page,
       pageSize,
       total,
+      settlementFilter: onlyFullyPaid ? 'fully_paid' : null,
     },
   });
 }
@@ -240,7 +307,13 @@ async function saleDetail(req: any, res: any) {
   return res.json({
     data: {
       sale: {
-        ...serializeSaleRow(sale, clientsBySyncId, lotsBySyncId, sellersBySyncId),
+        ...serializeSaleRow(
+          sale,
+          clientsBySyncId,
+          lotsBySyncId,
+          sellersBySyncId,
+          deriveSettlement(sale, outstandingFromInstallments(installments)),
+        ),
         installments: installments.map(serializeInstallmentRow),
         payments: payments.map((payment) => ({
           id: payment.id,
@@ -268,7 +341,7 @@ async function salePaymentsContext(req: any, res: any) {
     });
   }
 
-  const [client, lot, seller, installments, payments] = await Promise.all([
+  const [client, lot, seller, installments, payments, annulledPayments] = await Promise.all([
     sale.clientSyncId
       ? prisma.client.findFirst({
           where: { companyId: company.id, syncId: sale.clientSyncId },
@@ -301,6 +374,15 @@ async function salePaymentsContext(req: any, res: any) {
       },
       orderBy: { paidAt: 'asc' },
     }),
+    prisma.payment.findMany({
+      where: {
+        companyId: company.id,
+        annulledAt: { not: null },
+        OR: [{ saleId: sale.id }, { saleSyncId: sale.syncId }],
+      },
+      orderBy: { annulledAt: 'desc' },
+      include: { annulledByUser: { select: { id: true, name: true } } },
+    }),
   ]);
 
   const clientsBySyncId = new Map<string, any>(client ? [[client.syncId, client]] : []);
@@ -309,9 +391,16 @@ async function salePaymentsContext(req: any, res: any) {
 
   return res.json({
     data: {
-      sale: serializeSaleRow(sale, clientsBySyncId, lotsBySyncId, sellersBySyncId),
+      sale: serializeSaleRow(
+        sale,
+        clientsBySyncId,
+        lotsBySyncId,
+        sellersBySyncId,
+        deriveSettlement(sale, outstandingFromInstallments(installments)),
+      ),
       installments: installments.map(serializeInstallmentRow),
       payments: payments.map(serializePaymentRow),
+      annulledPayments: annulledPayments.map(serializePaymentRow),
     },
   });
 }
@@ -327,9 +416,21 @@ async function paymentsWorkQueue(req: any, res: any) {
   const today = startOfUtcDay(new Date());
 
   const saleSearchWhere = await buildPaymentSaleSearchWhere(company.id, search);
+  // Una venta saldada ("venta definitiva") deja de ser cobrable: no debe aparecer
+  // en la cola operativa de cobro. Su historial de pagos sigue siendo consultable.
+  const collectibleSaleFilter = {
+    deletedAt: null,
+    NOT: { status: 'cancelada' },
+    balance: { gt: SETTLEMENT_TOLERANCE },
+  };
+  const saleFilterForState =
+    state === 'paid' || state === 'all'
+      ? saleSearchWhere
+      : combineSaleFilters(saleSearchWhere, collectibleSaleFilter);
+  const saleFilterForCounts = combineSaleFilters(saleSearchWhere, collectibleSaleFilter);
   const where = {
     ...installmentQueueWhere(company.id, state, today),
-    ...(saleSearchWhere ? { sale: saleSearchWhere } : {}),
+    ...(saleFilterForState ? { sale: saleFilterForState } : {}),
   };
   const orderBy =
     state === 'paid'
@@ -348,30 +449,48 @@ async function paymentsWorkQueue(req: any, res: any) {
     prisma.installment.count({
       where: {
         ...installmentQueueWhere(company.id, 'overdue', today),
-        ...(saleSearchWhere ? { sale: saleSearchWhere } : {}),
+        ...(saleFilterForCounts ? { sale: saleFilterForCounts } : {}),
       },
     }),
     prisma.installment.count({
       where: {
         ...installmentQueueWhere(company.id, 'dueToday', today),
-        ...(saleSearchWhere ? { sale: saleSearchWhere } : {}),
+        ...(saleFilterForCounts ? { sale: saleFilterForCounts } : {}),
       },
     }),
     prisma.installment.count({
       where: {
         ...installmentQueueWhere(company.id, 'pending', today),
-        ...(saleSearchWhere ? { sale: saleSearchWhere } : {}),
+        ...(saleFilterForCounts ? { sale: saleFilterForCounts } : {}),
       },
     }),
     prisma.installment.count({
       where: {
         ...installmentQueueWhere(company.id, 'partial', today),
-        ...(saleSearchWhere ? { sale: saleSearchWhere } : {}),
+        ...(saleFilterForCounts ? { sale: saleFilterForCounts } : {}),
       },
     }),
   ]);
 
   const sales = installments.map((installment) => installment.sale).filter(Boolean);
+  const queueSaleIds = uniqueSyncIds(sales.map((sale: any) => sale.id));
+  const queueOutstandingBySaleId = new Map<string, number>();
+  if (queueSaleIds.length > 0) {
+    const grouped = await prisma.installment.groupBy({
+      by: ['saleId'],
+      where: { companyId: company.id, deletedAt: null, saleId: { in: queueSaleIds } },
+      _sum: { totalAmount: true, paidAmount: true },
+    });
+    for (const row of grouped as Array<any>) {
+      if (!row.saleId) continue;
+      queueOutstandingBySaleId.set(
+        row.saleId,
+        roundMoney(
+          Math.max(toNumber(row._sum?.totalAmount) - toNumber(row._sum?.paidAmount), 0),
+        ),
+      );
+    }
+  }
   const clientSyncIds = uniqueSyncIds(sales.map((sale: any) => sale.clientSyncId));
   const lotSyncIds = uniqueSyncIds(sales.map((sale: any) => sale.lotSyncId));
   const sellerSyncIds = uniqueSyncIds(sales.map((sale: any) => sale.sellerSyncId));
@@ -402,6 +521,10 @@ async function paymentsWorkQueue(req: any, res: any) {
             clientsBySyncId,
             lotsBySyncId,
             sellersBySyncId,
+            deriveSettlement(
+              installment.sale,
+              queueOutstandingBySaleId.get(String(installment.sale?.id ?? '')) ?? 0,
+            ),
           ),
           installment: serializeInstallmentRow(installment),
         })),
@@ -414,11 +537,63 @@ async function paymentsWorkQueue(req: any, res: any) {
   });
 }
 
+export type SaleSettlement = {
+  isFullyPaid: boolean;
+  label: string | null;
+  outstandingInstallments: number;
+  tolerance: number;
+};
+
+/** Tolerancia monetaria documentada para considerar un saldo como liquidado. */
+export const SETTLEMENT_TOLERANCE = 0.01;
+
+/**
+ * Clasificacion derivada de "venta definitiva".
+ *
+ * Se calcula desde los datos financieros autoritativos (no desde un texto de
+ * estado) y exige simultaneamente: saldo liquidado, sin inicial pendiente, sin
+ * obligaciones cobrables pendientes y venta no cancelada.
+ */
+export function deriveSettlement(sale: any, outstandingInstallments: number): SaleSettlement {
+  const outstanding = roundMoney(Math.max(outstandingInstallments, 0));
+  const status = String(sale?.status ?? '').trim().toLowerCase();
+  const balance = roundMoney(toNumber(sale?.balance));
+  const initialPending = roundMoney(toNumber(sale?.initialPendingAmount));
+  const total = roundMoney(toNumber(sale?.total));
+  const cancelled = Boolean(sale?.deletedAt) || status === 'cancelada';
+  const isFullyPaid =
+    !cancelled &&
+    total > SETTLEMENT_TOLERANCE &&
+    balance <= SETTLEMENT_TOLERANCE &&
+    initialPending <= SETTLEMENT_TOLERANCE &&
+    outstanding <= SETTLEMENT_TOLERANCE;
+  return {
+    isFullyPaid,
+    label: isFullyPaid ? 'Saldada · Venta definitiva' : null,
+    outstandingInstallments: outstanding,
+    tolerance: SETTLEMENT_TOLERANCE,
+  };
+}
+
+export function outstandingFromInstallments(installments: Array<any>) {
+  return roundMoney(
+    installments.reduce(
+      (sum, item) => sum + Math.max(toNumber(item.totalAmount) - toNumber(item.paidAmount), 0),
+      0,
+    ),
+  );
+}
+
+function roundMoney(value: number) {
+  return Math.round(value * 100) / 100;
+}
+
 export function serializeSaleRow(
   sale: any,
   clientsBySyncId: Map<string, any>,
   lotsBySyncId: Map<string, any>,
   sellersBySyncId: Map<string, any>,
+  settlement?: SaleSettlement,
 ) {
   const client = sale.clientSyncId ? clientsBySyncId.get(sale.clientSyncId) : null;
   const lot = sale.lotSyncId ? lotsBySyncId.get(sale.lotSyncId) : null;
@@ -472,6 +647,9 @@ export function serializeSaleRow(
     total: sale.total?.toString() ?? '0',
     initialPaid: sale.initialPaid?.toString() ?? '0',
     balance: sale.balance?.toString() ?? '0',
+    settlement: settlement ?? null,
+    isFullyPaid: settlement?.isFullyPaid ?? false,
+    settlementLabel: settlement?.label ?? null,
     createdAt: sale.createdAt?.toISOString(),
     updatedAt: sale.updatedAt?.toISOString(),
     deletedAt: sale.deletedAt?.toISOString() ?? null,
@@ -574,6 +752,13 @@ export function installmentQueueWhere(companyId: string, state: string, today: D
         NOT: { status: { in: closedStatuses } },
       };
   }
+}
+
+function combineSaleFilters(...filters: Array<any | null>) {
+  const active = filters.filter((item) => item !== null && item !== undefined);
+  if (active.length === 0) return null;
+  if (active.length === 1) return active[0];
+  return { AND: active };
 }
 
 async function buildPaymentSaleSearchWhere(companyId: string, search: string) {
@@ -815,6 +1000,13 @@ function serializePaymentRow(payment: any) {
     paymentType: payment.paymentType,
     reference: payment.reference,
     yearToPay: payment.yearToPay,
+    annulledAt: payment.annulledAt?.toISOString() ?? null,
+    annulmentReason: payment.annulmentReason ?? null,
+    annulledByUserId: payment.annulledByUserId ?? null,
+    annulledByName: payment.annulledByUser?.name ?? null,
+    performedByUserId: payment.raw?.annulmentAudit?.performedByUserId ?? null,
+    authorizedByUserId: payment.raw?.annulmentAudit?.authorizedByUserId ?? null,
+    authorizedByAdmin: payment.raw?.annulmentAudit?.override === true,
   };
 }
 

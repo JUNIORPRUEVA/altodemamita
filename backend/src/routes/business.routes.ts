@@ -44,7 +44,7 @@ businessRouter.get('/users', requirePermission('users', 'read'), async (req, res
   return res.json({ data: { users } });
 });
 
-businessRouter.post('/users', requirePermission('users', 'write'), async (req, res) => {
+businessRouter.post('/users', requirePermission('users', 'create'), async (req, res) => {
   const company = await resolveCompanyForRequest(req);
   const parsed = z
     .object({
@@ -98,7 +98,7 @@ businessRouter.get('/clients', requirePermission('clients', 'read'), async (req,
   return res.json({ data: { items: items.map(clientDto), total, page, pageSize } });
 });
 
-businessRouter.post('/clients', requirePermission('clients', 'write'), async (req, res) => {
+businessRouter.post('/clients', requirePermission('clients', 'create'), async (req, res) => {
   const company = await resolveCompanyForRequest(req);
   const parsed = clientSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -122,7 +122,7 @@ businessRouter.post('/clients', requirePermission('clients', 'write'), async (re
   return res.status(201).json({ data: { client: clientDto(client) } });
 });
 
-businessRouter.patch('/clients/:clientId', requirePermission('clients', 'write'), async (req, res) => {
+businessRouter.patch('/clients/:clientId', requirePermission('clients', 'update'), async (req, res) => {
   const company = await resolveCompanyForRequest(req);
   const clientId = paramValue(req.params.clientId);
   const parsed = clientSchema.partial().safeParse(req.body);
@@ -153,7 +153,7 @@ businessRouter.patch('/clients/:clientId', requirePermission('clients', 'write')
   return res.json({ data: { client: clientDto(client) } });
 });
 
-businessRouter.delete('/clients/:clientId', requirePermission('clients', 'write'), async (req, res) => {
+businessRouter.delete('/clients/:clientId', requirePermission('clients', 'delete'), async (req, res) => {
   const company = await resolveCompanyForRequest(req);
   const clientId = paramValue(req.params.clientId);
   const existing = await prisma.client.findFirst({ where: { id: clientId, companyId: company.id, deletedAt: null } });
@@ -201,7 +201,7 @@ businessRouter.get('/sellers', requirePermission('sellers', 'read'), async (req,
   return res.json({ data: { items: items.map(sellerDto), total, page, pageSize } });
 });
 
-businessRouter.post('/sellers', requirePermission('sellers', 'write'), async (req, res) => {
+businessRouter.post('/sellers', requirePermission('sellers', 'create'), async (req, res) => {
   const company = await resolveCompanyForRequest(req);
   const parsed = sellerSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -225,7 +225,7 @@ businessRouter.post('/sellers', requirePermission('sellers', 'write'), async (re
   return res.status(201).json({ data: { seller: sellerDto(seller) } });
 });
 
-businessRouter.patch('/sellers/:sellerId', requirePermission('sellers', 'write'), async (req, res) => {
+businessRouter.patch('/sellers/:sellerId', requirePermission('sellers', 'update'), async (req, res) => {
   const company = await resolveCompanyForRequest(req);
   const sellerId = paramValue(req.params.sellerId);
   const parsed = sellerSchema.partial().safeParse(req.body);
@@ -256,7 +256,7 @@ businessRouter.patch('/sellers/:sellerId', requirePermission('sellers', 'write')
   return res.json({ data: { seller: sellerDto(seller) } });
 });
 
-businessRouter.delete('/sellers/:sellerId', requirePermission('sellers', 'write'), async (req, res) => {
+businessRouter.delete('/sellers/:sellerId', requirePermission('sellers', 'delete'), async (req, res) => {
   const company = await resolveCompanyForRequest(req);
   const sellerId = paramValue(req.params.sellerId);
   const existing = await prisma.seller.findFirst({ where: { id: sellerId, companyId: company.id, deletedAt: null } });
@@ -302,7 +302,7 @@ businessRouter.get('/lots', requirePermission('lots', 'read'), async (req, res) 
   return res.json({ data: { items: items.map(lotDto), total, page, pageSize } });
 });
 
-businessRouter.post('/lots', requirePermission('lots', 'write'), async (req, res) => {
+businessRouter.post('/lots', requirePermission('lots', 'create'), async (req, res) => {
   const company = await resolveCompanyForRequest(req);
   const parsed = lotSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -327,7 +327,7 @@ businessRouter.post('/lots', requirePermission('lots', 'write'), async (req, res
   return res.status(201).json({ data: { lot: lotDto(lot) } });
 });
 
-businessRouter.patch('/lots/:lotId', requirePermission('lots', 'write'), async (req, res) => {
+businessRouter.patch('/lots/:lotId', requirePermission('lots', 'update'), async (req, res) => {
   const company = await resolveCompanyForRequest(req);
   const lotId = paramValue(req.params.lotId);
   const parsed = lotSchema.partial().safeParse(req.body);
@@ -359,7 +359,7 @@ businessRouter.patch('/lots/:lotId', requirePermission('lots', 'write'), async (
   return res.json({ data: { lot: lotDto(lot) } });
 });
 
-businessRouter.delete('/lots/:lotId', requirePermission('lots', 'write'), async (req, res) => {
+businessRouter.delete('/lots/:lotId', requirePermission('lots', 'delete'), async (req, res) => {
   const company = await resolveCompanyForRequest(req);
   const lotId = paramValue(req.params.lotId);
   const existing = await prisma.lot.findFirst({ where: { id: lotId, companyId: company.id, deletedAt: null } });
@@ -380,7 +380,7 @@ businessRouter.delete('/lots/:lotId', requirePermission('lots', 'write'), async 
   return res.json({ data: { lot: lotDto(lot) } });
 });
 
-businessRouter.patch('/sales/:saleId', requirePermission('sales', 'write'), async (req, res) => {
+businessRouter.patch('/sales/:saleId', requirePermission('sales', 'update'), async (req, res) => {
   try {
     const company = await resolveCompanyForRequest(req);
     const result = await authoritativeSales.updateSale({
@@ -400,7 +400,7 @@ businessRouter.patch('/sales/:saleId', requirePermission('sales', 'write'), asyn
   }
 });
 
-businessRouter.patch('/users/:userId', requirePermission('users', 'write'), async (req, res) => {
+businessRouter.patch('/users/:userId', requirePermission('users', 'update'), async (req, res) => {
   const company = await resolveCompanyForRequest(req);
   const userId = paramValue(req.params.userId);
   const parsed = z
@@ -470,7 +470,7 @@ businessRouter.patch('/users/:userId', requirePermission('users', 'write'), asyn
   return res.json({ data: { user } });
 });
 
-businessRouter.delete('/users/:userId', requirePermission('users', 'write'), async (req, res) => {
+businessRouter.delete('/users/:userId', requirePermission('users', 'delete'), async (req, res) => {
   const company = await resolveCompanyForRequest(req);
   const userId = paramValue(req.params.userId);
   const existing = await prisma.user.findFirst({
@@ -547,7 +547,7 @@ businessRouter.get('/roles', requirePermission('users', 'read'), async (req, res
   return res.json({ data: { roles } });
 });
 
-businessRouter.post('/roles', requirePermission('users', 'write'), async (req, res) => {
+businessRouter.post('/roles', requirePermission('users', 'manage'), async (req, res) => {
   const company = await resolveCompanyForRequest(req);
   const parsed = z
     .object({
@@ -567,7 +567,7 @@ businessRouter.post('/roles', requirePermission('users', 'write'), async (req, r
   return res.status(201).json({ data: { role } });
 });
 
-businessRouter.post('/users/:userId/roles', requirePermission('users', 'write'), async (req, res) => {
+businessRouter.post('/users/:userId/roles', requirePermission('users', 'manage'), async (req, res) => {
   const company = await resolveCompanyForRequest(req);
   const parsed = z.object({ roleId: z.string().min(1) }).safeParse(req.body);
   if (!parsed.success) {
@@ -587,7 +587,7 @@ businessRouter.post('/users/:userId/roles', requirePermission('users', 'write'),
   return res.status(201).json({ data: { assignment } });
 });
 
-businessRouter.post('/permissions', requirePermission('users', 'write'), async (req, res) => {
+businessRouter.post('/permissions', requirePermission('users', 'manage'), async (req, res) => {
   const company = await resolveCompanyForRequest(req);
   const parsed = z
     .object({
@@ -619,7 +619,7 @@ businessRouter.post('/permissions', requirePermission('users', 'write'), async (
   return res.status(201).json({ data: { permission } });
 });
 
-businessRouter.post('/roles/:roleId/permissions', requirePermission('users', 'write'), async (req, res) => {
+businessRouter.post('/roles/:roleId/permissions', requirePermission('users', 'manage'), async (req, res) => {
   const company = await resolveCompanyForRequest(req);
   const parsed = z.object({ permissionId: z.string().min(1) }).safeParse(req.body);
   if (!parsed.success) {
@@ -649,7 +649,7 @@ businessRouter.get('/company-profile', requirePermission('configuration', 'read'
   return res.json({ data: { profile: sanitizeProfile(profile) } });
 });
 
-businessRouter.put('/company-profile', requirePermission('configuration', 'write'), async (req, res) => {
+businessRouter.put('/company-profile', requirePermission('configuration', 'update'), async (req, res) => {
   const company = await resolveCompanyForRequest(req);
   const parsed = z
     .object({
@@ -678,7 +678,7 @@ businessRouter.get('/financial-parameters', requirePermission('configuration', '
   return res.json({ data: { parameters } });
 });
 
-businessRouter.put('/financial-parameters', requirePermission('configuration', 'write'), async (req, res) => {
+businessRouter.put('/financial-parameters', requirePermission('configuration', 'update'), async (req, res) => {
   const company = await resolveCompanyForRequest(req);
   const parsed = z
     .object({
@@ -709,7 +709,7 @@ businessRouter.get('/business-config', requirePermission('configuration', 'read'
   return res.json({ data: { items } });
 });
 
-businessRouter.put('/business-config/:key', requirePermission('configuration', 'write'), async (req, res) => {
+businessRouter.put('/business-config/:key', requirePermission('configuration', 'update'), async (req, res) => {
   const company = await resolveCompanyForRequest(req);
   const key = paramValue(req.params.key).trim();
   if (!allowedBusinessConfigKeys.has(key)) {

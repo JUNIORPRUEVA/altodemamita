@@ -1,4 +1,5 @@
 import type { AuthUser } from './auth';
+import { ownerPermissionCodes } from './rbac';
 
 export type AuthContractUser = AuthUser & {
   sub: string;
@@ -10,31 +11,17 @@ export type AuthContractUser = AuthUser & {
   permissions: string[];
 };
 
-const ownerPermissions = [
-  'clients.read',
-  'clients.write',
-  'products.read',
-  'products.write',
-  'sellers.read',
-  'sellers.write',
-  'sales.read',
-  'sales.write',
-  'payments.read',
-  'payments.write',
-  'installments.read',
-  'installments.write',
-  'users.read',
-  'users.write',
-  'reports.read',
-  'sync.manage',
-];
-
 export function authRoleCodes(role: AuthUser['role']) {
   return role === 'OWNER' ? ['SUPER_ADMIN'] : ['SALES_AGENT'];
 }
 
+/**
+ * Codigos de permiso expuestos al cliente. OWNER recibe el catalogo
+ * administrativo completo; cualquier otro rol recibe exactamente los permisos
+ * persistidos para su usuario (nunca una lista vacia si la base los tiene).
+ */
 export function authPermissionCodes(role: AuthUser['role'], explicitPermissions: string[] = []) {
-  if (role === 'OWNER') return ownerPermissions;
+  if (role === 'OWNER') return ownerPermissionCodes;
   return explicitPermissions;
 }
 

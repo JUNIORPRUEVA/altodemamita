@@ -50,6 +50,11 @@ export type AnnulAuthoritativePaymentInput = {
   paymentId: string;
   reason?: string | null;
   annulledAt?: string | Date;
+  /**
+   * Usuario administrador que autorizo la anulacion cuando el operador no
+   * tenia permiso propio. `null`/ausente significa anulacion directa.
+   */
+  authorizedByUserId?: string | null;
 };
 
 export class AuthoritativePaymentService {
@@ -450,6 +455,20 @@ async function registerPaymentInTransaction(
   };
 }
 
+/**
+ * Conserva el `raw` existente del pago y anexa la auditoria de anulacion.
+ * `performedByUserId` es quien ejecuto la accion; `authorizedByUserId` es el
+ * administrador que la autorizo cuando hubo override.
+ */
+function mergeAnnulmentAudit(raw: unknown, audit: Record<string, unknown>): Prisma.InputJsonValue {
+  const base =
+    raw && typeof raw === 'object' && !Array.isArray(raw)
+      ? { ...(raw as Record<string, unknown>) }
+      : {};
+  base.annulmentAudit = audit;
+  return base as Prisma.InputJsonValue;
+}
+
 async function annulPaymentInTransaction(
   tx: TransactionClient,
   input: AnnulAuthoritativePaymentInput,
@@ -491,12 +510,20 @@ async function annulPaymentInTransaction(
     );
   }
 
+  const authorizedByUserId = input.authorizedByUserId ?? null;
   await tx.payment.update({
     where: { id: payment.id },
     data: {
       annulledAt,
       annulledByUserId: input.annulledByUserId,
       annulmentReason: input.reason ?? null,
+      raw: mergeAnnulmentAudit(payment.raw, {
+        performedByUserId: input.annulledByUserId,
+        authorizedByUserId,
+        reason: input.reason ?? null,
+        annulledAt: annulledAt.toISOString(),
+        override: authorizedByUserId !== null,
+      }),
       deletedAt: annulledAt,
       version: { increment: 1 },
     },
@@ -543,6 +570,8 @@ async function annulPaymentInTransaction(
       status: updatedSale.status ?? null,
       balance: toNumber(updatedSale.balance),
       annulledAt: annulledAt.toISOString(),
+      performedByUserId: input.annulledByUserId,
+      authorizedByUserId,
     };
   } else if (payment.paymentType === 'abono_capital') {
     await reverseCapitalPayment(tx, payment.sale, amount, annulledAt);
@@ -569,6 +598,8 @@ async function annulPaymentInTransaction(
     status: updatedSale.status ?? null,
     balance: toNumber(updatedSale.balance),
     annulledAt: annulledAt.toISOString(),
+    performedByUserId: input.annulledByUserId,
+    authorizedByUserId,
   };
 }
 

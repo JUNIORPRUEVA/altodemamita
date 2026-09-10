@@ -17,7 +17,11 @@ test('valid production-style OWNER user auth payload includes Windows minimum fi
   assert.equal(user.isActive, true);
   assert.deepEqual(user.roles, ['SUPER_ADMIN']);
   assert.ok(user.permissions.includes('users.read'));
-  assert.ok(user.permissions.includes('sales.write'));
+  assert.ok(user.permissions.includes('users.manage'));
+  assert.ok(user.permissions.includes('sales.create'));
+  assert.ok(user.permissions.includes('sales.update'));
+  assert.ok(user.permissions.includes('sales.delete'));
+  assert.ok(user.permissions.includes('payments.annul'));
 });
 
 test('remote user minimum-data validation would pass with contract payload', () => {
@@ -61,6 +65,37 @@ test('role mapping works for OWNER and TECH', () => {
 
   assert.deepEqual(owner.roles, ['SUPER_ADMIN']);
   assert.deepEqual(tech.roles, ['SALES_AGENT']);
+});
+
+test('TECH recibe exactamente los permisos persistidos que se le inyectan', () => {
+  const tech = buildAuthContractUser(
+    {
+      id: 'tech-1',
+      email: 'tech@sistema.local',
+      name: 'Tech',
+      role: 'TECH',
+    },
+    ['sales.read', 'sales.create', 'payments.annul'],
+  );
+
+  const permissions: string[] = tech.permissions;
+  assert.deepEqual(permissions, ['sales.read', 'sales.create', 'payments.annul']);
+  assert.equal(permissions.includes('sales.update'), false);
+  assert.equal(permissions.includes('sales.delete'), false);
+});
+
+test('TECH sin permisos persistidos no hereda privilegios administrativos', () => {
+  const tech = buildAuthContractUser({
+    id: 'tech-2',
+    email: 'tech2@sistema.local',
+    name: 'Tech Dos',
+    role: 'TECH',
+  });
+
+  const permissions: string[] = tech.permissions;
+  assert.equal(permissions.length, 0);
+  assert.equal(permissions.includes('users.manage'), false);
+  assert.equal(permissions.includes('payments.annul'), false);
 });
 
 test('company mapping is not part of the auth payload and leaves user identity stable', () => {

@@ -3,6 +3,7 @@ import { authGuard } from '../auth';
 import { resolveCompanyForRequest } from '../companyIdentity';
 import { prisma } from '../prisma';
 import { requirePermission } from '../rbac';
+import { requirePaymentCancelAuthorization } from '../services/adminAuthorization.service';
 import { authoritativeErrorResponse } from '../services/authoritativeErrors.service';
 import { AuthoritativePaymentService } from '../services/authoritativePayment.service';
 import { AuthoritativeSaleService } from '../services/authoritativeSale.service';
@@ -14,7 +15,7 @@ const payments = new AuthoritativePaymentService(prisma);
 
 authoritativeRouter.use(authGuard);
 
-authoritativeRouter.post('/sales', requirePermission('sales', 'write'), async (req, res) => {
+authoritativeRouter.post('/sales', requirePermission('sales', 'create'), async (req, res) => {
   try {
     const company = await resolveCompanyForRequest(req);
     const result = await sales.createSale({
@@ -33,7 +34,7 @@ authoritativeRouter.post('/sales', requirePermission('sales', 'write'), async (r
   }
 });
 
-authoritativeRouter.post('/payments', requirePermission('payments', 'write'), async (req, res) => {
+authoritativeRouter.post('/payments', requirePermission('payments', 'create'), async (req, res) => {
   try {
     const company = await resolveCompanyForRequest(req);
     const result = await payments.registerPayment({
@@ -52,27 +53,32 @@ authoritativeRouter.post('/payments', requirePermission('payments', 'write'), as
   }
 });
 
-authoritativeRouter.post('/payments/:paymentId/annul', requirePermission('payments', 'write'), async (req, res) => {
-  try {
-    const company = await resolveCompanyForRequest(req);
-    const result = await payments.annulPayment({
-      ...(req.body as Record<string, never>),
-      companyId: company.id,
-      annulledByUserId: req.user?.id ?? '',
-      paymentId: paramValue(req.params.paymentId),
-      idempotencyKey: idempotencyKey(req) ?? '',
-    });
-    res.status(result.replayed ? 200 : 201).json({
-      data: result.response,
-      idempotentReplay: result.replayed,
-    });
-  } catch (error) {
-    const response = authoritativeErrorResponse(error);
-    res.status(response.status).json(response.body);
-  }
-});
+authoritativeRouter.post(
+  '/payments/:paymentId/annul',
+  requirePaymentCancelAuthorization(),
+  async (req, res) => {
+    try {
+      const company = await resolveCompanyForRequest(req);
+      const result = await payments.annulPayment({
+        ...(req.body as Record<string, never>),
+        companyId: company.id,
+        annulledByUserId: req.user?.id ?? '',
+        authorizedByUserId: req.paymentCancellation?.authorizedByUserId ?? null,
+        paymentId: paramValue(req.params.paymentId),
+        idempotencyKey: idempotencyKey(req) ?? '',
+      });
+      res.status(result.replayed ? 200 : 201).json({
+        data: result.response,
+        idempotentReplay: result.replayed,
+      });
+    } catch (error) {
+      const response = authoritativeErrorResponse(error);
+      res.status(response.status).json(response.body);
+    }
+  },
+);
 
-authoritativeRouter.post('/sales/:saleId/cancel', requirePermission('sales', 'write'), async (req, res) => {
+authoritativeRouter.post('/sales/:saleId/cancel', requirePermission('sales', 'delete'), async (req, res) => {
   try {
     const company = await resolveCompanyForRequest(req);
     const result = await sales.cancelSale({
