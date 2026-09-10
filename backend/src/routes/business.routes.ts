@@ -9,6 +9,11 @@ import { prisma } from '../prisma';
 import { permissionDomains, requirePermission } from '../rbac';
 import { authoritativeErrorResponse } from '../services/authoritativeErrors.service';
 import { AuthoritativeSaleService } from '../services/authoritativeSale.service';
+import {
+  BrandingValidationError,
+  decodeBrandingBase64,
+  saveBrandingLogo,
+} from '../services/branding.service';
 
 export const businessRouter = Router();
 
@@ -670,6 +675,54 @@ businessRouter.put('/company-profile', requirePermission('configuration', 'updat
   });
   await prisma.company.update({ where: { id: company.id }, data: { name: parsed.data.name } });
   return res.json({ data: { profile: sanitizeProfile(profile) } });
+});
+
+/**
+ * PUT /api/business/branding/logo
+ *
+ * Publicacion administrativa del logo institucional en el almacenamiento
+ * persistente. Requiere permiso de configuracion (OWNER/administrador).
+ *
+ * El nombre canonico es fijo (`logo.png`): el original suministrado solo se
+ * documenta, nunca define la ruta de escritura. Escritura atomica:
+ * temporal -> validar -> rename.
+ */
+businessRouter.put('/branding/logo', requirePermission('configuration', 'update'), async (req, res) => {
+  const parsed = z
+    .object({
+      imageBase64: z.string().min(1),
+      filename: z.string().max(255).nullable().optional(),
+    })
+    .safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: { code: 'INVALID_BRANDING_PAYLOAD', message: 'Payload de logo invalido.' },
+    });
+  }
+
+  try {
+    const bytes = decodeBrandingBase64(parsed.data.imageBase64);
+    const logo = await saveBrandingLogo({
+      bytes,
+      originalFilename: parsed.data.filename ?? null,
+    });
+    return res.json({
+      data: {
+        filename: logo.filename,
+        size: logo.size,
+        sha256: logo.sha256,
+        contentType: logo.contentType,
+        updatedAt: logo.updatedAt.toISOString(),
+      },
+    });
+  } catch (error) {
+    if (error instanceof BrandingValidationError) {
+      return res.status(400).json({ error: { code: error.code, message: error.message } });
+    }
+    return res.status(500).json({
+      error: { code: 'BRANDING_SAVE_FAILED', message: 'No se pudo guardar el logo institucional.' },
+    });
+  }
 });
 
 businessRouter.get('/financial-parameters', requirePermission('configuration', 'read'), async (req, res) => {

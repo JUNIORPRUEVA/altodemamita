@@ -3,6 +3,7 @@ import { Router } from "express";
 import { config } from "../config";
 import { resolveCompanyByTenantKey } from "../companyIdentity";
 import { prisma } from "../prisma";
+import { brandingLogoMetadata, readBrandingLogo } from "../services/branding.service";
 
 export const systemRouter = Router();
 
@@ -158,4 +159,69 @@ systemRouter.get("/config", (_req, res) => {
     tenantKey: "alto-dona-mamita-sistema-solares",
     initialized: true,
   });
+});
+
+/**
+ * GET /api/system/branding
+ *
+ * Metadatos del logo institucional persistente (sin exponer el filesystem
+ * ni el contenido). Sirve para verificar tamano y SHA256 sin descargar.
+ */
+systemRouter.get("/branding", async (_req, res) => {
+  try {
+    const metadata = await brandingLogoMetadata();
+    return res.json({
+      data: {
+        present: metadata.present,
+        filename: metadata.filename,
+        size: metadata.size,
+        sha256: metadata.sha256,
+        contentType: metadata.contentType,
+        updatedAt: metadata.updatedAt,
+      },
+    });
+  } catch {
+    return res.status(503).json({
+      error: { code: "BRANDING_STORAGE_UNAVAILABLE", message: "Almacenamiento de branding no disponible." },
+    });
+  }
+});
+
+/**
+ * GET /api/system/branding/logo
+ *
+ * Devuelve el logo institucional desde el volumen persistente.
+ *
+ * El nombre del archivo es FIJO (`logo.png`): ninguna entrada del usuario
+ * participa en la resolucion de la ruta, por lo que no hay directory
+ * traversal posible ni exposicion del filesystem.
+ */
+systemRouter.get("/branding/logo", async (req, res) => {
+  let logo;
+  try {
+    logo = await readBrandingLogo();
+  } catch {
+    return res.status(503).json({
+      error: { code: "BRANDING_STORAGE_UNAVAILABLE", message: "Almacenamiento de branding no disponible." },
+    });
+  }
+
+  if (!logo) {
+    return res.status(404).json({
+      error: { code: "BRANDING_LOGO_NOT_FOUND", message: "El logo institucional no esta publicado." },
+    });
+  }
+
+  const etag = `"${logo.sha256}"`;
+  res.setHeader("ETag", etag);
+  res.setHeader("Cache-Control", "public, max-age=300, must-revalidate");
+  res.setHeader("Content-Type", logo.contentType);
+  res.setHeader("X-Branding-Sha256", logo.sha256);
+
+  if (req.headers["if-none-match"] === etag) {
+    return res.status(304).end();
+  }
+
+  res.setHeader("Content-Length", String(logo.size));
+  return res.status(200).end(logo.bytes);
 });
