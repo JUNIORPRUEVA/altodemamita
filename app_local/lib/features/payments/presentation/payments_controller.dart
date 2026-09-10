@@ -31,6 +31,75 @@ class PaymentsController extends ChangeNotifier {
   int? selectedSaleId;
   int _loadGeneration = 0;
 
+  /// Resultados de la busqueda autoritativa (PostgreSQL) del modulo Pagos.
+  ///
+  /// Es independiente de la work queue y de la primera pagina: una venta con
+  /// cuotas futuras, solo-inicial o saldada tambien aparece aqui.
+  List<PaymentSaleOption> searchResults = const [];
+  bool isSearching = false;
+  FriendlyErrorMessage? searchError;
+  int _searchGeneration = 0;
+  String _lastSearchQuery = '';
+
+  /// Busca ventas en el backend (autoridad) por nombre, cedula, telefono,
+  /// solar o referencia. Protegida con generation token contra respuestas
+  /// fuera de orden.
+  Future<void> searchSales(String query) async {
+    final trimmed = query.trim();
+    final generation = ++_searchGeneration;
+
+    if (trimmed.length < 2) {
+      _lastSearchQuery = '';
+      searchResults = const [];
+      isSearching = false;
+      searchError = null;
+      notifyListeners();
+      return;
+    }
+
+    if (trimmed != _lastSearchQuery) {
+      // Evita mostrar resultados de una consulta anterior (no debe
+      // "heredarse" el cliente previo como si fuera coincidencia).
+      _lastSearchQuery = trimmed;
+      searchResults = const [];
+    }
+    isSearching = true;
+    searchError = null;
+    notifyListeners();
+
+    try {
+      final results = await _paymentsRepository.searchSales(trimmed);
+      if (_isDisposed || generation != _searchGeneration) {
+        return;
+      }
+      searchResults = results;
+    } catch (error) {
+      if (_isDisposed || generation != _searchGeneration) {
+        return;
+      }
+      searchResults = const [];
+      searchError = FriendlyErrorMessages.recoverable(
+        action: 'buscar la venta',
+        module: 'pagos',
+        error: error,
+      );
+    } finally {
+      if (!_isDisposed && generation == _searchGeneration) {
+        isSearching = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  void clearSearch() {
+    _searchGeneration++;
+    _lastSearchQuery = '';
+    searchResults = const [];
+    isSearching = false;
+    searchError = null;
+    notifyListeners();
+  }
+
   Future<void> load({int? preferredSaleId}) async {
     final generation = ++_loadGeneration;
     loadError = null;

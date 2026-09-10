@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -17,6 +19,7 @@ import '../domain/payment_history_item.dart';
 import '../domain/payment_sale_context.dart';
 import '../domain/payment_sale_option.dart';
 import '../domain/payment_work_queue.dart';
+import 'payment_annul_dialog.dart';
 import 'payment_form_dialog.dart';
 import 'payment_history_fullscreen.dart';
 import 'payments_controller.dart';
@@ -45,6 +48,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
   late final ScrollController _historyScrollController;
 
   final Map<int, PaymentSaleContext> _saleContextCache = {};
+  Timer? _searchDebounce;
   String _searchQuery = '';
   int? _selectedSaleId;
   int? _selectedHistoryPaymentId;
@@ -77,6 +81,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _controller.removeListener(_syncSelectedSaleState);
     _saleSearchController.dispose();
     _historyScrollController.dispose();
@@ -211,6 +216,33 @@ class _PaymentsPageState extends State<PaymentsPage> {
   }
 
   Widget _buildSearchMatchesPanel(List<PaymentSaleOption> matches) {
+    if (matches.isEmpty && _controller.isSearching) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFD),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFD7E0EC)),
+        ),
+        child: const Row(
+          children: [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Buscando en el servidor…',
+                style: TextStyle(fontSize: 13, color: Color(0xFF556079)),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     if (matches.isEmpty) {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -1189,7 +1221,8 @@ class _PaymentsPageState extends State<PaymentsPage> {
                             isAnnulled: payment.isAnnulled,
                             canDelete:
                                 (canCancelPayments || isAdmin) &&
-                                index == 0 &&
+                                payment.id ==
+                                    _latestAnnullablePaymentId(visibleHistory) &&
                                 !_controller.isSaving,
                             selected: selectedHistoryPaymentId == payment.id,
                             onTap: () {
@@ -1516,7 +1549,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
       return _controller.activeSales;
     }
 
-    return _controller.activeSales
+    final localMatches = _controller.activeSales
         .where((sale) {
           final haystack = [
             sale.clientName,
@@ -1537,6 +1570,17 @@ class _PaymentsPageState extends State<PaymentsPage> {
                   normalizedHaystack.contains(normalizedQuery));
         })
         .toList(growable: false);
+
+    // Resultados autoritativos del backend (PostgreSQL): permiten encontrar
+    // ventas que NO estan en la pagina cargada de la cola de trabajo.
+    final merged = <PaymentSaleOption>[];
+    final seenSaleIds = <int>{};
+    for (final sale in [...localMatches, ..._controller.searchResults]) {
+      if (seenSaleIds.add(sale.saleId)) {
+        merged.add(sale);
+      }
+    }
+    return merged;
   }
 
   void _handleSearchChanged(String value) {
@@ -1544,12 +1588,29 @@ class _PaymentsPageState extends State<PaymentsPage> {
     setState(() {
       _searchQuery = normalized;
     });
+    _searchDebounce?.cancel();
+    if (normalized.isEmpty) {
+      _controller.clearSearch();
+      return;
+    }
+    if (normalized.length < 2) {
+      return;
+    }
+    _searchDebounce = Timer(const Duration(milliseconds: 280), () {
+      if (!mounted) {
+        return;
+      }
+      _controller.searchSales(normalized);
+    });
   }
 
   void _handleSearchSubmitted(String value) {
     if (value.trim().isEmpty) {
       return;
     }
+
+    _searchDebounce?.cancel();
+    _controller.searchSales(value);
 
     final matches = _matchSales(value);
     if (matches.length != 1) {
@@ -1563,7 +1624,9 @@ class _PaymentsPageState extends State<PaymentsPage> {
       _selectedSaleId ?? _controller.selectedSaleId;
 
   void _commitSaleSelection(int saleId) {
+    _searchDebounce?.cancel();
     _saleSearchController.clear();
+    _controller.clearSearch();
     setState(() {
       _searchQuery = '';
       _selectedSaleId = saleId;
@@ -1774,6 +1837,23 @@ class _PaymentsPageState extends State<PaymentsPage> {
       return _sortOrder == 'recent' ? -compare : compare;
     });
     return items;
+  }
+
+  /// Pago activo mas reciente (candidato unico a anulacion segun el backend).
+  int? _latestAnnullablePaymentId(List<PaymentHistoryItem> history) {
+    PaymentHistoryItem? latest;
+    for (final payment in history) {
+      if (payment.isAnnulled) {
+        continue;
+      }
+      if (latest == null ||
+          payment.paymentDate.isAfter(latest.paymentDate) ||
+          (payment.paymentDate.isAtSameMomentAs(latest.paymentDate) &&
+              payment.id > latest.id)) {
+        latest = payment;
+      }
+    }
+    return latest?.id;
   }
 
   bool _matchesInstallmentFilter(Installment installment) {
@@ -2139,9 +2219,9 @@ class _PaymentsPageState extends State<PaymentsPage> {
     final canCancelDirectly =
         authProvider.currentUser?.canCancelPayments ?? authProvider.isAdmin;
 
-    final result = await showDialog<_AnnulPaymentResult>(
+    final result = await showDialog<PaymentAnnulResult>(
       context: context,
-      builder: (dialogContext) => _AnnulPaymentDialog(
+      builder: (dialogContext) => PaymentAnnulDialog(
         clientName: contextData.sale.clientName,
         concept: _paymentTypeLabel(
           payment.paymentType,
@@ -2712,293 +2792,6 @@ class _DetailItem {
   final String label;
   final String value;
   final bool emphasized;
-}
-
-class _AnnulPaymentResult {
-  const _AnnulPaymentResult({
-    required this.reason,
-    required this.adminAuthorizationId,
-  });
-
-  final String reason;
-  final String? adminAuthorizationId;
-}
-
-/// Confirmacion de anulacion de pago.
-///
-/// Cuando el operador no tiene permiso propio de anulacion, el dialogo solicita
-/// la autorizacion de un administrador y el backend la valida: si las
-/// credenciales son incorrectas el dialogo permanece abierto mostrando el error
-/// y no se ejecuta ninguna mutacion.
-class _AnnulPaymentDialog extends StatefulWidget {
-  const _AnnulPaymentDialog({
-    required this.clientName,
-    required this.concept,
-    required this.amount,
-    required this.paymentDate,
-    required this.requiresAdminAuthorization,
-    required this.onAuthorize,
-  });
-
-  final String clientName;
-  final String concept;
-  final String amount;
-  final String paymentDate;
-  final bool requiresAdminAuthorization;
-  final Future<({String? authorizationId, String? error})> Function(
-    String email,
-    String password,
-  )
-  onAuthorize;
-
-  @override
-  State<_AnnulPaymentDialog> createState() => _AnnulPaymentDialogState();
-}
-
-class _AnnulPaymentDialogState extends State<_AnnulPaymentDialog> {
-  static const List<String> _reasons = <String>[
-    'Error de digitacion',
-    'Pago registrado por error',
-    'Monto incorrecto',
-    'Otro',
-  ];
-
-  final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
-  final TextEditingController _otherReasonController = TextEditingController();
-  String _selectedReason = _reasons.first;
-  String? _error;
-  bool _submitting = false;
-  bool _obscurePassword = true;
-
-  @override
-  void dispose() {
-    _emailController.dispose();
-    _passwordController.dispose();
-    _otherReasonController.dispose();
-    super.dispose();
-  }
-
-  String? _resolvedReason() {
-    if (_selectedReason != _reasons.last) {
-      return _selectedReason;
-    }
-    final custom = _otherReasonController.text.trim();
-    return custom.isEmpty ? null : custom;
-  }
-
-  Future<void> _submit() async {
-    final reason = _resolvedReason();
-    if (reason == null) {
-      setState(() => _error = 'Describe el motivo de la anulacion.');
-      return;
-    }
-
-    String? authorizationId;
-    if (widget.requiresAdminAuthorization) {
-      final email = _emailController.text.trim();
-      final password = _passwordController.text;
-      if (email.isEmpty || password.isEmpty) {
-        setState(() {
-          _error = 'Introduce el usuario y la contrasena del administrador.';
-        });
-        return;
-      }
-      setState(() {
-        _submitting = true;
-        _error = null;
-      });
-      final result = await widget.onAuthorize(email, password);
-      if (!mounted) {
-        return;
-      }
-      if (result.authorizationId == null) {
-        setState(() {
-          _submitting = false;
-          _error =
-              result.error ??
-              'Las credenciales del administrador no son validas.';
-        });
-        return;
-      }
-      authorizationId = result.authorizationId;
-    }
-
-    if (!mounted) {
-      return;
-    }
-    Navigator.of(context).pop(
-      _AnnulPaymentResult(reason: reason, adminAuthorizationId: authorizationId),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Anular pago'),
-      content: SizedBox(
-        width: 420,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _dialogDetail('Cliente', widget.clientName),
-              _dialogDetail('Concepto', widget.concept),
-              _dialogDetail('Monto', widget.amount),
-              _dialogDetail('Fecha', widget.paymentDate),
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFF6E5),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: const Color(0xFFF0D9A8)),
-                ),
-                child: const Text(
-                  'Esta accion revertira el efecto financiero del pago.',
-                  style: TextStyle(fontSize: 12, color: Color(0xFF8A6A1F)),
-                ),
-              ),
-              const SizedBox(height: 14),
-              const Text(
-                'Motivo',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 6),
-              DropdownButtonFormField<String>(
-                initialValue: _selectedReason,
-                items: [
-                  for (final reason in _reasons)
-                    DropdownMenuItem<String>(
-                      value: reason,
-                      child: Text(reason, style: const TextStyle(fontSize: 13)),
-                    ),
-                ],
-                onChanged: _submitting
-                    ? null
-                    : (value) {
-                        if (value == null) {
-                          return;
-                        }
-                        setState(() {
-                          _selectedReason = value;
-                          _error = null;
-                        });
-                      },
-              ),
-              if (_selectedReason == _reasons.last) ...[
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _otherReasonController,
-                  enabled: !_submitting,
-                  decoration: const InputDecoration(
-                    labelText: 'Describe el motivo',
-                    isDense: true,
-                  ),
-                ),
-              ],
-              if (widget.requiresAdminAuthorization) ...[
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFEEF3FF),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: const Color(0xFFC9D8F5)),
-                  ),
-                  child: const Text(
-                    'Necesitas autorizacion de un administrador para anular este pago.',
-                    style: TextStyle(fontSize: 12, color: Color(0xFF2C5282)),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: _emailController,
-                  enabled: !_submitting,
-                  keyboardType: TextInputType.emailAddress,
-                  decoration: const InputDecoration(
-                    labelText: 'Usuario administrador',
-                    isDense: true,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _passwordController,
-                  enabled: !_submitting,
-                  obscureText: _obscurePassword,
-                  decoration: InputDecoration(
-                    labelText: 'Contrasena del administrador',
-                    isDense: true,
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _obscurePassword
-                            ? Icons.visibility_outlined
-                            : Icons.visibility_off_outlined,
-                        size: 18,
-                      ),
-                      onPressed: () => setState(
-                        () => _obscurePassword = !_obscurePassword,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-              if (_error != null) ...[
-                const SizedBox(height: 12),
-                Text(
-                  _error!,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFFB3261E),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: _submitting ? null : () => Navigator.of(context).pop(),
-          child: const Text('Cancelar'),
-        ),
-        FilledButton(
-          onPressed: _submitting ? null : _submit,
-          child: Text(_submitting ? 'Validando...' : 'Anular pago'),
-        ),
-      ],
-    );
-  }
-
-  Widget _dialogDetail(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 84,
-            child: Text(
-              label,
-              style: const TextStyle(fontSize: 12, color: Color(0xFF8893AA)),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value.trim().isEmpty ? '-' : value,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF1A2235),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 class _PaymentViewFilters {

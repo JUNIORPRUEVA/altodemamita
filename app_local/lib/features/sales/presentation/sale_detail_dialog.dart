@@ -228,6 +228,7 @@ Future<void> openSalePaymentsHistory(
       context,
       sale: paymentContext.sale,
       history: paymentContext.history,
+      paymentsRepository: repository,
     );
   } catch (_) {
     if (!context.mounted) {

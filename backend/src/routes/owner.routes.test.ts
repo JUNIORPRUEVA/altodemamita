@@ -4,6 +4,7 @@ import {
   deriveSettlement,
   installmentQueueWhere,
   outstandingFromInstallments,
+  paymentSalesSearchTerms,
 } from './owner.routes';
 
 test('installmentQueueWhere normalizes camel-case dueToday state', () => {
@@ -70,4 +71,30 @@ test('suma solo el remanente realmente pendiente de cada cuota', () => {
   );
   assert.equal(outstandingFromInstallments([{ totalAmount: '10000', paidAmount: '12000' }]), 0);
   assert.equal(outstandingFromInstallments([]), 0);
+});
+
+test('la busqueda de Pagos encuentra por numero de solar visible', () => {
+  const terms = paymentSalesSearchTerms('1212');
+  assert.ok(terms.includes('1212'));
+});
+
+test('la busqueda de Pagos resuelve el formato de presentacion del solar', () => {
+  const terms = paymentSalesSearchTerms('Mgf-S1212');
+  assert.ok(terms.includes('Mgf-S1212'));
+  assert.ok(terms.includes('gf'));
+  assert.ok(terms.includes('1212'));
+  assert.ok(terms.includes('1212'));
+});
+
+test('la busqueda de Pagos acepta cedula y telefono dominicanos', () => {
+  const cedula = paymentSalesSearchTerms('756-8577557-7');
+  assert.ok(cedula.includes('75685775577'));
+
+  const phone = paymentSalesSearchTerms('(809) 555-1234');
+  assert.ok(phone.includes('8095551234'));
+});
+
+test('la busqueda de Pagos no genera terminos para consultas vacias', () => {
+  assert.deepEqual(paymentSalesSearchTerms('   '), []);
+  assert.deepEqual(paymentSalesSearchTerms(''), []);
 });

@@ -1,8 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../../../core/resilience/friendly_error_messages.dart';
+import '../../../core/utils/dominican_formatters.dart';
+import '../../auth/presentation/auth_provider.dart';
+import '../data/payments_repository.dart';
 import '../domain/client_pagare_report.dart';
 import '../domain/payment_history_item.dart';
 import '../domain/payment_sale_option.dart';
+import 'payment_annul_dialog.dart';
 
 Future<void> openClientPaymentHistoryFullscreen(
   BuildContext context, {
@@ -23,12 +29,14 @@ Future<void> openSalePaymentHistoryFullscreen(
   BuildContext context, {
   required PaymentSaleOption sale,
   required List<PaymentHistoryItem> history,
+  PaymentsRepository? paymentsRepository,
 }) {
   return Navigator.of(context).push(
     MaterialPageRoute(
       builder: (_) => _SalePaymentHistoryFullscreenPage(
         sale: sale,
         history: history,
+        paymentsRepository: paymentsRepository,
       ),
     ),
   );
@@ -88,19 +96,161 @@ class _ClientPaymentHistoryFullscreenPage extends StatelessWidget {
   }
 }
 
-class _SalePaymentHistoryFullscreenPage extends StatelessWidget {
+class _SalePaymentHistoryFullscreenPage extends StatefulWidget {
   const _SalePaymentHistoryFullscreenPage({
     required this.sale,
     required this.history,
+    this.paymentsRepository,
   });
 
   final PaymentSaleOption sale;
   final List<PaymentHistoryItem> history;
+  final PaymentsRepository? paymentsRepository;
+
+  @override
+  State<_SalePaymentHistoryFullscreenPage> createState() =>
+      _SalePaymentHistoryFullscreenPageState();
+}
+
+class _SalePaymentHistoryFullscreenPageState
+    extends State<_SalePaymentHistoryFullscreenPage> {
+  late final PaymentsRepository _repository =
+      widget.paymentsRepository ?? PaymentsRepository();
+  late List<PaymentHistoryItem> _history = List.of(widget.history);
+  bool _isSaving = false;
+
+  /// Pago activo mas reciente: unico candidato a anulacion segun la regla
+  /// LIFO del backend. Se calcula por fecha/id, independiente del orden visible.
+  PaymentHistoryItem? get _annullablePayment {
+    PaymentHistoryItem? latest;
+    for (final payment in _history) {
+      if (payment.isAnnulled) {
+        continue;
+      }
+      if (latest == null ||
+          payment.paymentDate.isAfter(latest.paymentDate) ||
+          (payment.paymentDate.isAtSameMomentAs(latest.paymentDate) &&
+              payment.id > latest.id)) {
+        latest = payment;
+      }
+    }
+    return latest;
+  }
+
+  Future<void> _annulPayment() async {
+    final target = _annullablePayment;
+    if (target == null || _isSaving) {
+      return;
+    }
+
+    final auth = context.read<AuthProvider>();
+    final canCancelDirectly =
+        auth.currentUser?.canCancelPayments ?? auth.isAdmin;
+
+    final request = await showDialog<PaymentAnnulResult>(
+      context: context,
+      builder: (_) => PaymentAnnulDialog(
+        clientName: widget.sale.clientName,
+        concept: paymentAnnulConceptLabel(
+          target.paymentType,
+          target.installmentNumber,
+        ),
+        amount: 'RD\$ ${formatRdCurrency(target.amountPaid)}',
+        paymentDate: _formatShortDate(target.paymentDate),
+        requiresAdminAuthorization: !canCancelDirectly,
+        onAuthorize: (email, password) async {
+          try {
+            final authorizationId = await _repository
+                .authorizePaymentCancellation(
+                  paymentId: target.id,
+                  email: email,
+                  password: password,
+                );
+            return (authorizationId: authorizationId, error: null);
+          } catch (error) {
+            return (
+              authorizationId: null,
+              error: FriendlyErrorMessages.recoverable(
+                action: 'autorizar la anulacion',
+                module: 'pagos',
+                error: error,
+              ).message,
+            );
+          }
+        },
+      ),
+    );
+    if (request == null || !mounted) {
+      return;
+    }
+
+    setState(() => _isSaving = true);
+    try {
+      await _repository.deletePayment(
+        target.id,
+        reason: request.reason,
+        adminAuthorizationId: request.adminAuthorizationId,
+      );
+      if (!mounted) {
+        return;
+      }
+      // Estado autoritativo: se relee el contexto de la venta en el backend.
+      final refreshed = await _repository.fetchSaleContext(widget.sale.saleId);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        if (refreshed != null) {
+          _history = List.of(refreshed.history);
+        } else {
+          _history = [
+            for (final payment in _history)
+              if (payment.id != target.id) payment,
+          ];
+        }
+      });
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: Text('Pago anulado correctamente.')),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          content: Text(
+            FriendlyErrorMessages.recoverable(
+              action: 'anular el pago',
+              module: 'pagos',
+              error: error,
+            ).message,
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
+  }
+
+  String _formatShortDate(DateTime value) {
+    final month = value.month.toString().padLeft(2, '0');
+    final day = value.day.toString().padLeft(2, '0');
+    return '$day/$month/${value.year}';
+  }
 
   @override
   Widget build(BuildContext context) {
-    final remainingAmount = sale.pendingBalance + sale.pendingInitialPayment;
-    final totalPaid = history.fold<double>(
+    final auth = context.watch<AuthProvider>();
+    final canAnnul =
+        (auth.currentUser?.canCancelPayments ?? auth.isAdmin) &&
+        _annullablePayment != null &&
+        !_isSaving;
+
+    final remainingAmount =
+        widget.sale.pendingBalance + widget.sale.pendingInitialPayment;
+    final totalPaid = _history.fold<double>(
       0,
       (sum, item) => sum + item.amountPaid,
     );
@@ -115,12 +265,15 @@ class _SalePaymentHistoryFullscreenPage extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _SaleHistoryHeader(sale: sale, historyCount: history.length),
+                  _SaleHistoryHeader(
+                    sale: widget.sale,
+                    historyCount: _history.length,
+                  ),
                   const SizedBox(height: 8),
                   Expanded(
                     child: _SaleHistoryTableViewport(
-                      history: history,
-                      lotDisplayCode: sale.lotDisplayCode,
+                      history: _history,
+                      lotDisplayCode: widget.sale.lotDisplayCode,
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -128,6 +281,14 @@ class _SalePaymentHistoryFullscreenPage extends StatelessWidget {
                     totalPaid: totalPaid,
                     remainingAmount: remainingAmount,
                   ),
+                  if (canAnnul) ...[
+                    const SizedBox(height: 8),
+                    FilledButton.icon(
+                      onPressed: _isSaving ? null : _annulPayment,
+                      icon: const Icon(Icons.undo),
+                      label: const Text('Anular pago'),
+                    ),
+                  ],
                 ],
               ),
             ),

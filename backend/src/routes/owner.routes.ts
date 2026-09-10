@@ -73,6 +73,8 @@ ownerRouter.get('/clients/:clientId', clientDetail);
 ownerRouter.get('/clientes/:clientId', clientDetail);
 ownerRouter.get('/payments/work-queue', paymentsWorkQueue);
 ownerRouter.get('/pagos/work-queue', paymentsWorkQueue);
+ownerRouter.get('/payments/sales-search', paymentsSalesSearch);
+ownerRouter.get('/pagos/sales-search', paymentsSalesSearch);
 ownerRouter.get('/installments', async (req, res) => list(req, res, 'installment'));
 ownerRouter.get('/cuotas', async (req, res) => list(req, res, 'installment'));
 ownerRouter.get('/payments', async (req, res) => list(req, res, 'payment'));
@@ -534,6 +536,157 @@ async function paymentsWorkQueue(req: any, res: any) {
       counts: { overdue, dueToday, pending, partial },
       durationMs: Date.now() - startedAt,
     },
+  });
+}
+
+/**
+ * Terminos de busqueda derivados de lo que el usuario escribe en Pagos.
+ *
+ * Soporta nombre/cedula/telefono directos, el formato de presentacion de solar
+ * ("Mgf-S1212") y su parte numerica ("1212"), de modo que una venta real pueda
+ * encontrarse por cualquiera de las formas visibles en el modulo Ventas.
+ */
+export function paymentSalesSearchTerms(rawQuery: string): string[] {
+  const trimmed = rawQuery.trim();
+  if (trimmed.length === 0) {
+    return [];
+  }
+  const terms = new Set<string>([trimmed]);
+  const digits = trimmed.replace(/\D+/g, '');
+  if (digits.length >= 3) {
+    terms.add(digits);
+  }
+  const displayMatch = /^m?([a-z0-9]+)\s*-\s*s?([a-z0-9]+)$/i.exec(trimmed);
+  if (displayMatch) {
+    terms.add(displayMatch[1]);
+    terms.add(displayMatch[2]);
+  }
+  return [...terms].filter((value) => value.trim().length >= 2);
+}
+
+/**
+ * Busqueda server-side de ventas para el modulo Pagos.
+ *
+ * La work queue solo contiene cuotas cobrables paginadas, por lo que NO sirve
+ * como universo de busqueda: una venta con cuotas futuras, solo inicial, saldada
+ * o fuera de la primera pagina seria inencontrable. Esta busqueda consulta
+ * PostgreSQL directamente por cliente, cedula, telefono, solar y referencia.
+ */
+async function paymentsSalesSearch(req: any, res: any) {
+  const startedAt = Date.now();
+  const company = await resolveCompanyForRequest(req);
+  const rawQuery = String(req.query.q ?? '').trim();
+  const limit = Math.min(Math.max(Number(req.query.limit ?? 25), 1), 50);
+
+  if (rawQuery.length < 2) {
+    return res.json({ data: { query: rawQuery, items: [], total: 0 } });
+  }
+
+  const termList = paymentSalesSearchTerms(rawQuery);
+  const digits = rawQuery.replace(/\D+/g, '');
+
+  const containsTerms = termList.map((value) => ({
+    contains: value,
+    mode: 'insensitive' as const,
+  }));
+
+  const [clients, lots] = await Promise.all([
+    prisma.client.findMany({
+      where: {
+        companyId: company.id,
+        OR: containsTerms.flatMap((filter) => [
+          { name: filter },
+          { document: filter },
+          { phone: filter },
+        ]),
+      },
+      select: { id: true, syncId: true, name: true, document: true, phone: true },
+      take: 200,
+    }),
+    prisma.lot.findMany({
+      where: {
+        companyId: company.id,
+        OR: containsTerms.flatMap((filter) => [{ number: filter }, { block: filter }]),
+      },
+      select: { id: true, syncId: true, block: true, number: true, status: true },
+      take: 200,
+    }),
+  ]);
+
+  const saleConditions: any[] = [];
+  if (clients.length > 0) {
+    saleConditions.push({ clientId: { in: clients.map((item) => item.id) } });
+    saleConditions.push({ clientSyncId: { in: clients.map((item) => item.syncId) } });
+  }
+  if (lots.length > 0) {
+    saleConditions.push({ lotId: { in: lots.map((item) => item.id) } });
+    saleConditions.push({ lotSyncId: { in: lots.map((item) => item.syncId) } });
+  }
+  saleConditions.push({ syncId: { contains: rawQuery, mode: 'insensitive' } });
+  if (digits.length >= 6) {
+    saleConditions.push({ syncId: { contains: digits, mode: 'insensitive' } });
+  }
+
+  const sales = await prisma.sale.findMany({
+    where: {
+      companyId: company.id,
+      deletedAt: null,
+      OR: saleConditions,
+    },
+    orderBy: { updatedAt: 'desc' },
+    take: limit,
+  });
+
+  const saleIds = sales.map((sale: any) => sale.id);
+  const outstandingBySaleId = new Map<string, number>();
+  if (saleIds.length > 0) {
+    const grouped = await prisma.installment.groupBy({
+      by: ['saleId'],
+      where: { companyId: company.id, deletedAt: null, saleId: { in: saleIds } },
+      _sum: { totalAmount: true, paidAmount: true },
+    });
+    for (const row of grouped as Array<any>) {
+      if (!row.saleId) continue;
+      outstandingBySaleId.set(
+        row.saleId,
+        roundMoney(
+          Math.max(toNumber(row._sum?.totalAmount) - toNumber(row._sum?.paidAmount), 0),
+        ),
+      );
+    }
+  }
+
+  const clientSyncIds = uniqueSyncIds(sales.map((sale: any) => sale.clientSyncId));
+  const lotSyncIds = uniqueSyncIds(sales.map((sale: any) => sale.lotSyncId));
+  const sellerSyncIds = uniqueSyncIds(sales.map((sale: any) => sale.sellerSyncId));
+  const [saleClients, saleLots, saleSellers] = await Promise.all([
+    clientSyncIds.length
+      ? prisma.client.findMany({ where: { companyId: company.id, syncId: { in: clientSyncIds } } })
+      : [],
+    lotSyncIds.length
+      ? prisma.lot.findMany({ where: { companyId: company.id, syncId: { in: lotSyncIds } } })
+      : [],
+    sellerSyncIds.length
+      ? prisma.seller.findMany({ where: { companyId: company.id, syncId: { in: sellerSyncIds } } })
+      : [],
+  ]);
+
+  const clientsBySyncId = bySyncId(saleClients);
+  const lotsBySyncId = bySyncId(saleLots);
+  const sellersBySyncId = bySyncId(saleSellers);
+
+  const items = sales.map((sale: any) =>
+    serializeSaleRow(
+      sale,
+      clientsBySyncId,
+      lotsBySyncId,
+      sellersBySyncId,
+      deriveSettlement(sale, outstandingBySaleId.get(sale.id) ?? 0),
+    ),
+  );
+
+  return res.json({
+    data: { query: rawQuery, items, total: items.length, durationMs: Date.now() - startedAt },
   });
 }
 

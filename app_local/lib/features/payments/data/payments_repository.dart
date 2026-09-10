@@ -161,6 +161,50 @@ class PaymentsRepository {
     return _workQueueFromDataMap(dataMap, page: page, pageSize: pageSize);
   }
 
+  /// Busqueda autoritativa de ventas para el modulo Pagos.
+  ///
+  /// NO depende de la work queue ni de la primera pagina: consulta PostgreSQL
+  /// por nombre, cedula, telefono, solar y referencia de venta. Esto permite
+  /// encontrar ventas con cuotas futuras, solo-inicial o ya saldadas.
+  Future<List<PaymentSaleOption>> searchSales(
+    String query, {
+    int limit = 25,
+  }) async {
+    if (!_useBackendMode) {
+      return const [];
+    }
+    final trimmed = query.trim();
+    if (trimmed.length < 2) {
+      return const [];
+    }
+    final response = await _apiClient.get(
+      '/owner/payments/sales-search',
+      queryParameters: {'q': trimmed, 'limit': '$limit'},
+    );
+    final payload = response is Map<String, dynamic>
+        ? response
+        : (response as Map).map(
+            (key, value) => MapEntry(key.toString(), value),
+          );
+    final data = payload['data'];
+    final dataMap = data is Map
+        ? data.map((key, value) => MapEntry(key.toString(), value))
+        : const <String, dynamic>{};
+    final items = (dataMap['items'] as List?) ?? const [];
+    final results = <PaymentSaleOption>[];
+    for (final raw in items) {
+      if (raw is! Map) {
+        continue;
+      }
+      results.add(
+        _paymentSaleOptionFromBackend(
+          raw.map((key, value) => MapEntry(key.toString(), value)),
+        ),
+      );
+    }
+    return List.unmodifiable(results);
+  }
+
   PaymentWorkQueue _workQueueFromDataMap(
     Map<String, dynamic> dataMap, {
     required int page,
