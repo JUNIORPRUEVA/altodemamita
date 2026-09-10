@@ -17,6 +17,7 @@ import {
 import { WhatsappService } from './whatsapp.service';
 
 const TERMINAL_SALE_STATUSES = new Set(['pagada', 'cancelada', 'anulada', 'cerrada', 'saldada']);
+const MAX_VISIBLE_INSTALLMENTS_IN_MESSAGE = 5;
 export const PROJECT_PAYMENT_REMINDER_TEMPLATE = 'recordatorio_cuotas_vencidas_proyecto';
 export const DETAILED_PROJECT_PAYMENT_REMINDER_TEMPLATE = 'recordatorio_cuotas_vencidas_detalle';
 export const DETAILED1_PROJECT_PAYMENT_REMINDER_TEMPLATE = 'recordatorio_cuotas_vencidas_detalle1';
@@ -149,7 +150,11 @@ export class PaymentReminderService {
       : config.whatsappPaymentTemplate;
     const templateName = resolveDetailedTemplateName(baseTemplateName, result.summary.cantidadCuotasVencidas);
     const templateCapacity = getTemplateInstallmentCapacity(templateName);
-    if (templateCapacity && result.summary.cantidadCuotasVencidas > templateCapacity) {
+    if (
+      templateCapacity &&
+      result.summary.cantidadCuotasVencidas > templateCapacity &&
+      templateCapacity < MAX_VISIBLE_INSTALLMENTS_IN_MESSAGE
+    ) {
       logEvent('notification_skipped_template_capacity_exceeded', {
         companyId: input.companyId,
         saleSyncId: input.saleSyncId,
@@ -176,6 +181,22 @@ export class PaymentReminderService {
     }, templateName);
 
     if (dryRun) {
+      const reservation = await this.reserveDryRunNotification({
+        summary: result.summary,
+        recipients,
+        templateName,
+        payload,
+        force: input.force ?? false,
+      });
+      if (reservation.status === 'DUPLICATE') {
+        logEvent('notification_skipped_duplicate', {
+          companyId: input.companyId,
+          saleSyncId: input.saleSyncId,
+          mode: recipients.mode,
+          dryRun: true,
+        });
+        return { status: 'SKIPPED_DUPLICATE', summary: result.summary };
+      }
       logEvent('payment_reminder_dry_run', {
         companyId: input.companyId,
         saleSyncId: input.saleSyncId,
@@ -188,6 +209,7 @@ export class PaymentReminderService {
         mode: recipients.mode,
         summary: result.summary,
         originalRecipientMasked: recipients.originalRecipientMasked,
+        notificationId: reservation.notificationId,
         recipients: recipients.recipients.map((phone) => ({ phone, status: 'DRY_RUN' })),
         templateName,
         payload,
@@ -318,6 +340,7 @@ export class PaymentReminderService {
     });
     let overdueSales = 0;
     let sent = 0;
+    let dryRun = 0;
     let skipped = 0;
     let failed = 0;
 
@@ -338,6 +361,7 @@ export class PaymentReminderService {
         });
         if (result.summary?.cantidadCuotasVencidas) overdueSales += 1;
         if (result.status === 'SENT') sent += 1;
+        else if (result.status === 'DRY_RUN') dryRun += 1;
         else if (result.status === 'FAILED') failed += 1;
         else skipped += 1;
       } catch (error) {
@@ -354,6 +378,7 @@ export class PaymentReminderService {
       checkedSales: sales.length,
       overdueSales,
       sent,
+      dryRun,
       skipped,
       failed,
       durationMs: Date.now() - started,
@@ -410,6 +435,59 @@ export class PaymentReminderService {
     }
   }
 
+  private async reserveDryRunNotification(input: {
+    summary: LateFeeSummary;
+    recipients: PaymentReminderRecipients;
+    templateName: string;
+    payload: string[];
+    force: boolean;
+  }) {
+    try {
+      const notification = await prisma.paymentReminderNotification.create({
+        data: notificationData(input.summary, {
+          recipients: input.recipients,
+          templateName: input.templateName,
+          payload: input.payload,
+          status: 'DRY_RUN',
+        }),
+      });
+      await this.ensureDeliveries(notification.id, input.recipients, 'DRY_RUN');
+      await this.createSnapshots(input.summary, notification.id, 'DRY_RUN');
+      return { status: 'RESERVED' as const, notificationId: notification.id };
+    } catch (error) {
+      if (isUniqueConstraint(error) && !input.force) {
+        return { status: 'DUPLICATE' as const };
+      }
+      if (isUniqueConstraint(error) && input.force) {
+        const notification = await prisma.paymentReminderNotification.update({
+          where: {
+            companyId_saleSyncId_type_lastOverdueInstallmentSyncId: {
+              companyId: input.summary.companyId!,
+              saleSyncId: input.summary.ventaSyncId,
+              type: PAYMENT_REMINDER_TYPE,
+              lastOverdueInstallmentSyncId: input.summary.ultimaCuotaVencidaSyncId!,
+            },
+          },
+          data: {
+            status: 'DRY_RUN',
+            destinationPhone: input.recipients.recipients.join(','),
+            templateName: input.templateName,
+            payload: input.payload as any,
+            error: null,
+            scheduledAt: new Date(),
+            testMode: input.recipients.mode === 'TEST',
+            redirected: input.recipients.redirected,
+            originalRecipientMasked: input.recipients.originalRecipientMasked,
+          },
+        });
+        await this.ensureDeliveries(notification.id, input.recipients, 'DRY_RUN');
+        await this.createSnapshots(input.summary, notification.id, 'DRY_RUN');
+        return { status: 'RESERVED' as const, notificationId: notification.id };
+      }
+      throw error;
+    }
+  }
+
   private async reserveProcessingNotification(input: {
     summary: LateFeeSummary;
     recipients: PaymentReminderRecipients;
@@ -458,8 +536,25 @@ export class PaymentReminderService {
     }
   }
 
-  private async ensureDeliveries(notificationId: string, recipients: PaymentReminderRecipients) {
+  private async ensureDeliveries(
+    notificationId: string,
+    recipients: PaymentReminderRecipients,
+    status = 'PENDING',
+  ) {
     for (const actualRecipient of recipients.recipients) {
+      const updateData: {
+        originalRecipientMasked: string | null;
+        testMode: boolean;
+        redirected: boolean;
+        status?: string;
+      } = {
+        originalRecipientMasked: recipients.originalRecipientMasked,
+        testMode: recipients.mode === 'TEST',
+        redirected: recipients.redirected,
+      };
+      if (status === 'DRY_RUN') {
+        updateData.status = status;
+      }
       await prisma.paymentReminderDelivery.upsert({
         where: {
           notificationId_actualRecipient: {
@@ -473,19 +568,15 @@ export class PaymentReminderService {
           originalRecipientMasked: recipients.originalRecipientMasked,
           testMode: recipients.mode === 'TEST',
           redirected: recipients.redirected,
-          status: 'PENDING',
+          status,
         },
-        update: {
-          originalRecipientMasked: recipients.originalRecipientMasked,
-          testMode: recipients.mode === 'TEST',
-          redirected: recipients.redirected,
-        },
+        update: updateData,
       });
     }
     return prisma.paymentReminderDelivery.findMany({
       where: {
         notificationId,
-        status: { in: ['PENDING', 'FAILED', 'PROCESSING'] },
+        status: { in: ['PENDING', 'FAILED', 'PROCESSING', 'DRY_RUN'] },
       },
       orderBy: { actualRecipient: 'asc' },
     });
@@ -629,13 +720,11 @@ export function buildTemplatePayload(
   }
 
   if (recipients.mode === 'TEST') {
-    const detail = summary.cuotas
-      .slice(0, 10)
-      .map((cuota) => `Cuota ${cuota.numeroCuota ?? cuota.cuotaSyncId}: venc. ${cuota.fechaVencimiento}, saldo ${formatCurrency(cuota.saldoPendiente)}, mora ${formatCurrency(cuota.mora)}`)
+    const detail = buildInstallmentPreviewLines(summary)
       .join('\n');
     return [
       [
-        '🧪 MENSAJE DE PRUEBA — NO ENVIADO AL CLIENTE',
+        'MENSAJE DE PRUEBA - NO ENVIADO AL CLIENTE',
         `Cliente original: ${labels.clientName}`,
         `Telefono original: ${recipients.originalRecipientMasked ?? 'sin telefono'}`,
         `Venta o contrato: ${labels.saleLabel}`,
@@ -676,17 +765,25 @@ export function formatCurrency(value: string) {
 }
 
 export function buildInstallmentDetail(summary: LateFeeSummary) {
-  return buildInstallmentDetailLines(summary, summary.cuotas.length)
+  return buildInstallmentDetailLines(
+    summary,
+    Math.min(summary.cuotas.length, MAX_VISIBLE_INSTALLMENTS_IN_MESSAGE),
+  )
     .join('\n\n');
 }
 
 export function buildInstallmentDetailLines(summary: LateFeeSummary, maxLines: number) {
+  const visibleCount = Math.min(maxLines, summary.cuotas.length);
+  const hiddenCount = Math.max(summary.cuotas.length - visibleCount, 0);
   const lines = summary.cuotas
-    .slice(0, maxLines)
+    .slice(0, visibleCount)
     .map((cuota) => {
       const month = formatInstallmentMonth(cuota.fechaVencimiento);
       return `Cuota mes de ${month}: ${formatCurrency(cuota.saldoPendiente)} mas mora: ${formatCurrency(cuota.mora)}`;
     });
+  if (hiddenCount > 0 && lines.length > 0) {
+    lines[lines.length - 1] = `${lines[lines.length - 1]}; y ${additionalInstallmentsText(hiddenCount)}`;
+  }
   while (lines.length < maxLines) {
     lines.push('Sin cuota adicional');
   }
@@ -694,13 +791,42 @@ export function buildInstallmentDetailLines(summary: LateFeeSummary, maxLines: n
 }
 
 export function buildElegantInstallmentParameters(summary: LateFeeSummary, maxLines: number) {
+  const visibleCount = Math.min(maxLines, summary.cuotas.length);
+  const hiddenCount = Math.max(summary.cuotas.length - visibleCount, 0);
   return summary.cuotas
-    .slice(0, maxLines)
-    .flatMap((cuota) => [
-      formatInstallmentMonth(cuota.fechaVencimiento, true),
+    .slice(0, visibleCount)
+    .flatMap((cuota, index) => [
+      index === visibleCount - 1 && hiddenCount > 0
+        ? `${formatInstallmentMonth(cuota.fechaVencimiento, true)} y ${additionalInstallmentsText(hiddenCount)}`
+        : formatInstallmentMonth(cuota.fechaVencimiento, true),
       formatCurrency(cuota.saldoPendiente),
       formatCurrency(cuota.mora),
     ]);
+}
+
+export function buildInstallmentPreviewLines(summary: LateFeeSummary) {
+  const visibleCount = Math.min(summary.cuotas.length, MAX_VISIBLE_INSTALLMENTS_IN_MESSAGE);
+  const hiddenCount = Math.max(summary.cuotas.length - visibleCount, 0);
+  const lines = summary.cuotas
+    .slice(0, visibleCount)
+    .map((cuota) => {
+      const number = cuota.numeroCuota ? `Cuota ${cuota.numeroCuota}` : 'Cuota vencida';
+      return `${number} - vence ${formatCustomerDate(cuota.fechaVencimiento)} - pendiente ${formatCurrency(cuota.saldoPendiente)} - mora ${formatCurrency(cuota.mora)}`;
+    });
+  if (hiddenCount > 0) {
+    lines.push(`y ${additionalInstallmentsText(hiddenCount)}`);
+  }
+  return lines;
+}
+
+function additionalInstallmentsText(count: number) {
+  return `${count} cuota${count === 1 ? '' : 's'} adicional${count === 1 ? '' : 'es'} vencida${count === 1 ? '' : 's'}.`;
+}
+
+function formatCustomerDate(dateKey: string) {
+  const [year, month, day] = dateKey.split('-');
+  if (!year || !month || !day) return dateKey;
+  return `${day}/${month}/${year}`;
 }
 
 function formatInstallmentMonth(dateKey: string, capitalize = false) {

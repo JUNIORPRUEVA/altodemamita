@@ -119,6 +119,25 @@ describe('LateFeeCalculationService', () => {
     assert.equal(summary.totalGeneral, '0.00');
   });
 
+  it('omite una cuota vencida si ya fue pagada completamente antes de renderizar', () => {
+    const summary = service.calculateSaleSummary({
+      context: { saleSyncId: 'venta-1' },
+      calculationDate: rdDate('2026-08-01'),
+      installments: [
+        {
+          syncId: 'cuota-pagada',
+          dueDate: rdDate('2026-07-01'),
+          totalAmount: '10000',
+          paidAmount: '10000',
+          status: 'pendiente',
+        },
+      ],
+    });
+
+    assert.equal(summary.cantidadCuotasVencidas, 0);
+    assert.equal(summary.totalGeneral, '0.00');
+  });
+
   it('consolida tres cuotas vencidas sin mezclar dias de atraso', () => {
     const summary = service.calculateSaleSummary({
       context: { saleSyncId: 'venta-1' },

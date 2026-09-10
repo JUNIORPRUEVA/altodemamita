@@ -1,50 +1,53 @@
-import cors from 'cors';
-import express from 'express';
-import helmet from 'helmet';
-import morgan from 'morgan';
-import { authRouter } from './routes/auth.routes';
-import { authoritativeRouter } from './routes/authoritative.routes';
-import { businessRouter } from './routes/business.routes';
-import { ownerRouter } from './routes/owner.routes';
-import { paymentReminderRouter } from './routes/paymentReminder.routes';
-import { syncRouter } from './routes/sync.routes';
-import { systemRouter } from './routes/system.routes';
+import cors from "cors";
+import express from "express";
+import helmet from "helmet";
+import morgan from "morgan";
+import { authRouter } from "./routes/auth.routes";
+import { authoritativeRouter } from "./routes/authoritative.routes";
+import { businessRouter } from "./routes/business.routes";
+import { customerRouter } from "./routes/customer.routes";
+import { ownerRouter } from "./routes/owner.routes";
+import { paymentReminderRouter } from "./routes/paymentReminder.routes";
+import { syncRouter } from "./routes/sync.routes";
+import { systemRouter } from "./routes/system.routes";
 
 export function createApp() {
   const app = express();
 
   app.use(helmet());
   app.use(cors({ origin: true, credentials: true }));
-  app.use(express.json({ limit: '10mb' }));
-  app.use(morgan('combined'));
+  app.use(express.json({ limit: "10mb" }));
+  app.use(morgan("combined"));
 
   const healthHandler = (_req: express.Request, res: express.Response) => {
-    res.json({ ok: true, service: 'sistema-solares-backend' });
+    res.json({ ok: true, service: "sistema-solares-backend" });
   };
 
-  app.get('/', healthHandler);
-  app.get('/health', healthHandler);
-  app.get('/api/health', healthHandler);
+  app.get("/", healthHandler);
+  app.get("/health", healthHandler);
+  app.get("/api/health", healthHandler);
 
-  app.use('/api/auth', authRouter);
-  app.use('/auth', authRouter);
-  app.use('/api/authoritative', authoritativeRouter);
-  app.use('/authoritative', authoritativeRouter);
-  app.use('/api/business', businessRouter);
-  app.use('/business', businessRouter);
-  app.use('/api/owner', ownerRouter);
-  app.use('/owner', ownerRouter);
-  app.use('/api/payment-reminders', paymentReminderRouter);
-  app.use('/payment-reminders', paymentReminderRouter);
-  app.use('/api/sync', syncRouter);
-  app.use('/sync', syncRouter);
-  app.use('/api/pos-sync', syncRouter);
-  app.use('/pos-sync', syncRouter);
-  app.use('/api/system', systemRouter);
-  app.use('/system', systemRouter);
+  app.use("/api/auth", authRouter);
+  app.use("/auth", authRouter);
+  app.use("/api/authoritative", authoritativeRouter);
+  app.use("/authoritative", authoritativeRouter);
+  app.use("/api/business", businessRouter);
+  app.use("/business", businessRouter);
+  app.use("/api/customer", customerRouter);
+  app.use("/customer", customerRouter);
+  app.use("/api/owner", ownerRouter);
+  app.use("/owner", ownerRouter);
+  app.use("/api/payment-reminders", paymentReminderRouter);
+  app.use("/payment-reminders", paymentReminderRouter);
+  app.use("/api/sync", syncRouter);
+  app.use("/sync", syncRouter);
+  app.use("/api/pos-sync", syncRouter);
+  app.use("/pos-sync", syncRouter);
+  app.use("/api/system", systemRouter);
+  app.use("/system", systemRouter);
 
   app.use((_req, res) => {
-    res.status(404).json({ error: { message: 'Ruta no encontrada.' } });
+    res.status(404).json({ error: { message: "Ruta no encontrada." } });
   });
 
   return app;

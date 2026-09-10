@@ -274,6 +274,12 @@ function uniqueSyncIds(values: Array<string | null>) {
   return [...new Set(values.filter((value): value is string => Boolean(value?.trim())))];
 }
 
+export function isBlockingActiveSaleForLotDelete(
+  sale: { deletedAt?: unknown; status?: string | null } | null | undefined,
+) {
+  return Boolean(sale && !sale.deletedAt && sale.status !== 'cancelada');
+}
+
 async function upsertClients(companyId: string, rows: Row[], rejected: any[]) {
   const ack: Row[] = [];
   for (const row of rows) {
@@ -393,6 +399,36 @@ async function upsertLots(companyId: string, rows: Row[], rejected: any[]) {
       version: versionValue(row),
       deletedAt: deletedAt(row),
     };
+
+    if (data.deletedAt) {
+      const existingLot = await prisma.lot.findUnique({
+        where: { companyId_syncId: { companyId, syncId: id } },
+        select: { id: true, syncId: true },
+      });
+      if (existingLot) {
+        const activeSale = await prisma.sale.findFirst({
+          where: {
+            companyId,
+            lotId: existingLot.id,
+            deletedAt: null,
+            NOT: { status: 'cancelada' },
+          },
+          select: { id: true, syncId: true, status: true, deletedAt: true },
+        });
+        if (activeSale && isBlockingActiveSaleForLotDelete(activeSale)) {
+          console.log(
+            `[IntegrityCheck][LotDelete] companyId=${companyId} syncId=${id} activeSale=${activeSale.syncId} -> rejected`,
+          );
+          rejected.push({
+            sync_id: id,
+            reason: 'active_sale_reference',
+            message: 'No se puede eliminar un solar con una venta activa.',
+            existingSaleSyncId: activeSale.syncId,
+          });
+          continue;
+        }
+      }
+    }
 
     // Validar duplicado activo por block+number (solo si no es deleted)
     if (block && block.trim().length > 0 && number && number.trim().length > 0 && !data.deletedAt) {

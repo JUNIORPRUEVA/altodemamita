@@ -459,12 +459,17 @@ async function annulPaymentInTransaction(
     where: {
       id: input.paymentId,
       companyId: input.companyId,
-      deletedAt: null,
-      annulledAt: null,
     },
     include: { sale: true, installment: true },
   });
   if (!payment || !payment.sale) {
+    throw new AuthoritativeError('PAYMENT_NOT_FOUND', 'El pago seleccionado no existe.', 404);
+  }
+  if (payment.annulledAt) {
+    // Idempotencia de anulacion: nunca reversar dos veces el mismo pago.
+    throw new AuthoritativeError('PAYMENT_ALREADY_ANNULLED', 'Este pago ya fue anulado.', 409);
+  }
+  if (payment.deletedAt) {
     throw new AuthoritativeError('PAYMENT_NOT_FOUND', 'El pago seleccionado no existe.', 404);
   }
 
@@ -525,7 +530,13 @@ async function annulPaymentInTransaction(
   }
 
   if (payment.paymentType === 'apartado' || payment.paymentType === 'abono_inicial') {
-    const updatedSale = await reverseInitialPayment(tx, payment.sale, amount, annulledAt);
+    const updatedSale = await reverseInitialPayment(
+      tx,
+      payment.sale,
+      amount,
+      annulledAt,
+      payment.paymentType === 'apartado',
+    );
     return {
       paymentId: payment.id,
       saleId: payment.sale.id,
@@ -832,11 +843,19 @@ async function reverseInitialPayment(
   sale: Prisma.SaleGetPayload<Record<string, never>> | null,
   amount: number,
   annulledAt: Date,
+  isReservation: boolean,
 ) {
   if (!sale) {
     throw new AuthoritativeError('SALE_NOT_FOUND', 'La venta seleccionada no existe.', 404);
   }
-  const updatedInitialPaid = roundCurrency(Math.max(toNumber(sale.initialPaid) - amount, 0));
+  // Para apartados, `initialPaid` es 0 y el dinero vive en `reservationPaidAmount`;
+  // por eso la reversion debe descontar de la reserva y no del inicial.
+  const updatedInitialPaid = isReservation
+    ? toNumber(sale.initialPaid)
+    : roundCurrency(Math.max(toNumber(sale.initialPaid) - amount, 0));
+  const updatedReservationPaid = isReservation
+    ? roundCurrency(Math.max(toNumber(sale.reservationPaidAmount) - amount, 0))
+    : toNumber(sale.reservationPaidAmount);
   const updatedInitialPending = calculatePendingInitialPayment({
     requiredInitialPayment: toNumber(sale.initialRequiredAmount),
     initialPaymentPaid: updatedInitialPaid,
@@ -854,6 +873,7 @@ async function reverseInitialPayment(
     where: { id: sale.id },
     data: {
       initialPaid: decimal(updatedInitialPaid),
+      reservationPaidAmount: decimal(updatedReservationPaid),
       initialPendingAmount: decimal(updatedInitialPending),
       financedBalance: decimal(updatedFinancedBalance),
       balance: decimal(updatedFinancedBalance),

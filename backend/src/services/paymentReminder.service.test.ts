@@ -18,6 +18,7 @@ import {
   PROFESSIONAL4_PROJECT_PAYMENT_REMINDER_TEMPLATE,
   PROFESSIONAL5_PROJECT_PAYMENT_REMINDER_TEMPLATE,
   PROJECT_PAYMENT_REMINDER_TEMPLATE,
+  buildInstallmentPreviewLines,
   buildTemplatePayload,
   resolveDetailedTemplateName,
 } from './paymentReminder.service';
@@ -434,4 +435,166 @@ describe('buildTemplatePayload', () => {
     assert.equal(resolveDetailedTemplateName(PROFESSIONAL5_PROJECT_PAYMENT_REMINDER_TEMPLATE, 4), PROFESSIONAL4_PROJECT_PAYMENT_REMINDER_TEMPLATE);
     assert.equal(resolveDetailedTemplateName(PROFESSIONAL5_PROJECT_PAYMENT_REMINDER_TEMPLATE, 5), PROFESSIONAL5_PROJECT_PAYMENT_REMINDER_TEMPLATE);
   });
+
+  it('para una cuota profesional muestra solo esa cuota y total vencido completo', () => {
+    const payload = buildTemplatePayload(
+      reminderSummary(1),
+      productionRecipients(),
+      labels(),
+      PROFESSIONAL1_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+    );
+
+    assert.deepEqual(payload, [
+      'MM-H-S88',
+      'Enero 2026',
+      'RD$10,000.00',
+      'RD$300.00',
+      'RD$10,300.00',
+    ]);
+  });
+
+  it('para cinco cuotas profesionales muestra las cinco y totaliza todo', () => {
+    const payload = buildTemplatePayload(
+      reminderSummary(5),
+      productionRecipients(),
+      labels(),
+      PROFESSIONAL5_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+    );
+
+    assert.equal(payload.length, 17);
+    assert.equal(payload[1], 'Enero 2026');
+    assert.equal(payload[13], 'Mayo 2026');
+    assert.equal(payload[16], 'RD$51,500.00');
+    assert.doesNotMatch(payload.join('\n'), /adicional/);
+  });
+
+  it('para mas de cinco cuotas profesionales resume adicionales sin perder total', () => {
+    const payload = buildTemplatePayload(
+      reminderSummary(8),
+      productionRecipients(),
+      labels(),
+      PROFESSIONAL5_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+    );
+
+    assert.equal(payload.length, 17);
+    assert.equal(payload[1], 'Enero 2026');
+    assert.equal(payload[13], 'Mayo 2026 y 3 cuotas adicionales vencidas.');
+    assert.equal(payload[14], 'RD$10,000.00');
+    assert.equal(payload[15], 'RD$300.00');
+    assert.equal(payload[16], 'RD$82,400.00');
+  });
+
+  it('para diez cuotas detalladas mantiene cinco lineas visibles y total completo', () => {
+    const payload = buildTemplatePayload(
+      reminderSummary(10),
+      productionRecipients(),
+      labels(),
+      DETAILED5_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+    );
+
+    assert.equal(payload.length, 7);
+    assert.equal(payload[5], 'Cuota mes de mayo 2026: RD$10,000.00 mas mora: RD$300.00; y 5 cuotas adicionales vencidas.');
+    assert.equal(payload[6], 'RD$103,000.00');
+    for (const parameter of payload) {
+      assert.doesNotMatch(parameter, /[\n\t]/);
+    }
+  });
+
+  it('usa el monto restante de pago parcial, no el monto original completo', () => {
+    const summary = reminderSummary(1, { firstPending: '3500.25', firstPaid: '6499.75' });
+    const payload = buildTemplatePayload(
+      summary,
+      productionRecipients(),
+      labels(),
+      PROFESSIONAL1_PROJECT_PAYMENT_REMINDER_TEMPLATE,
+    );
+
+    assert.equal(payload[2], 'RD$3,500.25');
+    assert.equal(payload[4], 'RD$3,800.25');
+  });
+
+  it('preview dry-run usa fecha legible y resume despues de cinco cuotas', () => {
+    const preview = buildInstallmentPreviewLines(reminderSummary(6));
+
+    assert.equal(preview.length, 6);
+    assert.match(preview[0], /vence 15\/01\/2026/);
+    assert.equal(preview[5], 'y 1 cuota adicional vencida.');
+    assert.doesNotMatch(preview.join('\n'), /2026-01-15/);
+  });
 });
+
+function productionRecipients() {
+  return resolvePaymentReminderRecipients({
+    customerPhone: '8095551234',
+    testMode: false,
+    allowRealRecipients: true,
+    testNumbers: [],
+  });
+}
+
+function labels() {
+  return {
+    clientName: 'Juan Perez',
+    originalPhone: '8095551234',
+    lotLabel: 'MM-H-S88',
+    saleLabel: 'V-000145',
+  };
+}
+
+function reminderSummary(
+  count: number,
+  options: { firstPending?: string; firstPaid?: string } = {},
+) {
+  const monthStarts = [
+    '2026-01-15',
+    '2026-02-15',
+    '2026-03-15',
+    '2026-04-15',
+    '2026-05-15',
+    '2026-06-15',
+    '2026-07-15',
+    '2026-08-15',
+    '2026-09-15',
+    '2026-10-15',
+  ];
+  const cuotas = monthStarts.slice(0, count).map((fechaVencimiento, index) => {
+    const saldoPendiente = index === 0 ? options.firstPending ?? '10000.00' : '10000.00';
+    const montoPagado = index === 0 ? options.firstPaid ?? '0.00' : '0.00';
+    const mora = '300.00';
+    return {
+      cuotaId: `cuota-${index + 1}`,
+      cuotaSyncId: `cuota-${index + 1}`,
+      numeroCuota: index + 1,
+      fechaVencimiento,
+      montoOriginal: '10000.00',
+      montoPagado,
+      saldoPendiente,
+      diasAtraso: 30,
+      tasaDiaria: '0.01',
+      mora,
+      totalActualizado: (Number(saldoPendiente) + Number(mora)).toFixed(2),
+    };
+  });
+  const capitalPendiente = cuotas
+    .reduce((total, cuota) => total + Number(cuota.saldoPendiente), 0)
+    .toFixed(2);
+  const moraTotal = cuotas
+    .reduce((total, cuota) => total + Number(cuota.mora), 0)
+    .toFixed(2);
+  const totalGeneral = (Number(capitalPendiente) + Number(moraTotal)).toFixed(2);
+  return {
+    companyId: 'company-1',
+    clienteId: 'client-1',
+    clienteSyncId: 'client-sync-1',
+    ventaId: 'sale-1',
+    ventaSyncId: 'V-000145',
+    fechaCalculo: '2026-09-09',
+    cantidadCuotasVencidas: cuotas.length,
+    capitalPendiente,
+    moraTotal,
+    totalGeneral,
+    ultimaCuotaVencidaSyncId: cuotas.at(-1)?.cuotaSyncId ?? null,
+    periodoNotificacion: cuotas.at(-1)?.fechaVencimiento.slice(0, 7) ?? null,
+    cuotas,
+  };
+}
