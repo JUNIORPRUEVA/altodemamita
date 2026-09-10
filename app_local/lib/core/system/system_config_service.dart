@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import '../config/app_flags.dart';
 import '../../models/sync/sync_settings.dart';
 import '../../services/sync/sync_config_repository.dart';
 
@@ -75,6 +76,15 @@ class SystemConfigService extends ChangeNotifier {
   String get currentDeviceId => _currentDeviceId;
   String get lastRefreshError => _lastRefreshError;
 
+  @visibleForTesting
+  void setDeviceWriteStateForTesting({
+    required bool canWrite,
+    String reason = '',
+  }) {
+    _canWrite = canWrite;
+    _deviceWriteReason = reason;
+  }
+
   Future<void> initialize() => refresh();
 
   Future<void> refresh({bool throwOnFailure = false}) async {
@@ -113,6 +123,9 @@ class SystemConfigService extends ChangeNotifier {
   void ensureWritable() {
     if (_isReadOnly) {
       throw const ReadOnlyModeException();
+    }
+    if (cloudCutoverMode.usesAuthoritativeBusinessWrites) {
+      return;
     }
     if (!_canWrite) {
       throw DeviceWriteBlockedException(

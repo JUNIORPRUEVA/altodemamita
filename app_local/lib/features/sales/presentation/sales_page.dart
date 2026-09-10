@@ -5,6 +5,8 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/network/backend_api_client.dart';
+import '../../../core/resilience/friendly_error_messages.dart';
 import '../../../features/auth/domain/permission_model.dart';
 import '../../../features/auth/presentation/auth_provider.dart';
 import '../../../shared/sync/row_sync_badge_policy.dart';
@@ -15,6 +17,7 @@ import '../../lots/data/lot_repository.dart';
 import '../../settings/data/settings_repository.dart';
 import '../data/sales_repository.dart';
 import '../data/seller_repository.dart';
+import '../domain/sale_draft.dart';
 import '../domain/sale_summary.dart';
 import 'sale_detail_dialog.dart';
 import 'sale_form_dialog.dart';
@@ -46,6 +49,9 @@ class _SalesPageState extends State<SalesPage> {
   bool _hasInternet = true;
   int _internetProbeFailures = 0;
   StreamSubscription<List<ConnectivityResult>>? _internetSubscription;
+
+  /// Venta creada en el ultimo submit autoritativo exitoso del modal.
+  int? _createdSaleId;
 
   Future<void> _reloadControllerSafely() async {
     if (!mounted || _controller.isDisposed) {
@@ -135,6 +141,10 @@ class _SalesPageState extends State<SalesPage> {
     final canDeleteSales = auth.canAccess(
       PermissionCatalog.sales,
       PermissionAction.delete,
+    );
+    final canUpdateSales = auth.canAccess(
+      PermissionCatalog.sales,
+      PermissionAction.update,
     );
 
     return ListenableBuilder(
@@ -252,6 +262,7 @@ class _SalesPageState extends State<SalesPage> {
             Expanded(
               child: _buildBody(
                 canCreateSales: canCreateSales,
+                canUpdateSales: canUpdateSales,
                 canDeleteSales: canDeleteSales,
               ),
             ),
@@ -263,92 +274,67 @@ class _SalesPageState extends State<SalesPage> {
 
   Widget _buildBody({
     required bool canCreateSales,
+    required bool canUpdateSales,
     required bool canDeleteSales,
   }) {
-    if (_controller.isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
+    final controller = _controller;
+    final hasVisible = controller.hasVisibleData;
 
-    if (_controller.loadError != null) {
-      final failure = _controller.loadError!;
+    // Pantalla fatal REAL: solo cuando NO hay ningun dato visible y la carga
+    // autoritativa inicial de la lista completa fallo. Un refresh fallido con
+    // datos NUNCA llega aqui (se conserva la lista + aviso no bloqueante).
+    if (controller.loadError != null) {
+      final failure = controller.loadError!;
       return InlineModuleRecoveryCard(
         title: failure.title,
         message: failure.message,
         details: failure.details,
         suggestions: failure.suggestions,
-        onRetry: _runSearch,
+        onRetry: _retryCurrentLoad,
       );
     }
 
-    if (_controller.sales.isEmpty) {
-      return Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560),
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 72,
-                  height: 72,
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primaryContainer,
-                    borderRadius: BorderRadius.circular(22),
-                  ),
-                  child: Icon(
-                    Icons.point_of_sale_outlined,
-                    size: 34,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                ),
-                const SizedBox(height: 18),
-                Text(
-                  'Todavía no hay ventas registradas.',
-                  style: Theme.of(context).textTheme.titleLarge,
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  'Crea la primera venta para comenzar el seguimiento de iniciales, cuotas y pagos.',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 20),
-                if (canCreateSales)
-                  FilledButton.icon(
-                    onPressed: _controller.isSaving ? null : _createSale,
-                    icon: const Icon(Icons.add),
-                    label: const Text('Crear venta'),
-                  ),
-              ],
-            ),
-          ),
-        ),
+    if (!hasVisible) {
+      // Carga inicial o busqueda nueva SIN datos aun: skeleton, jamas vacio.
+      if (controller.isLoading) {
+        return const _SalesLoadingView();
+      }
+      // Busqueda fallida sin resultados que mostrar: aviso recuperable.
+      if (controller.searchFailed) {
+        return _SalesSearchFailedView(onRetry: _retryCurrentLoad);
+      }
+      // Vacio confirmado por respuesta autoritativa (solo aqui se muestra).
+      if (controller.currentQuery.trim().isNotEmpty) {
+        return _SalesEmptySearchView(onClear: _clearSearch);
+      }
+      return _SalesEmptyView(
+        canCreateSales: canCreateSales,
+        isSaving: controller.isSaving,
+        onCreate: _createSale,
       );
     }
 
-    return Container(
-      color: Colors.white,
-      child: ListView.separated(
-        itemCount: _controller.sales.length,
-        separatorBuilder: (_, _) => const Divider(height: 1, indent: 64),
-        itemBuilder: (context, index) {
-          final sale = _controller.sales[index];
-          return _SaleRow(
-            sale: sale,
-            hasInternet: _hasInternet,
-            onTap: () => _openDetail(sale),
-            canDeleteSale: canDeleteSales,
-            onDelete: () => _confirmDeleteSale(sale),
-          );
-        },
-      ),
+    // Datos visibles -> SIEMPRE se muestra la lista; el refresh (o su fallo)
+    // se presenta de forma discreta y no bloquea el modulo.
+    return _SalesListPane(
+      controller: controller,
+      hasInternet: _hasInternet,
+      canUpdateSales: canUpdateSales,
+      canDeleteSales: canDeleteSales,
+      onRefreshRetry: _retryCurrentLoad,
+      onOpenDetail: _openDetail,
+      onEditSale: _editSale,
+      onDeleteSale: _confirmDeleteSale,
     );
+  }
+
+  void _retryCurrentLoad() {
+    _controller.load(query: _controller.currentQuery);
   }
 
   Future<void> _createSale() async {
     debugPrint('[SALES][UI] _createSale pressed');
+    _createdSaleId = null;
     final draft = await SaleFormDialog.show(
       context,
       clients: _controller.clients,
@@ -358,6 +344,10 @@ class _SalesPageState extends State<SalesPage> {
       clientRepository: widget.clientRepository,
       lotRepository: widget.lotRepository,
       sellerRepository: widget.sellerRepository,
+      // P0: la venta se crea MIENTRAS el modal permanece abierto y SOLO se
+      // cierra cuando el backend confirma el exito. En fallo, el modal queda
+      // abierto con los datos intactos y el mensaje de error.
+      onSubmit: _submitCreateFromDialog,
       onClientCreated: _reloadControllerSafely,
       onLotCreated: _reloadControllerSafely,
       onSellerCreated: _reloadControllerSafely,
@@ -369,27 +359,15 @@ class _SalesPageState extends State<SalesPage> {
       return;
     }
 
+    final saleId = _createdSaleId;
     debugPrint(
-      '[SALES][UI] draft ready -> calling controller.createSale clientId=${draft.clientId} lotId=${draft.lotId} sellerId=${draft.sellerId} price=${draft.salePrice}',
+      '[SALES][UI] create confirmed saleId=$saleId -> fetching detail',
     );
-    final saleId = await _controller.createSale(draft);
-    if (!mounted) {
-      debugPrint('[SALES][UI] not mounted after createSale');
-      return;
-    }
-
     if (saleId == null) {
-      final message =
-          _controller.lastSaveErrorMessage ??
-          'No se pudo guardar la venta. Revise los datos e intente nuevamente.';
-      debugPrint('[SALES][UI] createSale returned null -> $message');
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text(message), backgroundColor: Colors.red),
-      );
+      debugPrint('[SALES][UI] no saleId captured after success');
       return;
     }
 
-    debugPrint('[SALES][UI] saleId=$saleId -> fetching detail');
     final detail = await _controller.fetchDetail(saleId);
     if (!mounted) {
       debugPrint('[SALES][UI] not mounted after fetchDetail');
@@ -407,6 +385,95 @@ class _SalesPageState extends State<SalesPage> {
     if (detail != null) {
       await SaleDetailDialog.show(context, detail);
     }
+  }
+
+  /// Ejecuta la creacion autoritativa desde el modal abierto. Devuelve success
+  /// solo cuando el backend/PostgreSQL confirma la venta.
+  Future<SaleFormSubmitOutcome> _submitCreateFromDialog(
+    SaleDraft draft,
+    String operationId,
+  ) async {
+    try {
+      debugPrint(
+        '[SALES][UI] submit create clientId=${draft.clientId} lotId=${draft.lotId} price=${draft.salePrice} op=$operationId',
+      );
+      final saleId = await widget.salesRepository.createSale(
+        draft,
+        operationId: operationId,
+      );
+      if (!mounted) {
+        return const SaleFormSubmitOutcome.success();
+      }
+      if (saleId <= 0) {
+        return const SaleFormSubmitOutcome.failure(
+          'El servidor no confirmó la venta creada. Revisa los datos e intenta nuevamente.',
+        );
+      }
+      _createdSaleId = saleId;
+      await _reloadControllerSafely();
+      return const SaleFormSubmitOutcome.success();
+    } on BackendApiException catch (error) {
+      debugPrint('[SALES][UI] create backend failure -> ${error.message}');
+      return SaleFormSubmitOutcome.failure(
+        _submissionFailureMessage(
+          creating: true,
+          statusCode: error.statusCode,
+          serverMessage: error.message,
+        ),
+      );
+    } catch (error) {
+      debugPrint('[SALES][UI] create unexpected failure -> $error');
+      return SaleFormSubmitOutcome.failure(
+        FriendlyErrorMessages.forOperation(
+          'crear la venta',
+          error,
+          module: 'ventas',
+        ),
+      );
+    }
+  }
+
+  /// Mapea el error del backend a un mensaje claro y sin detalles tecnicos.
+  String _submissionFailureMessage({
+    required bool creating,
+    required int? statusCode,
+    required String serverMessage,
+  }) {
+    final verb = creating ? 'crear' : 'actualizar';
+    final fallback = creating
+        ? 'No se pudo crear la venta. Revisa los datos e intenta nuevamente.'
+        : 'No se pudo actualizar la venta. Revisa los datos e intenta nuevamente.';
+    final normalizedServerMessage = serverMessage.trim();
+
+    if (statusCode == 401) {
+      return 'Tu sesión expiró. Cierra la sesión y vuelve a iniciar sesión para continuar.';
+    }
+    if (statusCode == 403) {
+      return creating
+          ? 'No tienes permiso para crear ventas.'
+          : 'No tienes permiso para editar ventas.';
+    }
+    if (statusCode == 409) {
+      final lower = normalizedServerMessage.toLowerCase();
+      if (creating &&
+          (lower.contains('solar') ||
+              lower.contains('venta') ||
+              lower.contains('ya existe') ||
+              lower.contains('lot'))) {
+        return 'Este solar ya tiene una venta activa. Selecciona otro solar o consulta la venta existente.';
+      }
+      return normalizedServerMessage.isNotEmpty
+          ? normalizedServerMessage
+          : 'Ya existe una venta con estos datos. Revisa e intenta nuevamente.';
+    }
+    if (statusCode == null || statusCode >= 500) {
+      return 'No pudimos $verb la venta porque el servidor no respondió. '
+          'Tus datos siguen en el formulario; puedes intentar nuevamente.';
+    }
+    if (normalizedServerMessage.isNotEmpty) {
+      return normalizedServerMessage;
+    }
+    return fallback;
   }
 
   Future<void> _confirmDeleteSale(SaleSummary summary) async {
@@ -449,9 +516,117 @@ class _SalesPageState extends State<SalesPage> {
     _showMessage(error ?? 'Venta eliminada correctamente.');
   }
 
+  Future<void> _editSale(SaleSummary summary) async {
+    final detail = await _controller.fetchDetail(summary.id);
+    if (!mounted) {
+      return;
+    }
+    if (detail == null) {
+      _showMessage(
+        'No pudimos abrir esta venta para editarla. Actualiza la lista e intenta nuevamente.',
+      );
+      return;
+    }
+
+    final sale = detail.sale;
+    final draft = await SaleFormDialog.show(
+      context,
+      clients: _controller.clients,
+      availableLots: _controller.availableLots,
+      sellers: _controller.sellers,
+      defaults: _controller.defaults,
+      clientRepository: widget.clientRepository,
+      lotRepository: widget.lotRepository,
+      sellerRepository: widget.sellerRepository,
+      initialDraft: SaleDraft(
+        clientId: sale.clientId,
+        lotId: sale.lotId,
+        userId: sale.userId,
+        sellerId: sale.sellerId,
+        saleDate: sale.saleDate,
+        salePrice: sale.salePrice,
+        downPaymentPercentage: sale.downPaymentPercentage,
+        requiredInitialPayment: sale.requiredInitialPayment,
+        initialPaymentPaid: sale.paidInitialPayment,
+        initialPaymentMethod: detail.initialPaymentMethod,
+        minimumReserveAmount: sale.minimumReserveAmount,
+        initialPaymentDeadline: sale.initialPaymentDeadline,
+        monthlyInterest: sale.monthlyInterest,
+        installmentCount: sale.installmentCount,
+        status: sale.status,
+      ),
+      dialogTitle: 'Editar venta',
+      submitLabel: 'Guardar cambios',
+      // P0: la edicion se ejecuta mientras el modal permanece abierto y solo
+      // se cierra cuando el backend confirma la actualizacion.
+      onSubmit: (draftToSave, operationId) =>
+          _submitUpdateFromDialog(summary.id, draftToSave, operationId),
+      onClientCreated: _reloadControllerSafely,
+      onLotCreated: _reloadControllerSafely,
+      onSellerCreated: _reloadControllerSafely,
+    );
+    if (!mounted || draft == null) {
+      return;
+    }
+
+    final updatedDetail = await _controller.fetchDetail(summary.id);
+    if (!mounted) {
+      return;
+    }
+    _showMessage('Venta actualizada correctamente.');
+    if (updatedDetail != null) {
+      await SaleDetailDialog.show(context, updatedDetail);
+    }
+  }
+
+  Future<SaleFormSubmitOutcome> _submitUpdateFromDialog(
+    int saleId,
+    SaleDraft draft,
+    String operationId,
+  ) async {
+    try {
+      debugPrint(
+        '[SALES][UI] submit update saleId=$saleId price=${draft.salePrice} op=$operationId',
+      );
+      await widget.salesRepository.updateSale(
+        saleId,
+        draft,
+        operationId: operationId,
+      );
+      if (mounted) {
+        await _reloadControllerSafely();
+      }
+      return const SaleFormSubmitOutcome.success();
+    } on BackendApiException catch (error) {
+      debugPrint('[SALES][UI] update backend failure -> ${error.message}');
+      return SaleFormSubmitOutcome.failure(
+        _submissionFailureMessage(
+          creating: false,
+          statusCode: error.statusCode,
+          serverMessage: error.message,
+        ),
+      );
+    } catch (error) {
+      debugPrint('[SALES][UI] update unexpected failure -> $error');
+      return SaleFormSubmitOutcome.failure(
+        FriendlyErrorMessages.forOperation(
+          'actualizar la venta',
+          error,
+          module: 'ventas',
+        ),
+      );
+    }
+  }
+
   Future<void> _openDetail(SaleSummary summary) async {
     final detail = await _controller.fetchDetail(summary.id);
-    if (!mounted || detail == null) {
+    if (!mounted) {
+      return;
+    }
+    if (detail == null) {
+      _showMessage(
+        'No pudimos abrir el detalle de esta venta. Actualiza la lista e intenta nuevamente.',
+      );
       return;
     }
 
@@ -474,6 +649,309 @@ class _SalesPageState extends State<SalesPage> {
   }
 }
 
+// ── Estados visuales P0 (cache-first / refresh no bloqueante) ────────────────
+
+/// Carga inicial sin datos: skeleton/loader, jamas "No hay ventas".
+class _SalesLoadingView extends StatelessWidget {
+  const _SalesLoadingView();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 28,
+            height: 28,
+            child: CircularProgressIndicator(strokeWidth: 3),
+          ),
+          SizedBox(height: 16),
+          Text('Cargando ventas…'),
+        ],
+      ),
+    );
+  }
+}
+
+/// Vacio CONFIRMADO por el backend para la lista completa (sin query).
+class _SalesEmptyView extends StatelessWidget {
+  const _SalesEmptyView({
+    required this.canCreateSales,
+    required this.isSaving,
+    required this.onCreate,
+  });
+
+  final bool canCreateSales;
+  final bool isSaving;
+  final VoidCallback onCreate;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 560),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 72,
+                height: 72,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(22),
+                ),
+                child: Icon(
+                  Icons.point_of_sale_outlined,
+                  size: 34,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                'Todavía no hay ventas registradas.',
+                style: Theme.of(context).textTheme.titleLarge,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Crea la primera venta para comenzar el seguimiento de iniciales, cuotas y pagos.',
+                style: Theme.of(context).textTheme.bodyMedium,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 20),
+              if (canCreateSales)
+                FilledButton.icon(
+                  onPressed: isSaving ? null : onCreate,
+                  icon: const Icon(Icons.add),
+                  label: const Text('Crear venta'),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Busqueda sin resultados (respuesta autoritativa con query no vacia).
+class _SalesEmptySearchView extends StatelessWidget {
+  const _SalesEmptySearchView({required this.onClear});
+
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.search_off_outlined,
+                size: 42,
+                color: Theme.of(context).colorScheme.outline,
+              ),
+              const SizedBox(height: 14),
+              Text(
+                'No se encontraron ventas para tu búsqueda.',
+                style: Theme.of(context).textTheme.titleMedium,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 18),
+              OutlinedButton.icon(
+                onPressed: onClear,
+                icon: const Icon(Icons.close),
+                label: const Text('Limpiar búsqueda'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Busqueda fallida sin resultados que mostrar: error recuperable, no fatal.
+class _SalesSearchFailedView extends StatelessWidget {
+  const _SalesSearchFailedView({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.cloud_off_outlined,
+                size: 42,
+                color: Theme.of(context).colorScheme.error,
+              ),
+              const SizedBox(height: 14),
+              Text(
+                'No pudimos buscar las ventas.',
+                style: Theme.of(context).textTheme.titleMedium,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Revisa tu conexión e inténtalo nuevamente. Tus datos están seguros.',
+                style: Theme.of(context).textTheme.bodyMedium,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 18),
+              FilledButton.icon(
+                onPressed: onRetry,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Reintentar'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Lista visible SIEMPRE. El refresh (o su fallo) es un aviso no bloqueante.
+class _SalesListPane extends StatelessWidget {
+  const _SalesListPane({
+    required this.controller,
+    required this.hasInternet,
+    required this.canUpdateSales,
+    required this.canDeleteSales,
+    required this.onRefreshRetry,
+    required this.onOpenDetail,
+    required this.onEditSale,
+    required this.onDeleteSale,
+  });
+
+  final SalesController controller;
+  final bool hasInternet;
+  final bool canUpdateSales;
+  final bool canDeleteSales;
+  final VoidCallback onRefreshRetry;
+  final ValueChanged<SaleSummary> onOpenDetail;
+  final ValueChanged<SaleSummary> onEditSale;
+  final ValueChanged<SaleSummary> onDeleteSale;
+
+  @override
+  Widget build(BuildContext context) {
+    final refreshFailed = controller.refreshFailed;
+    final refreshing = controller.isRefreshing && !refreshFailed;
+    return Container(
+      color: Colors.white,
+      child: Column(
+        children: [
+          if (refreshFailed)
+            _SalesRefreshFailedBanner(onRetry: onRefreshRetry)
+          else if (refreshing)
+            const _SalesRefreshingBar(),
+          Expanded(
+            child: ListView.separated(
+              itemCount: controller.sales.length,
+              separatorBuilder: (_, _) => const Divider(height: 1, indent: 64),
+              itemBuilder: (context, index) {
+                final sale = controller.sales[index];
+                return _SaleRow(
+                  sale: sale,
+                  hasInternet: hasInternet,
+                  onTap: () => onOpenDetail(sale),
+                  canUpdateSale: canUpdateSales,
+                  canDeleteSale: canDeleteSales,
+                  onEdit: () => onEditSale(sale),
+                  onDelete: () => onDeleteSale(sale),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Indicador discreto de refresh en segundo plano con datos visibles.
+class _SalesRefreshingBar extends StatelessWidget {
+  const _SalesRefreshingBar();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      color: const Color(0xFFF2F6FB),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: const [
+          SizedBox(
+            width: 12,
+            height: 12,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          SizedBox(width: 8),
+          Text(
+            'Actualizando…',
+            style: TextStyle(fontSize: 12, color: Color(0xFF4A5A72)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Refresh fallido CON datos visibles: aviso no bloqueante con reintentar.
+class _SalesRefreshFailedBanner extends StatelessWidget {
+  const _SalesRefreshFailedBanner({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      color: const Color(0xFFFFF7E6),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.cloud_off_outlined,
+            size: 16,
+            color: Color(0xFF8A5A00),
+          ),
+          const SizedBox(width: 8),
+          const Expanded(
+            child: Text(
+              'No pudimos actualizar. Mostrando datos guardados.',
+              style: TextStyle(fontSize: 12, color: Color(0xFF6B4A00)),
+            ),
+          ),
+          TextButton(
+            onPressed: onRetry,
+            style: TextButton.styleFrom(
+              minimumSize: const Size(0, 30),
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text('Reintentar', style: TextStyle(fontSize: 12)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ── Compact sale row ──────────────────────────────────────────────────────────
 
 class _SaleRow extends StatelessWidget {
@@ -481,14 +959,18 @@ class _SaleRow extends StatelessWidget {
     required this.sale,
     required this.hasInternet,
     required this.onTap,
+    required this.canUpdateSale,
     required this.canDeleteSale,
+    required this.onEdit,
     required this.onDelete,
   });
 
   final SaleSummary sale;
   final bool hasInternet;
   final VoidCallback onTap;
+  final bool canUpdateSale;
   final bool canDeleteSale;
+  final VoidCallback onEdit;
   final VoidCallback onDelete;
 
   @override
@@ -658,6 +1140,13 @@ class _SaleRow extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 4),
+              if (canUpdateSale)
+                IconButton(
+                  tooltip: 'Editar venta',
+                  icon: const Icon(Icons.edit_outlined),
+                  color: const Color(0xFF49608C),
+                  onPressed: onEdit,
+                ),
               if (canDeleteSale)
                 IconButton(
                   tooltip: 'Eliminar venta',

@@ -3,6 +3,8 @@ import 'dart:developer' as developer;
 
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import '../../../core/cloud_foundation/list_snapshot_store.dart';
+import '../../../core/config/app_flags.dart';
 import '../../../core/network/backend_api_client.dart';
 import '../../../core/network/backend_entity_id_registry.dart';
 import '../../../core/database/app_database.dart';
@@ -28,10 +30,15 @@ class SellerRepository implements SyncRepository {
   final SyncQueueService _syncQueueService;
   final BackendApiClient _apiClient;
   final BackendEntityIdRegistry _idRegistry = BackendEntityIdRegistry.instance;
+  late final ListSnapshotStore _listSnapshot = ListSnapshotStore(
+    _appDatabase,
+    entity: 'sellers',
+  );
 
   bool get _shouldRunBackgroundSync =>
       identical(_appDatabase, AppDatabase.instance);
-  bool get _useBackendMode => false;
+  bool get _useBackendMode =>
+      cloudCutoverMode.usesAuthoritativeBusinessWrites;
 
   void _log(String message, {Object? error, StackTrace? stackTrace}) {
     developer.log(
@@ -96,12 +103,11 @@ class SellerRepository implements SyncRepository {
     try {
       if (_useBackendMode) {
         final created = await _apiClient.post(
-          '/sellers',
+          '/business/sellers',
           body: _toBackendPayload(seller),
         );
-        final mapped = _sellerFromBackend(
-          (created as Map).map((key, value) => MapEntry(key.toString(), value)),
-        );
+        await _cacheBackendSellerResponse(created);
+        final mapped = _sellerFromBackend(_entityFromResponse(created, 'seller') ?? const {});
         return mapped.id ?? 0;
       }
 
@@ -156,10 +162,11 @@ class SellerRepository implements SyncRepository {
             'No se pudo identificar el vendedor remoto para actualizarlo.',
           );
         }
-        await _apiClient.patch(
-          '/sellers/$remoteId',
+        final updated = await _apiClient.patch(
+          '/business/sellers/$remoteId',
           body: _toBackendPayload(seller),
         );
+        await _cacheBackendSellerResponse(updated);
         return;
       }
 
@@ -211,7 +218,8 @@ class SellerRepository implements SyncRepository {
             'No se pudo identificar el vendedor remoto para eliminarlo.',
           );
         }
-        await _apiClient.delete('/sellers/$remoteId');
+        final deleted = await _apiClient.delete('/business/sellers/$remoteId');
+        await _cacheBackendSellerResponse(deleted);
         return;
       }
 
@@ -549,7 +557,7 @@ class SellerRepository implements SyncRepository {
 
   Future<List<Seller>> _fetchAllFromBackend({String query = ''}) async {
     final response = await _apiClient.get(
-      '/sellers',
+      '/business/sellers',
       queryParameters: {
         'page': '1',
         'limit': '100',
@@ -561,15 +569,47 @@ class SellerRepository implements SyncRepository {
         : (response as Map).map(
             (key, value) => MapEntry(key.toString(), value),
           );
-    final items = (payload['items'] as List?) ?? const [];
-    return items
+    final data = payload['data'];
+    final dataMap = data is Map
+        ? data.map((key, value) => MapEntry(key.toString(), value))
+        : payload;
+    final items = (dataMap['items'] as List?) ?? const [];
+    final rawItems = items
         .whereType<Map>()
         .map(
-          (item) => _sellerFromBackend(
-            item.map((key, value) => MapEntry(key.toString(), value)),
+          (item) => item.map(
+            (key, value) => MapEntry(key.toString(), value),
           ),
         )
         .toList(growable: false);
+    // Snapshot cache-first de la lista completa (no de busquedas).
+    if (query.trim().isEmpty) {
+      await _listSnapshot.write(rawItems);
+    }
+    return rawItems.map(_sellerFromBackend).toList(growable: false);
+  }
+
+  /// Ultima lista valida de vendedores en cache local (best-effort).
+  Future<List<Seller>> fetchCachedList() async {
+    if (!_useBackendMode) {
+      return const [];
+    }
+    final items = await _listSnapshot.read();
+    if (items == null) {
+      return const [];
+    }
+    try {
+      return items
+          .whereType<Map>()
+          .map(
+            (item) => _sellerFromBackend(
+              item.map((key, value) => MapEntry(key.toString(), value)),
+            ),
+          )
+          .toList(growable: false);
+    } catch (_) {
+      return const [];
+    }
   }
 
   Seller _sellerFromBackend(Map<String, dynamic> item) {
@@ -579,7 +619,11 @@ class SellerRepository implements SyncRepository {
       id: localId,
       name: item['name']?.toString().trim() ?? '',
       phone: item['phone']?.toString().trim() ?? '',
-      documentId: item['documentId']?.toString().trim() ?? '',
+      documentId:
+          item['document']?.toString().trim() ??
+          item['documentId']?.toString().trim() ??
+          item['document_id']?.toString().trim() ??
+          '',
       createdAt:
           DateTime.tryParse(item['createdAt']?.toString() ?? '') ??
           DateTime.now(),
@@ -592,11 +636,45 @@ class SellerRepository implements SyncRepository {
   Map<String, dynamic> _toBackendPayload(Seller seller) {
     return {
       'name': seller.name.trim(),
-      'documentId': seller.documentId.trim().isEmpty
+      'document': seller.documentId.trim().isEmpty
           ? null
           : seller.documentId.trim(),
       'phone': seller.phone.trim().isEmpty ? null : seller.phone.trim(),
     };
+  }
+
+  Future<void> _cacheBackendSellerResponse(Object? response) async {
+    final item = _entityFromResponse(response, 'seller');
+    if (item == null) return;
+    await mergeRemoteRecords([
+      {
+        'id': item['id'],
+        'sync_id': item['sync_id'] ?? item['syncId'] ?? item['id'],
+        'version': item['version'] ?? 1,
+        'name': item['name'],
+        'document_id': item['document_id'] ?? item['documentId'] ?? item['document'],
+        'phone': item['phone'],
+        'created_at': item['created_at'] ?? item['createdAt'],
+        'updated_at': item['updated_at'] ?? item['updatedAt'],
+        'deleted_at': item['deleted_at'] ?? item['deletedAt'],
+        'sync_status': SyncStatus.synced.storageValue,
+      },
+    ]);
+    await _listSnapshot.clear();
+  }
+
+  Map<String, dynamic>? _entityFromResponse(Object? response, String key) {
+    if (response is! Map) return null;
+    final payload = response.map((mapKey, value) => MapEntry(mapKey.toString(), value));
+    final data = payload['data'];
+    final dataMap = data is Map
+        ? data.map((mapKey, value) => MapEntry(mapKey.toString(), value))
+        : payload;
+    final entity = dataMap[key];
+    if (entity is Map) {
+      return entity.map((mapKey, value) => MapEntry(mapKey.toString(), value));
+    }
+    return null;
   }
 
   Future<int?> _findActiveSellerIdByDocumentId(

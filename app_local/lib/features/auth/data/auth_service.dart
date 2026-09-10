@@ -121,7 +121,12 @@ class AuthService {
        _syncConfigRepository = syncConfigRepository ?? SyncConfigRepository(),
        _syncQueueService = syncQueueService ?? SyncQueueService.instance,
        _httpClient = httpClient ?? createBackendHttpClient(),
-       _apiClient = apiClient ?? BackendApiClient(),
+       _apiClient =
+           apiClient ??
+           BackendApiClient(
+             syncConfigRepository:
+                 syncConfigRepository ?? SyncConfigRepository(),
+           ),
        _systemConfigService =
            systemConfigService ??
            (syncConfigRepository == null
@@ -2239,15 +2244,14 @@ class AuthService {
       throw const AuthException('No se pudo identificar el usuario remoto.');
     }
     final response = await _apiClient.patch(
-      '/users/$remoteUserId',
+      '/business/users/$remoteUserId',
       body: {
         'email': email,
-        'username': _buildUsernameFromEmail(email),
-        'fullName': nombre,
+        'name': nombre,
         if (newPassword != null && newPassword.isNotEmpty)
           'password': newPassword,
-        'isActive': active,
-        'roleCode': _roleCodeFor(role, permissions),
+        'active': active,
+        'role': role == UserRole.admin ? 'OWNER' : 'TECH',
       },
     );
     final payload = response is Map<String, dynamic>
@@ -2269,7 +2273,7 @@ class AuthService {
     if (remoteUserId == null || remoteUserId.isEmpty) {
       return;
     }
-    await _apiClient.delete('/users/$remoteUserId');
+    await _apiClient.delete('/business/users/$remoteUserId');
   }
 
   Future<UserModel> _setUserActiveInBackend({
@@ -2281,8 +2285,8 @@ class AuthService {
       throw const AuthException('No se pudo identificar el usuario remoto.');
     }
     final response = await _apiClient.patch(
-      '/users/$remoteUserId',
-      body: {'isActive': active},
+      '/business/users/$remoteUserId',
+      body: {'active': active},
     );
     final payload = response is Map<String, dynamic>
         ? response
@@ -2368,23 +2372,6 @@ class AuthService {
       authSource: AuthSource.cloud,
       telefono: payload['phone']?.toString(),
     );
-  }
-
-  String _buildUsernameFromEmail(String email) {
-    final localPart = email.split('@').first.trim().toLowerCase();
-    return localPart.isEmpty ? 'usuario' : localPart;
-  }
-
-  String _roleCodeFor(UserRole role, List<PermissionModel> permissions) {
-    if (role == UserRole.admin) {
-      return 'ADMIN';
-    }
-    final canManageSales = permissions.any(
-      (permission) =>
-          permission.module == PermissionCatalog.sales &&
-          (permission.create || permission.update || permission.delete),
-    );
-    return canManageSales ? 'SALES_AGENT' : 'PANEL_VIEWER';
   }
 
   Map<String, dynamic> _unwrapResponseEnvelope(Map<String, dynamic> payload) {

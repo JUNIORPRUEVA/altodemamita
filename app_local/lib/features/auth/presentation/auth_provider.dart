@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../../../app/navigation/app_module.dart';
+import '../../../core/config/app_flags.dart';
 import '../../../core/system/system_config_service.dart';
 import '../data/auth_service.dart';
 import '../domain/permission_model.dart';
@@ -391,7 +392,7 @@ class AuthProvider extends ChangeNotifier {
     required String scope,
     required String password,
   }) async {
-    if (!_systemConfigService.canWrite) {
+    if (_deviceBlocksWrites) {
       return false;
     }
 
@@ -469,6 +470,10 @@ class AuthProvider extends ChangeNotifier {
   }
 
   bool _blocksWriteByDevice({required PermissionAction action}) {
-    return action != PermissionAction.read && !_systemConfigService.canWrite;
+    return action != PermissionAction.read && _deviceBlocksWrites;
   }
+
+  bool get _deviceBlocksWrites =>
+      !cloudCutoverMode.usesAuthoritativeBusinessWrites &&
+      !_systemConfigService.canWrite;
 }

@@ -50,4 +50,23 @@ void main() {
       expect(result, SyncConnectionStatus.connected);
     });
   });
+
+  group('shouldGateInitialCloudHydration', () {
+    test('activa la compuerta cuando no hay cursores de negocio', () async {
+      final result = await shouldGateInitialCloudHydration(
+        loadCursor: (_) async => null,
+      );
+
+      expect(result, isTrue);
+    });
+
+    test('no activa la compuerta cuando ya existe cursor de negocio', () async {
+      final cursor = DateTime.utc(2026, 9, 9, 12);
+      final result = await shouldGateInitialCloudHydration(
+        loadCursor: (scope) async => scope == 'clients' ? cursor : null,
+      );
+
+      expect(result, isFalse);
+    });
+  });
 }

@@ -187,6 +187,61 @@ void main() {
     );
   });
 
+  test(
+    'clean cache fresh cloud OWNER login maps and restores via auth me',
+    () async {
+      backendState.initialized = true;
+      backendState.adminEmail = 'admin@sistema.local';
+      backendState.adminPassword = 'PasswordNube123';
+      backendState.adminFullName = 'Admin Produccion';
+      backendState.authRoles = const ['SUPER_ADMIN'];
+      backendState.authPermissions = const [
+        'clients.read',
+        'clients.write',
+        'products.read',
+        'products.write',
+        'sellers.read',
+        'sellers.write',
+        'sales.read',
+        'sales.write',
+        'payments.read',
+        'payments.write',
+        'installments.read',
+        'installments.write',
+        'users.read',
+        'users.write',
+        'reports.read',
+        'sync.manage',
+      ];
+
+      final loginResult = await authService.signInHybrid(
+        email: 'admin@sistema.local',
+        password: 'PasswordNube123',
+      );
+
+      expect(loginResult.mode, AuthSignInMode.online);
+      expect(loginResult.user.email, 'admin@sistema.local');
+      expect(loginResult.user.remoteAuthId, 'remote-admin-1');
+      expect(loginResult.user.role, UserRole.admin);
+      expect(loginResult.user.authSource, AuthSource.cloud);
+      expect(configRepository.savedJwtToken, 'jwt-test-token');
+      expect(backendState.authLoginRequests, 1);
+
+      final db = await appDatabase.database;
+      await db.delete('sesiones_auth');
+
+      final restored = await authService.bootstrap();
+
+      expect(restored.requiresInitialSetup, isFalse);
+      expect(restored.isOnline, isTrue);
+      expect(restored.isCloudInitialized, isTrue);
+      expect(restored.currentUser?.email, 'admin@sistema.local');
+      expect(restored.currentUser?.remoteAuthId, 'remote-admin-1');
+      expect(restored.currentUser?.authSource, AuthSource.cloud);
+      expect(backendState.authMeRequests, 1);
+    },
+  );
+
   test('missing truly-required remote user id still fails safely', () async {
     backendState.initialized = true;
     backendState.adminEmail = 'admin@sistema.local';

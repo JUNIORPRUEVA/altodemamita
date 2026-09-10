@@ -52,7 +52,7 @@ void main() {
 
     final stored = await outbox.find(first.operationId);
     expect(stored, isNotNull);
-    expect(stored!.status, OutboxStatus.retryableFailure);
+    expect(stored!.status, OutboxStatus.failedRetryable);
     expect(stored.attemptCount, 1);
     expect(stored.nextRetryAt, isNotNull);
   });

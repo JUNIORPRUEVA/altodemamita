@@ -34,9 +34,7 @@ void main() {
     await appDatabase.initialize();
 
     backendState = FakeBackendState();
-    configRepository = FakeSyncConfigRepository(
-      settings: buildFakeSettings(),
-    );
+    configRepository = FakeSyncConfigRepository(settings: buildFakeSettings());
     systemConfigService = SystemConfigService.test(
       syncConfigRepository: configRepository,
     );

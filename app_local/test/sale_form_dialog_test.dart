@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
 import 'package:provider/provider.dart';
@@ -43,15 +44,36 @@ Widget _buildTestApp(Widget child) {
   );
 }
 
-DropdownButtonFormField<int> _dropdownByLabel(
-  WidgetTester tester,
-  String label,
-) {
-  return tester
-      .widgetList<DropdownButtonFormField<int>>(
-        find.byType(DropdownButtonFormField<int>),
-      )
-      .firstWhere((widget) => widget.decoration.labelText == label);
+Finder _searchableField(String label) {
+  return find.widgetWithText(TextFormField, label);
+}
+
+String? _searchableFieldText(WidgetTester tester, String label) {
+  return tester.widget<TextFormField>(_searchableField(label)).controller?.text;
+}
+
+/// Interacción real del nuevo selector buscable:
+/// clic en el campo, escribir letras, ver sugerencias filtradas y elegir una.
+Future<void> _selectSearchableOption(
+  WidgetTester tester, {
+  required String label,
+  required String query,
+  required String optionText,
+}) async {
+  final field = _searchableField(label);
+  await tester.tap(field);
+  await _settle(tester);
+  await tester.enterText(field, query);
+  await _settle(tester);
+  expect(
+    find.textContaining(optionText),
+    findsWidgets,
+    reason: 'El campo buscable debe mostrar sugerencias al escribir "$query".',
+  );
+  await tester.tap(find.text(optionText).last);
+  await _settle(tester);
+  FocusManager.instance.primaryFocus?.unfocus();
+  await _settle(tester);
 }
 
 Lot _testLot({
@@ -340,6 +362,13 @@ void main() {
       expect(find.text('Seleccionar solar'), findsOneWidget);
       expect(find.text('Precio total'), findsOneWidget);
       expect(find.text('Inicial minimo requerido'), findsOneWidget);
+      // El selector buscable reemplaza la lupa externa: no debe existir
+      // ningún botón separado de búsqueda.
+      expect(find.byTooltip('Buscar'), findsNothing);
+      // Los tres selectores son campos editables de autocomplete.
+      expect(_searchableField('Seleccionar cliente'), findsOneWidget);
+      expect(_searchableField('Seleccionar vendedor'), findsOneWidget);
+      expect(_searchableField('Seleccionar solar'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
@@ -464,15 +493,24 @@ void main() {
       );
       await _settle(tester);
 
-      final dropdowns = tester
-          .widgetList<DropdownButtonFormField<int>>(
-            find.byType(DropdownButtonFormField<int>),
-          )
-          .toList();
-
-      dropdowns[0].onChanged?.call(clients.single.id);
-      dropdowns[1].onChanged?.call(sellers.single.id);
-      dropdowns[2].onChanged?.call(1);
+      await _selectSearchableOption(
+        tester,
+        label: 'Seleccionar cliente',
+        query: 'Maria',
+        optionText: 'Maria Gomez',
+      );
+      await _selectSearchableOption(
+        tester,
+        label: 'Seleccionar vendedor',
+        query: 'Pedro',
+        optionText: 'Pedro Vendedor',
+      );
+      await _selectSearchableOption(
+        tester,
+        label: 'Seleccionar solar',
+        query: 'MA-S10',
+        optionText: 'MA-S10',
+      );
       await _settle(tester);
 
       expect(find.text('Agregar solar'), findsOneWidget);
@@ -485,10 +523,21 @@ void main() {
       addLotChip.onPressed?.call();
       await _settle(tester);
 
-      await tester.enterText(find.byType(TextField).last, 'MA-S11');
+      final addLotDialog = find.byType(AlertDialog);
+      await tester.enterText(
+        find.descendant(of: addLotDialog, matching: find.byType(TextField)),
+        'MA-S11',
+      );
       await _settle(tester);
 
-      await tester.tap(find.textContaining('MA-S11').last);
+      await tester.tap(
+        find
+            .descendant(
+              of: addLotDialog,
+              matching: find.textContaining('MA-S11'),
+            )
+            .last,
+      );
       await _settle(tester);
 
       expect(tester.takeException(), isNull);
@@ -566,12 +615,11 @@ void main() {
       expect(clients.single.fullName, 'Maria Gomez');
       expect(clients.single.documentId, '001-1234567-8');
 
-      final clientDropdown = tester
-          .widgetList<DropdownButtonFormField<int>>(
-            find.byType(DropdownButtonFormField<int>),
-          )
-          .first;
-      expect(clientDropdown.initialValue, clients.single.id);
+      // El cliente creado queda seleccionado en el campo buscable de la venta.
+      expect(
+        _searchableFieldText(tester, 'Seleccionar cliente'),
+        'Maria Gomez',
+      );
     },
   );
 
@@ -656,12 +704,11 @@ void main() {
         findsOneWidget,
       );
 
-      final clientDropdown = tester
-          .widgetList<DropdownButtonFormField<int>>(
-            find.byType(DropdownButtonFormField<int>),
-          )
-          .first;
-      expect(clientDropdown.initialValue, clients.single.id);
+      // Se seleccionó el registro existente en el campo buscable.
+      expect(
+        _searchableFieldText(tester, 'Seleccionar cliente'),
+        'Cliente Existente',
+      );
     },
   );
 
@@ -804,14 +851,8 @@ void main() {
       expect(availableLots, hasLength(1));
       expect(availableLots.single.displayCode, 'MB-S22');
 
-      final lotDropdown = tester
-          .widgetList<DropdownButtonFormField<int>>(
-            find.byType(DropdownButtonFormField<int>),
-          )
-          .firstWhere(
-            (widget) => widget.decoration.labelText == 'Seleccionar solar',
-          );
-      expect(lotDropdown.initialValue, availableLots.single.id);
+      // El solar creado queda seleccionado en el campo buscable de la venta.
+      expect(_searchableFieldText(tester, 'Seleccionar solar'), 'MB-S22');
     },
   );
 
@@ -870,14 +911,8 @@ void main() {
       final availableLots = await lotRepository.fetchAvailable();
       expect(availableLots, hasLength(1));
 
-      final lotDropdown = tester
-          .widgetList<DropdownButtonFormField<int>>(
-            find.byType(DropdownButtonFormField<int>),
-          )
-          .firstWhere(
-            (widget) => widget.decoration.labelText == 'Seleccionar solar',
-          );
-      expect(lotDropdown.initialValue, availableLots.single.id);
+      // El solar creado queda seleccionado en el campo buscable de la venta.
+      expect(_searchableFieldText(tester, 'Seleccionar solar'), 'MC-S08');
     },
   );
 
@@ -916,14 +951,12 @@ void main() {
       );
       await _settle(tester);
 
-      final lotDropdown = tester
-          .widgetList<DropdownButtonFormField<int>>(
-            find.byType(DropdownButtonFormField<int>),
-          )
-          .firstWhere(
-            (widget) => widget.decoration.labelText == 'Seleccionar solar',
-          );
-      lotDropdown.onChanged?.call(1);
+      await _selectSearchableOption(
+        tester,
+        label: 'Seleccionar solar',
+        query: 'MA-S10',
+        optionText: 'MA-S10',
+      );
       await _settle(tester);
 
       await tester.enterText(
@@ -1067,8 +1100,18 @@ void main() {
     await tester.tap(find.text('Abrir venta'));
     await _settle(tester);
 
-    _dropdownByLabel(tester, 'Seleccionar cliente').onChanged?.call(1);
-    _dropdownByLabel(tester, 'Seleccionar solar').onChanged?.call(1);
+    await _selectSearchableOption(
+      tester,
+      label: 'Seleccionar cliente',
+      query: 'Maria',
+      optionText: 'Maria Gomez',
+    );
+    await _selectSearchableOption(
+      tester,
+      label: 'Seleccionar solar',
+      query: 'MA-S10',
+      optionText: 'MA-S10',
+    );
     await _settle(tester);
 
     await tester.enterText(
@@ -1163,8 +1206,11 @@ void main() {
       expect(sellers, hasLength(1));
       expect(sellers.single.documentId, 'A-001/VENTA-77');
 
-      final sellerDropdown = _dropdownByLabel(tester, 'Seleccionar vendedor');
-      expect(sellerDropdown.initialValue, sellers.single.id);
+      // El vendedor creado queda seleccionado en el campo buscable.
+      expect(
+        _searchableFieldText(tester, 'Seleccionar vendedor'),
+        'Pedro Lopez',
+      );
       expect(find.text('Opcional'), findsOneWidget);
     },
   );
@@ -1247,14 +1293,12 @@ void main() {
       await tester.tap(find.text('Abrir venta'));
       await _settle(tester);
 
-      await tester.tap(find.byTooltip('Buscar').first);
-      await _settle(tester);
-
-      await tester.enterText(find.byType(TextField).last, 'Maria');
-      await _settle(tester);
-
-      await tester.tap(find.textContaining('Maria Gomez').last);
-      await _settle(tester);
+      await _selectSearchableOption(
+        tester,
+        label: 'Seleccionar cliente',
+        query: 'Maria',
+        optionText: 'Maria Gomez',
+      );
 
       await tester.tap(find.byTooltip('Editar cliente'));
       await _settle(tester);
@@ -1272,4 +1316,448 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets(
+    'cliente: buscar por nombre filtra y seleccionar conserva el id real',
+    (tester) async {
+      final now = DateTime(2026, 3, 26);
+      SaleDraft? submittedDraft;
+
+      await _configureDesktopSurface(tester, const Size(1280, 860));
+      await tester.pumpWidget(
+        _buildTestApp(
+          Builder(
+            builder: (context) => FilledButton(
+              onPressed: () async {
+                submittedDraft = await SaleFormDialog.show(
+                  context,
+                  clients: [
+                    Client(
+                      id: 1,
+                      fullName: 'Maria Gomez',
+                      documentId: '001-1234567-8',
+                      phone: '8095550199',
+                      address: 'Calle 1',
+                      createdAt: now,
+                      updatedAt: now,
+                    ),
+                    Client(
+                      id: 2,
+                      fullName: 'Juan Perez',
+                      documentId: '001-9999999-1',
+                      phone: '8095550101',
+                      address: 'Calle 2',
+                      createdAt: now,
+                      updatedAt: now,
+                    ),
+                  ],
+                  availableLots: [
+                    _testLot(
+                      id: 1,
+                      blockNumber: 'A',
+                      lotNumber: '10',
+                      area: 180,
+                      totalPrice: 850000,
+                      now: now,
+                    ),
+                  ],
+                  sellers: const [],
+                  defaults: const SaleDefaults(
+                    downPaymentPercentage: 10,
+                    monthlyInterest: 1,
+                    installmentCount: 12,
+                  ),
+                  clientRepository: clientRepository,
+                  lotRepository: lotRepository,
+                  sellerRepository: sellerRepository,
+                );
+              },
+              child: const Text('Abrir venta'),
+            ),
+          ),
+        ),
+      );
+      await _settle(tester);
+
+      await tester.tap(find.text('Abrir venta'));
+      await _settle(tester);
+
+      // Escribir filtra: "Mar" solo deja visible a Maria Gomez.
+      final clientField = _searchableField('Seleccionar cliente');
+      await tester.tap(clientField);
+      await tester.enterText(clientField, 'Mar');
+      await _settle(tester);
+      expect(find.textContaining('Maria Gomez'), findsWidgets);
+      expect(find.textContaining('Juan Perez'), findsNothing);
+
+      await tester.tap(find.text('Maria Gomez').last);
+      await _settle(tester);
+      FocusManager.instance.primaryFocus?.unfocus();
+      await _settle(tester);
+      expect(
+        _searchableFieldText(tester, 'Seleccionar cliente'),
+        'Maria Gomez',
+      );
+
+      // Seleccionar el solar y guardar: la venta usa el cliente real (id 1).
+      await _selectSearchableOption(
+        tester,
+        label: 'Seleccionar solar',
+        query: 'MA-S10',
+        optionText: 'MA-S10',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Inicial real pagado'),
+        '85000',
+      );
+      await _settle(tester);
+      await tester.tap(find.text('Crear venta'));
+      await _settle(tester);
+
+      expect(submittedDraft, isNotNull);
+      expect(submittedDraft?.clientId, 1);
+      expect(submittedDraft?.lotId, 1);
+      expect(submittedDraft?.sellerId, isNull);
+    },
+  );
+
+  testWidgets('vendedor: escribir y seleccionar por autocomplete', (
+    tester,
+  ) async {
+    final now = DateTime(2026, 3, 26);
+
+    await _configureDesktopSurface(tester, const Size(1280, 860));
+    await tester.pumpWidget(
+      _buildTestApp(
+        SaleFormDialog(
+          clients: const [],
+          availableLots: [
+            _testLot(
+              id: 1,
+              blockNumber: 'A',
+              lotNumber: '10',
+              area: 180,
+              totalPrice: 850000,
+              now: now,
+            ),
+          ],
+          sellers: [
+            Seller(
+              id: 1,
+              name: 'Pedro Vendedor',
+              phone: '8095550111',
+              documentId: '001-7654321-0',
+              createdAt: now,
+              updatedAt: now,
+            ),
+            Seller(
+              id: 2,
+              name: 'Ana Martinez',
+              phone: '8095550112',
+              documentId: '001-7654321-1',
+              createdAt: now,
+              updatedAt: now,
+            ),
+          ],
+          defaults: const SaleDefaults(
+            downPaymentPercentage: 10,
+            monthlyInterest: 1,
+            installmentCount: 12,
+          ),
+          clientRepository: clientRepository,
+          lotRepository: lotRepository,
+          sellerRepository: sellerRepository,
+        ),
+      ),
+    );
+    await _settle(tester);
+
+    await _selectSearchableOption(
+      tester,
+      label: 'Seleccionar vendedor',
+      query: 'Pedro',
+      optionText: 'Pedro Vendedor',
+    );
+    expect(
+      _searchableFieldText(tester, 'Seleccionar vendedor'),
+      'Pedro Vendedor',
+    );
+    expect(find.text('Opcional'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('solar: buscar por codigo, seleccionar y actualizar el precio', (
+    tester,
+  ) async {
+    final now = DateTime(2026, 3, 26);
+
+    await _configureDesktopSurface(tester, const Size(1280, 860));
+    await tester.pumpWidget(
+      _buildTestApp(
+        SaleFormDialog(
+          clients: const [],
+          availableLots: [
+            _testLot(
+              id: 1,
+              blockNumber: 'A',
+              lotNumber: '10',
+              area: 180,
+              totalPrice: 850000,
+              now: now,
+            ),
+            _testLot(
+              id: 2,
+              blockNumber: 'B',
+              lotNumber: '03',
+              area: 200,
+              totalPrice: 1000000,
+              now: now,
+            ),
+          ],
+          sellers: const [],
+          defaults: const SaleDefaults(
+            downPaymentPercentage: 10,
+            monthlyInterest: 1,
+            installmentCount: 12,
+          ),
+          clientRepository: clientRepository,
+          lotRepository: lotRepository,
+          sellerRepository: sellerRepository,
+        ),
+      ),
+    );
+    await _settle(tester);
+
+    await _selectSearchableOption(
+      tester,
+      label: 'Seleccionar solar',
+      query: 'MA-S10',
+      optionText: 'MA-S10',
+    );
+    expect(_searchableFieldText(tester, 'Seleccionar solar'), 'MA-S10');
+
+    final priceField = tester.widget<TextFormField>(
+      find.widgetWithText(TextFormField, 'Precio total'),
+    );
+    expect(priceField.controller?.text, '850,000.00');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'editar el texto despues de seleccionar invalida la seleccion previa',
+    (tester) async {
+      final now = DateTime(2026, 3, 26);
+
+      await _configureDesktopSurface(tester, const Size(1280, 860));
+      await tester.pumpWidget(
+        _buildTestApp(
+          SaleFormDialog(
+            clients: [
+              Client(
+                id: 1,
+                fullName: 'Maria Gomez',
+                documentId: '001-1234567-8',
+                phone: '8095550199',
+                address: 'Calle 1',
+                createdAt: now,
+                updatedAt: now,
+              ),
+            ],
+            availableLots: [
+              _testLot(
+                id: 1,
+                blockNumber: 'A',
+                lotNumber: '10',
+                area: 180,
+                totalPrice: 850000,
+                now: now,
+              ),
+            ],
+            sellers: const [],
+            defaults: const SaleDefaults(
+              downPaymentPercentage: 10,
+              monthlyInterest: 1,
+              installmentCount: 12,
+            ),
+            clientRepository: clientRepository,
+            lotRepository: lotRepository,
+            sellerRepository: sellerRepository,
+          ),
+        ),
+      );
+      await _settle(tester);
+
+      await _selectSearchableOption(
+        tester,
+        label: 'Seleccionar cliente',
+        query: 'Maria',
+        optionText: 'Maria Gomez',
+      );
+      await _selectSearchableOption(
+        tester,
+        label: 'Seleccionar solar',
+        query: 'MA-S10',
+        optionText: 'MA-S10',
+      );
+      expect(find.text('Listo para registrar la venta.'), findsOneWidget);
+
+      // Cambiar el texto sin elegir de nuevo anula la seleccion anterior.
+      final clientField = _searchableField('Seleccionar cliente');
+      await tester.tap(clientField);
+      await tester.enterText(clientField, 'Mari');
+      await _settle(tester);
+
+      expect(find.text('Completa cliente para continuar.'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'texto libre sin coincidencia no se convierte en seleccion valida',
+    (tester) async {
+      final now = DateTime(2026, 3, 26);
+
+      await _configureDesktopSurface(tester, const Size(1280, 860));
+      await tester.pumpWidget(
+        _buildTestApp(
+          SaleFormDialog(
+            clients: [
+              Client(
+                id: 1,
+                fullName: 'Maria Gomez',
+                documentId: '001-1234567-8',
+                phone: '8095550199',
+                address: 'Calle 1',
+                createdAt: now,
+                updatedAt: now,
+              ),
+            ],
+            availableLots: [
+              _testLot(
+                id: 1,
+                blockNumber: 'A',
+                lotNumber: '10',
+                area: 180,
+                totalPrice: 850000,
+                now: now,
+              ),
+            ],
+            sellers: const [],
+            defaults: const SaleDefaults(
+              downPaymentPercentage: 10,
+              monthlyInterest: 1,
+              installmentCount: 12,
+            ),
+            clientRepository: clientRepository,
+            lotRepository: lotRepository,
+            sellerRepository: sellerRepository,
+          ),
+        ),
+      );
+      await _settle(tester);
+
+      await _selectSearchableOption(
+        tester,
+        label: 'Seleccionar solar',
+        query: 'MA-S10',
+        optionText: 'MA-S10',
+      );
+
+      final clientField = _searchableField('Seleccionar cliente');
+      await tester.tap(clientField);
+      await tester.enterText(clientField, 'No existe este cliente');
+      await _settle(tester);
+
+      // El texto libre no cuenta como cliente valido: la venta sigue
+      // incompleta y el boton crear permanece deshabilitado.
+      expect(find.text('Completa cliente para continuar.'), findsOneWidget);
+      final submitButton = tester.widget<FilledButton>(
+        find.ancestor(
+          of: find.text('Crear venta'),
+          matching: find.bySubtype<FilledButton>(),
+        ),
+      );
+      expect(submitButton.onPressed, isNull);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('teclado: flechas y Enter seleccionan y Escape cierra opciones', (
+    tester,
+  ) async {
+    final now = DateTime(2026, 3, 26);
+
+    await _configureDesktopSurface(tester, const Size(1280, 860));
+    await tester.pumpWidget(
+      _buildTestApp(
+        SaleFormDialog(
+          clients: [
+            Client(
+              id: 1,
+              fullName: 'Maria Gomez',
+              documentId: '001-1234567-8',
+              phone: '8095550199',
+              address: 'Calle 1',
+              createdAt: now,
+              updatedAt: now,
+            ),
+            Client(
+              id: 2,
+              fullName: 'Martin Perez',
+              documentId: '001-1111111-1',
+              phone: '8095550102',
+              address: 'Calle 3',
+              createdAt: now,
+              updatedAt: now,
+            ),
+          ],
+          availableLots: [
+            _testLot(
+              id: 1,
+              blockNumber: 'A',
+              lotNumber: '10',
+              area: 180,
+              totalPrice: 850000,
+              now: now,
+            ),
+          ],
+          sellers: const [],
+          defaults: const SaleDefaults(
+            downPaymentPercentage: 10,
+            monthlyInterest: 1,
+            installmentCount: 12,
+          ),
+          clientRepository: clientRepository,
+          lotRepository: lotRepository,
+          sellerRepository: sellerRepository,
+        ),
+      ),
+    );
+    await _settle(tester);
+
+    final clientField = _searchableField('Seleccionar cliente');
+    await tester.tap(clientField);
+    await _settle(tester);
+    await tester.enterText(clientField, 'Mar');
+    await _settle(tester);
+    expect(find.text('Maria Gomez'), findsWidgets);
+    expect(find.text('Martin Perez'), findsWidgets);
+
+    // Escape cierra la lista de sugerencias sin seleccionar.
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await _settle(tester);
+    expect(find.text('Maria Gomez'), findsNothing);
+    expect(find.text('Martin Perez'), findsNothing);
+
+    // ArrowDown resalta la segunda sugerencia y Enter (submit del campo)
+    // selecciona la opción resaltada.
+    await tester.enterText(clientField, 'Mar');
+    await _settle(tester);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await _settle(tester);
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await _settle(tester);
+    expect(_searchableFieldText(tester, 'Seleccionar cliente'), 'Martin Perez');
+    expect(tester.takeException(), isNull);
+  });
 }

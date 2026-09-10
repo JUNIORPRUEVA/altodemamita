@@ -29,6 +29,33 @@ const Key saleFormCreateLotButtonKey = Key('sale_form_create_lot');
 const Key saleFormClientDropdownKey = Key('sale_form_client_dropdown');
 const Key saleFormLotDropdownKey = Key('sale_form_lot_dropdown');
 
+/// Resultado de un intento de crear/actualizar la venta ejecutado desde el
+/// modal. El modal SOLO se cierra con `success`: cuando el backend/PostgreSQL
+/// confirma la operacion autoritativa. Con `failure` el formulario permanece
+/// abierto, conserva los datos y muestra el mensaje para reintentar.
+enum SaleFormSubmitStatus { success, failure }
+
+class SaleFormSubmitOutcome {
+  const SaleFormSubmitOutcome.success()
+    : status = SaleFormSubmitStatus.success,
+      message = null;
+
+  const SaleFormSubmitOutcome.failure(String this.message)
+    : status = SaleFormSubmitStatus.failure;
+
+  final SaleFormSubmitStatus status;
+  final String? message;
+
+  bool get isSuccess => status == SaleFormSubmitStatus.success;
+}
+
+/// Handler que ejecuta la operacion autoritativa (crear/editar venta) MIENTRAS
+/// el modal permanece abierto. `operationId` es la llave idempotente que el
+/// modal reutiliza cuando el usuario reintenta con los MISMOS datos, para que
+/// un reintento tras un commit desconocido NO cree una venta duplicada.
+typedef SaleFormSubmitHandler =
+    Future<SaleFormSubmitOutcome> Function(SaleDraft draft, String operationId);
+
 class SaleFormDialog extends StatefulWidget {
   const SaleFormDialog({
     super.key,
@@ -42,6 +69,7 @@ class SaleFormDialog extends StatefulWidget {
     this.initialDraft,
     this.dialogTitle = 'Nueva venta',
     this.submitLabel = 'Crear venta',
+    this.onSubmit,
     this.onClientCreated,
     this.onLotCreated,
     this.onSellerCreated,
@@ -57,6 +85,12 @@ class SaleFormDialog extends StatefulWidget {
   final SaleDraft? initialDraft;
   final String dialogTitle;
   final String submitLabel;
+
+  /// Cuando se provee, el modal ejecuta la operacion autoritativa y NO se
+  /// cierra hasta que devuelva `success`. Sin handler (modo legacy para
+  /// tests), el modal conserva su comportamiento anterior de devolver el
+  /// draft.
+  final SaleFormSubmitHandler? onSubmit;
   final Future<void> Function()? onClientCreated;
   final Future<void> Function()? onLotCreated;
   final Future<void> Function()? onSellerCreated;
@@ -73,6 +107,7 @@ class SaleFormDialog extends StatefulWidget {
     SaleDraft? initialDraft,
     String dialogTitle = 'Nueva venta',
     String submitLabel = 'Crear venta',
+    SaleFormSubmitHandler? onSubmit,
     Future<void> Function()? onClientCreated,
     Future<void> Function()? onLotCreated,
     Future<void> Function()? onSellerCreated,
@@ -94,6 +129,7 @@ class SaleFormDialog extends StatefulWidget {
           initialDraft: initialDraft,
           dialogTitle: dialogTitle,
           submitLabel: submitLabel,
+          onSubmit: onSubmit,
           onClientCreated: onClientCreated,
           onLotCreated: onLotCreated,
           onSellerCreated: onSellerCreated,
@@ -181,10 +217,18 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
     PermissionCatalog.lots,
     PermissionAction.update,
   );
-  int? get _currentUserId => context.read<AuthProvider>().currentUser?.id;
-  int _durationMonths = 0;
   DateTime? _initialPaymentDeadline;
   bool _isInitialDeadlineManuallyEdited = false;
+
+  // ── Estado de envio autoritativo (P0: cerrar modal SOLO tras exito) ──
+  bool _isSubmitting = false;
+  String? _submitError;
+  String? _pendingOperationId;
+  String? _pendingPayloadSignature;
+  final math.Random _submitRandom = math.Random();
+
+  int? get _currentUserId => context.read<AuthProvider>().currentUser?.id;
+  int _durationMonths = 0;
 
   bool get _isEditingSale => widget.initialDraft != null;
 
@@ -503,6 +547,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
               height: 1,
               color: Theme.of(context).colorScheme.outlineVariant,
             ),
+            if (_submitError != null) _buildSubmitErrorBanner(),
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(18, 14, 18, 12),
@@ -514,6 +559,65 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
               color: Theme.of(context).colorScheme.outlineVariant,
             ),
             _buildDialogFooter(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSubmitErrorBanner() {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final errorColor = const Color(0xFFB42318);
+    return Material(
+      color: errorColor.withValues(alpha: 0.08),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 10, 18, 10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.error_outline, size: 20, color: errorColor),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'No se pudo guardar la venta',
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: errorColor,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _submitError ?? '',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Tus datos siguen en el formulario. Corrige lo indicado y presiona nuevamente '
+                    '«${widget.submitLabel}».',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              tooltip: 'Ocultar mensaje',
+              visualDensity: VisualDensity.compact,
+              onPressed: () {
+                setState(() {
+                  _submitError = null;
+                });
+              },
+              icon: const Icon(Icons.close, size: 18),
+            ),
           ],
         ),
       ),
@@ -618,17 +722,27 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
   }
 
   Widget _buildDialogFooter() {
+    final theme = Theme.of(context);
     final pendingFields = <String>[
       if (_selectedClientId == null) 'cliente',
       if (_selectedLotId == null) 'solar',
     ];
     final readyToSave = pendingFields.isEmpty;
-    final helperText = readyToSave
-        ? 'Listo para registrar la venta.'
-        : 'Completa ${_formatPendingFields(pendingFields)} para continuar.';
-    final helperColor = readyToSave
-        ? Theme.of(context).colorScheme.secondary
-        : Theme.of(context).colorScheme.onSurfaceVariant;
+    final submitting = _isSubmitting;
+    final String helperText;
+    final Color helperColor;
+    if (submitting) {
+      helperText =
+          'Registrando la venta en el servidor… no cierres esta ventana.';
+      helperColor = theme.colorScheme.primary;
+    } else if (readyToSave) {
+      helperText = 'Listo para registrar la venta.';
+      helperColor = theme.colorScheme.secondary;
+    } else {
+      helperText =
+          'Completa ${_formatPendingFields(pendingFields)} para continuar.';
+      helperColor = theme.colorScheme.onSurfaceVariant;
+    }
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(18, 10, 18, 12),
@@ -641,13 +755,19 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
             alignment: WrapAlignment.end,
             children: [
               TextButton(
-                onPressed: _handleCancel,
+                onPressed: submitting ? null : _handleCancel,
                 child: const Text('Cancelar'),
               ),
               FilledButton.icon(
-                onPressed: readyToSave ? _save : null,
-                icon: const Icon(Icons.task_alt_outlined, size: 18),
-                label: Text(widget.submitLabel),
+                onPressed: (readyToSave && !submitting) ? _save : null,
+                icon: submitting
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.task_alt_outlined, size: 18),
+                label: Text(submitting ? 'Creando…' : widget.submitLabel),
               ),
             ],
           );
@@ -658,7 +778,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
               children: [
                 Text(
                   helperText,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  style: theme.textTheme.bodySmall?.copyWith(
                     color: helperColor,
                     fontWeight: readyToSave ? FontWeight.w700 : FontWeight.w500,
                   ),
@@ -674,7 +794,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
               Expanded(
                 child: Text(
                   helperText,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  style: theme.textTheme.bodySmall?.copyWith(
                     color: helperColor,
                     fontWeight: readyToSave ? FontWeight.w700 : FontWeight.w500,
                   ),
@@ -704,23 +824,22 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
   Widget _buildClientLine() {
     final selectedClient = _findClientById(_selectedClientId);
     return _buildSelectorLine(
-      field: DropdownButtonFormField<int>(
-        key: saleFormClientDropdownKey,
-        initialValue: _selectedClientId,
-        isExpanded: true,
-        menuMaxHeight: 320,
-        decoration: const InputDecoration(labelText: 'Seleccionar cliente'),
-        items: _filteredClients
-            .map(
-              (client) => DropdownMenuItem<int>(
-                value: client.id,
-                child: Text(
-                  '${client.fullName} • ${client.documentId}',
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            )
-            .toList(),
+      field: _SearchableSelectionField<Client>(
+        fieldKey: saleFormClientDropdownKey,
+        controller: _clientSearchController,
+        labelText: 'Seleccionar cliente',
+        selectedId: _selectedClientId,
+        items: _filteredClients,
+        emptyMessage: 'No hay clientes registrados.',
+        titleBuilder: (client) => client.fullName,
+        subtitleBuilder: (client) =>
+            '${client.documentId} • ${client.phone ?? ''}',
+        idBuilder: (client) => client.id,
+        matches: (client, query) {
+          return client.fullName.toLowerCase().contains(query) ||
+              client.documentId.toLowerCase().contains(query) ||
+              _clientPhoneMatches(client.phone, query);
+        },
         onChanged: (value) {
           setState(() {
             _selectedClientId = value;
@@ -728,7 +847,6 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
         },
         validator: (value) => value == null ? 'Seleccione un cliente' : null,
       ),
-      onSearch: _pickClientFromDialog,
       createLabel: _isCreatingClient ? 'Guardando...' : 'Nuevo cliente',
       createKey: saleFormCreateClientButtonKey,
       onCreate: !_canCreateClients || _isCreatingClient
@@ -748,32 +866,27 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
   Widget _buildSellerLine() {
     final selectedSeller = _findSellerById(_selectedSellerId);
     return _buildSelectorLine(
-      field: DropdownButtonFormField<int>(
-        initialValue: _selectedSellerId,
-        isExpanded: true,
-        menuMaxHeight: 320,
-        decoration: const InputDecoration(
-          labelText: 'Seleccionar vendedor',
-          helperText: 'Opcional',
-        ),
-        items: _filteredSellers
-            .map(
-              (seller) => DropdownMenuItem<int>(
-                value: seller.id,
-                child: Text(
-                  '${seller.name} • ${seller.documentId}',
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            )
-            .toList(),
+      field: _SearchableSelectionField<Seller>(
+        controller: _sellerSearchController,
+        labelText: 'Seleccionar vendedor',
+        helperText: 'Opcional',
+        selectedId: _selectedSellerId,
+        items: _filteredSellers,
+        emptyMessage: 'No hay vendedores registrados.',
+        titleBuilder: (seller) => seller.name,
+        subtitleBuilder: (seller) => '${seller.documentId} • ${seller.phone}',
+        idBuilder: (seller) => seller.id,
+        matches: (seller, query) {
+          return seller.name.toLowerCase().contains(query) ||
+              seller.documentId.toLowerCase().contains(query) ||
+              seller.phone.toLowerCase().contains(query);
+        },
         onChanged: (value) {
           setState(() {
             _selectedSellerId = value;
           });
         },
       ),
-      onSearch: _pickSellerFromDialog,
       createLabel: _isCreatingSeller ? 'Guardando...' : 'Nuevo vendedor',
       createKey: saleFormCreateSellerButtonKey,
       onCreate: !_canCreateSellers || _isCreatingSeller
@@ -811,23 +924,23 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _buildSelectorLine(
-          field: DropdownButtonFormField<int>(
-            key: saleFormLotDropdownKey,
-            initialValue: _selectedLotId,
-            isExpanded: true,
-            menuMaxHeight: 320,
-            decoration: const InputDecoration(labelText: 'Seleccionar solar'),
-            items: _filteredLots
-                .map(
-                  (lot) => DropdownMenuItem<int>(
-                    value: lot.id,
-                    child: Text(
-                      '${lot.displayCode} • ${lot.area.toStringAsFixed(1)} m² • RD\$${formatRdCurrency(lot.pricePerSquareMeter)}/m² • ${_formatCurrency(lot.totalPrice)}',
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                )
-                .toList(),
+          field: _SearchableSelectionField<Lot>(
+            fieldKey: saleFormLotDropdownKey,
+            controller: _lotSearchController,
+            labelText: 'Seleccionar solar',
+            selectedId: _selectedLotId,
+            items: _filteredLots,
+            emptyMessage: 'No hay solares disponibles.',
+            titleBuilder: (lot) => lot.displayCode,
+            subtitleBuilder: (lot) =>
+                '${lot.area.toStringAsFixed(1)} m² • RD\$${formatRdCurrency(lot.pricePerSquareMeter)}/m² • ${_formatCurrency(lot.totalPrice)}',
+            idBuilder: (lot) => lot.id,
+            matches: (lot, query) {
+              return lot.displayCode.toLowerCase().contains(query) ||
+                  lot.area.toString().contains(query) ||
+                  lot.pricePerSquareMeter.toString().contains(query) ||
+                  lot.totalPrice.toString().contains(query);
+            },
             onChanged: (value) {
               setState(() {
                 _selectedLotId = value;
@@ -838,7 +951,6 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
             },
             validator: (value) => value == null ? 'Seleccione un solar' : null,
           ),
-          onSearch: _pickLotFromDialog,
           createLabel: _isCreatingLot ? 'Guardando...' : 'Nuevo solar',
           createKey: saleFormCreateLotButtonKey,
           onCreate: !_canCreateLots || _isCreatingLot
@@ -1274,7 +1386,6 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
 
   Widget _buildSelectorLine({
     required Widget field,
-    required VoidCallback onSearch,
     required String createLabel,
     Key? createKey,
     required VoidCallback? onCreate,
@@ -1283,11 +1394,6 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final actions = <Widget>[
-          _buildCompactIconButton(
-            icon: Icons.search,
-            tooltip: 'Buscar',
-            onPressed: onSearch,
-          ),
           _buildCompactActionButton(
             key: createKey,
             label: createLabel,
@@ -1514,192 +1620,6 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
         ],
       ),
     );
-  }
-
-  Future<void> _pickClientFromDialog() async {
-    final selectedId = await _showLookupDialog<Client>(
-      title: 'Buscar cliente',
-      controller: _clientSearchController,
-      items: _clients,
-      emptyMessage: 'No hay clientes registrados.',
-      titleBuilder: (client) => client.fullName,
-      subtitleBuilder: (client) =>
-          '${client.documentId} • ${client.phone ?? ''}',
-      matches: (client, query) {
-        return client.fullName.toLowerCase().contains(query) ||
-            client.documentId.toLowerCase().contains(query) ||
-            _clientPhoneMatches(client.phone, query);
-      },
-      idBuilder: (client) => client.id,
-    );
-
-    if (!mounted || selectedId == null) {
-      return;
-    }
-
-    setState(() {
-      _selectedClientId = selectedId;
-    });
-  }
-
-  Future<void> _pickSellerFromDialog() async {
-    final selectedId = await _showLookupDialog<Seller>(
-      title: 'Buscar vendedor',
-      controller: _sellerSearchController,
-      items: _sellers,
-      emptyMessage: 'No hay vendedores registrados.',
-      titleBuilder: (seller) => seller.name,
-      subtitleBuilder: (seller) => '${seller.documentId} • ${seller.phone}',
-      matches: (seller, query) {
-        return seller.name.toLowerCase().contains(query) ||
-            seller.documentId.toLowerCase().contains(query) ||
-            seller.phone.toLowerCase().contains(query);
-      },
-      idBuilder: (seller) => seller.id,
-    );
-
-    if (!mounted || selectedId == null) {
-      return;
-    }
-
-    setState(() {
-      _selectedSellerId = selectedId;
-    });
-  }
-
-  Future<void> _pickLotFromDialog() async {
-    final selectedId = await _showLookupDialog<Lot>(
-      title: 'Buscar solar',
-      controller: _lotSearchController,
-      items: _filteredLots,
-      emptyMessage: 'No hay solares disponibles.',
-      titleBuilder: (lot) => lot.displayCode,
-      subtitleBuilder: (lot) =>
-          '${lot.area.toStringAsFixed(1)} m² • RD\$${formatRdCurrency(lot.pricePerSquareMeter)}/m² • ${_formatCurrency(lot.totalPrice)}',
-      matches: (lot, query) {
-        return lot.displayCode.toLowerCase().contains(query) ||
-            lot.area.toString().contains(query) ||
-            lot.pricePerSquareMeter.toString().contains(query) ||
-            lot.totalPrice.toString().contains(query);
-      },
-      idBuilder: (lot) => lot.id,
-    );
-
-    if (!mounted || selectedId == null) {
-      return;
-    }
-
-    setState(() {
-      _selectedLotId = selectedId;
-      _additionalLotIds.remove(selectedId);
-      _syncLotPriceFromSelection();
-    });
-  }
-
-  Future<int?> _showLookupDialog<T>({
-    required String title,
-    required TextEditingController controller,
-    required List<T> items,
-    required String emptyMessage,
-    required String Function(T item) titleBuilder,
-    required String Function(T item) subtitleBuilder,
-    required bool Function(T item, String query) matches,
-    required int? Function(T item) idBuilder,
-  }) async {
-    final searchController = TextEditingController(text: controller.text);
-    try {
-      return await showDialog<int>(
-        context: context,
-        builder: (dialogContext) {
-          return StatefulBuilder(
-            builder: (dialogContext, setDialogState) {
-              final query = searchController.text.trim().toLowerCase();
-              final filteredItems = query.isEmpty
-                  ? items
-                  : items.where((item) => matches(item, query)).toList();
-
-              return AlertDialog(
-                title: Text(title),
-                content: SizedBox(
-                  width: 560,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      TextField(
-                        controller: searchController,
-                        decoration: InputDecoration(
-                          hintText: 'Buscar...',
-                          prefixIcon: const Icon(Icons.search),
-                          suffixIcon: searchController.text.isEmpty
-                              ? null
-                              : IconButton(
-                                  onPressed: () {
-                                    searchController.clear();
-                                    setDialogState(() {});
-                                  },
-                                  icon: const Icon(Icons.clear),
-                                ),
-                        ),
-                        onChanged: (_) => setDialogState(() {}),
-                      ),
-                      const SizedBox(height: 12),
-                      Flexible(
-                        child: filteredItems.isEmpty
-                            ? Center(
-                                child: Padding(
-                                  padding: const EdgeInsets.all(20),
-                                  child: Text(
-                                    emptyMessage,
-                                    style: Theme.of(
-                                      dialogContext,
-                                    ).textTheme.bodyMedium,
-                                  ),
-                                ),
-                              )
-                            : ListView.separated(
-                                shrinkWrap: true,
-                                itemCount: filteredItems.length,
-                                separatorBuilder: (_, _) =>
-                                    const Divider(height: 1),
-                                itemBuilder: (context, index) {
-                                  final item = filteredItems[index];
-                                  return ListTile(
-                                    dense: true,
-                                    title: Text(titleBuilder(item)),
-                                    subtitle: Text(
-                                      subtitleBuilder(item),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    onTap: () {
-                                      controller.text = searchController.text;
-                                      Navigator.of(
-                                        dialogContext,
-                                      ).pop(idBuilder(item));
-                                    },
-                                  );
-                                },
-                              ),
-                      ),
-                    ],
-                  ),
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.of(dialogContext).pop(),
-                    child: const Text('Cerrar'),
-                  ),
-                ],
-              );
-            },
-          );
-        },
-      );
-    } finally {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        searchController.dispose();
-      });
-    }
   }
 
   List<Widget> _withActionSpacing(List<Widget> actions) {
@@ -2209,27 +2129,140 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
     print(
       '[SALE-FORM][SAVE] ok -> pop draft clientId=$_selectedClientId lotId=${selectedLot.id} sellerId=$_selectedSellerId userId=$currentUserId price=$salePrice',
     );
-    Navigator.of(context).pop(
-      SaleDraft(
-        clientId: _selectedClientId!,
-        lotId: selectedLot.id!,
-        userId: currentUserId,
-        sellerId: _selectedSellerId,
-        saleDate: _saleDate,
-        salePrice: salePrice,
-        downPaymentPercentage: _downPaymentPercentage,
-        requiredInitialPayment: _requiredInitialPayment,
-        initialPaymentPaid: _enteredDepositAmount,
-        initialPaymentMethod: _selectedInitialPaymentMethod,
-        minimumReserveAmount: null,
-        initialPaymentDeadline: _initialPaymentDeadline,
-        initialIsApartado: _initialIsApartado && _enteredDepositAmount > 0,
-        monthlyInterest: _monthlyInterest,
-        installmentCount: _installmentCount,
-        status: _saleLifecycleStatus,
-        additionalLotIds: _additionalLotIds.toList(),
-      ),
+    final draft = SaleDraft(
+      clientId: _selectedClientId!,
+      lotId: selectedLot.id!,
+      userId: currentUserId,
+      sellerId: _selectedSellerId,
+      saleDate: _saleDate,
+      salePrice: salePrice,
+      downPaymentPercentage: _downPaymentPercentage,
+      requiredInitialPayment: _requiredInitialPayment,
+      initialPaymentPaid: _enteredDepositAmount,
+      initialPaymentMethod: _selectedInitialPaymentMethod,
+      minimumReserveAmount: null,
+      initialPaymentDeadline: _initialPaymentDeadline,
+      initialIsApartado: _initialIsApartado && _enteredDepositAmount > 0,
+      monthlyInterest: _monthlyInterest,
+      installmentCount: _installmentCount,
+      status: _saleLifecycleStatus,
+      additionalLotIds: _additionalLotIds.toList(),
     );
+
+    final onSubmit = widget.onSubmit;
+    if (onSubmit == null) {
+      // Modo legacy (usado por tests sin backend): el llamador ejecuta la
+      // creacion/edicion tras recibir el draft.
+      Navigator.of(context).pop(draft);
+      return;
+    }
+
+    // Modo autoritativo (P0): la venta se crea mientras el modal permanece
+    // abierto. El modal solo se cierra cuando el backend confirma el exito.
+    _submitViaHandler(draft, onSubmit);
+  }
+
+  Future<void> _submitViaHandler(
+    SaleDraft draft,
+    SaleFormSubmitHandler onSubmit,
+  ) async {
+    if (_isSubmitting) {
+      // Previene doble submit / doble click mientras hay un envio en curso.
+      return;
+    }
+
+    final signature = _draftSignature(draft);
+    String operationId;
+    if (_pendingOperationId != null && _pendingPayloadSignature == signature) {
+      // Reintento con los MISMOS datos: se reutiliza la llave idempotente para
+      // que un commit desconocido (respuesta perdida tras confirmar) NO cree
+      // una venta duplicada: el backend devuelve la misma venta.
+      operationId = _pendingOperationId!;
+    } else {
+      operationId = _newOperationId();
+      _pendingOperationId = operationId;
+      _pendingPayloadSignature = signature;
+    }
+
+    setState(() {
+      _isSubmitting = true;
+      _submitError = null;
+    });
+
+    try {
+      final outcome = await onSubmit(draft, operationId);
+      if (!mounted) {
+        return;
+      }
+      if (outcome.isSuccess) {
+        // Exito autoritativo confirmado: ahora SI se puede cerrar el modal.
+        _pendingOperationId = null;
+        _pendingPayloadSignature = null;
+        setState(() {
+          _isSubmitting = false;
+          _submitError = null;
+        });
+        Navigator.of(context).pop(draft);
+        return;
+      }
+
+      // Fallo controlado del backend: el formulario permanece abierto, se
+      // conservan los datos y se muestra el motivo para corregir/reintentar.
+      setState(() {
+        _isSubmitting = false;
+        _submitError =
+            (outcome.message == null || outcome.message!.trim().isEmpty)
+            ? 'No se pudo guardar la venta. Revisa los datos e intenta nuevamente.'
+            : outcome.message!;
+      });
+    } catch (error) {
+      // Error inesperado de red/tooling: no cerrar el modal ni perder datos.
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isSubmitting = false;
+        _submitError = FriendlyErrorMessages.forOperation(
+          _isEditingSale ? 'actualizar la venta' : 'crear la venta',
+          error,
+          module: 'ventas',
+        );
+      });
+    }
+  }
+
+  String _newOperationId() {
+    final micros = DateTime.now().microsecondsSinceEpoch;
+    final randomPart = _submitRandom.nextInt(0x7FFFFFFF).toRadixString(16);
+    return 'desktop-sale-$micros-$randomPart';
+  }
+
+  /// Firma canonica de los datos que viajan al backend. Si dos intentos tienen
+  /// la misma firma, el segundo reintento reutiliza la misma llave idempotente.
+  String _draftSignature(SaleDraft draft) {
+    final buffer = StringBuffer()
+      ..write('client=${draft.clientId};lot=${draft.lotId};')
+      ..write(
+        'seller=${draft.sellerId};date=${draft.saleDate.toIso8601String()};',
+      )
+      ..write('price=${draft.salePrice.toStringAsFixed(2)};')
+      ..write('downPct=${draft.downPaymentPercentage.toStringAsFixed(4)};')
+      ..write('required=${draft.requiredInitialPayment.toStringAsFixed(2)};')
+      ..write('paid=${draft.initialPaymentPaid.toStringAsFixed(2)};')
+      ..write('method=${draft.initialPaymentMethod};')
+      ..write(
+        'minReserve=${(draft.minimumReserveAmount ?? 0).toStringAsFixed(2)};',
+      )
+      ..write(
+        'deadline=${draft.initialPaymentDeadline?.toIso8601String() ?? ''};',
+      )
+      ..write('apartado=${draft.initialIsApartado};')
+      ..write('interest=${draft.monthlyInterest.toStringAsFixed(4)};')
+      ..write('count=${draft.installmentCount};')
+      ..write(
+        'extraLots=${(draft.additionalLotIds.toList()..sort()).join(',')};',
+      );
+    return buffer.toString();
   }
 
   void _handleCancel() {
@@ -2743,6 +2776,269 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _SearchableSelectionField<T extends Object> extends StatefulWidget {
+  const _SearchableSelectionField({
+    required this.controller,
+    required this.labelText,
+    required this.selectedId,
+    required this.items,
+    required this.emptyMessage,
+    required this.titleBuilder,
+    required this.subtitleBuilder,
+    required this.idBuilder,
+    required this.matches,
+    required this.onChanged,
+    this.fieldKey,
+    this.helperText,
+    this.validator,
+  });
+
+  final Key? fieldKey;
+  final TextEditingController controller;
+  final String labelText;
+  final String? helperText;
+  final int? selectedId;
+  final List<T> items;
+  final String emptyMessage;
+  final String Function(T item) titleBuilder;
+  final String Function(T item) subtitleBuilder;
+  final int? Function(T item) idBuilder;
+  final bool Function(T item, String query) matches;
+  final ValueChanged<int?> onChanged;
+  final String? Function(int? value)? validator;
+
+  @override
+  State<_SearchableSelectionField<T>> createState() =>
+      _SearchableSelectionFieldState<T>();
+}
+
+class _SearchableSelectionFieldState<T extends Object>
+    extends State<_SearchableSelectionField<T>> {
+  late final FocusNode _focusNode;
+  bool _selectingOption = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _focusNode = FocusNode();
+    _syncSelectedText(force: true);
+    _focusNode.addListener(_handleFocusChange);
+  }
+
+  @override
+  void didUpdateWidget(covariant _SearchableSelectionField<T> oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.selectedId != widget.selectedId ||
+        oldWidget.items != widget.items) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _syncSelectedText();
+        }
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _focusNode.removeListener(_handleFocusChange);
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _handleFocusChange() {
+    if (!_focusNode.hasFocus) {
+      _syncSelectedText(force: true);
+    }
+  }
+
+  T? _selectedItem() {
+    final selectedId = widget.selectedId;
+    if (selectedId == null) {
+      return null;
+    }
+
+    for (final item in widget.items) {
+      if (widget.idBuilder(item) == selectedId) {
+        return item;
+      }
+    }
+
+    return null;
+  }
+
+  void _syncSelectedText({bool force = false}) {
+    final selectedItem = _selectedItem();
+    final selectedText = selectedItem == null
+        ? ''
+        : widget.titleBuilder(selectedItem);
+
+    if (!force && _focusNode.hasFocus && widget.selectedId == null) {
+      return;
+    }
+
+    if (widget.controller.text != selectedText) {
+      widget.controller.value = TextEditingValue(
+        text: selectedText,
+        selection: TextSelection.collapsed(offset: selectedText.length),
+      );
+    }
+  }
+
+  Iterable<T> _optionsFor(TextEditingValue textEditingValue) {
+    final query = textEditingValue.text.trim().toLowerCase();
+    final matches = query.isEmpty
+        ? widget.items
+        : widget.items.where((item) => widget.matches(item, query)).toList();
+
+    return matches.take(80);
+  }
+
+  void _handleTextChanged(String value) {
+    if (_selectingOption || widget.selectedId == null) {
+      return;
+    }
+
+    final selectedItem = _selectedItem();
+    final selectedText = selectedItem == null
+        ? ''
+        : widget.titleBuilder(selectedItem);
+    if (value.trim() != selectedText.trim()) {
+      widget.onChanged(null);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return RawAutocomplete<T>(
+      textEditingController: widget.controller,
+      focusNode: _focusNode,
+      displayStringForOption: widget.titleBuilder,
+      optionsBuilder: _optionsFor,
+      onSelected: (item) {
+        final selectedId = widget.idBuilder(item);
+        _selectingOption = true;
+        widget.controller.value = TextEditingValue(
+          text: widget.titleBuilder(item),
+          selection: TextSelection.collapsed(
+            offset: widget.titleBuilder(item).length,
+          ),
+        );
+        widget.onChanged(selectedId);
+        _selectingOption = false;
+      },
+      fieldViewBuilder:
+          (context, textEditingController, focusNode, onFieldSubmitted) {
+            return TextFormField(
+              key: widget.fieldKey,
+              controller: textEditingController,
+              focusNode: focusNode,
+              decoration: InputDecoration(
+                labelText: widget.labelText,
+                helperText: widget.helperText,
+                suffixIcon: const Icon(Icons.expand_more),
+              ),
+              textInputAction: TextInputAction.search,
+              // Permite que Enter seleccione la sugerencia resaltada del
+              // autocomplete (RawAutocomplete solo lo hace si el campo enlaza
+              // su onFieldSubmitted).
+              onFieldSubmitted: (_) => onFieldSubmitted(),
+              onChanged: _handleTextChanged,
+              validator: (_) => widget.validator?.call(widget.selectedId),
+            );
+          },
+      optionsViewBuilder: (context, onSelected, options) {
+        final visibleOptions = options.toList(growable: false);
+        final overlayWidth = math.min(
+          MediaQuery.sizeOf(context).width - 48,
+          640.0,
+        );
+
+        return Align(
+          alignment: Alignment.topLeft,
+          child: Material(
+            elevation: 10,
+            color: colorScheme.surface,
+            borderRadius: BorderRadius.circular(10),
+            clipBehavior: Clip.antiAlias,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: overlayWidth,
+                maxHeight: 300,
+              ),
+              child: visibleOptions.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text(
+                        widget.controller.text.trim().isEmpty
+                            ? widget.emptyMessage
+                            : 'Sin coincidencias con la b\u00fasqueda.',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w400,
+                        ),
+                      ),
+                    )
+                  : ListView.separated(
+                      padding: EdgeInsets.zero,
+                      shrinkWrap: true,
+                      itemCount: visibleOptions.length,
+                      separatorBuilder: (_, _) => Divider(
+                        height: 1,
+                        color: colorScheme.outlineVariant.withValues(
+                          alpha: 0.7,
+                        ),
+                      ),
+                      itemBuilder: (context, index) {
+                        final item = visibleOptions[index];
+                        return InkWell(
+                          onTap: () => onSelected(item),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 10,
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  widget.titleBuilder(item),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    fontWeight: FontWeight.w500,
+                                    letterSpacing: 0,
+                                    color: colorScheme.onSurface,
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  widget.subtitleBuilder(item),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    fontWeight: FontWeight.w400,
+                                    letterSpacing: 0,
+                                    color: colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

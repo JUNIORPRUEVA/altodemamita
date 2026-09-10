@@ -28,6 +28,8 @@ class DashboardPage extends StatefulWidget {
 
 class _DashboardPageState extends State<DashboardPage> {
   late Future<_DashboardStats> _statsFuture;
+  _DashboardStats? _lastGoodStats;
+  bool _lastLoadFailed = false;
 
   @override
   void initState() {
@@ -47,6 +49,7 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Future<_DashboardStats> _loadStats() async {
+    try {
     final results = await Future.wait<dynamic>([
       widget.clientRepository.countAll(),
       widget.lotRepository.countAll(),
@@ -87,7 +90,7 @@ class _DashboardPageState extends State<DashboardPage> {
       (total, sale) => total + sale.salePrice,
     );
 
-    return _DashboardStats(
+    final stats = _DashboardStats(
       totalClients: results[0],
       totalLots: results[1],
       availableLots: results[2],
@@ -100,6 +103,14 @@ class _DashboardPageState extends State<DashboardPage> {
       collectedAmount: collectedAmount,
       soldAmount: soldAmount,
     );
+    _lastGoodStats = stats;
+    _lastLoadFailed = false;
+    return stats;
+    } catch (_) {
+      // Nunca mostrar ceros silenciosos: conservar el ultimo estado valido.
+      _lastLoadFailed = true;
+      return _lastGoodStats ?? const _DashboardStats.empty();
+    }
   }
 
   @override
@@ -113,8 +124,15 @@ class _DashboardPageState extends State<DashboardPage> {
             return const Center(child: CircularProgressIndicator());
           }
 
-          final stats = snapshot.data ?? const _DashboardStats.empty();
+          final stats =
+              snapshot.data ?? _lastGoodStats ?? const _DashboardStats.empty();
           final dataAlerts = _buildDataAlerts(stats);
+          if (_lastLoadFailed) {
+            dataAlerts.insert(
+              0,
+              'No pudimos actualizar los indicadores. Mostrando los últimos datos guardados.',
+            );
+          }
 
           return LayoutBuilder(
             builder: (context, constraints) {

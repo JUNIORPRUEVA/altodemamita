@@ -20,6 +20,8 @@ class FakeBackendState {
   String adminFullName = '';
   String authClientType = 'desktop';
   bool omitAuthSub = false;
+  int authLoginRequests = 0;
+  int authMeRequests = 0;
   List<String> authRoles = const ['SUPER_ADMIN'];
   List<String> authPermissions = const [
     'sync.manage',
@@ -480,6 +482,7 @@ class _FakeHttpClientRequest implements HttpClientRequest {
     }
 
     if (_method == 'GET' && path.endsWith('/auth/me')) {
+      _state.authMeRequests += 1;
       final authHeader = _headers.value(HttpHeaders.authorizationHeader) ?? '';
       final hasValidToken = authHeader.trim() == 'Bearer jwt-test-token';
       if (!_state.initialized || !hasValidToken) {
@@ -508,6 +511,7 @@ class _FakeHttpClientRequest implements HttpClientRequest {
     }
 
     if (_method == 'POST' && path.endsWith('/auth/login')) {
+      _state.authLoginRequests += 1;
       final identifier =
           (payload['email'] ?? payload['identifier'])
               ?.toString()

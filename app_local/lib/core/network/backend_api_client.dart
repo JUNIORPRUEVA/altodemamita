@@ -30,12 +30,14 @@ class BackendApiClient {
     String path, {
     Map<String, String>? queryParameters,
     bool authorized = true,
+    String? idempotencyKey,
   }) {
     return _request(
       'GET',
       path,
       queryParameters: queryParameters,
       authorized: authorized,
+      idempotencyKey: idempotencyKey,
     );
   }
 
@@ -44,6 +46,7 @@ class BackendApiClient {
     Map<String, dynamic>? body,
     Map<String, String>? queryParameters,
     bool authorized = true,
+    String? idempotencyKey,
   }) {
     return _request(
       'POST',
@@ -51,6 +54,7 @@ class BackendApiClient {
       body: body,
       queryParameters: queryParameters,
       authorized: authorized,
+      idempotencyKey: idempotencyKey,
     );
   }
 
@@ -59,6 +63,7 @@ class BackendApiClient {
     Map<String, dynamic>? body,
     Map<String, String>? queryParameters,
     bool authorized = true,
+    String? idempotencyKey,
   }) {
     return _request(
       'PATCH',
@@ -66,6 +71,7 @@ class BackendApiClient {
       body: body,
       queryParameters: queryParameters,
       authorized: authorized,
+      idempotencyKey: idempotencyKey,
     );
   }
 
@@ -73,12 +79,14 @@ class BackendApiClient {
     String path, {
     Map<String, String>? queryParameters,
     bool authorized = true,
+    String? idempotencyKey,
   }) {
     return _request(
       'DELETE',
       path,
       queryParameters: queryParameters,
       authorized: authorized,
+      idempotencyKey: idempotencyKey,
     );
   }
 
@@ -88,6 +96,7 @@ class BackendApiClient {
     Map<String, dynamic>? body,
     Map<String, String>? queryParameters,
     bool authorized = true,
+    String? idempotencyKey,
     bool isRetry = false,
   }) async {
     final settings = await _syncConfigRepository.loadSettings();
@@ -101,6 +110,11 @@ class BackendApiClient {
       'Accept': 'application/json',
       'Content-Type': 'application/json',
     };
+    final normalizedIdempotencyKey = idempotencyKey?.trim();
+    if (normalizedIdempotencyKey != null &&
+        normalizedIdempotencyKey.isNotEmpty) {
+      headers['Idempotency-Key'] = normalizedIdempotencyKey;
+    }
     if (authorized) {
       final token = settings.jwtToken.trim();
       if (token.isEmpty) {
@@ -119,7 +133,7 @@ class BackendApiClient {
     }
 
     final encodedBody = body == null ? null : jsonEncode(body);
-    print('ENVIANDO DATA: ${body == null ? '<empty>' : jsonEncode(body)}');
+    print('ENVIANDO DATA: ${_redactBodyForLog(body)}');
 
     late http.Response response;
     try {
@@ -150,7 +164,7 @@ class BackendApiClient {
       );
     }
 
-    print('RESPUESTA: ${response.body}');
+    print('RESPUESTA: ${_redactTextForLog(response.body)}');
 
     dynamic decoded;
     if (response.body.trim().isNotEmpty) {
@@ -183,6 +197,14 @@ class BackendApiClient {
           message = rawMessage.trim();
         } else if (rawMessage is List && rawMessage.isNotEmpty) {
           message = rawMessage.join(', ');
+        } else {
+          final rawError = decoded['error'];
+          if (rawError is Map && rawError['message'] is String) {
+            final errorMessage = rawError['message'].toString().trim();
+            if (errorMessage.isNotEmpty) {
+              message = errorMessage;
+            }
+          }
         }
       }
       throw BackendApiException(
@@ -196,6 +218,41 @@ class BackendApiClient {
       return decoded['data'];
     }
     return decoded;
+  }
+
+  String _redactBodyForLog(Map<String, dynamic>? body) {
+    if (body == null || body.isEmpty) {
+      return '<empty>';
+    }
+    return jsonEncode(_redactValue(body));
+  }
+
+  Object? _redactValue(Object? value) {
+    if (value is Map) {
+      return value.map((key, entryValue) {
+        final normalizedKey = key.toString().trim().toLowerCase();
+        if (normalizedKey.contains('password') ||
+            normalizedKey.contains('token') ||
+            normalizedKey.contains('secret')) {
+          return MapEntry(key, '[REDACTED]');
+        }
+        return MapEntry(key, _redactValue(entryValue));
+      });
+    }
+    if (value is List) {
+      return value.map(_redactValue).toList(growable: false);
+    }
+    return value;
+  }
+
+  String _redactTextForLog(String value) {
+    return value.replaceAll(
+      RegExp(
+        r'("(?:accessToken|refreshToken|token|password)"\s*:\s*")[^"]*(")',
+        caseSensitive: false,
+      ),
+      r'$1[REDACTED]$2',
+    );
   }
 
   Future<bool> _tryRefreshJwtToken(dynamic settings) async {

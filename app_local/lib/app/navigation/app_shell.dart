@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/config/backend_config.dart' as backend_config;
+import '../../core/config/app_flags.dart';
 import '../../core/database/app_database.dart';
 import '../../core/database/database_schema.dart';
 import '../../core/diagnostics/sync_diagnostics_logger.dart';
@@ -178,10 +179,13 @@ class _AppShellState extends State<AppShell> {
   AuthProvider? _authProvider;
   bool _lastAuthIsAuthenticated = false;
   bool _lastAuthIsOnline = false;
+  bool _startupCloudHydrationPending = false;
 
   @override
   void initState() {
     super.initState();
+    _startupCloudHydrationPending =
+        widget.enableBackgroundSync && allowCloudPull && !manualCloudSyncOnly;
     _restoreNavigationPreferences();
     _loadCompanyDisplayName();
     _internetSubscription = Connectivity().onConnectivityChanged.listen((_) {
@@ -339,6 +343,10 @@ class _AppShellState extends State<AppShell> {
   void _handleSyncManagerChanged() {
     if (!mounted) {
       return;
+    }
+    if (_startupCloudHydrationPending &&
+        !_syncManager.state.isInitialCloudHydration) {
+      _startupCloudHydrationPending = false;
     }
     setState(() {});
   }
@@ -676,7 +684,13 @@ class _AppShellState extends State<AppShell> {
         .where(accessibleModules.contains)
         .toList();
     final canAccessSettings = accessibleModules.contains(AppModule.settings);
-    final dataVersion = _syncManager.state.dataVersion;
+    final syncState = _syncManager.state;
+    final dataVersion = syncState.dataVersion;
+    final isInitialCloudHydration =
+        _startupCloudHydrationPending || syncState.isInitialCloudHydration;
+    final pageChild = isInitialCloudHydration
+        ? const _InitialCloudHydrationPage()
+        : _buildCurrentPage(resolvedModule);
     final currentPage = KeyedSubtree(
       key: ValueKey(
         Object.hash(
@@ -684,9 +698,10 @@ class _AppShellState extends State<AppShell> {
           _selectedInstallmentsSaleId,
           _selectedPaymentsSaleId,
           dataVersion,
+          isInitialCloudHydration,
         ),
       ),
-      child: ShellLayoutScope(child: _buildCurrentPage(resolvedModule)),
+      child: ShellLayoutScope(child: pageChild),
     );
 
     return LayoutBuilder(
@@ -846,6 +861,50 @@ class _AppShellState extends State<AppShell> {
           ),
         );
       },
+    );
+  }
+}
+
+class _InitialCloudHydrationPage extends StatelessWidget {
+  const _InitialCloudHydrationPage();
+
+  @override
+  Widget build(BuildContext context) {
+    return BaseLayout(
+      title: 'Panel Principal',
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(
+                width: 34,
+                height: 34,
+                child: CircularProgressIndicator(strokeWidth: 3),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                'Cargando datos de la nube',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: const Color(0xFF0D2640),
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'La informacion de clientes, solares, ventas y pagos se esta preparando.',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: const Color(0xFF5C6B7A),
+                  height: 1.35,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

@@ -43,6 +43,24 @@ Future<void> _settle(WidgetTester tester) async {
   await tester.pump(const Duration(milliseconds: 300));
 }
 
+Future<void> _selectSearchableOption(
+  WidgetTester tester, {
+  required String label,
+  required String query,
+  required String optionText,
+}) async {
+  final field = find.widgetWithText(TextFormField, label);
+  await tester.tap(field);
+  await _settle(tester);
+  await tester.enterText(field, query);
+  await _settle(tester);
+  expect(find.text(optionText), findsWidgets);
+  await tester.tap(find.text(optionText).last);
+  await _settle(tester);
+  FocusManager.instance.primaryFocus?.unfocus();
+  await _settle(tester);
+}
+
 void main() {
   late Directory tempDirectory;
   late AppDatabase appDatabase;
@@ -131,14 +149,18 @@ void main() {
     await tester.tap(find.text('Abrir venta'));
     await _settle(tester);
 
-    final clientDropdown = tester.widget<DropdownButtonFormField<int>>(
-      find.byKey(saleFormClientDropdownKey),
+    await _selectSearchableOption(
+      tester,
+      label: 'Seleccionar cliente',
+      query: 'Maria',
+      optionText: 'Maria Gomez',
     );
-    final lotDropdown = tester.widget<DropdownButtonFormField<int>>(
-      find.byKey(saleFormLotDropdownKey),
+    await _selectSearchableOption(
+      tester,
+      label: 'Seleccionar solar',
+      query: 'MA-S10',
+      optionText: 'MA-S10',
     );
-    clientDropdown.onChanged?.call(clients.single.id);
-    lotDropdown.onChanged?.call(1);
     await _settle(tester);
 
     await tester.enterText(

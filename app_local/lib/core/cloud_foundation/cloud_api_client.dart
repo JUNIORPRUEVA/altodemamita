@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -13,7 +14,7 @@ class CloudApiResponse {
   bool get isRetryable => statusCode == 0 || statusCode >= 500;
   bool get isPermanentFailure =>
       statusCode >= 400 && statusCode < 500 && statusCode != 409;
-  bool get isIdempotentReplayOrConflict => statusCode == 409;
+  bool get isBusinessConflict => statusCode == 409;
 }
 
 class CloudApiClient {
@@ -244,8 +245,15 @@ class CloudApiClient {
       );
     } on SocketException catch (error) {
       return CloudApiResponse(statusCode: 0, body: {'message': '$error'});
+    } on TimeoutException catch (error) {
+      return CloudApiResponse(statusCode: 0, body: {'message': '$error'});
     } on IOException catch (error) {
       return CloudApiResponse(statusCode: 0, body: {'message': '$error'});
+    } on FormatException catch (error) {
+      return CloudApiResponse(
+        statusCode: 0,
+        body: {'message': 'Invalid cloud response: ${error.message}'},
+      );
     }
   }
 

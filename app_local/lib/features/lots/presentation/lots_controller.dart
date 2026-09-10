@@ -1,40 +1,23 @@
-import 'package:flutter/foundation.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../../../core/errors/active_sales_block_delete_exception.dart';
 import '../../../core/resilience/friendly_error_messages.dart';
+import '../../../shared/controllers/resilient_list_controller.dart';
 import '../data/lot_repository.dart';
 import '../domain/lot.dart';
 
-class LotsController extends ChangeNotifier {
+class LotsController extends ResilientListController<Lot> {
   LotsController({required LotRepository repository})
-    : _repository = repository;
+    : _repository = repository,
+      super(
+        moduleLabel: 'Solares',
+        fetch: (query) => repository.fetchAll(query: query),
+        fetchCache: repository.fetchCachedList,
+      );
 
   final LotRepository _repository;
 
-  bool isLoading = false;
-  String currentQuery = '';
-  FriendlyErrorMessage? loadError;
-  List<Lot> lots = const [];
-
-  Future<void> load({String? query}) async {
-    if (query != null) {
-      currentQuery = query;
-    }
-
-    isLoading = true;
-    loadError = null;
-    notifyListeners();
-
-    try {
-      lots = await _repository.fetchAll(query: currentQuery);
-    } catch (error) {
-      loadError = FriendlyErrorMessages.moduleLoad('solares', error);
-    } finally {
-      isLoading = false;
-      notifyListeners();
-    }
-  }
+  List<Lot> get lots => items;
 
   Future<String?> save(Lot lot) async {
     try {
@@ -62,6 +45,7 @@ class LotsController extends ChangeNotifier {
   Future<String?> delete(int id) async {
     try {
       await _repository.delete(id);
+      removeItemById((lot) => lot.id ?? 0, id);
       await load();
       return null;
     } on ActiveSalesBlockDeleteException catch (error) {

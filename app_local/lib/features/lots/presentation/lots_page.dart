@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../../features/auth/domain/permission_model.dart';
 import '../../../features/auth/presentation/auth_provider.dart';
 import '../../../shared/widgets/base_layout.dart';
+import '../../../shared/widgets/module_list_states.dart';
 import '../../../shared/widgets/recovery_experience.dart';
 import '../data/lot_repository.dart';
 import '../domain/lot.dart';
@@ -147,12 +148,11 @@ class _LotsPageState extends State<LotsPage> {
     required bool canUpdate,
     required bool canDelete,
   }) {
-    if (_controller.isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
+    final controller = _controller;
 
-    if (_controller.loadError != null) {
-      final failure = _controller.loadError!;
+    // Pantalla fatal real: solo sin datos visibles y con fallo de carga.
+    if (controller.loadError != null) {
+      final failure = controller.loadError!;
       return InlineModuleRecoveryCard(
         title: failure.title,
         message: failure.message,
@@ -162,7 +162,41 @@ class _LotsPageState extends State<LotsPage> {
       );
     }
 
-    if (_controller.lots.isEmpty) {
+    if (!controller.hasVisibleData) {
+      // Carga inicial / busqueda nueva SIN datos: skeleton, jamas vacio.
+      if (controller.isLoading) {
+        return const ModuleListLoadingView(label: 'Cargando solares…');
+      }
+      if (controller.searchFailed) {
+        return ModuleSearchFailedView(
+          message: 'No pudimos completar la búsqueda de solares.',
+          onRetry: _runSearch,
+        );
+      }
+      if (controller.currentQuery.trim().isNotEmpty) {
+        return const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.search_off_outlined,
+                  size: 44,
+                  color: Color(0xFF8893AA),
+                ),
+                SizedBox(height: 12),
+                Text(
+                  'No se encontraron solares para tu búsqueda.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 15, color: Color(0xFF5E5A52)),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+      // Vacio confirmado (solo aqui se muestra el estado vacio real).
       return Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 520),
@@ -216,11 +250,23 @@ class _LotsPageState extends State<LotsPage> {
 
     return Container(
       color: Colors.white,
-      child: ListView.separated(
-        itemCount: _controller.lots.length,
-        separatorBuilder: (_, _) => const Divider(height: 1, indent: 64),
-        itemBuilder: (context, index) {
-          final lot = _controller.lots[index];
+      child: Column(
+        children: [
+          ModuleStatusBanner(
+            isRefreshing: controller.isRefreshing,
+            refreshFailed: controller.refreshFailed,
+            onRetry: _runSearch,
+            moduleLabel: 'Solares',
+          ),
+          Expanded(
+            child: ListView.separated(
+              itemCount: controller.lots.length,
+              separatorBuilder: (_, _) => const Divider(
+                height: 1,
+                indent: 64,
+              ),
+              itemBuilder: (context, index) {
+                final lot = controller.lots[index];
           final statusColor = _lotStatusColor(lot.status);
           final badge = lot.displayCode.length >= 2
               ? lot.displayCode.substring(0, 2).toUpperCase()
@@ -346,6 +392,9 @@ class _LotsPageState extends State<LotsPage> {
             ),
           );
         },
+            ),
+          ),
+        ],
       ),
     );
   }

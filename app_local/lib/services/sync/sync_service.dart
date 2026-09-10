@@ -940,6 +940,8 @@ class SyncService {
       final clients = await txn.delete(DatabaseSchema.clientsTable);
       final sellers = await txn.delete(DatabaseSchema.sellersTable);
       final products = await txn.delete(DatabaseSchema.lotsTable);
+      await txn.delete(DatabaseSchema.salesListCacheTable);
+      await txn.delete(DatabaseSchema.listSnapshotsTable);
 
       final placeholders = List.filled(businessScopes.length, '?').join(', ');
       final queueRows = await txn.rawDelete(

@@ -3,8 +3,12 @@ import 'dart:developer' as developer;
 
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import '../../../core/cloud_foundation/list_snapshot_store.dart';
+import '../../../core/config/app_flags.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_schema.dart';
+import '../../../core/network/backend_api_client.dart';
+import '../../../core/network/backend_entity_id_registry.dart';
 import '../../../core/system/system_config_service.dart';
 import '../../../core/utils/sync_id_generator.dart';
 import '../../../services/sync/sync_queue_service.dart';
@@ -16,6 +20,7 @@ import '../domain/payment_history_item.dart';
 import '../domain/client_pagare_report.dart';
 import '../domain/payment_sale_context.dart';
 import '../domain/payment_sale_option.dart';
+import '../domain/payment_work_queue.dart';
 
 class PaymentsRepository {
   PaymentsRepository({
@@ -23,19 +28,29 @@ class PaymentsRepository {
     SettingsRepository? settingsRepository,
     SyncQueueService? syncQueueService,
     SystemConfigService? systemConfigService,
+    BackendApiClient? apiClient,
   }) : _appDatabase = appDatabase ?? AppDatabase.instance,
        _settingsRepository = settingsRepository ?? SettingsRepository(),
        _syncQueueService = syncQueueService ?? SyncQueueService.instance,
        _systemConfigService =
-           systemConfigService ?? SystemConfigService.instance;
+           systemConfigService ?? SystemConfigService.instance,
+       _apiClient = apiClient ?? BackendApiClient();
 
   final AppDatabase _appDatabase;
   final SettingsRepository _settingsRepository;
   final SyncQueueService _syncQueueService;
   final SystemConfigService _systemConfigService;
+  final BackendApiClient _apiClient;
+  final BackendEntityIdRegistry _idRegistry = BackendEntityIdRegistry.instance;
+  late final ListSnapshotStore _queueSnapshot = ListSnapshotStore(
+    _appDatabase,
+    entity: 'payments-work-queue',
+  );
 
   bool get _shouldRunBackgroundSync =>
       identical(_appDatabase, AppDatabase.instance);
+  bool get _useBackendMode => cloudCutoverMode.usesAuthoritativeBusinessWrites;
+  bool get usesBackendMode => _useBackendMode;
 
   void _log(String message) {
     developer.log(message, name: 'SistemaSolares.PaymentsSync');
@@ -55,6 +70,23 @@ class PaymentsRepository {
   }
 
   Future<List<PaymentSaleOption>> fetchActiveSales() async {
+    if (_useBackendMode) {
+      final sales = await _fetchOwnerItems('/owner/sales');
+      return sales
+          .map(_paymentSaleOptionFromBackend)
+          .where(
+            (sale) =>
+                const {
+                  'apartado',
+                  'inicial_incompleto',
+                  'activa',
+                }.contains(sale.status) &&
+                (sale.pendingInitialPayment > 0.009 ||
+                    sale.pendingBalance > 0.009),
+          )
+          .toList(growable: false);
+    }
+
     final db = await _appDatabase.database;
     final rows = await db.rawQuery('''
       SELECT
@@ -94,7 +126,116 @@ class PaymentsRepository {
         'efectivo';
   }
 
+  Future<PaymentWorkQueue?> fetchWorkQueue({
+    String state = 'collectible',
+    String search = '',
+    int page = 1,
+    int pageSize = 100,
+  }) async {
+    if (!_useBackendMode) {
+      return null;
+    }
+
+    final response = await _apiClient.get(
+      '/owner/payments/work-queue',
+      queryParameters: {
+        'state': state,
+        'page': '$page',
+        'pageSize': '$pageSize',
+        if (search.trim().isNotEmpty) 'search': search.trim(),
+      },
+    );
+    final payload = response is Map<String, dynamic>
+        ? response
+        : (response as Map).map(
+            (key, value) => MapEntry(key.toString(), value),
+          );
+    final data = payload['data'];
+    final dataMap = data is Map
+        ? data.map((key, value) => MapEntry(key.toString(), value))
+        : payload;
+    // Snapshot cache-first de la vista por defecto de la cola de pagos.
+    if (state == 'collectible' && search.trim().isEmpty && page == 1) {
+      await _queueSnapshot.writeJson(dataMap);
+    }
+    return _workQueueFromDataMap(dataMap, page: page, pageSize: pageSize);
+  }
+
+  PaymentWorkQueue _workQueueFromDataMap(
+    Map<String, dynamic> dataMap, {
+    required int page,
+    required int pageSize,
+  }) {
+    final entries = <PaymentWorkQueueEntry>[];
+    for (final raw in (dataMap['items'] as List?) ?? const []) {
+      if (raw is! Map) {
+        continue;
+      }
+      final item = raw.map((key, value) => MapEntry(key.toString(), value));
+      final rawSale = item['sale'];
+      final rawInstallment = item['installment'];
+      if (rawSale is! Map || rawInstallment is! Map) {
+        continue;
+      }
+      final sale = rawSale.map((key, value) => MapEntry(key.toString(), value));
+      final saleOption = _paymentSaleOptionFromBackend(sale);
+      final installment = _installmentFromBackend(
+        rawInstallment.map((key, value) => MapEntry(key.toString(), value)),
+        saleId: saleOption.saleId,
+      );
+      entries.add(
+        PaymentWorkQueueEntry(sale: saleOption, installment: installment),
+      );
+    }
+
+    final counts = dataMap['counts'] is Map
+        ? (dataMap['counts'] as Map).map(
+            (key, value) => MapEntry(key.toString(), value),
+          )
+        : const <String, Object?>{};
+    return PaymentWorkQueue(
+      entries: entries,
+      total: _toInt(dataMap['total']),
+      page: _toInt(dataMap['page']) == 0 ? page : _toInt(dataMap['page']),
+      pageSize: _toInt(dataMap['pageSize']) == 0
+          ? pageSize
+          : _toInt(dataMap['pageSize']),
+      counts: PaymentWorkQueueCounts(
+        overdue: _toInt(counts['overdue']),
+        dueToday: _toInt(counts['dueToday']),
+        pending: _toInt(counts['pending']),
+        partial: _toInt(counts['partial']),
+      ),
+    );
+  }
+
+  /// Ultima cola de pagos valida guardada en cache local (best-effort: null si
+  /// no existe o falla la lectura).
+  Future<PaymentWorkQueue?> fetchCachedWorkQueue() async {
+    if (!_useBackendMode) {
+      return null;
+    }
+    final payload = await _queueSnapshot.readJson();
+    if (payload is! Map) {
+      return null;
+    }
+    try {
+      final map = payload.map((key, value) => MapEntry(key.toString(), value));
+      return _workQueueFromDataMap(
+        map,
+        page: _toInt(map['page']) == 0 ? 1 : _toInt(map['page']),
+        pageSize: _toInt(map['pageSize']) == 0 ? 100 : _toInt(map['pageSize']),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<PaymentSaleContext?> fetchSaleContext(int saleId) async {
+    if (_useBackendMode) {
+      return _fetchSaleContextFromBackend(saleId);
+    }
+
     return _runWithDatabaseRetry(() async {
       final db = await _appDatabase.database;
       final saleRows = await db.rawQuery(
@@ -178,7 +319,7 @@ class PaymentsRepository {
     );
 
     if (clientRows.isEmpty) {
-      throw StateError('No se encontrÃ³ el cliente seleccionado.');
+      throw StateError('No se encontro el cliente seleccionado.');
     }
 
     final client = clientRows.first;
@@ -217,6 +358,11 @@ class PaymentsRepository {
 
   Future<void> registerPayment(PaymentDraft draft) async {
     _systemConfigService.ensureWritable();
+    if (_useBackendMode) {
+      await _registerPaymentInBackend(draft);
+      await _queueSnapshot.clear();
+      return;
+    }
 
     // Reconcile installment states from actual pagos before applying this
     // payment. This guards against sync race conditions where conflict recovery
@@ -269,6 +415,11 @@ class PaymentsRepository {
 
   Future<void> deletePayment(int paymentId) async {
     _systemConfigService.ensureWritable();
+    if (_useBackendMode) {
+      await _annulPaymentInBackend(paymentId);
+      await _queueSnapshot.clear();
+      return;
+    }
     final deleteQueue =
         <({String scope, String syncId, Map<String, Object?> payload})>[];
 
@@ -1084,18 +1235,26 @@ class PaymentsRepository {
     List<Installment> installments,
     DateTime paymentDate,
   ) {
-    for (final installment in installments) {
-      if (_isClosedStatus(installment.status)) {
-        continue;
-      }
-      if (installment.remainingAmount <= 0.009) {
-        continue;
-      }
-      if (!installment.dueDate.isAfter(paymentDate)) {
-        return installment;
-      }
-    }
-    return null;
+    // Prioridad financiera: la cuota exigible es la MÁS ANTIGUA sin pagar cuyo
+    // vencimiento ya ocurrió (<= hoy), sin importar el orden en que llegó la
+    // lista desde el backend.
+    final candidates =
+        installments.where((installment) {
+          if (_isClosedStatus(installment.status)) {
+            return false;
+          }
+          if (installment.remainingAmount <= 0.009) {
+            return false;
+          }
+          return !installment.dueDate.isAfter(paymentDate);
+        }).toList()..sort((left, right) {
+          final byDate = left.dueDate.compareTo(right.dueDate);
+          if (byDate != 0) {
+            return byDate;
+          }
+          return left.installmentNumber.compareTo(right.installmentNumber);
+        });
+    return candidates.isEmpty ? null : candidates.first;
   }
 
   /// Returns the list of installments to process for a given payment type.
@@ -1223,7 +1382,7 @@ class PaymentsRepository {
       );
     } catch (error, stackTrace) {
       _log(
-        'Sync fallÃ³ -> scope=payments operation=$operationLabel error=$error stack=$stackTrace',
+        'Sync fallo -> scope=payments operation=$operationLabel error=$error stack=$stackTrace',
       );
     }
   }
@@ -1659,6 +1818,291 @@ class PaymentsRepository {
       fixedInstallments: fixedInstallments,
       touchedSales: touchedSaleIds.length,
     );
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchOwnerItems(String path) async {
+    final all = <Map<String, dynamic>>[];
+    var page = 1;
+    const pageSize = 200;
+    while (true) {
+      final response = await _apiClient.get(
+        path,
+        queryParameters: {'page': '$page', 'pageSize': '$pageSize'},
+      );
+      final payload = response is Map<String, dynamic>
+          ? response
+          : (response as Map).map(
+              (key, value) => MapEntry(key.toString(), value),
+            );
+      final data = payload['data'];
+      final dataMap = data is Map
+          ? data.map((key, value) => MapEntry(key.toString(), value))
+          : payload;
+      final items = (dataMap['items'] as List?) ?? const [];
+      for (final item in items.whereType<Map>()) {
+        all.add(item.map((key, value) => MapEntry(key.toString(), value)));
+      }
+      final total = int.tryParse('${dataMap['total'] ?? ''}') ?? all.length;
+      if (items.isEmpty || all.length >= total || page >= 200) {
+        break;
+      }
+      page++;
+    }
+    return all;
+  }
+
+  Future<PaymentSaleContext?> _fetchSaleContextFromBackend(int saleId) async {
+    final saleRemoteId = _idRegistry.resolveRemoteId('sales', saleId);
+    if (saleRemoteId == null || saleRemoteId.isEmpty) {
+      return null;
+    }
+
+    // El contexto financiero de la venta (cuotas + pagos) es autoritativo y
+    // viene del endpoint por-venta del backend (SIN el límite de 200 del
+    // listado global y sin truncar cuotas por fecha de actualización).
+    final response = await _apiClient.get(
+      '/owner/sales/$saleRemoteId/payments-context',
+    );
+    final payload = response is Map<String, dynamic>
+        ? response
+        : (response as Map).map(
+            (key, value) => MapEntry(key.toString(), value),
+          );
+    final data = payload['data'];
+    final dataMap = data is Map
+        ? data.map((key, value) => MapEntry(key.toString(), value))
+        : payload;
+    final rawSale = dataMap['sale'];
+    if (rawSale is! Map) {
+      return null;
+    }
+    final sale = rawSale.map((key, value) => MapEntry(key.toString(), value));
+
+    final installments = <Installment>[];
+    final numberByRemoteId = <String, int>{};
+    final numberByRemoteSyncId = <String, int>{};
+    for (final raw in (dataMap['installments'] as List?) ?? const []) {
+      if (raw is! Map) {
+        continue;
+      }
+      final installmentMap = raw.map(
+        (key, value) => MapEntry(key.toString(), value),
+      );
+      final remoteId = installmentMap['id']?.toString().trim() ?? '';
+      final remoteSyncId = installmentMap['syncId']?.toString().trim() ?? '';
+      final number = _toInt(installmentMap['installmentNumber']);
+      if (remoteId.isNotEmpty) {
+        numberByRemoteId[remoteId] = number;
+      }
+      if (remoteSyncId.isNotEmpty) {
+        numberByRemoteSyncId[remoteSyncId] = number;
+      }
+      installments.add(_installmentFromBackend(installmentMap, saleId: saleId));
+    }
+
+    final history = <PaymentHistoryItem>[];
+    for (final raw in (dataMap['payments'] as List?) ?? const []) {
+      if (raw is! Map) {
+        continue;
+      }
+      history.add(
+        _paymentHistoryFromBackend(
+          raw.map((key, value) => MapEntry(key.toString(), value)),
+          saleId: saleId,
+          installmentNumbersByRemoteId: numberByRemoteId,
+          installmentNumbersByRemoteSyncId: numberByRemoteSyncId,
+        ),
+      );
+    }
+
+    return PaymentSaleContext(
+      sale: _paymentSaleOptionFromBackend(sale),
+      monthlyInterest: _toDouble(sale['monthlyInterestRate']),
+      installments: installments,
+      history: history,
+      actionableInstallment: _findActionableInstallment(
+        installments,
+        DateTime.now(),
+      ),
+    );
+  }
+
+  Future<void> _registerPaymentInBackend(PaymentDraft draft) async {
+    final saleRemoteId = _idRegistry.resolveRemoteId('sales', draft.saleId);
+    if (saleRemoteId == null || saleRemoteId.isEmpty) {
+      throw const BackendApiException(
+        'No se pudo identificar la venta remota para registrar el pago.',
+      );
+    }
+    final installmentRemoteId = _idRegistry.resolveRemoteId(
+      'installments',
+      draft.targetInstallmentId,
+    );
+    final operationId =
+        'desktop-payment-${draft.saleId}-${draft.paymentDate.microsecondsSinceEpoch}';
+    await _apiClient.post(
+      '/authoritative/payments',
+      idempotencyKey: operationId,
+      body: {
+        'saleId': saleRemoteId,
+        'paymentDate': draft.paymentDate.toIso8601String(),
+        'amountPaid': draft.amountPaid,
+        'paymentMethod': draft.paymentMethod,
+        'paymentTypeOverride': draft.paymentTypeOverride,
+        if (installmentRemoteId != null && installmentRemoteId.isNotEmpty)
+          'targetInstallmentId': installmentRemoteId,
+        'targetInstallmentNumber': draft.targetInstallmentNumber,
+        'yearToPay': int.tryParse(draft.yearToPay ?? ''),
+        'operationId': operationId,
+      },
+    );
+  }
+
+  Future<void> _annulPaymentInBackend(int paymentId) async {
+    final paymentRemoteId = _idRegistry.resolveRemoteId('payments', paymentId);
+    if (paymentRemoteId == null || paymentRemoteId.isEmpty) {
+      throw const BackendApiException(
+        'No se pudo identificar el pago remoto para anularlo.',
+      );
+    }
+    final operationId =
+        'desktop-payment-annul-$paymentId-${DateTime.now().microsecondsSinceEpoch}';
+    await _apiClient.post(
+      '/authoritative/payments/$paymentRemoteId/annul',
+      idempotencyKey: operationId,
+      body: {
+        'reason': 'Anulado desde desktop cloud-first.',
+        'operationId': operationId,
+      },
+    );
+  }
+
+  PaymentSaleOption _paymentSaleOptionFromBackend(Map<String, dynamic> item) {
+    final remoteSaleId = item['id']?.toString().trim() ?? '';
+    final localSaleId = _idRegistry.register('sales', remoteSaleId);
+    final clientSyncId = item['clientSyncId']?.toString().trim() ?? '';
+    final localClientId = clientSyncId.isEmpty
+        ? 0
+        : _idRegistry.register('clients', clientSyncId);
+    final status = _mapSaleStatusFromBackend(item['status']?.toString() ?? '');
+    return PaymentSaleOption(
+      saleId: localSaleId,
+      clientId: localClientId,
+      clientName: item['client']?.toString() ?? '',
+      clientDocumentId: item['cedula']?.toString() ?? '',
+      clientPhone: item['clientPhone']?.toString() ?? '',
+      lotDisplayCode: item['lot']?.toString() ?? '',
+      pendingBalance: _toDouble(item['balance']),
+      requiredInitialPayment: _toDouble(item['initialRequiredAmount']),
+      paidInitialPayment: _toDouble(item['initialPaid']),
+      pendingInitialPayment: _toDouble(item['initialPendingAmount']),
+      paidApartadoPayment: _toDouble(item['reservationPaidAmount']),
+      status: status,
+    );
+  }
+
+  Installment _installmentFromBackend(
+    Map<String, dynamic> item, {
+    required int saleId,
+  }) {
+    final remoteId = item['id']?.toString().trim() ?? '';
+    final localId = _idRegistry.register('installments', remoteId);
+    return Installment(
+      id: localId,
+      saleId: saleId,
+      installmentNumber: _toInt(item['installmentNumber']),
+      dueDate:
+          DateTime.tryParse(item['dueDate']?.toString() ?? '') ??
+          DateTime.now(),
+      openingBalance: _toDouble(item['openingBalance']),
+      principalAmount: _toDouble(item['principalAmount']),
+      interestAmount: _toDouble(item['interestAmount']),
+      totalAmount: _toDouble(item['totalAmount']),
+      paidAmount: _toDouble(item['paidAmount']),
+      paidPrincipalAmount: _toDouble(item['paidPrincipalAmount']),
+      paidInterestAmount: _toDouble(item['paidInterestAmount']),
+      endingBalance: _toDouble(item['endingBalance']),
+      status: _mapInstallmentStatusFromBackend(
+        item['status']?.toString() ?? '',
+      ),
+      createdAt:
+          DateTime.tryParse(item['createdAt']?.toString() ?? '') ??
+          DateTime.now(),
+      updatedAt:
+          DateTime.tryParse(item['updatedAt']?.toString() ?? '') ??
+          DateTime.now(),
+    );
+  }
+
+  PaymentHistoryItem _paymentHistoryFromBackend(
+    Map<String, dynamic> item, {
+    required int saleId,
+    Map<String, int>? installmentNumbersByRemoteId,
+    Map<String, int>? installmentNumbersByRemoteSyncId,
+  }) {
+    final remoteId = item['id']?.toString().trim() ?? '';
+    final localId = _idRegistry.register('payments', remoteId);
+    final installmentRemoteId = item['installmentId']?.toString().trim() ?? '';
+    final installmentRemoteSyncId =
+        item['installmentSyncId']?.toString().trim() ?? '';
+    final installmentNumber = _toInt(item['installmentNumber']) != 0
+        ? _toInt(item['installmentNumber'])
+        : (installmentNumbersByRemoteId?[installmentRemoteId] ??
+              installmentNumbersByRemoteSyncId?[installmentRemoteSyncId]);
+    return PaymentHistoryItem(
+      id: localId,
+      saleId: saleId,
+      clientId: 0,
+      installmentId: installmentRemoteId.isEmpty
+          ? null
+          : _idRegistry.register('installments', installmentRemoteId),
+      paymentDate:
+          DateTime.tryParse(item['paidAt']?.toString() ?? '') ?? DateTime.now(),
+      amountPaid: _toDouble(item['amount']),
+      paymentMethod: item['method']?.toString() ?? '',
+      paymentType: item['paymentType']?.toString() ?? 'cuota',
+      reference: item['reference']?.toString(),
+      installmentNumber: installmentNumber,
+    );
+  }
+
+  String _mapSaleStatusFromBackend(String status) {
+    switch (status.trim().toLowerCase()) {
+      case 'completed':
+        return 'pagada';
+      case 'cancelled':
+        return 'cancelada';
+      case 'draft':
+        return 'apartado';
+      case 'overdue':
+        return 'atrasada';
+      case 'apartado':
+      case 'inicial_incompleto':
+      case 'activa':
+      case 'pagada':
+      case 'cancelada':
+        return status.trim().toLowerCase();
+      case 'active':
+      default:
+        return 'activa';
+    }
+  }
+
+  String _mapInstallmentStatusFromBackend(String status) {
+    switch (status.trim().toLowerCase()) {
+      case 'paid':
+        return 'pagada';
+      case 'cancelled':
+        return 'cancelada';
+      case 'adjusted':
+        return 'ajustada';
+      case 'overdue':
+        return 'vencida';
+      default:
+        return status.trim().isEmpty
+            ? 'pendiente'
+            : status.trim().toLowerCase();
+    }
   }
 
   double _roundCurrency(double value) {

@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/utils/dominican_formatters.dart';
@@ -6,6 +6,7 @@ import '../../../features/auth/domain/permission_model.dart';
 import '../../../features/auth/presentation/auth_provider.dart';
 import '../../../core/resilience/friendly_error_messages.dart';
 import '../../../shared/widgets/base_layout.dart';
+import '../../../shared/widgets/module_list_states.dart';
 import '../../../shared/widgets/recovery_experience.dart';
 import '../../installments/domain/installment.dart';
 import '../data/payments_repository.dart';
@@ -15,6 +16,7 @@ import '../domain/payment_draft.dart';
 import '../domain/payment_history_item.dart';
 import '../domain/payment_sale_context.dart';
 import '../domain/payment_sale_option.dart';
+import '../domain/payment_work_queue.dart';
 import 'payment_form_dialog.dart';
 import 'payment_history_fullscreen.dart';
 import 'payments_controller.dart';
@@ -223,7 +225,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
             SizedBox(width: 10),
             Expanded(
               child: Text(
-                'No se encontraron coincidencias con ese nombre, telefono, cÃ©dula o solar.',
+                'No se encontraron coincidencias con ese nombre, telefono, cedula o solar.',
                 style: TextStyle(fontSize: 13, color: Color(0xFF556079)),
               ),
             ),
@@ -323,7 +325,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Hay $remainingMatches coincidencias mÃ¡s. Sigue escribiendo para acotar la lista.',
+                      'Hay $remainingMatches coincidencias mas. Sigue escribiendo para acotar la lista.',
                       style: const TextStyle(
                         fontSize: 12,
                         color: Color(0xFF6B7494),
@@ -351,7 +353,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
       details.add(sale.clientDocumentId);
     }
     details.add('Venta #${sale.saleId}');
-    return details.join('  Â·  ');
+    return details.join(' - ');
   }
 
   Widget _buildSaleSearchField() {
@@ -363,7 +365,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
         onSubmitted: _handleSearchSubmitted,
         style: const TextStyle(fontSize: 14),
         decoration: InputDecoration(
-          hintText: 'Buscar por nombre, telefono, cÃ©dula o nÃºmero de solar',
+          hintText: 'Buscar por nombre, telefono, cedula o numero de solar',
           prefixIcon: const Icon(Icons.search, size: 18),
           suffixIcon: _saleSearchController.text.isEmpty
               ? null
@@ -398,11 +400,16 @@ class _PaymentsPageState extends State<PaymentsPage> {
   Widget _buildBody(BuildContext context, {required bool isAdmin}) {
     final matchedSales = _controller.activeSales;
 
-    if (_controller.isLoading) {
-      return const Center(child: CircularProgressIndicator());
+    if (_controller.isLoading &&
+        _controller.activeSales.isEmpty &&
+        _controller.workQueue == null) {
+      return _buildLoadingState('Consultando cuotas y pagos...');
     }
 
-    if (_controller.loadError != null) {
+    // Pantalla fatal real: solo cuando NO hay ningun dato visible.
+    if (_controller.loadError != null &&
+        _controller.activeSales.isEmpty &&
+        _controller.workQueue == null) {
       final failure = _controller.loadError!;
       return InlineModuleRecoveryCard(
         title: failure.title,
@@ -447,7 +454,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
                 ),
                 const SizedBox(height: 10),
                 const Text(
-                  'Cuando exista una venta activa con pendiente, aparecerÃ¡ aquÃ­ para cobrarla.',
+                  'Cuando exista una venta activa con pendiente, aparecera aqui para cobrarla.',
                   style: TextStyle(fontSize: 14, color: Color(0xFF6B7494)),
                   textAlign: TextAlign.center,
                 ),
@@ -458,28 +465,53 @@ class _PaymentsPageState extends State<PaymentsPage> {
       );
     }
 
-    final contextData = _controller.selectedContext;
+    final workQueue = _controller.workQueue;
+    // Cache-first real: si ya hay cola/sales visibles, pintamos de inmediato
+    // con un contexto parcial y cargamos el detalle en segundo plano. Solo se
+    // muestra el spinner global cuando NO existe ningun dato usable.
+    final contextLoading = _controller.selectedContext == null;
+    final contextData =
+        _controller.selectedContext ??
+        _partialContextFromData(matchedSales, workQueue);
     if (contextData == null) {
-      return const Center(child: CircularProgressIndicator());
+      return _buildLoadingState('Cargando cuotas y pagos...');
     }
 
-    _ensureSaleContextsHydrated();
+    if (workQueue == null) {
+      _ensureSaleContextsHydrated();
+    }
 
-    final visibleInstallments = _filteredInstallmentEntries(matchedSales);
-    final totalInstallments = _totalInstallmentsForSales(matchedSales);
-    final hasPendingContexts = _hasPendingSaleContexts(matchedSales);
-    final visibleHistory = _filteredHistory(contextData.history);
+    final visibleInstallments = workQueue == null
+        ? _filteredInstallmentEntries(matchedSales)
+        : _filteredWorkQueueEntries(workQueue.entries);
+    final totalInstallments =
+        workQueue?.total ?? _totalInstallmentsForSales(matchedSales);
+    final hasPendingContexts =
+        workQueue == null && _hasPendingSaleContexts(matchedSales);
+    final visibleHistory = contextLoading
+        ? const <PaymentHistoryItem>[]
+        : _filteredHistory(contextData.history);
     final selectedHistoryPaymentId = _resolveSelectedHistoryPaymentId(
       visibleHistory,
     );
 
-    return ColoredBox(
-      color: const Color(0xFFF5F7FA),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+    return Column(
+      children: [
+        ModuleStatusBanner(
+          isRefreshing: _controller.isRefreshing,
+          refreshFailed: _controller.refreshFailed,
+          onRetry: () =>
+              _controller.load(preferredSaleId: widget.initialSaleId),
+          moduleLabel: 'Pagos',
+        ),
+        Expanded(
+          child: ColoredBox(
+            color: const Color(0xFFF5F7FA),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final wide = constraints.maxWidth >= 1100;
+            final wide = constraints.maxWidth >= 900;
 
             if (!wide) {
               return ListView(
@@ -490,6 +522,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
                     matchedSalesCount: matchedSales.length,
                     totalInstallments: totalInstallments,
                     hasPendingContexts: hasPendingContexts,
+                    fillAvailableHeight: false,
                   ),
                   const SizedBox(height: 12),
                   _buildDetailsPanel(
@@ -498,6 +531,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
                     isAdmin: isAdmin,
                     selectedHistoryPaymentId: selectedHistoryPaymentId,
                     scrollable: false,
+                    isContextLoading: contextLoading,
                   ),
                 ],
               );
@@ -524,13 +558,114 @@ class _PaymentsPageState extends State<PaymentsPage> {
                     visibleHistory,
                     isAdmin: isAdmin,
                     selectedHistoryPaymentId: selectedHistoryPaymentId,
+                    isContextLoading: contextLoading,
                   ),
                 ),
               ],
             );
           },
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLoadingState(String message) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const CircularProgressIndicator(),
+          const SizedBox(height: 14),
+          Text(
+            message,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF556079),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Panel de detalle discreto mientras llega el contexto real de la venta
+  /// (no bloquea el resto del modulo).
+  Widget _buildDetailsLoadingCard() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE4EAF2)),
+      ),
+      child: const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            SizedBox(height: 12),
+            Text(
+              'Cargando detalle de la venta…',
+              style: TextStyle(fontSize: 13, color: Color(0xFF6B7494)),
+            ),
+          ],
         ),
       ),
+    );
+  }
+
+  /// Construye un contexto parcial (solo para encabezado/cuotas) a partir de la
+  /// cola o las ventas activas, para pintar el modulo de inmediato mientras el
+  /// contexto autoritativo llega en segundo plano.
+  PaymentSaleContext? _partialContextFromData(
+    List<PaymentSaleOption> sales,
+    PaymentWorkQueue? queue,
+  ) {
+    PaymentSaleOption? sale;
+    final selectedId = _controller.selectedSaleId;
+    if (selectedId != null) {
+      for (final candidate in sales) {
+        if (candidate.saleId == selectedId) {
+          sale = candidate;
+          break;
+        }
+      }
+      if (sale == null && queue != null) {
+        for (final entry in queue.entries) {
+          if (entry.sale.saleId == selectedId) {
+            sale = entry.sale;
+            break;
+          }
+        }
+      }
+    }
+    sale ??= sales.isNotEmpty
+        ? sales.first
+        : (queue != null && queue.entries.isNotEmpty
+              ? queue.entries.first.sale
+              : null);
+    if (sale == null) {
+      return null;
+    }
+    final resolvedSale = sale;
+    final installments = queue == null
+        ? const <Installment>[]
+        : queue.entries
+              .where((entry) => entry.sale.saleId == resolvedSale.saleId)
+              .map((entry) => entry.installment)
+              .toList(growable: false);
+    return PaymentSaleContext(
+      sale: resolvedSale,
+      monthlyInterest: 0,
+      installments: installments,
+      history: const [],
     );
   }
 
@@ -540,16 +675,48 @@ class _PaymentsPageState extends State<PaymentsPage> {
     required int matchedSalesCount,
     required int totalInstallments,
     required bool hasPendingContexts,
+    bool fillAvailableHeight = true,
   }) {
     final showAggregate = matchedSalesCount > 1;
     final panelTitle = showAggregate
         ? 'Lista de cuotas'
         : contextData.sale.isFinancingActive
         ? 'Lista de cuotas'
-        : 'ActivaciÃ³n del financiamiento';
+        : 'Activacion del financiamiento';
     final panelSubtitle = showAggregate
         ? 'Mostrando cuotas de todas las ventas activas'
-        : '${contextData.sale.clientName}  Â·  ${contextData.sale.lotDisplayCode}';
+        : '${contextData.sale.clientName} - ${contextData.sale.lotDisplayCode}';
+
+    final installmentList = hasPendingContexts && totalInstallments == 0
+        ? const Center(child: CircularProgressIndicator())
+        : totalInstallments == 0
+        ? _buildEmptyInstallmentsState(hasFilters: false)
+        : visibleInstallments.isEmpty
+        ? _buildEmptyInstallmentsState(hasFilters: true)
+        : ListView.separated(
+            itemCount: visibleInstallments.length,
+            separatorBuilder: (_, _) => const Divider(height: 1),
+            itemBuilder: (context, index) {
+              final item = visibleInstallments[index];
+              final installment = item.installment;
+              final statusLabel = _statusLabel(installment);
+              return _CompactInstallmentRow(
+                installment: installment,
+                formattedDate: _formatDate(installment.dueDate),
+                formattedAmount: _money(installment.totalAmount),
+                formattedPaid: _money(installment.paidAmount),
+                formattedRemaining: _money(installment.remainingAmount),
+                statusLabel: statusLabel,
+                statusColor: _installmentColor(statusLabel),
+                selected: item.saleId == _effectiveSelectedSaleId,
+                onTap: () => _commitSaleSelection(item.saleId),
+              );
+            },
+          );
+
+    final listRegion = fillAvailableHeight
+        ? Expanded(child: installmentList)
+        : SizedBox(height: 420, child: installmentList);
 
     return Container(
       decoration: BoxDecoration(
@@ -599,7 +766,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
                   child: Text(
                     hasPendingContexts && totalInstallments == 0
                         ? 'Cargando...'
-                        : '${visibleInstallments.length}/$totalInstallments cuotas visibles',
+                        : 'Mostrando ${visibleInstallments.length} de $totalInstallments',
                     style: const TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
@@ -613,34 +780,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
           const Divider(height: 1),
           _buildInstallmentsTableHeader(),
           const Divider(height: 1),
-          Expanded(
-            child: hasPendingContexts && totalInstallments == 0
-                ? const Center(child: CircularProgressIndicator())
-                : totalInstallments == 0
-                ? _buildEmptyInstallmentsState(hasFilters: false)
-                : visibleInstallments.isEmpty
-                ? _buildEmptyInstallmentsState(hasFilters: true)
-                : ListView.separated(
-                    itemCount: visibleInstallments.length,
-                    separatorBuilder: (_, _) => const Divider(height: 1),
-                    itemBuilder: (context, index) {
-                      final item = visibleInstallments[index];
-                      final installment = item.installment;
-                      final statusLabel = _statusLabel(installment);
-                      return _CompactInstallmentRow(
-                        installment: installment,
-                        formattedDate: _formatDate(installment.dueDate),
-                        formattedAmount: _money(installment.totalAmount),
-                        formattedPaid: _money(installment.paidAmount),
-                        formattedRemaining: _money(installment.remainingAmount),
-                        statusLabel: statusLabel,
-                        statusColor: _installmentColor(statusLabel),
-                        selected: item.saleId == _effectiveSelectedSaleId,
-                        onTap: () => _commitSaleSelection(item.saleId),
-                      );
-                    },
-                  ),
-          ),
+          listRegion,
         ],
       ),
     );
@@ -681,10 +821,14 @@ class _PaymentsPageState extends State<PaymentsPage> {
   Widget _buildEmptyInstallmentsState({required bool hasFilters}) {
     final sale = _controller.selectedContext?.sale;
     final isPendingInitial =
-        !hasFilters && sale != null && !sale.isFinancingActive && sale.pendingInitialPayment > 0.009;
-    final canCreatePayments = context
-        .read<AuthProvider>()
-        .canAccess(PermissionCatalog.payments, PermissionAction.create);
+        !hasFilters &&
+        sale != null &&
+        !sale.isFinancingActive &&
+        sale.pendingInitialPayment > 0.009;
+    final canCreatePayments = context.read<AuthProvider>().canAccess(
+      PermissionCatalog.payments,
+      PermissionAction.create,
+    );
 
     return Center(
       child: Padding(
@@ -738,7 +882,10 @@ class _PaymentsPageState extends State<PaymentsPage> {
             if (isPendingInitial) ...[
               const SizedBox(height: 12),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
                 decoration: BoxDecoration(
                   color: const Color(0xFFFFF8F0),
                   borderRadius: BorderRadius.circular(10),
@@ -751,7 +898,10 @@ class _PaymentsPageState extends State<PaymentsPage> {
                       children: [
                         const Text(
                           'Inicial pagado: ',
-                          style: TextStyle(fontSize: 13, color: Color(0xFF8893AA)),
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Color(0xFF8893AA),
+                          ),
                         ),
                         Text(
                           _money(sale.paidInitialPayment),
@@ -769,7 +919,10 @@ class _PaymentsPageState extends State<PaymentsPage> {
                       children: [
                         const Text(
                           'Monto pendiente: ',
-                          style: TextStyle(fontSize: 13, color: Color(0xFF8893AA)),
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Color(0xFF8893AA),
+                          ),
                         ),
                         Text(
                           _money(sale.pendingInitialPayment),
@@ -815,7 +968,11 @@ class _PaymentsPageState extends State<PaymentsPage> {
     required bool isAdmin,
     required int? selectedHistoryPaymentId,
     bool scrollable = true,
+    bool isContextLoading = false,
   }) {
+    if (isContextLoading) {
+      return _buildDetailsLoadingCard();
+    }
     final sale = contextData.sale;
     final actionableInstallment = contextData.actionableInstallment;
     final isFinancingActive = sale.isFinancingActive;
@@ -825,11 +982,11 @@ class _PaymentsPageState extends State<PaymentsPage> {
     final pendingCount = contextData.installments.length - paidCount;
     final nextActionText = !isFinancingActive
         ? sale.pendingInitialPayment <= 0.009
-              ? 'El inicial ya estÃ¡ completo. La venta quedarÃ¡ lista para operar con cuotas.'
-              : 'El prÃ³ximo pago se aplicarÃ¡ al inicial. Cuando el pendiente llegue a cero, la venta se activarÃ¡ y se generarÃ¡n las cuotas.'
+              ? 'El inicial ya esta completo. La venta quedara lista para operar con cuotas.'
+              : 'El proximo pago se aplicara al inicial. Cuando el pendiente llegue a cero, la venta se activara y se generaran las cuotas.'
         : actionableInstallment == null
-        ? 'No hay cuota vencida o exigible. Si registras un pago ahora, irÃ¡ directo a capital.'
-        : 'El prÃ³ximo pago cubrirÃ¡ primero la cuota #${actionableInstallment.installmentNumber} con restante de ${_money(actionableInstallment.remainingAmount)}.';
+        ? 'No hay cuota vencida o exigible. Si registras un pago ahora, ira directo a capital.'
+        : 'El proximo pago cubrira primero la cuota #${actionableInstallment.installmentNumber} con restante de ${_money(actionableInstallment.remainingAmount)}.';
 
     final content = Padding(
       padding: const EdgeInsets.all(16),
@@ -872,7 +1029,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
                 _DetailItem(
                   label: isFinancingActive
                       ? 'Saldo pendiente'
-                      : 'Inicial mÃ­nimo requerido',
+                      : 'Inicial minimo requerido',
                   value: _money(
                     isFinancingActive
                         ? sale.pendingBalance
@@ -1000,7 +1157,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
             ),
             child: visibleHistory.isEmpty
                 ? const Text(
-                    'TodavÃ­a no hay pagos registrados para esta venta.',
+                    'Todavia no hay pagos registrados para esta venta.',
                     style: TextStyle(fontSize: 13, color: Color(0xFF8893AA)),
                   )
                 : SizedBox(
@@ -1022,7 +1179,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
                               payment.installmentNumber,
                             ),
                             subtitle:
-                                '${_formatDate(payment.paymentDate)}  Â·  ${_capitalize(payment.paymentMethod)}',
+                                '${_formatDate(payment.paymentDate)} - ${_capitalize(payment.paymentMethod)}',
                             amount: _money(payment.amountPaid),
                             color: _paymentTypeColor(payment.paymentType),
                             icon: _paymentTypeIcon(payment.paymentType),
@@ -1077,11 +1234,10 @@ class _PaymentsPageState extends State<PaymentsPage> {
                 ),
               ),
             ),
-            Expanded(
-              child: scrollable
-                  ? SingleChildScrollView(child: content)
-                  : content,
-            ),
+            if (scrollable)
+              Expanded(child: SingleChildScrollView(child: content))
+            else
+              content,
           ],
         ),
       ),
@@ -1125,7 +1281,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
                           },
                         ),
                         _buildFilterChip(
-                          label: 'Pendientes',
+                          label: 'Pendientes futuras',
                           selected: tempInstallmentFilter == 'pending',
                           onSelected: () {
                             setDialogState(() {
@@ -1139,6 +1295,15 @@ class _PaymentsPageState extends State<PaymentsPage> {
                           onSelected: () {
                             setDialogState(() {
                               tempInstallmentFilter = 'overdue';
+                            });
+                          },
+                        ),
+                        _buildFilterChip(
+                          label: 'Parciales',
+                          selected: tempInstallmentFilter == 'partial',
+                          onSelected: () {
+                            setDialogState(() {
+                              tempInstallmentFilter = 'partial';
                             });
                           },
                         ),
@@ -1284,6 +1449,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
       _sortOrder = result.sortOrder;
       _dateRange = result.dateRange;
     });
+    _controller.reloadWorkQueue(state: _workQueueStateForFilter());
   }
 
   Widget _buildFilterChip({
@@ -1517,6 +1683,52 @@ class _PaymentsPageState extends State<PaymentsPage> {
     return items;
   }
 
+  List<_PaymentInstallmentEntry> _filteredWorkQueueEntries(
+    List<PaymentWorkQueueEntry> entries,
+  ) {
+    final items = entries
+        .map(
+          (entry) => _PaymentInstallmentEntry(
+            saleId: entry.sale.saleId,
+            installment: entry.installment,
+          ),
+        )
+        .toList();
+
+    items.retainWhere((item) {
+      if (_dateRange != null && !_matchesDateRange(item.installment.dueDate)) {
+        return false;
+      }
+      return true;
+    });
+
+    items.sort((left, right) {
+      final compare = left.installment.dueDate.compareTo(
+        right.installment.dueDate,
+      );
+      if (compare != 0) {
+        return _sortOrder == 'recent' ? -compare : compare;
+      }
+
+      final installmentCompare = left.installment.installmentNumber.compareTo(
+        right.installment.installmentNumber,
+      );
+      return _sortOrder == 'recent' ? -installmentCompare : installmentCompare;
+    });
+
+    return items;
+  }
+
+  String _workQueueStateForFilter() {
+    return switch (_installmentFilter) {
+      'overdue' => 'overdue',
+      'pending' => 'pending',
+      'partial' => 'partial',
+      'paid' => 'paid',
+      _ => 'collectible',
+    };
+  }
+
   List<PaymentHistoryItem> _filteredHistory(List<PaymentHistoryItem> history) {
     final items = List<PaymentHistoryItem>.from(history);
     items.retainWhere((payment) {
@@ -1537,9 +1749,16 @@ class _PaymentsPageState extends State<PaymentsPage> {
     return switch (_installmentFilter) {
       'pending' => status == 'pending',
       'overdue' => status == 'overdue',
+      'partial' => _isPartialInstallment(installment),
       'paid' => status == 'paid',
       _ => true,
     };
+  }
+
+  bool _isPartialInstallment(Installment installment) {
+    return installment.paidAmount > 0.009 &&
+        installment.remainingAmount > 0.009 &&
+        _statusCategory(installment) != 'paid';
   }
 
   bool _matchesDateRange(DateTime value) {
@@ -1797,7 +2016,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          title: const Text('Â¿QuÃ© deseas imprimir?'),
+          title: const Text('Que deseas imprimir?'),
           content: const SizedBox(
             width: 360,
             child: Text(

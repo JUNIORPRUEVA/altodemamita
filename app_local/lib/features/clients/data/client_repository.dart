@@ -5,6 +5,7 @@ import '../../../core/network/backend_api_client.dart';
 import '../../../core/network/backend_entity_id_registry.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_schema.dart';
+import '../../../core/cloud_foundation/list_snapshot_store.dart';
 import '../../../core/config/app_flags.dart';
 import '../../../core/errors/active_sales_block_delete_exception.dart';
 import '../../../core/system/system_config_service.dart';
@@ -33,6 +34,10 @@ class ClientRepository implements SyncRepository {
   final BackendApiClient _apiClient;
   final SystemConfigService _systemConfigService;
   final BackendEntityIdRegistry _idRegistry = BackendEntityIdRegistry.instance;
+  late final ListSnapshotStore _listSnapshot = ListSnapshotStore(
+    _appDatabase,
+    entity: 'clients',
+  );
 
   void _log(String message, {Object? error, StackTrace? stackTrace}) {
     developer.log(
@@ -47,7 +52,8 @@ class ClientRepository implements SyncRepository {
       isProductionMode && identical(_appDatabase, AppDatabase.instance);
   bool get _shouldRunBackgroundSync =>
       identical(_appDatabase, AppDatabase.instance);
-  bool get _useBackendMode => false;
+  bool get _useBackendMode =>
+      cloudCutoverMode.usesAuthoritativeBusinessWrites;
 
   @override
   String get scope => 'clients';
@@ -793,7 +799,7 @@ class ClientRepository implements SyncRepository {
 
   Future<List<Client>> _fetchAllFromBackend({String query = ''}) async {
     final response = await _apiClient.get(
-      '/clients',
+      '/business/clients',
       queryParameters: {
         'page': '1',
         'limit': '100',
@@ -805,26 +811,67 @@ class ClientRepository implements SyncRepository {
         : (response as Map).map(
             (key, value) => MapEntry(key.toString(), value),
           );
-    final items = (payload['items'] as List?) ?? const [];
-    return items
+    final data = payload['data'];
+    final dataMap = data is Map
+        ? data.map((key, value) => MapEntry(key.toString(), value))
+        : payload;
+    final items = (dataMap['items'] as List?) ?? const [];
+    final rawItems = items
         .whereType<Map>()
         .map(
-          (item) => _clientFromBackend(
-            item.map((key, value) => MapEntry(key.toString(), value)),
+          (item) => item.map(
+            (key, value) => MapEntry(key.toString(), value),
           ),
         )
         .toList(growable: false);
+    // Snapshot cache-first de la lista completa (no de busquedas).
+    if (query.trim().isEmpty) {
+      await _listSnapshot.write(rawItems);
+    }
+    return rawItems.map(_clientFromBackend).toList(growable: false);
+  }
+
+  /// Ultima lista valida de clientes en cache local (best-effort).
+  Future<List<Client>> fetchCachedList() async {
+    if (!_useBackendMode) {
+      return const [];
+    }
+    final items = await _listSnapshot.read();
+    if (items == null) {
+      return const [];
+    }
+    try {
+      return items
+          .whereType<Map>()
+          .map(
+            (item) => _clientFromBackend(
+              item.map((key, value) => MapEntry(key.toString(), value)),
+            ),
+          )
+          .toList(growable: false);
+    } catch (_) {
+      return const [];
+    }
   }
 
   Future<void> _saveToBackend(Client client) async {
     final payload = _toBackendPayload(client);
-    final remoteId = client.syncId?.trim();
+    final remoteId =
+        _idRegistry.resolveRemoteId('clients', client.id) ??
+        client.syncId?.trim();
     if (remoteId == null || remoteId.isEmpty) {
-      await _apiClient.post('/clients', body: payload);
+      final response = await _apiClient.post('/business/clients', body: payload);
+      await _cacheBackendClientResponse(response);
+      await _listSnapshot.clear();
       return;
     }
 
-    await _apiClient.patch('/clients/$remoteId', body: payload);
+    final response = await _apiClient.patch(
+      '/business/clients/$remoteId',
+      body: payload,
+    );
+    await _cacheBackendClientResponse(response);
+    await _listSnapshot.clear();
   }
 
   Future<void> _deleteFromBackend(int localId) async {
@@ -834,7 +881,9 @@ class ClientRepository implements SyncRepository {
         'No se pudo identificar el cliente remoto para eliminarlo.',
       );
     }
-    await _apiClient.delete('/clients/$remoteId');
+    final response = await _apiClient.delete('/business/clients/$remoteId');
+    await _cacheBackendClientResponse(response);
+    await _listSnapshot.clear();
   }
 
   Client _clientFromBackend(Map<String, dynamic> item) {
@@ -842,16 +891,28 @@ class ClientRepository implements SyncRepository {
     final localId = _idRegistry.register('clients', remoteId);
     final firstName = item['firstName']?.toString().trim() ?? '';
     final lastName = item['lastName']?.toString().trim() ?? '';
-    final fullName = [
-      firstName,
-      lastName,
-    ].where((value) => value.isNotEmpty).join(' ').trim();
+    final backendName =
+        item['name']?.toString().trim() ??
+        item['full_name']?.toString().trim() ??
+        '';
+    final fullName = backendName.isNotEmpty
+        ? backendName
+        : [
+            firstName,
+            lastName,
+          ].where((value) => value.isNotEmpty).join(' ').trim();
     return Client(
       id: localId,
-      syncId: remoteId,
-      version: 1,
+      syncId: item['syncId']?.toString().trim().isNotEmpty == true
+          ? item['syncId']?.toString().trim()
+          : remoteId,
+      version: _readIntFromDynamic(item['version']) ?? 1,
       fullName: fullName,
-      documentId: item['documentId']?.toString().trim() ?? '',
+      documentId:
+          item['document']?.toString().trim() ??
+          item['documentId']?.toString().trim() ??
+          item['document_id']?.toString().trim() ??
+          '',
       phone: _nullIfBlank(item['phone']?.toString()),
       address: _nullIfBlank(item['address']?.toString()),
       createdAt:
@@ -866,19 +927,56 @@ class ClientRepository implements SyncRepository {
   }
 
   Map<String, dynamic> _toBackendPayload(Client client) {
-    final parts = client.fullName
-        .trim()
-        .split(RegExp(r'\s+'))
-        .where((value) => value.trim().isNotEmpty)
-        .toList(growable: false);
-    final firstName = parts.isEmpty ? client.fullName.trim() : parts.first;
-    final lastName = parts.length <= 1 ? '.' : parts.skip(1).join(' ');
     return {
-      'firstName': firstName,
-      'lastName': lastName,
-      'documentId': _nullIfBlank(client.documentId),
+      if (client.syncId?.trim().isNotEmpty == true)
+        'syncId': client.syncId!.trim(),
+      'name': client.fullName.trim(),
+      'document': client.documentId.trim(),
       'phone': _nullIfBlank(client.phone),
       'address': _nullIfBlank(client.address),
     };
+  }
+
+  Future<void> _cacheBackendClientResponse(Object? response) async {
+    final item = _entityFromResponse(response, 'client');
+    if (item == null) return;
+    await mergeRemoteRecords([_backendClientSyncRecord(item)]);
+  }
+
+  Map<String, dynamic>? _entityFromResponse(Object? response, String key) {
+    if (response is! Map) return null;
+    final payload = response.map((mapKey, value) => MapEntry(mapKey.toString(), value));
+    final data = payload['data'];
+    final dataMap = data is Map
+        ? data.map((mapKey, value) => MapEntry(mapKey.toString(), value))
+        : payload;
+    final entity = dataMap[key];
+    if (entity is Map) {
+      return entity.map((mapKey, value) => MapEntry(mapKey.toString(), value));
+    }
+    return null;
+  }
+
+  Map<String, dynamic> _backendClientSyncRecord(Map<String, dynamic> item) {
+    return {
+      'id': item['id'],
+      'sync_id': item['sync_id'] ?? item['syncId'] ?? item['id'],
+      'version': item['version'] ?? 1,
+      'full_name': item['full_name'] ?? item['name'],
+      'document_id':
+          item['document_id'] ?? item['documentId'] ?? item['document'],
+      'phone': item['phone'],
+      'address': item['address'],
+      'created_at': item['created_at'] ?? item['createdAt'],
+      'updated_at': item['updated_at'] ?? item['updatedAt'],
+      'deleted_at': item['deleted_at'] ?? item['deletedAt'],
+      'sync_status': SyncStatus.synced.storageValue,
+    };
+  }
+
+  int? _readIntFromDynamic(Object? value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '');
   }
 }

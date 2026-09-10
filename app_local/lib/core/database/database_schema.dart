@@ -34,6 +34,14 @@ class DatabaseSchema {
   static const String companyProfilesTable = 'company_profiles';
   static const String syncQueueTable = 'sync_queue';
   static const String conflictLogsTable = 'conflict_logs';
+
+  /// Ultima lista valida de ventas obtenida desde PostgreSQL (cache de solo
+  /// lectura para el arranque visual de Ventas). Local = cache.
+  static const String salesListCacheTable = 'cache_ventas_lista';
+
+  /// Snapshot generico de listas (clientes, solares, vendedores, etc.) para el
+  /// arranque visual cache-first de cada modulo. Local = cache.
+  static const String listSnapshotsTable = 'cache_lista_snapshots';
   static const String uploadStatusPending = 'pending_upload';
   static const String uploadStatusUploading = 'uploading';
   static const String uploadStatusSynced = 'uploaded';
@@ -134,6 +142,8 @@ class DatabaseSchema {
     await _migrateToVersion26(db);
     await _migrateToVersion27(db);
     await _migrateToVersion28(db);
+    await ensureSalesListCacheSchema(db);
+    await ensureListSnapshotsSchema(db);
   }
 
   static Future<void> ensureCoreStructures(DatabaseExecutor db) async {
@@ -163,7 +173,37 @@ class DatabaseSchema {
     await _migrateToVersion26(db);
     await _migrateToVersion27(db);
     await _migrateToVersion28(db);
+    await ensureSalesListCacheSchema(db);
+    await ensureListSnapshotsSchema(db);
     await seedDefaults(db);
+  }
+
+  /// Crea (si no existe) la tabla que guarda la ultima lista valida de ventas
+  /// (cache local de solo lectura para Ventas). No requiere bump de version:
+  /// se invoca tanto al crear la base como en cada apertura (onOpen).
+  static Future<void> ensureSalesListCacheSchema(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $salesListCacheTable (
+        cache_key TEXT PRIMARY KEY NOT NULL,
+        query TEXT NOT NULL DEFAULT '',
+        payload TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+  }
+
+  /// Crea (si no existe) la tabla generica de snapshots de listas para los
+  /// modulos que aun no tienen cache propia (clientes, solares, vendedores,
+  /// cola de pagos). No requiere bump de version.
+  static Future<void> ensureListSnapshotsSchema(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $listSnapshotsTable (
+        cache_key TEXT PRIMARY KEY NOT NULL,
+        query TEXT NOT NULL DEFAULT '',
+        payload TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
   }
 
   static Future<void> ensureConflictLogsSchema(DatabaseExecutor db) async {
@@ -833,30 +873,87 @@ class DatabaseSchema {
 
   /// Libera cédulas de registros eliminados para permitir recreación segura.
   /// Mantiene UNIQUE(cedula) sin bloquear nuevos registros activos.
+  ///
+  /// Idempotente: corre en cada arranque (ensureCoreStructures) y también
+  /// sobre cachés re-hidratadas desde la nube. Un tombstone eliminado puede
+  /// conservar un prefijo `__DELETED__<n>` de un id local anterior, así que el
+  /// valor canónico `__DELETED__<id>` no siempre está libre. La anonimización
+  /// reserva un valor único (con sufijo si hace falta) en lugar de lanzar una
+  /// violación UNIQUE que detenga el inicio del sistema.
   static Future<void> _migrateToVersion24(DatabaseExecutor db) async {
-    if (await _tableExists(db, clientsTable) &&
-        await _columnExists(db, clientsTable, 'deleted_at') &&
-        await _columnExists(db, clientsTable, 'cedula')) {
-      await db.rawUpdate(
-        "UPDATE $clientsTable "
-        "SET cedula = '__DELETED__' || id "
-        "WHERE deleted_at IS NOT NULL "
-        "AND COALESCE(TRIM(cedula), '') <> '' "
-        "AND cedula NOT LIKE '__DELETED__%'",
-      );
+    await _anonymizeDeletedDocuments(db, clientsTable);
+    await _anonymizeDeletedDocuments(db, sellersTable);
+  }
+
+  /// Anonimiza las cédulas de registros eliminados que aún conservan el valor
+  /// original (borrados antes de la anonimización, revertidos por sync o
+  /// tombstones re-hidratados cuyo id local cambió).
+  static Future<void> _anonymizeDeletedDocuments(
+    DatabaseExecutor db,
+    String table,
+  ) async {
+    if (!await _tableExists(db, table)) {
+      return;
+    }
+    if (!await _columnExists(db, table, 'deleted_at') ||
+        !await _columnExists(db, table, 'cedula') ||
+        !await _columnExists(db, table, 'id')) {
+      return;
     }
 
-    if (await _tableExists(db, sellersTable) &&
-        await _columnExists(db, sellersTable, 'deleted_at') &&
-        await _columnExists(db, sellersTable, 'cedula')) {
-      await db.rawUpdate(
-        "UPDATE $sellersTable "
-        "SET cedula = '__DELETED__' || id "
-        "WHERE deleted_at IS NOT NULL "
-        "AND COALESCE(TRIM(cedula), '') <> '' "
-        "AND cedula NOT LIKE '__DELETED__%'",
+    final rows = await db.query(
+      table,
+      columns: ['id'],
+      where: "deleted_at IS NOT NULL "
+          "AND COALESCE(TRIM(cedula), '') <> '' "
+          "AND cedula NOT LIKE '__DELETED__%'",
+    );
+
+    for (final row in rows) {
+      final id = row['id'];
+      if (id == null) {
+        continue;
+      }
+      final uniqueValue = await _nextUniqueDeletedDocumentValue(db, table, id);
+      await db.update(
+        table,
+        {'cedula': uniqueValue},
+        where: 'id = ?',
+        whereArgs: [id],
       );
     }
+  }
+
+  /// Devuelve `__DELETED__<id>` si está libre; en caso contrario añade un
+  /// sufijo numérico (_1, _2, ...) hasta encontrar un valor no ocupado.
+  static Future<String> _nextUniqueDeletedDocumentValue(
+    DatabaseExecutor db,
+    String table,
+    Object id,
+  ) async {
+    final base = '__DELETED__$id';
+    var candidate = base;
+    var attempt = 0;
+    while (await _cedulaValueExists(db, table, candidate)) {
+      attempt++;
+      candidate = '${base}_$attempt';
+    }
+    return candidate;
+  }
+
+  static Future<bool> _cedulaValueExists(
+    DatabaseExecutor db,
+    String table,
+    String value,
+  ) async {
+    final rows = await db.query(
+      table,
+      columns: ['id'],
+      where: 'cedula = ?',
+      whereArgs: [value],
+      limit: 1,
+    );
+    return rows.isNotEmpty;
   }
 
   /// Agrega metadatos explícitos para conflictos de sincronización manual.
@@ -925,8 +1022,7 @@ class DatabaseSchema {
       await db.rawUpdate(
         '''
         UPDATE $clientsTable
-        SET cedula = '__DELETED__' || id,
-            deleted_at = ?,
+        SET deleted_at = ?,
             fecha_actualizacion = ?,
             last_modified_local = ?,
             sync_status = ?
@@ -955,8 +1051,7 @@ class DatabaseSchema {
       await db.rawUpdate(
         '''
         UPDATE $sellersTable
-        SET cedula = '__DELETED__' || id,
-            deleted_at = ?,
+        SET deleted_at = ?,
             fecha_actualizacion = ?,
             last_modified_local = ?,
             sync_status = ?
@@ -979,6 +1074,12 @@ class DatabaseSchema {
         [now, now, now, syncStatusPendingDelete],
       );
     }
+
+    // Los duplicados activos que se acaban de marcar como eliminados conservan
+    // su cédula original. Anonimizarlos con valor único (idempotente y a prueba
+    // de colisiones) evita que UNIQUE(cedula) bloquee el arranque posterior.
+    await _anonymizeDeletedDocuments(db, clientsTable);
+    await _anonymizeDeletedDocuments(db, sellersTable);
   }
 
   static Future<void> _createActiveDuplicateGuards(DatabaseExecutor db) async {

@@ -20,10 +20,15 @@ Future<void> _settleApp(WidgetTester tester) async {
   for (var index = 0; index < 20; index++) {
     await tester.pump(const Duration(milliseconds: 100));
   }
-  await tester.runAsync(() async {
-    await Future<void>.delayed(const Duration(seconds: 1));
-  });
-  await tester.pump();
+  // El backend local usa sqflite FFI sobre un isolate real: sus transacciones
+  // no progresan con el reloj falso del test. Drenamos tiempo real en varios
+  // ciclos para que ninguna transaccion quede pendiente al desmontar el arbol.
+  for (var index = 0; index < 6; index++) {
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    });
+    await tester.pump();
+  }
 }
 
 class _TestAuthProvider extends AuthProvider {

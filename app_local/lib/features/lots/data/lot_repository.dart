@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:developer' as developer;
 
+import '../../../core/cloud_foundation/list_snapshot_store.dart';
+import '../../../core/config/app_flags.dart';
 import '../../../core/network/backend_api_client.dart';
 import '../../../core/network/backend_entity_id_registry.dart';
 import '../../../core/database/app_database.dart';
@@ -46,10 +48,15 @@ class LotRepository {
   final BackendApiClient _apiClient;
   final SystemConfigService _systemConfigService;
   final BackendEntityIdRegistry _idRegistry = BackendEntityIdRegistry.instance;
+  late final ListSnapshotStore _listSnapshot = ListSnapshotStore(
+    _appDatabase,
+    entity: 'lots',
+  );
 
   bool get _shouldRunBackgroundSync =>
       identical(_appDatabase, AppDatabase.instance);
-  bool get _useBackendMode => false;
+  bool get _useBackendMode =>
+      cloudCutoverMode.usesAuthoritativeBusinessWrites;
 
   void _log(String message, {Object? error, StackTrace? stackTrace}) {
     developer.log(
@@ -113,6 +120,22 @@ class LotRepository {
     required String blockNumber,
     required String lotNumber,
   }) async {
+    if (_useBackendMode) {
+      final lots = await _fetchAllFromBackend(
+        query: '$blockNumber $lotNumber',
+        onlyAvailable: false,
+      );
+      for (final lot in lots) {
+        if (lot.blockNumber.trim().toLowerCase() ==
+                blockNumber.trim().toLowerCase() &&
+            lot.lotNumber.trim().toLowerCase() ==
+                lotNumber.trim().toLowerCase()) {
+          return lot;
+        }
+      }
+      return null;
+    }
+
     final db = await _appDatabase.database;
     final normalizedBlock = blockNumber.trim();
     final normalizedLot = lotNumber.trim();
@@ -145,13 +168,11 @@ class LotRepository {
             'No se pudo identificar el solar remoto para actualizarlo.',
           );
         }
-        await _apiClient.patch(
-          '/products/$remoteId',
-          body: {
-            'stock': status == 'disponible' ? 1 : 0,
-            'isActive': status != 'vendido',
-          },
+        final response = await _apiClient.patch(
+          '/business/lots/$remoteId',
+          body: {'status': status},
         );
+        await _cacheBackendLotResponse(response);
         return;
       }
 
@@ -209,6 +230,10 @@ class LotRepository {
   }
 
   Future<int> countAll() async {
+    if (_useBackendMode) {
+      return (await _fetchAllFromBackend(onlyAvailable: false)).length;
+    }
+
     final db = await _appDatabase.database;
     final result = await db.rawQuery(
       'SELECT COUNT(*) FROM ${DatabaseSchema.lotsTable} WHERE deleted_at IS NULL',
@@ -217,6 +242,12 @@ class LotRepository {
   }
 
   Future<int> countByStatus(String status) async {
+    if (_useBackendMode) {
+      return (await _fetchAllFromBackend(onlyAvailable: false))
+          .where((lot) => lot.status == status)
+          .length;
+    }
+
     final db = await _appDatabase.database;
     final result = await db.rawQuery(
       'SELECT COUNT(*) FROM ${DatabaseSchema.lotsTable} WHERE deleted_at IS NULL AND estado = ?',
@@ -337,7 +368,8 @@ class LotRepository {
             'No se pudo identificar el solar remoto para eliminarlo.',
           );
         }
-        await _apiClient.delete('/products/$remoteId');
+        final response = await _apiClient.delete('/business/lots/$remoteId');
+        await _cacheBackendLotResponse(response);
         return;
       }
 
@@ -460,12 +492,11 @@ class LotRepository {
     required bool onlyAvailable,
   }) async {
     final response = await _apiClient.get(
-      '/products',
+      '/business/lots',
       queryParameters: {
         'page': '1',
         'limit': '100',
-        'includeInactive': 'true',
-        'includeDeleted': 'false',
+        if (onlyAvailable) 'status': 'disponible',
         if (query.trim().isNotEmpty) 'search': query.trim(),
       },
     );
@@ -474,15 +505,25 @@ class LotRepository {
         : (response as Map).map(
             (key, value) => MapEntry(key.toString(), value),
           );
-    final items = (payload['items'] as List?) ?? const [];
-    final lots = items
+    final data = payload['data'];
+    final dataMap = data is Map
+        ? data.map((key, value) => MapEntry(key.toString(), value))
+        : payload;
+    final items = (dataMap['items'] as List?) ?? const [];
+    final rawItems = items
         .whereType<Map>()
         .map(
-          (item) => _lotFromBackend(
-            item.map((key, value) => MapEntry(key.toString(), value)),
+          (item) => item.map(
+            (key, value) => MapEntry(key.toString(), value),
           ),
         )
         .toList(growable: false);
+    final lots = rawItems.map(_lotFromBackend).toList(growable: false);
+    // Snapshot cache-first solo de la lista completa (no de busquedas ni del
+    // filtro de disponibles usado por el formulario de ventas).
+    if (!onlyAvailable && query.trim().isEmpty) {
+      await _listSnapshot.write(rawItems);
+    }
     if (!onlyAvailable) {
       return lots;
     }
@@ -491,23 +532,49 @@ class LotRepository {
         .toList(growable: false);
   }
 
+  /// Ultima lista valida de solares en cache local (best-effort).
+  Future<List<Lot>> fetchCachedList() async {
+    if (!_useBackendMode) {
+      return const [];
+    }
+    final items = await _listSnapshot.read();
+    if (items == null) {
+      return const [];
+    }
+    try {
+      return items
+          .whereType<Map>()
+          .map(
+            (item) => _lotFromBackend(
+              item.map((key, value) => MapEntry(key.toString(), value)),
+            ),
+          )
+          .toList(growable: false);
+    } catch (_) {
+      return const [];
+    }
+  }
+
   Future<void> _saveToBackend(Lot lot) async {
     final payload = {
-      'code': lot.displayCode,
-      'name': 'Solar ${lot.displayCode}',
-      'description': 'Solar ${lot.displayCode} · ${lot.area} m2',
-      'price': lot.totalPrice,
-      'financingPrice': lot.totalPrice,
-      'stock': lot.status == 'disponible' ? 1 : 0,
-      'isActive': lot.status != 'vendido',
+      'block': lot.blockNumber.trim(),
+      'number': lot.lotNumber.trim(),
+      'area': lot.area,
+      'price': lot.pricePerSquareMeter,
+      'status': lot.status,
     };
     final remoteId = _idRegistry.resolveRemoteId('products', lot.id);
     if (remoteId == null || remoteId.isEmpty) {
-      await _apiClient.post('/products', body: payload);
+      final response = await _apiClient.post('/business/lots', body: payload);
+      await _cacheBackendLotResponse(response);
       return;
     }
 
-    await _apiClient.patch('/products/$remoteId', body: payload);
+    final response = await _apiClient.patch(
+      '/business/lots/$remoteId',
+      body: payload,
+    );
+    await _cacheBackendLotResponse(response);
   }
 
   Lot _lotFromBackend(Map<String, dynamic> item) {
@@ -521,16 +588,32 @@ class LotRepository {
         : const <String, dynamic>{};
     final code = item['code']?.toString() ?? item['name']?.toString() ?? '';
     final blockNumber =
-        payload['block_number']?.toString() ?? _extractBlockNumber(code);
+        item['block']?.toString() ??
+        item['blockNumber']?.toString() ??
+        payload['block_number']?.toString() ??
+        _extractBlockNumber(code);
     final lotNumber =
-        payload['lot_number']?.toString() ?? _extractLotNumber(code);
-    final area = _toDouble(payload['area']) > 0
+        item['number']?.toString() ??
+        item['lotNumber']?.toString() ??
+        payload['lot_number']?.toString() ??
+        _extractLotNumber(code);
+    final area = _toDouble(item['area']) > 0
+        ? _toDouble(item['area'])
+        : _toDouble(payload['area']) > 0
         ? _toDouble(payload['area'])
         : 1.0;
-    final unitPrice = _toDouble(payload['price_per_square_meter']) > 0
+    final unitPrice = _toDouble(item['pricePerSquareMeter']) > 0
+        ? _toDouble(item['pricePerSquareMeter'])
+        : _toDouble(item['price_per_square_meter']) > 0
+        ? _toDouble(item['price_per_square_meter'])
+        : _toDouble(item['price']) > 0
+        ? _toDouble(item['price'])
+        : _toDouble(payload['price_per_square_meter']) > 0
         ? _toDouble(payload['price_per_square_meter'])
         : (area > 0 ? _toDouble(item['price']) / area : 0.0);
-    final rawStatus = payload['status']?.toString().trim().toLowerCase();
+    final rawStatus =
+        item['status']?.toString().trim().toLowerCase() ??
+        payload['status']?.toString().trim().toLowerCase();
     final status = rawStatus == null || rawStatus.isEmpty
         ? ((_toInt(item['stock']) > 0 && item['isActive'] == true)
               ? 'disponible'
@@ -578,5 +661,62 @@ class LotRepository {
   String _extractLotNumber(String raw) {
     final match = RegExp(r'S([A-Z0-9]+)', caseSensitive: false).firstMatch(raw);
     return match?.group(1) ?? '';
+  }
+
+  Future<void> _cacheBackendLotResponse(Object? response) async {
+    final item = _entityFromResponse(response, 'lot');
+    if (item == null) {
+      return;
+    }
+    final lot = _lotFromBackend(item);
+    final db = await _appDatabase.database;
+    final remoteId = item['id']?.toString().trim();
+    final syncId =
+        item['sync_id']?.toString().trim() ??
+        item['syncId']?.toString().trim() ??
+        remoteId;
+    final now = lot.updatedAt.toIso8601String();
+    final values = lot.toMap()
+      ..['sync_id'] = syncId
+      ..['id_remote'] = remoteId
+      ..['last_modified_remote'] = now
+      ..['deleted_at'] = item['deleted_at'] ?? item['deletedAt']
+      ..['sync_status'] = DatabaseSchema.syncStatusSynced
+      ..remove('id');
+
+    final existing = remoteId == null || remoteId.isEmpty
+        ? const <Map<String, Object?>>[]
+        : await db.query(
+            DatabaseSchema.lotsTable,
+            where: 'id_remote = ?',
+            whereArgs: [remoteId],
+            limit: 1,
+          );
+    if (existing.isEmpty) {
+      await db.insert(DatabaseSchema.lotsTable, values);
+    } else {
+      await db.update(
+        DatabaseSchema.lotsTable,
+        values,
+        where: 'id = ?',
+        whereArgs: [existing.first['id']],
+      );
+    }
+    // El solar cambio (creado/editado/estado/eliminado): invalidar snapshot.
+    await _listSnapshot.clear();
+  }
+
+  Map<String, dynamic>? _entityFromResponse(Object? response, String key) {
+    if (response is! Map) return null;
+    final payload = response.map((mapKey, value) => MapEntry(mapKey.toString(), value));
+    final data = payload['data'];
+    final dataMap = data is Map
+        ? data.map((mapKey, value) => MapEntry(mapKey.toString(), value))
+        : payload;
+    final entity = dataMap[key];
+    if (entity is Map) {
+      return entity.map((mapKey, value) => MapEntry(mapKey.toString(), value));
+    }
+    return null;
   }
 }

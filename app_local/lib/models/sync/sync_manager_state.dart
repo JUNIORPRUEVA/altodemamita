@@ -8,6 +8,7 @@ class SyncManagerState {
     this.currentErrors = const [],
     this.lastSyncIssues = const [],
     this.isSyncing = false,
+    this.isInitialCloudHydration = false,
     this.dataVersion = 0,
     this.lastRealtimeEventAt,
   });
@@ -18,6 +19,7 @@ class SyncManagerState {
   final List<String> currentErrors;
   final List<String> lastSyncIssues;
   final bool isSyncing;
+  final bool isInitialCloudHydration;
   final int dataVersion;
   final DateTime? lastRealtimeEventAt;
 
@@ -31,6 +33,7 @@ class SyncManagerState {
     List<String>? currentErrors,
     List<String>? lastSyncIssues,
     bool? isSyncing,
+    bool? isInitialCloudHydration,
     int? dataVersion,
     DateTime? lastRealtimeEventAt,
   }) {
@@ -42,6 +45,8 @@ class SyncManagerState {
       currentErrors: currentErrors ?? this.currentErrors,
       lastSyncIssues: lastSyncIssues ?? this.lastSyncIssues,
       isSyncing: isSyncing ?? this.isSyncing,
+      isInitialCloudHydration:
+          isInitialCloudHydration ?? this.isInitialCloudHydration,
       dataVersion: dataVersion ?? this.dataVersion,
       lastRealtimeEventAt: lastRealtimeEventAt ?? this.lastRealtimeEventAt,
     );

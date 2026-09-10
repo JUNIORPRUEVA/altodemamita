@@ -5,18 +5,29 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 enum OutboxStatus {
   pending('PENDING'),
-  sending('SENDING'),
-  acknowledged('ACKNOWLEDGED'),
-  retryableFailure('RETRYABLE_FAILURE'),
-  permanentFailure('PERMANENT_FAILURE');
+  processing('PROCESSING'),
+  synced('SYNCED'),
+  failedRetryable('FAILED_RETRYABLE'),
+  blockedConflict('BLOCKED_CONFLICT');
 
   const OutboxStatus(this.value);
 
   final String value;
 
   static OutboxStatus fromStorage(String value) {
+    final normalized = value.trim().toUpperCase();
+    final legacyAliases = {
+      'SENDING': OutboxStatus.processing,
+      'ACKNOWLEDGED': OutboxStatus.synced,
+      'RETRYABLE_FAILURE': OutboxStatus.failedRetryable,
+      'PERMANENT_FAILURE': OutboxStatus.blockedConflict,
+    };
+    final legacy = legacyAliases[normalized];
+    if (legacy != null) {
+      return legacy;
+    }
     return OutboxStatus.values.firstWhere(
-      (status) => status.value == value,
+      (status) => status.value == normalized,
       orElse: () => OutboxStatus.pending,
     );
   }
@@ -127,7 +138,7 @@ class OutboxRepository {
     final rows = await database.query(
       'outbox_operations',
       where:
-          "status IN ('PENDING', 'RETRYABLE_FAILURE') AND (next_retry_at IS NULL OR next_retry_at <= ?)",
+          "status IN ('PENDING', 'FAILED_RETRYABLE', 'RETRYABLE_FAILURE') AND (next_retry_at IS NULL OR next_retry_at <= ?)",
       whereArgs: [reference],
       orderBy: 'created_at ASC',
     );
@@ -139,7 +150,7 @@ class OutboxRepository {
     await database.update(
       'outbox_operations',
       {
-        'status': OutboxStatus.sending.value,
+        'status': OutboxStatus.processing.value,
         'last_attempt_at': now.toIso8601String(),
         'updated_at': now.toIso8601String(),
       },
@@ -156,7 +167,7 @@ class OutboxRepository {
     await database.update(
       'outbox_operations',
       {
-        'status': OutboxStatus.acknowledged.value,
+        'status': OutboxStatus.synced.value,
         'server_ack': jsonEncode(serverAck),
         'updated_at': now.toIso8601String(),
         'last_safe_error': null,
@@ -174,7 +185,7 @@ class OutboxRepository {
     await database.update(
       'outbox_operations',
       {
-        'status': OutboxStatus.retryableFailure.value,
+        'status': OutboxStatus.failedRetryable.value,
         'attempt_count': attempts,
         'last_safe_error': safeError,
         'next_retry_at': now
@@ -193,7 +204,7 @@ class OutboxRepository {
     await database.update(
       'outbox_operations',
       {
-        'status': OutboxStatus.permanentFailure.value,
+        'status': OutboxStatus.blockedConflict.value,
         'attempt_count': (current?.attemptCount ?? 0) + 1,
         'last_safe_error': safeError,
         'updated_at': now.toIso8601String(),

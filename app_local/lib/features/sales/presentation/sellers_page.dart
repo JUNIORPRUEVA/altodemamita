@@ -7,12 +7,14 @@ import '../../../features/auth/presentation/auth_provider.dart';
 import '../../../core/errors/active_sales_block_delete_exception.dart';
 import '../../../core/resilience/friendly_error_messages.dart';
 import '../../../shared/widgets/base_layout.dart';
+import '../../../shared/widgets/module_list_states.dart';
 import '../../../shared/widgets/recovery_experience.dart';
 import '../data/sales_repository.dart';
 import '../data/seller_repository.dart';
 import '../domain/seller.dart';
 import 'seller_detail_dialog.dart';
 import 'seller_form_dialog.dart';
+import 'sellers_controller.dart';
 
 class SellersPage extends StatefulWidget {
   const SellersPage({
@@ -30,49 +32,29 @@ class SellersPage extends StatefulWidget {
 
 class _SellersPageState extends State<SellersPage> {
   late final TextEditingController _searchController;
+  late final SellersController _controller;
 
-  List<Seller> _sellers = const [];
-  bool _isLoading = true;
-  FriendlyErrorMessage? _loadError;
+  List<Seller> get _sellers => _controller.sellers;
+  bool get _isLoading => _controller.isLoading;
+  FriendlyErrorMessage? get _loadError => _controller.loadError;
 
   @override
   void initState() {
     super.initState();
     _searchController = TextEditingController();
-    _load();
+    _controller = SellersController(repository: widget.repository);
+    _controller.load();
   }
 
   @override
   void dispose() {
+    _controller.dispose();
     _searchController.dispose();
     super.dispose();
   }
 
   Future<void> _load({String query = ''}) async {
-    setState(() {
-      _isLoading = true;
-      _loadError = null;
-    });
-
-    try {
-      final sellers = query.trim().isEmpty
-          ? await widget.repository.getAll()
-          : await widget.repository.search(query.trim());
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _sellers = sellers;
-      });
-    } catch (error) {
-      setState(() {
-        _loadError = FriendlyErrorMessages.moduleLoad('vendedores', error);
-      });
-    } finally {
-      setState(() {
-        _isLoading = false;
-      });
-    }
+    await _controller.load(query: query);
   }
 
   Future<void> _createSeller() async {
@@ -212,10 +194,17 @@ class _SellersPageState extends State<SellersPage> {
       if (!mounted) {
         return;
       }
-      FriendlyErrorMessages.forOperation(
+      final message = FriendlyErrorMessages.forOperation(
         'eliminar el vendedor',
         error,
         module: 'ventas',
+      );
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Theme.of(context).colorScheme.error,
+          duration: const Duration(seconds: 6),
+        ),
       );
     }
   }
@@ -273,17 +262,20 @@ class _SellersPageState extends State<SellersPage> {
 
     return BaseLayout(
       title: 'Vendedores',
-      child: Column(
-        children: [
-          _buildToolbar(context, canCreate: canCreate),
-          Expanded(
-            child: _buildBody(
-              canCreate: canCreate,
-              canUpdate: canUpdate,
-              canDelete: canDelete,
+      child: ListenableBuilder(
+        listenable: _controller,
+        builder: (context, _) => Column(
+          children: [
+            _buildToolbar(context, canCreate: canCreate),
+            Expanded(
+              child: _buildBody(
+                canCreate: canCreate,
+                canUpdate: canUpdate,
+                canDelete: canDelete,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -384,10 +376,7 @@ class _SellersPageState extends State<SellersPage> {
     required bool canUpdate,
     required bool canDelete,
   }) {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
+    // Pantalla fatal real: solo sin datos visibles y con fallo de carga.
     if (_loadError != null) {
       final failure = _loadError!;
       return Center(
@@ -404,7 +393,41 @@ class _SellersPageState extends State<SellersPage> {
       );
     }
 
-    if (_sellers.isEmpty) {
+    if (!_controller.hasVisibleData) {
+      // Carga inicial / busqueda nueva SIN datos: skeleton, jamas vacio.
+      if (_isLoading) {
+        return const ModuleListLoadingView(label: 'Cargando vendedores…');
+      }
+      if (_controller.searchFailed) {
+        return ModuleSearchFailedView(
+          message: 'No pudimos completar la búsqueda de vendedores.',
+          onRetry: _load,
+        );
+      }
+      if (_controller.currentQuery.trim().isNotEmpty) {
+        return const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.search_off_outlined,
+                  size: 44,
+                  color: Color(0xFF8893AA),
+                ),
+                SizedBox(height: 12),
+                Text(
+                  'No se encontraron vendedores para tu búsqueda.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 15, color: Color(0xFF5E5A52)),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+      // Vacio confirmado (solo aqui se muestra el estado vacio real).
       return Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 520),
@@ -458,11 +481,23 @@ class _SellersPageState extends State<SellersPage> {
 
     return Container(
       color: Colors.white,
-      child: ListView.separated(
-        itemCount: _sellers.length,
-        separatorBuilder: (_, _) => const Divider(height: 1, indent: 64),
-        itemBuilder: (context, index) {
-          final seller = _sellers[index];
+      child: Column(
+        children: [
+          ModuleStatusBanner(
+            isRefreshing: _controller.isRefreshing,
+            refreshFailed: _controller.refreshFailed,
+            onRetry: _load,
+            moduleLabel: 'Vendedores',
+          ),
+          Expanded(
+            child: ListView.separated(
+              itemCount: _sellers.length,
+              separatorBuilder: (_, _) => const Divider(
+                height: 1,
+                indent: 64,
+              ),
+              itemBuilder: (context, index) {
+                final seller = _sellers[index];
           final initials = seller.name.isEmpty
               ? '?'
               : seller.name[0].toUpperCase();
@@ -537,6 +572,9 @@ class _SellersPageState extends State<SellersPage> {
             ),
           );
         },
+            ),
+          ),
+        ],
       ),
     );
   }

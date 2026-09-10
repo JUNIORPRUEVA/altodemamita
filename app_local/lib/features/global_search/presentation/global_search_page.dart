@@ -48,6 +48,7 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
   bool _isLoading = false;
   String _query = '';
   List<GlobalSearchResult> _results = const [];
+  int _searchGeneration = 0;
 
   @override
   void initState() {
@@ -105,6 +106,7 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
                         OutlinedButton(
                           onPressed: () {
                             _searchController.clear();
+                            _searchGeneration++;
                             setState(() {
                               _query = '';
                               _results = [];
@@ -152,7 +154,7 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
   }
 
   Widget _buildResults() {
-    if (_isLoading) {
+    if (_isLoading && _results.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
 
@@ -206,13 +208,20 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
       );
     }
 
-    return ListView.separated(
-      itemCount: _results.length,
-      separatorBuilder: (_, _) => const SizedBox(height: 12),
-      itemBuilder: (context, index) {
-        final result = _results[index];
-        return _buildResultCard(context, result);
-      },
+    return Column(
+      children: [
+        if (_isLoading) const LinearProgressIndicator(minHeight: 3),
+        Expanded(
+          child: ListView.separated(
+            itemCount: _results.length,
+            separatorBuilder: (_, _) => const SizedBox(height: 12),
+            itemBuilder: (context, index) {
+              final result = _results[index];
+              return _buildResultCard(context, result);
+            },
+          ),
+        ),
+      ],
     );
   }
 
@@ -442,6 +451,7 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
       return;
     }
 
+    final generation = ++_searchGeneration;
     setState(() {
       _isLoading = true;
       _query = query;
@@ -450,7 +460,7 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
     try {
       final results = await _searchRepository.search(query);
 
-      if (!mounted) {
+      if (!mounted || generation != _searchGeneration) {
         return;
       }
 
@@ -458,7 +468,7 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
         _results = results;
       });
     } catch (error) {
-      if (!mounted) {
+      if (!mounted || generation != _searchGeneration) {
         return;
       }
       FriendlyErrorMessages.forOperation(
@@ -467,7 +477,7 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
         module: 'busqueda global',
       );
     } finally {
-      if (mounted) {
+      if (mounted && generation == _searchGeneration) {
         setState(() {
           _isLoading = false;
         });

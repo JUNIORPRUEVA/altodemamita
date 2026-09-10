@@ -148,6 +148,8 @@ class AppDatabase {
         },
         onOpen: (db) async {
           await DatabaseSchema.ensureConflictLogsSchema(db);
+          await DatabaseSchema.ensureSalesListCacheSchema(db);
+          await DatabaseSchema.ensureListSnapshotsSchema(db);
           await DatabaseSchema.seedDefaults(db);
           if (isProductionMode && _customDatabasePath == null) {
             await _cleanProductionClients(db);

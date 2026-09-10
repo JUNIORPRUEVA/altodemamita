@@ -5,6 +5,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'app_incident_reporter.dart';
 import '../system/system_config_service.dart';
+import '../network/backend_api_client.dart';
 
 class FriendlyErrorMessage {
   const FriendlyErrorMessage({
@@ -212,6 +213,28 @@ class FriendlyErrorMessages {
   }) {
     final location = _locationLabel(module);
 
+    // Rechazo de negocio del backend (4xx): mostrar el mensaje humano exacto
+    // enviado por PostgreSQL/API (ej. "No puedes eliminar este cliente porque
+    // tiene ventas relacionadas."). Nunca mostrar detalles tecnicos.
+    if (error is BackendApiException) {
+      final statusCode = error.statusCode;
+      final message = error.message.trim();
+      if (statusCode != null &&
+          statusCode >= 400 &&
+          statusCode < 500 &&
+          message.isNotEmpty) {
+        return FriendlyErrorMessage(
+          title: 'No pudimos completar esta operación',
+          message: message,
+          details:
+              'El sistema detuvo "$action" y no aplicó cambios${location.isEmpty ? '' : ' en $location'}.',
+          suggestions: const [
+            'Corrige lo indicado e intenta nuevamente.',
+          ],
+        );
+      }
+    }
+
     if (error is DeviceWriteBlockedException) {
       return FriendlyErrorMessage(
         title: 'PC no autorizada para cambios',
@@ -392,6 +415,9 @@ class FriendlyErrorMessages {
     bool presentToUser = true,
   }) {
     final resolved = operation(action: action, module: module, error: error);
+    final statusCode = error is BackendApiException ? error.statusCode : null;
+    final isBusinessRejection =
+        statusCode != null && statusCode >= 400 && statusCode < 500;
 
     unawaited(
       AppIncidentReporter.instance.reportHandledOperation(
@@ -402,7 +428,9 @@ class FriendlyErrorMessages {
         details: resolved.details,
         suggestions: resolved.suggestions,
         error: error,
-        presentToUser: presentToUser,
+        // Un rechazo de negocio esperado no es un incidente: se muestra en el
+        // flujo (SnackBar/banner) y se registra, sin dialogo global intrusivo.
+        presentToUser: presentToUser && !isBusinessRejection,
       ),
     );
 

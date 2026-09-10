@@ -12,7 +12,9 @@ import 'package:sistema_solares/core/network/backend_api_client.dart';
 import 'package:sistema_solares/core/security/password_hasher.dart';
 import 'package:sistema_solares/core/system/system_config_service.dart';
 import 'package:sistema_solares/features/auth/data/auth_service.dart';
+import 'package:sistema_solares/features/auth/domain/permission_model.dart';
 import 'package:sistema_solares/features/auth/domain/user_model.dart';
+import 'package:sistema_solares/features/auth/presentation/auth_provider.dart';
 import 'package:sistema_solares/features/settings/data/settings_repository.dart';
 import 'package:sistema_solares/services/sync/sync_config_repository.dart';
 
@@ -182,4 +184,129 @@ void main() {
     expect(users.single.role, UserRole.admin);
     expect(users.single.authSource, AuthSource.cloud);
   });
+
+  test(
+    'CLOUD_AUTHORITATIVE creacion de usuario no depende del candado local de equipo',
+    () async {
+      if (cloudCutoverMode != CloudCutoverMode.cloudAuthoritative) {
+        return;
+      }
+
+      final configRepository = FakeSyncConfigRepository(
+        settings: buildFakeSettings(),
+      );
+      await configRepository.saveJwtToken('jwt-test-token');
+      final systemConfigService =
+          SystemConfigService.test(syncConfigRepository: configRepository)
+            ..setDeviceWriteStateForTesting(
+              canWrite: false,
+              reason: 'device_not_registered',
+            );
+      Uri? requestedUri;
+      String? requestedBody;
+      final backendClient = BackendApiClient(
+        syncConfigRepository: configRepository,
+        client: MockClient((request) async {
+          requestedUri = request.url;
+          requestedBody = request.body;
+          expect(request.method, 'POST');
+          expect(request.headers['authorization'], 'Bearer jwt-test-token');
+          expect(request.url.path, '/api/business/users');
+          return http.Response(
+            '{"data":{"user":{"id":"remote-user-created","email":"acceptance.user.001@sistema.local","name":"ACCEPTANCE-USER-001","role":"TECH","active":true,"companyId":"company-1"}}}',
+            201,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+      final authService = AuthService(
+        appDatabase: appDatabase,
+        syncConfigRepository: configRepository,
+        apiClient: backendClient,
+        systemConfigService: systemConfigService,
+      );
+
+      final user = await authService.createUser(
+        nombre: 'ACCEPTANCE-USER-001',
+        email: 'acceptance.user.001@sistema.local',
+        password: 'ValidPassword123',
+        role: UserRole.user,
+        permissions: const <PermissionModel>[],
+      );
+
+      expect(requestedUri?.path, '/api/business/users');
+      expect(requestedBody, contains('"role":"TECH"'));
+      expect(user.email, 'acceptance.user.001@sistema.local');
+      expect(user.role, UserRole.user);
+      expect(user.activo, isTrue);
+    },
+  );
+
+  test(
+    'CLOUD_AUTHORITATIVE no oculta acciones CRUD permitidas por candado local de equipo',
+    () async {
+      if (cloudCutoverMode != CloudCutoverMode.cloudAuthoritative) {
+        return;
+      }
+
+      final backendState = FakeBackendState()
+        ..initialized = true
+        ..adminEmail = 'owner@sistema.local'
+        ..adminPassword = 'CloudPassword123'
+        ..adminFullName = 'Owner Cloud';
+      final configRepository = FakeSyncConfigRepository(
+        settings: buildFakeSettings(),
+      );
+      final systemConfigService = SystemConfigService.test(
+        syncConfigRepository: configRepository,
+      );
+      final authService = AuthService(
+        appDatabase: appDatabase,
+        syncConfigRepository: configRepository,
+        httpClient: FakeBackendHttpClient(state: backendState),
+        systemConfigService: systemConfigService,
+      );
+      final authProvider = AuthProvider(
+        authService: authService,
+        systemConfigService: systemConfigService,
+      );
+
+      final signedIn = await authProvider.signIn(
+        email: 'owner@sistema.local',
+        password: 'CloudPassword123',
+      );
+      expect(signedIn, isTrue);
+
+      systemConfigService.setDeviceWriteStateForTesting(
+        canWrite: false,
+        reason: 'device_not_registered',
+      );
+
+      expect(
+        authProvider.canAccess(
+          PermissionCatalog.clients,
+          PermissionAction.create,
+        ),
+        isTrue,
+      );
+      expect(
+        authProvider.canAccess(PermissionCatalog.lots, PermissionAction.update),
+        isTrue,
+      );
+      expect(
+        authProvider.canAccess(
+          PermissionCatalog.sales,
+          PermissionAction.delete,
+        ),
+        isTrue,
+      );
+      expect(
+        authProvider.canAccess(
+          PermissionCatalog.payments,
+          PermissionAction.create,
+        ),
+        isTrue,
+      );
+    },
+  );
 }

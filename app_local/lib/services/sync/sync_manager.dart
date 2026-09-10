@@ -33,6 +33,27 @@ SyncConnectionStatus resolveEffectiveSyncConnectionStatus({
   return realtimeState.connectionStatus;
 }
 
+const List<String> _businessHydrationScopes = [
+  'clients',
+  'sellers',
+  'products',
+  'sales',
+  'installments',
+  'payments',
+];
+
+@visibleForTesting
+Future<bool> shouldGateInitialCloudHydration({
+  required Future<DateTime?> Function(String scope) loadCursor,
+}) async {
+  for (final scope in _businessHydrationScopes) {
+    if (await loadCursor(scope) != null) {
+      return false;
+    }
+  }
+  return true;
+}
+
 class SyncManager extends ChangeNotifier {
   SyncManager({
     required SyncService syncService,
@@ -112,7 +133,6 @@ class SyncManager extends ChangeNotifier {
     });
 
     await _syncQueueService.start();
-    await _realtimeSyncService.start();
     await _syncConflictService.unresolvedConflictCount();
     _handleQueueState(_syncQueueService.state);
     _handleRealtimeState(_realtimeSyncService.state);
@@ -130,8 +150,39 @@ class SyncManager extends ChangeNotifier {
     }
 
     if (runInitialSync && !manualCloudSyncOnly && allowCloudPull) {
-      unawaited(syncNow(showAsBusy: false));
+      unawaited(_runStartupCloudPull());
+    } else {
+      await _realtimeSyncService.start();
     }
+  }
+
+  Future<void> _runStartupCloudPull() async {
+    final isInitialHydration = await _needsInitialCloudHydrationGate();
+    if (isInitialHydration) {
+      _setState(
+        _state.copyWith(isInitialCloudHydration: true, isSyncing: true),
+      );
+    }
+
+    try {
+      await syncNow(showAsBusy: isInitialHydration);
+    } finally {
+      if (isInitialHydration) {
+        _setState(
+          _state.copyWith(
+            isInitialCloudHydration: false,
+            isSyncing: _syncQueueService.state.isProcessing,
+          ),
+        );
+      }
+      await _realtimeSyncService.start();
+    }
+  }
+
+  Future<bool> _needsInitialCloudHydrationGate() async {
+    return shouldGateInitialCloudHydration(
+      loadCursor: _configRepository.loadCursor,
+    );
   }
 
   /// Ejecuta la sincronización inicial completa local -> nube.
@@ -180,6 +231,7 @@ class SyncManager extends ChangeNotifier {
       _state.copyWith(
         connectionStatus: SyncConnectionStatus.disconnected,
         isSyncing: false,
+        isInitialCloudHydration: false,
         currentErrors: normalizedReason == null || normalizedReason.isEmpty
             ? const <String>[]
             : <String>[normalizedReason],
@@ -218,6 +270,7 @@ class SyncManager extends ChangeNotifier {
     _setState(
       _state.copyWith(
         isSyncing: _syncQueueService.state.isProcessing,
+        isInitialCloudHydration: false,
         pendingCount: report.pendingRecords,
         lastSyncIssues: syncIssues,
         currentErrors: errors,
@@ -255,7 +308,10 @@ class SyncManager extends ChangeNotifier {
     _setState(
       _state.copyWith(
         pendingCount: queueState.pendingCount,
-        isSyncing: _manualSyncInProgress || queueState.isProcessing,
+        isSyncing:
+            _state.isInitialCloudHydration ||
+            _manualSyncInProgress ||
+            queueState.isProcessing,
         lastSyncIssues: effectiveSyncIssues,
         currentErrors: _combineErrors(
           queueError: queueState.lastError,

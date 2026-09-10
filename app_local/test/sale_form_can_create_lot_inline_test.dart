@@ -43,6 +43,10 @@ Future<void> _settle(WidgetTester tester) async {
   await tester.pump(const Duration(milliseconds: 300));
 }
 
+Finder _fieldByLabel(String label) {
+  return find.widgetWithText(TextFormField, label);
+}
+
 void main() {
   late Directory tempDirectory;
   late AppDatabase appDatabase;
@@ -117,17 +121,13 @@ void main() {
 
     final availableLots = await lotRepository.fetchAvailable();
     expect(availableLots, hasLength(1));
-
-    final lotDropdown = tester
-        .widgetList<DropdownButtonFormField<int>>(
-          find.byType(DropdownButtonFormField<int>),
-        )
-        .firstWhere(
-          (widget) => widget.decoration.labelText == 'Seleccionar solar',
-        );
-
-    expect(lotDropdown.initialValue, availableLots.single.id);
     expect(availableLots.single.displayCode, 'MB-S22');
+
+    // El solar creado queda seleccionado en el campo buscable de la venta.
+    final lotField = tester.widget<TextFormField>(
+      _fieldByLabel('Seleccionar solar'),
+    );
+    expect(lotField.controller?.text, 'MB-S22');
     expect(tester.takeException(), isNull);
   });
 }

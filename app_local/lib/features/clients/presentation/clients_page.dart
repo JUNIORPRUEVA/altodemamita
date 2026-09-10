@@ -10,6 +10,7 @@ import '../../../features/auth/domain/permission_model.dart';
 import '../../../features/auth/presentation/auth_provider.dart';
 import '../../../shared/sync/row_sync_badge_policy.dart';
 import '../../../shared/widgets/base_layout.dart';
+import '../../../shared/widgets/module_list_states.dart';
 import '../../../shared/widgets/recovery_experience.dart';
 import '../data/client_repository.dart';
 import '../domain/client.dart';
@@ -231,12 +232,12 @@ class _ClientsPageState extends State<ClientsPage> {
     required bool canUpdate,
     required bool canDelete,
   }) {
-    if (_controller.isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
+    final controller = _controller;
 
-    if (_controller.loadError != null) {
-      final failure = _controller.loadError!;
+    // Pantalla fatal real: solo sin datos visibles y con fallo de la carga
+    // por defecto. Un refresh fallido con datos NUNCA llega aqui.
+    if (controller.loadError != null) {
+      final failure = controller.loadError!;
       return InlineModuleRecoveryCard(
         title: failure.title,
         message: failure.message,
@@ -246,7 +247,43 @@ class _ClientsPageState extends State<ClientsPage> {
       );
     }
 
-    if (_controller.clients.isEmpty) {
+    if (!controller.hasVisibleData) {
+      // Carga inicial / busqueda nueva SIN datos: skeleton, jamas vacio.
+      if (controller.isLoading) {
+        return const ModuleListLoadingView(label: 'Cargando clientes…');
+      }
+      // Busqueda fallida sin resultados (recuperable, no fatal de modulo).
+      if (controller.searchFailed) {
+        return ModuleSearchFailedView(
+          message: 'No pudimos completar la búsqueda de clientes.',
+          onRetry: _runSearch,
+        );
+      }
+      // Vacio confirmado por el backend tras una busqueda.
+      if (controller.currentQuery.trim().isNotEmpty) {
+        return const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.search_off_outlined,
+                  size: 44,
+                  color: Color(0xFF8893AA),
+                ),
+                SizedBox(height: 12),
+                Text(
+                  'No se encontraron clientes para tu búsqueda.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 15, color: Color(0xFF5E5A52)),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+      // Vacio confirmado (solo aqui se muestra el estado vacio real).
       return Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 520),
@@ -300,11 +337,23 @@ class _ClientsPageState extends State<ClientsPage> {
 
     return Container(
       color: Colors.white,
-      child: ListView.separated(
-        itemCount: _controller.clients.length,
-        separatorBuilder: (_, _) => const Divider(height: 1, indent: 64),
-        itemBuilder: (context, index) {
-          final client = _controller.clients[index];
+      child: Column(
+        children: [
+          ModuleStatusBanner(
+            isRefreshing: controller.isRefreshing,
+            refreshFailed: controller.refreshFailed,
+            onRetry: _runSearch,
+            moduleLabel: 'Clientes',
+          ),
+          Expanded(
+            child: ListView.separated(
+              itemCount: controller.clients.length,
+              separatorBuilder: (_, _) => const Divider(
+                height: 1,
+                indent: 64,
+              ),
+              itemBuilder: (context, index) {
+                final client = controller.clients[index];
           final initials = client.fullName.isEmpty
               ? '?'
               : client.fullName[0].toUpperCase();
@@ -408,6 +457,9 @@ class _ClientsPageState extends State<ClientsPage> {
             ),
           );
         },
+            ),
+          ),
+        ],
       ),
     );
   }

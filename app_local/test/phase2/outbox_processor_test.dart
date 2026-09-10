@@ -11,7 +11,7 @@ import 'package:sistema_solares/core/resilience/app_paths.dart';
 
 void main() {
   test(
-    'outbox processor acknowledges success and retries transient failures',
+    'outbox processor acknowledges success, retries transient failures, and blocks conflicts',
     () async {
       final root = await Directory.systemTemp.createTemp('phase2_processor_');
       addTearDown(() => root.delete(recursive: true));
@@ -24,7 +24,18 @@ void main() {
         final status = statuses.removeAt(0);
         request.response.statusCode = status;
         request.response.headers.contentType = ContentType.json;
-        request.response.write(jsonEncode({'ok': true, 'status': status}));
+        request.response.write(
+          jsonEncode(
+            status == 409
+                ? {
+                    'error': {
+                      'code': 'LOT_NOT_AVAILABLE',
+                      'message': 'El solar ya no esta disponible.',
+                    },
+                  }
+                : {'ok': true, 'status': status},
+          ),
+        );
         await request.response.close();
       });
 
@@ -62,20 +73,21 @@ void main() {
 
       final report = await processor.processDue();
       expect(report.scanned, 3);
-      expect(report.acknowledged, 2);
+      expect(report.acknowledged, 1);
       expect(report.retryable, 1);
+      expect(report.permanent, 1);
 
       expect(
         (await outbox.find('payment.register:retry'))!.status,
-        OutboxStatus.retryableFailure,
+        OutboxStatus.failedRetryable,
       );
       expect(
         (await outbox.find('sale.create:ok'))!.status,
-        OutboxStatus.acknowledged,
+        OutboxStatus.synced,
       );
       expect(
         (await outbox.find('sale.create:conflict'))!.status,
-        OutboxStatus.acknowledged,
+        OutboxStatus.blockedConflict,
       );
     },
   );

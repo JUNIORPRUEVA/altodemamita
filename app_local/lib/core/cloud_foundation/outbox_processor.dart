@@ -36,7 +36,7 @@ class OutboxProcessor {
         accessToken: token,
       );
 
-      if (response.isSuccess || response.isIdempotentReplayOrConflict) {
+      if (response.isSuccess) {
         await _outbox.acknowledge(operation.operationId, response.body);
         await _cache.putMetadata(
           'last_ack:${operation.operationId}',
@@ -50,6 +50,9 @@ class OutboxProcessor {
       if (response.isRetryable) {
         await _outbox.failRetryable(operation.operationId, safeError);
         retryable += 1;
+      } else if (response.isBusinessConflict) {
+        await _outbox.failPermanent(operation.operationId, safeError);
+        permanent += 1;
       } else if (response.isPermanentFailure) {
         await _outbox.failPermanent(operation.operationId, safeError);
         permanent += 1;

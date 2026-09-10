@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../features/auth/domain/admin_override_scope.dart';
+import '../../../core/config/app_flags.dart';
+import '../../../core/network/backend_api_client.dart';
 import '../../../core/system/system_config_service.dart';
 import '../../../core/resilience/friendly_error_messages.dart';
 import '../../../features/auth/data/auth_service.dart';
@@ -147,13 +149,11 @@ class _UsersScreenState extends State<UsersScreen> {
           ),
         ),
       );
-    } on AuthException catch (error) {
+    } catch (error) {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.maybeOf(
-        context,
-      )?.showSnackBar(SnackBar(content: Text(error.message)));
+      _showUserActionError(error);
     }
   }
 
@@ -194,13 +194,23 @@ class _UsersScreenState extends State<UsersScreen> {
     try {
       await _authService.setUserActive(user: user, active: active);
       await _loadUsers();
-    } on AuthException catch (error) {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.maybeOf(
-        context,
-      )?.showSnackBar(SnackBar(content: Text(error.message)));
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          content: Text(
+            active
+                ? 'Usuario desbloqueado correctamente.'
+                : 'Usuario bloqueado correctamente.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      _showUserActionError(error);
     }
   }
 
@@ -225,7 +235,10 @@ class _UsersScreenState extends State<UsersScreen> {
       builder: (dialogContext) {
         return AlertDialog(
           title: const Text('Eliminar usuario'),
-          content: Text('Se eliminara el usuario ${user.nombre}.'),
+          content: Text(
+            'Se eliminara permanentemente el usuario ${user.nombre}. '
+            'Si tiene informacion historica relacionada, la operacion sera rechazada.',
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
@@ -253,14 +266,33 @@ class _UsersScreenState extends State<UsersScreen> {
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         const SnackBar(content: Text('Usuario eliminado correctamente.')),
       );
-    } on AuthException catch (error) {
+    } catch (error) {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.maybeOf(
-        context,
-      )?.showSnackBar(SnackBar(content: Text(error.message)));
+      _showUserActionError(error);
     }
+  }
+
+  void _showUserActionError(Object error) {
+    debugPrint(
+      '[UsersScreen] action error type=${error.runtimeType} '
+      'mode=$cloudCutoverMode: $error',
+    );
+    final message = switch (error) {
+      AuthException(:final message) => message,
+      BackendApiException(:final message) => message,
+      ReadOnlyModeException(:final message) => message,
+      DeviceWriteBlockedException(:final message) => message,
+      FormatException(:final message) when message.trim().isNotEmpty =>
+        message.trim(),
+      StateError(:final message) when message.trim().isNotEmpty =>
+        message.trim(),
+      _ => 'No se pudo completar la operacion de usuarios: ${error.runtimeType}.',
+    };
+    ScaffoldMessenger.maybeOf(
+      context,
+    )?.showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override

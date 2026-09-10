@@ -16,6 +16,16 @@ import '../domain/sale_draft.dart';
 import '../domain/sale_summary.dart';
 import '../domain/seller.dart';
 
+/// Controlador del modulo Ventas con UX cache-first / stale-while-revalidate.
+///
+/// Reglas P0:
+/// - NUNCA destruir el ultimo estado valido porque empieza un refresh.
+/// - Un refresh fallido conserva la lista visible (estado no bloqueante).
+/// - La pantalla fatal de error SOLO aplica cuando no hay ningun dato usable y
+///   la carga autoritativa inicial fallo.
+/// - "No hay ventas" SOLO se muestra tras una respuesta autoritativa exitosa
+///   que confirme vacio (o busqueda sin resultados).
+/// - Una respuesta tardia (generation vieja) NUNCA pisa datos mas nuevos.
 class SalesController extends ChangeNotifier {
   SalesController({
     required SalesRepository salesRepository,
@@ -35,11 +45,29 @@ class SalesController extends ChangeNotifier {
   final SellerRepository _sellerRepository;
   final SettingsRepository _settingsRepository;
 
+  /// Carga inicial en curso SIN datos visibles aun (skeleton, jamas vacio).
   bool isLoading = false;
+
+  /// Refresh de la misma consulta en curso CON datos visibles (no bloquea).
+  bool isRefreshing = false;
+
+  /// Datos visibles; el ultimo refresh autoritativo fallo (aviso no bloqueante).
+  bool refreshFailed = false;
+
+  /// La busqueda (query != '') fallo sin resultados que mostrar.
+  bool searchFailed = false;
+
   bool isSaving = false;
+
+  /// Ultima consulta solicitada ('' = lista completa).
   String currentQuery = '';
+
+  /// Error fatal: solo cuando NO hay datos visibles y la carga por defecto
+  /// (lista completa) fallo. Nunca se asigna si ya hay datos en pantalla.
   FriendlyErrorMessage? loadError;
+
   String? lastSaveErrorMessage;
+
   List<SaleSummary> sales = const [];
   List<Client> clients = const [];
   List<Lot> availableLots = const [];
@@ -49,83 +77,212 @@ class SalesController extends ChangeNotifier {
     monthlyInterest: 1,
     installmentCount: 12,
   );
+
   bool _isDisposed = false;
+  int _generation = 0;
+
+  /// Consulta a la que corresponden realmente los datos de [sales].
+  String _loadedQuery = '';
 
   bool get isDisposed => _isDisposed;
 
+  /// True cuando la lista visible pertenece a la consulta actual.
+  bool get hasVisibleData => sales.isNotEmpty && _loadedQuery == currentQuery;
+
   Future<void> load({String? query}) async {
+    await _performLoad(query: query);
+  }
+
+  Future<void> _performLoad({String? query}) async {
     if (_isDisposed) {
       return;
     }
+    final generation = ++_generation;
     if (query != null) {
       currentQuery = query;
     }
+    final scope = currentQuery;
 
-    isLoading = true;
+    // ── Arranque visual ────────────────────────────────────────────────
     loadError = null;
+    searchFailed = false;
+    final hadVisible = _loadedQuery == scope && sales.isNotEmpty;
+    if (hadVisible) {
+      // REFRESHING_WITH_DATA: conservar lista y refrescar en segundo plano.
+      isLoading = false;
+      isRefreshing = true;
+      refreshFailed = false;
+    } else {
+      // LOADING_WITHOUT_DATA: skeleton (nunca "No hay ventas" durante carga).
+      isLoading = true;
+      isRefreshing = false;
+      refreshFailed = false;
+    }
     _notifyIfActive();
 
+    // ── Cache-first bootstrap (solo lista completa) ────────────────────
+    if (!hadVisible && scope.isEmpty) {
+      final cached = await _salesRepository.fetchCachedList();
+      if (_isDisposed || generation != _generation) {
+        return;
+      }
+      if (cached.isNotEmpty) {
+        sales = cached;
+        _loadedQuery = scope;
+        isLoading = false;
+        isRefreshing = true;
+        _notifyIfActive();
+      }
+    }
+
+    // ── Fetch autoritativo (lista) + soporte en paralelo ───────────────
+    final supportFuture = _refreshSupportData(generation);
+    List<SaleSummary>? listResult;
+    Object? listError;
     try {
-      final settings = await _settingsRepository.fetchByKeysWithDefaults({
+      listResult = await _salesRepository.fetchAll(query: scope);
+    } catch (error) {
+      listError = error;
+    }
+    if (_isDisposed || generation != _generation) {
+      return;
+    }
+
+    if (listResult != null) {
+      sales = listResult;
+      _loadedQuery = scope;
+      searchFailed = false;
+      refreshFailed = false;
+      isLoading = false;
+      isRefreshing = false;
+      _notifyIfActive();
+    } else {
+      // ERROR_WITH_DATA: conservar lista; ERROR_WITHOUT_DATA solo fatal real.
+      final stillVisible = _loadedQuery == scope && sales.isNotEmpty;
+      isLoading = false;
+      isRefreshing = false;
+      if (stillVisible) {
+        refreshFailed = true;
+      } else if (scope.isNotEmpty) {
+        searchFailed = true;
+      } else {
+        loadError = _noDataLoadFailure(listError);
+      }
+      _notifyIfActive();
+    }
+
+    // Espera el soporte (clientes/solares/vendedores/parametros) para que el
+    // flujo termine con el formulario listo; jamas falla la carga de la lista.
+    await supportFuture;
+    if (_isDisposed || generation != _generation) {
+      return;
+    }
+    _notifyIfActive();
+  }
+
+  Future<void> _refreshSupportData(int generation) async {
+    if (_isDisposed) {
+      return;
+    }
+    try {
+      final settingsFuture = _settingsRepository.fetchByKeysWithDefaults({
         SettingsRepository.saleDefaultDownPaymentKey: '10',
         SettingsRepository.saleDefaultMonthlyInterestKey: '1',
         SettingsRepository.saleDefaultInstallmentCountKey: '12',
       });
-
-      final results = await Future.wait([
-        _salesRepository.fetchAll(query: currentQuery),
-        _clientRepository.fetchAll(),
-        _lotRepository.fetchAvailable(),
-        _sellerRepository.getAll(),
-      ]);
-
-      sales = results[0] as List<SaleSummary>;
-      clients = results[1] as List<Client>;
-      availableLots = results[2] as List<Lot>;
-      sellers = results[3] as List<Seller>;
-      defaults = SaleDefaults(
-        downPaymentPercentage: _parseDouble(
-          settings[SettingsRepository.saleDefaultDownPaymentKey]?.value,
-          fallback: 10,
-        ),
-        monthlyInterest: _parseDouble(
-          settings[SettingsRepository.saleDefaultMonthlyInterestKey]?.value,
-          fallback: 1,
-        ),
-        installmentCount: _parseInt(
-          settings[SettingsRepository.saleDefaultInstallmentCountKey]?.value,
-          fallback: 12,
-        ),
-      );
-    } catch (error) {
-      loadError = FriendlyErrorMessages.moduleLoad('ventas', error);
-    } finally {
-      isLoading = false;
-      _notifyIfActive();
+      final settings = await _guard(settingsFuture);
+      final clients = await _guard(_clientRepository.fetchAll());
+      final lots = await _guard(_lotRepository.fetchAvailable());
+      final sellers = await _guard(_sellerRepository.getAll());
+      if (_isDisposed || generation != _generation) {
+        return;
+      }
+      if (clients != null) {
+        this.clients = clients;
+      }
+      if (lots != null) {
+        availableLots = lots;
+      }
+      if (sellers != null) {
+        this.sellers = sellers;
+      }
+      if (settings != null) {
+        defaults = SaleDefaults(
+          downPaymentPercentage: _parseDouble(
+            settings[SettingsRepository.saleDefaultDownPaymentKey]?.value,
+            fallback: 10,
+          ),
+          monthlyInterest: _parseDouble(
+            settings[SettingsRepository.saleDefaultMonthlyInterestKey]?.value,
+            fallback: 1,
+          ),
+          installmentCount: _parseInt(
+            settings[SettingsRepository.saleDefaultInstallmentCountKey]?.value,
+            fallback: 12,
+          ),
+        );
+      }
+    } catch (_) {
+      // El soporte del formulario es best-effort: conserva el ultimo estado
+      // conocido y nunca derriba la lista de ventas.
     }
+  }
+
+  /// Devuelve [null] si la futura fallo (nunca lanza).
+  Future<T?> _guard<T>(Future<T> future) async {
+    try {
+      return await future;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  FriendlyErrorMessage _noDataLoadFailure(Object? error) {
+    final resolved = FriendlyErrorMessages.unexpected(error);
+    final title = resolved.title.toLowerCase();
+    final noConnection =
+        title.contains('conexion') ||
+        title.contains('servidor') ||
+        title.contains('internet');
+    if (noConnection) {
+      return const FriendlyErrorMessage(
+        title: 'Ventas no disponibles por ahora',
+        message: 'No pudimos actualizar Ventas porque no hay conexión.',
+        details:
+            'Tus datos están seguros. Revisa la conexión a internet y vuelve a intentarlo.',
+        suggestions: [
+          'Verifica tu conexión a internet.',
+          'Usa Reintentar cuando tengas conexión.',
+        ],
+      );
+    }
+    return FriendlyErrorMessage(
+      title: 'No pudimos cargar Ventas',
+      message:
+          'No pudimos cargar las ventas en este momento. Tus datos están seguros.',
+      details: resolved.details,
+      suggestions: [
+        'Usa Reintentar para volver a intentar.',
+        ...resolved.suggestions.take(1),
+      ],
+    );
   }
 
   Future<int?> createSale(SaleDraft draft) async {
     if (_isDisposed) {
-      print('[SALES][CREATE] controller disposed -> abort');
       return null;
     }
     isSaving = true;
     loadError = null;
     lastSaveErrorMessage = null;
     _notifyIfActive();
-
     try {
-      print(
-        '[SALES][CREATE] start clientId=${draft.clientId} lotId=${draft.lotId} sellerId=${draft.sellerId} price=${draft.salePrice}',
-      );
       final saleId = await _salesRepository.createSale(draft);
-      print('[SALES][CREATE] repository returned saleId=$saleId');
       await load(query: currentQuery);
       return saleId;
     } catch (error, stack) {
-      print('[SALES][CREATE] ERROR $error');
-      print(stack);
+      debugPrint('[SALES][CREATE] ERROR $error');
+      debugPrintStack(stackTrace: stack);
       lastSaveErrorMessage = FriendlyErrorMessages.forOperation(
         'guardar la venta',
         error,
@@ -144,7 +301,6 @@ class SalesController extends ChangeNotifier {
     }
     isSaving = true;
     _notifyIfActive();
-
     try {
       await _salesRepository.updateSale(saleId, draft);
       await load(query: currentQuery);
@@ -167,7 +323,6 @@ class SalesController extends ChangeNotifier {
     }
     isSaving = true;
     _notifyIfActive();
-
     try {
       await _salesRepository.deleteSale(saleId);
       _removeDeletedSaleFromView(saleId);
@@ -193,25 +348,13 @@ class SalesController extends ChangeNotifier {
     if (_isDisposed) {
       return;
     }
-
     try {
-      await _reloadAfterDelete();
+      await _performLoad(query: currentQuery);
     } catch (_) {
-      // The local deletion already succeeded; a later reload or sync will
-      // converge derived lists if this refresh fails transiently.
+      // La eliminacion local ya se aplico; un reload posterior converge.
     } finally {
       _notifyIfActive();
     }
-  }
-
-  Future<void> _reloadAfterDelete() async {
-    final results = await Future.wait([
-      _salesRepository.fetchAll(query: currentQuery),
-      _lotRepository.fetchAvailable(),
-    ]);
-
-    sales = results[0] as List<SaleSummary>;
-    availableLots = results[1] as List<Lot>;
   }
 
   Future<SaleDetail?> fetchDetail(int saleId) {
@@ -222,7 +365,6 @@ class SalesController extends ChangeNotifier {
     if (value == null || value.trim().isEmpty) {
       return fallback;
     }
-
     return double.tryParse(value.replaceAll(',', '.').trim()) ?? fallback;
   }
 
@@ -230,7 +372,6 @@ class SalesController extends ChangeNotifier {
     if (value == null || value.trim().isEmpty) {
       return fallback;
     }
-
     return int.tryParse(value.trim()) ?? fallback;
   }
 
