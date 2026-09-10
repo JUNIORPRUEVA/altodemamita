@@ -4,14 +4,23 @@
 ///   flutter run --dart-define=OWNER_API_BASE_URL=http://10.0.2.2:3000
 ///
 /// Producción:
-///   flutter run --dart-define=OWNER_API_BASE_URL=https://altodemanita-backend.onqyr1.easypanel.host
+///   flutter run --dart-define=OWNER_API_BASE_URL=https://altomamita-backend.gcdndd.easypanel.host
 ///
 const String baseUrl = String.fromEnvironment(
   'OWNER_API_BASE_URL',
-  defaultValue: 'https://altodemanita-backend.onqyr1.easypanel.host',
+  defaultValue: 'https://altomamita-backend.gcdndd.easypanel.host',
 );
 const String companyTenantKey = 'alto-dona-mamita-sistema-solares';
 const Duration ownerRefreshInterval = Duration(seconds: 20);
+
+const List<OwnerModule> customerVisibleModules = [
+  OwnerModule.dashboard,
+  OwnerModule.sales,
+  OwnerModule.lots,
+  OwnerModule.installments,
+  OwnerModule.payments,
+  OwnerModule.documentation,
+];
 
 enum OwnerModule {
   dashboard('Resumen', null),

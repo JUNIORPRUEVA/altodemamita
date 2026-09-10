@@ -9,7 +9,7 @@ import '../models/owner_snapshot.dart';
 class OwnerSnapshotCache {
   const OwnerSnapshotCache();
 
-  static const _fileName = 'owner_snapshot_cache.json';
+  static const _fileName = 'customer_snapshot_cache.json';
 
   Future<OwnerSnapshot?> read() async {
     try {

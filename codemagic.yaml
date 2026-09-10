@@ -14,7 +14,7 @@ workflows:
       cocoapods: default
       vars:
         APP_DIR: app_owner
-        OWNER_API_BASE_URL: https://altodemanita-backend.onqyr1.easypanel.host
+        OWNER_API_BASE_URL: https://altomamita-backend.gcdndd.easypanel.host
         BUNDLE_ID: com.sistemasolares.sistema-solares-owner
         XCODE_WORKSPACE: ios/Runner.xcworkspace
         XCODE_SCHEME: Runner

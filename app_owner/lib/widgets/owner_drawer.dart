@@ -7,9 +7,9 @@ import '../core/constants.dart';
 const List<OwnerModule> _drawerModules = [
   OwnerModule.dashboard,
   OwnerModule.sales,
-  OwnerModule.clients,
   OwnerModule.lots,
-  OwnerModule.sellers,
+  OwnerModule.installments,
+  OwnerModule.payments,
 ];
 
 IconData _moduleIcon(OwnerModule module) {

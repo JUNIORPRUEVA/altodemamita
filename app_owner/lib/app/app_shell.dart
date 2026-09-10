@@ -73,14 +73,20 @@ IconData moduleIcon(OwnerModule module) {
 ///
 /// Responsive: uses [NavigationBar] on mobile, [NavigationRail] on tablet/desktop.
 class AppShell extends StatefulWidget {
-  const AppShell({super.key});
+  const AppShell({super.key, required this.session, required this.onLogout});
+
+  final AuthSession session;
+  final Future<void> Function() onLogout;
 
   @override
   State<AppShell> createState() => AppShellState();
 }
 
 class AppShellState extends State<AppShell> with WidgetsBindingObserver {
-  final ApiClient _api = const ApiClient(baseUrl);
+  late final ApiClient _api = ApiClient(
+    baseUrl,
+    accessToken: widget.session.accessToken,
+  );
   final OwnerSnapshotCache _cache = const OwnerSnapshotCache();
   final GlobalSearchService _globalSearch = const GlobalSearchService();
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
@@ -776,6 +782,11 @@ class AppShellState extends State<AppShell> with WidgetsBindingObserver {
             icon: const Icon(Icons.refresh_rounded),
             tooltip: 'Actualizar',
           ),
+        _TopBarIconButton(
+          onPressed: () => unawaited(widget.onLogout()),
+          icon: const Icon(Icons.logout_rounded),
+          tooltip: 'Cerrar sesion',
+        ),
         const SizedBox(width: 10),
       ],
 
@@ -841,6 +852,7 @@ class AppShellState extends State<AppShell> with WidgetsBindingObserver {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (_loading) const LinearProgressIndicator(minHeight: 2),
+                if (_error != null) _RefreshWarning(onRetry: () => _refresh()),
                 Expanded(child: _buildPageContent(snapshot)),
               ],
             ),
@@ -937,6 +949,49 @@ class AppShellState extends State<AppShell> with WidgetsBindingObserver {
       OwnerModule.sellers => snapshot.sellers,
       OwnerModule.documentation => const [],
     };
+  }
+}
+
+class _RefreshWarning extends StatelessWidget {
+  const _RefreshWarning({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.accentAmber.withValues(alpha: 0.12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Row(
+          children: [
+            const Icon(
+              Icons.cloud_off_rounded,
+              size: 18,
+              color: AppColors.textPrimary,
+            ),
+            const SizedBox(width: 9),
+            const Expanded(
+              child: Text(
+                'Mostrando información guardada. Reintentaremos actualizar.',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  height: 1.15,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: onRetry,
+              child: const Text('Actualizar'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -1081,7 +1136,7 @@ class _DesktopSideNavState extends State<_DesktopSideNav> {
           children: [
             _DesktopLogoHeader(expanded: _expanded),
             const SizedBox(height: 14),
-            ...OwnerModule.values.map((module) {
+            ...customerVisibleModules.map((module) {
               return _SideNavItem(
                 module: module,
                 selected: widget.selected == module,

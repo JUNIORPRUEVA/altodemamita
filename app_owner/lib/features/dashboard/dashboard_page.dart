@@ -17,7 +17,6 @@ class DashboardPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final counts = snapshot.dashboard['counts'] as Map<String, dynamic>? ?? {};
     final totals = snapshot.dashboard['totals'] as Map<String, dynamic>? ?? {};
-    final sellersCount = counts['sellers'] ?? snapshot.sellers.length;
     final paid = _asNum(totals['paid']);
     final pending = _asNum(totals['balance']);
     final sold = _asNum(totals['sold']);
@@ -61,18 +60,6 @@ class DashboardPage extends StatelessWidget {
         value: text(counts['lots'], '0'),
         icon: Icons.map_outlined,
         module: OwnerModule.lots,
-      ),
-      _DashboardItem(
-        label: 'Clientes',
-        value: text(counts['clients'], '0'),
-        icon: Icons.people_alt_outlined,
-        module: OwnerModule.clients,
-      ),
-      _DashboardItem(
-        label: 'Vendedores',
-        value: text(sellersCount, '0'),
-        icon: Icons.badge_outlined,
-        module: OwnerModule.sellers,
       ),
     ];
 

@@ -9,13 +9,28 @@ import '../constants.dart';
 import '../models/owner_snapshot.dart';
 
 const Duration _ownerRequestTimeout = Duration(seconds: 45);
-const int _ownerPageSize = 200;
-const int _ownerPageBatchSize = 6;
 
 class ApiClient {
-  const ApiClient(this.baseUrl);
+  const ApiClient(this.baseUrl, {this.accessToken});
 
   final String baseUrl;
+  final String? accessToken;
+
+  Future<AuthSession> login({
+    required String email,
+    required String password,
+  }) async {
+    final body = await _post('/auth/login', {
+      'email': email.trim(),
+      'password': password,
+    });
+    return AuthSession.fromResponse(body);
+  }
+
+  Future<AuthSession> refresh(String token) async {
+    final body = await _post('/auth/refresh', {'token': token});
+    return AuthSession.fromResponse(body);
+  }
 
   /// Log de depuración para la URL base usada
   void _logUrl() {
@@ -33,40 +48,34 @@ class ApiClient {
     final client = _createHttpClient();
     final List<Object?> results;
     try {
-      results = await Future.wait([
-        _get('/owner/dashboard', client: client),
-        _listAll('/owner/clients', client: client),
-        _listAll('/owner/sellers', client: client),
-        _listAll('/owner/lots', client: client),
-        _listAll('/owner/sales', client: client),
-        _listAll('/owner/installments', client: client),
-        _listAll('/owner/payments', client: client),
-      ]);
+      results = await Future.wait([_get('/customer/snapshot', client: client)]);
     } finally {
       client.close(force: true);
     }
-    final clients = _normalizeClients(listOfMaps(results[1]));
-    final sellers = _normalizeSellers(listOfMaps(results[2]));
-    final lots = _normalizeLots(listOfMaps(results[3]));
+    final snapshotData = ((results[0] as Map<String, dynamic>)['data'] as Map)
+        .cast<String, dynamic>();
+    final clients = _normalizeClients(listOfMaps(snapshotData['clients']));
+    final sellers = _normalizeSellers(listOfMaps(snapshotData['sellers']));
+    final lots = _normalizeLots(listOfMaps(snapshotData['lots']));
     final sales = _normalizeSales(
-      listOfMaps(results[4]),
+      listOfMaps(snapshotData['sales']),
       clients: clients,
       sellers: sellers,
       lots: lots,
     );
     final installments = _normalizeInstallments(
-      listOfMaps(results[5]),
+      listOfMaps(snapshotData['installments']),
       sales: sales,
     );
     final payments = _normalizePayments(
-      listOfMaps(results[6]),
+      listOfMaps(snapshotData['payments']),
       clients: clients,
       sales: sales,
       installments: installments,
     );
-    final dashboardBody = results[0] as Map<String, dynamic>;
     return OwnerSnapshot(
-      dashboard: (dashboardBody['data'] as Map).cast<String, dynamic>(),
+      dashboard:
+          (snapshotData['dashboard'] as Map?)?.cast<String, dynamic>() ?? {},
       clients: clients,
       sellers: sellers,
       lots: lots,
@@ -78,9 +87,11 @@ class ApiClient {
 
   Future<OwnerSnapshot> fetchDashboardSnapshot() async {
     _logUrl();
-    final dashboardBody = await _get('/owner/dashboard');
+    final snapshotBody = await _get('/customer/snapshot');
+    final snapshotData = (snapshotBody['data'] as Map).cast<String, dynamic>();
     return OwnerSnapshot(
-      dashboard: (dashboardBody['data'] as Map).cast<String, dynamic>(),
+      dashboard:
+          (snapshotData['dashboard'] as Map?)?.cast<String, dynamic>() ?? {},
       clients: const [],
       sellers: const [],
       lots: const [],
@@ -88,48 +99,6 @@ class ApiClient {
       installments: const [],
       payments: const [],
     );
-  }
-
-  Future<List<Map<String, dynamic>>> _listAll(
-    String path, {
-    required HttpClient client,
-  }) async {
-    final firstPage = await _get(
-      '$path?page=1&pageSize=$_ownerPageSize',
-      client: client,
-    );
-    final firstPageData = (firstPage['data'] as Map).cast<String, dynamic>();
-    final firstItems = listOfMaps(firstPageData['items']);
-    final total = _readInt(firstPageData['total']);
-    final allItems = <Map<String, dynamic>>[...firstItems];
-
-    if (firstItems.isEmpty || allItems.length >= total) {
-      return allItems;
-    }
-
-    final pageCount = (total / _ownerPageSize).ceil();
-    for (
-      var startPage = 2;
-      startPage <= pageCount;
-      startPage += _ownerPageBatchSize
-    ) {
-      final endPage = (startPage + _ownerPageBatchSize - 1).clamp(
-        startPage,
-        pageCount,
-      );
-      final pageBodies = await Future.wait([
-        for (var page = startPage; page <= endPage; page++)
-          _get('$path?page=$page&pageSize=$_ownerPageSize', client: client),
-      ]);
-
-      for (final body in pageBodies) {
-        final data = (body['data'] as Map).cast<String, dynamic>();
-        final items = listOfMaps(data['items']);
-        allItems.addAll(items);
-      }
-    }
-
-    return allItems;
   }
 
   Future<Map<String, dynamic>> _get(String path, {HttpClient? client}) async {
@@ -149,70 +118,83 @@ class ApiClient {
       final request = await httpClient
           .getUrl(uri)
           .timeout(_ownerRequestTimeout);
-      request.headers.set('x-company-tenant-key', companyTenantKey);
-      request.headers.set(HttpHeaders.acceptHeader, ContentType.json.mimeType);
+      _setRequestHeaders(request);
       final response = await request.close().timeout(_ownerRequestTimeout);
-      final responseBody = await utf8.decoder
-          .bind(response)
-          .join()
-          .timeout(_ownerRequestTimeout);
-      if (kDebugMode) {
-        debugPrint(
-          '[OwnerApi] response status=${response.statusCode} url=$uri',
-        );
-        developer.log(
-          'response status=${response.statusCode} url=$uri',
-          name: 'SistemaSolares.OwnerApi',
-        );
-      }
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        final errorMsg = 'HTTP ${response.statusCode}: $responseBody';
-        if (kDebugMode) {
-          debugPrint('[OwnerApi] request failed url=$uri error=$errorMsg');
-          developer.log(
-            'request failed url=$uri error=$errorMsg',
-            name: 'SistemaSolares.OwnerApi',
-          );
-        }
-        throw HttpException(errorMsg, uri: uri);
-      }
-      final decoded = jsonDecode(responseBody);
-      if (decoded is! Map) {
-        throw const FormatException('Respuesta invalida del backend.');
-      }
-      return decoded.cast<String, dynamic>();
-    } on SocketException catch (e) {
-      if (kDebugMode) {
-        debugPrint('[OwnerApi] connection error url=$uri error=$e');
-        developer.log(
-          'connection error url=$uri error=$e',
-          name: 'SistemaSolares.OwnerApi',
-        );
-      }
-      rethrow;
-    } on HttpException catch (e) {
-      if (kDebugMode) {
-        debugPrint('[OwnerApi] http error url=$uri error=$e');
-        developer.log(
-          'http error url=$uri error=$e',
-          name: 'SistemaSolares.OwnerApi',
-        );
-      }
-      rethrow;
-    } on TimeoutException catch (e) {
-      if (kDebugMode) {
-        debugPrint('[OwnerApi] timeout error url=$uri error=$e');
-        developer.log(
-          'timeout error url=$uri error=$e',
-          name: 'SistemaSolares.OwnerApi',
-        );
-      }
-      rethrow;
+      return _decodeResponse(response, uri);
     } finally {
       if (client == null) {
         httpClient.close(force: true);
       }
     }
+  }
+
+  Future<Map<String, dynamic>> _post(
+    String path,
+    Map<String, dynamic> payload,
+  ) async {
+    final uri = Uri.parse('$baseUrl$path');
+    final httpClient = _createHttpClient();
+    try {
+      if (kDebugMode) {
+        debugPrint('[OwnerApi] request url=$uri method=POST');
+        developer.log(
+          'request url=$uri method=POST',
+          name: 'SistemaSolares.OwnerApi',
+        );
+      }
+      final request = await httpClient
+          .postUrl(uri)
+          .timeout(_ownerRequestTimeout);
+      _setRequestHeaders(request);
+      request.headers.contentType = ContentType.json;
+      request.write(jsonEncode(payload));
+      final response = await request.close().timeout(_ownerRequestTimeout);
+      return _decodeResponse(response, uri);
+    } finally {
+      httpClient.close(force: true);
+    }
+  }
+
+  void _setRequestHeaders(HttpClientRequest request) {
+    request.headers.set('x-company-tenant-key', companyTenantKey);
+    request.headers.set(HttpHeaders.acceptHeader, ContentType.json.mimeType);
+    final token = accessToken?.trim();
+    if (token != null && token.isNotEmpty) {
+      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+    }
+  }
+
+  Future<Map<String, dynamic>> _decodeResponse(
+    HttpClientResponse response,
+    Uri uri,
+  ) async {
+    final responseBody = await utf8.decoder
+        .bind(response)
+        .join()
+        .timeout(_ownerRequestTimeout);
+    if (kDebugMode) {
+      debugPrint('[OwnerApi] response status=${response.statusCode} url=$uri');
+      developer.log(
+        'response status=${response.statusCode} url=$uri',
+        name: 'SistemaSolares.OwnerApi',
+      );
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      final errorMsg = 'HTTP ${response.statusCode}: $responseBody';
+      if (kDebugMode) {
+        debugPrint('[OwnerApi] request failed url=$uri error=$errorMsg');
+        developer.log(
+          'request failed url=$uri error=$errorMsg',
+          name: 'SistemaSolares.OwnerApi',
+        );
+      }
+      throw HttpException(errorMsg, uri: uri);
+    }
+    final decoded = jsonDecode(responseBody);
+    if (decoded is! Map) {
+      throw const FormatException('Respuesta invalida del backend.');
+    }
+    return decoded.cast<String, dynamic>();
   }
 
   HttpClient _createHttpClient() {
@@ -222,17 +204,49 @@ class ApiClient {
   }
 }
 
+class AuthSession {
+  const AuthSession({
+    required this.accessToken,
+    required this.userName,
+    required this.email,
+  });
+
+  final String accessToken;
+  final String userName;
+  final String email;
+
+  factory AuthSession.fromResponse(Map<String, dynamic> body) {
+    final data = (body['data'] as Map?)?.cast<String, dynamic>() ?? body;
+    final user = (data['user'] as Map?)?.cast<String, dynamic>() ?? {};
+    final token = (data['accessToken'] ?? body['accessToken'])?.toString();
+    if (token == null || token.trim().isEmpty) {
+      throw const FormatException('Respuesta de autenticacion invalida.');
+    }
+    return AuthSession(
+      accessToken: token,
+      userName: (user['fullName'] ?? user['name'] ?? '').toString(),
+      email: (user['email'] ?? '').toString(),
+    );
+  }
+
+  factory AuthSession.fromJson(Map<String, dynamic> json) {
+    return AuthSession(
+      accessToken: json['accessToken']?.toString() ?? '',
+      userName: json['userName']?.toString() ?? '',
+      email: json['email']?.toString() ?? '',
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {'accessToken': accessToken, 'userName': userName, 'email': email};
+  }
+}
+
 List<Map<String, dynamic>> listOfMaps(Object? maybeList) {
   if (maybeList is List) {
     return maybeList.cast<Map<String, dynamic>>();
   }
   return [];
-}
-
-int _readInt(Object? value) {
-  if (value is int) return value;
-  if (value is num) return value.toInt();
-  return int.tryParse(value?.toString() ?? '') ?? 0;
 }
 
 List<Map<String, dynamic>> _normalizeClients(List<Map<String, dynamic>> items) {
