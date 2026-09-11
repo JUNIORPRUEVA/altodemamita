@@ -231,14 +231,117 @@ void main() {
         email: 'acceptance.user.001@sistema.local',
         password: 'ValidPassword123',
         role: UserRole.user,
-        permissions: const <PermissionModel>[],
+        permissions: const <PermissionModel>[
+          PermissionModel(module: PermissionCatalog.clients, read: true),
+          PermissionModel(module: PermissionCatalog.sales, read: true),
+          PermissionModel(
+            module: PermissionCatalog.payments,
+            read: true,
+            create: true,
+          ),
+        ],
       );
 
       expect(requestedUri?.path, '/api/business/users');
       expect(requestedBody, contains('"role":"TECH"'));
+      expect(requestedBody, contains('"permissions"'));
+      expect(requestedBody, contains('"clients.read"'));
+      expect(requestedBody, contains('"sales.read"'));
+      expect(requestedBody, contains('"payments.create"'));
       expect(user.email, 'acceptance.user.001@sistema.local');
       expect(user.role, UserRole.user);
       expect(user.activo, isTrue);
+    },
+  );
+
+  test(
+    'CLOUD_AUTHORITATIVE actualizacion de usuario envia permisos reemplazados',
+    () async {
+      if (cloudCutoverMode != CloudCutoverMode.cloudAuthoritative) {
+        return;
+      }
+
+      final configRepository = FakeSyncConfigRepository(
+        settings: buildFakeSettings(),
+      );
+      await configRepository.saveJwtToken('jwt-test-token');
+      final systemConfigService = SystemConfigService.test(
+        syncConfigRepository: configRepository,
+      );
+      var requestNumber = 0;
+      String? updateBody;
+      final backendClient = BackendApiClient(
+        syncConfigRepository: configRepository,
+        client: MockClient((request) async {
+          requestNumber += 1;
+          expect(request.headers['authorization'], 'Bearer jwt-test-token');
+          if (requestNumber == 1) {
+            expect(request.method, 'POST');
+            expect(request.url.path, '/api/business/users');
+            return http.Response(
+              '{"data":{"user":{"id":"remote-user-edit","email":"qa.permissions@sistema.local","name":"QA-PERMISSIONS-USER","role":"TECH","active":true,"companyId":"company-1","permissions":["clients.read","sales.read","payments.create","payments.read"]}}}',
+              201,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+
+          expect(request.method, 'PATCH');
+          expect(request.url.path, '/api/business/users/remote-user-edit');
+          updateBody = request.body;
+          return http.Response(
+            '{"data":{"user":{"id":"remote-user-edit","email":"qa.permissions@sistema.local","name":"QA-PERMISSIONS-USER","role":"TECH","active":true,"companyId":"company-1","permissions":["clients.read","lots.read","payments.read","sales.read","sales.update"]}}}',
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+      final authService = AuthService(
+        appDatabase: appDatabase,
+        syncConfigRepository: configRepository,
+        apiClient: backendClient,
+        systemConfigService: systemConfigService,
+      );
+
+      final created = await authService.createUser(
+        nombre: 'QA-PERMISSIONS-USER',
+        email: 'qa.permissions@sistema.local',
+        password: 'ValidPassword123',
+        role: UserRole.user,
+        permissions: const <PermissionModel>[
+          PermissionModel(module: PermissionCatalog.clients, read: true),
+          PermissionModel(module: PermissionCatalog.sales, read: true),
+          PermissionModel(
+            module: PermissionCatalog.payments,
+            read: true,
+            create: true,
+          ),
+        ],
+      );
+      final updated = await authService.updateUser(
+        user: created,
+        nombre: 'QA-PERMISSIONS-USER',
+        email: 'qa.permissions@sistema.local',
+        role: UserRole.user,
+        active: true,
+        permissions: const <PermissionModel>[
+          PermissionModel(module: PermissionCatalog.clients, read: true),
+          PermissionModel(module: PermissionCatalog.lots, read: true),
+          PermissionModel(
+            module: PermissionCatalog.sales,
+            read: true,
+            update: true,
+          ),
+          PermissionModel(module: PermissionCatalog.payments, read: true),
+        ],
+      );
+
+      expect(updateBody, contains('"permissions"'));
+      expect(updateBody, contains('"lots.read"'));
+      expect(updateBody, contains('"sales.update"'));
+      expect(updateBody, isNot(contains('"payments.create"')));
+      expect(updated.permissionFor(PermissionCatalog.lots).read, isTrue);
+      expect(updated.permissionFor(PermissionCatalog.sales).update, isTrue);
+      expect(updated.permissionFor(PermissionCatalog.payments).create, isFalse);
     },
   );
 

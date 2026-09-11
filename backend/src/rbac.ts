@@ -21,6 +21,9 @@ export const permissionDomains = [
   'users',
   'configuration',
   'reports',
+  'dashboard',
+  'search',
+  'notifications',
   'auth',
 ] as const;
 
@@ -45,6 +48,7 @@ const resourceAliases: Record<string, string> = {
   usuarios: 'users',
   configuracion: 'configuration',
   configuracin: 'configuration',
+  settings: 'configuration',
   reportes: 'reports',
   resumen: 'dashboard',
   busqueda: 'search',

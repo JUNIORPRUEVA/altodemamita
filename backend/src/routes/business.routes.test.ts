@@ -5,6 +5,9 @@ import {
   isOwnerRemovalAttempt,
   isSelfDeactivation,
   normalizeBusinessUserRoleForTest,
+  permissionCodesFromRowsForTest,
+  permissionRowsFromCodesForTest,
+  requiresUserManageForUserWriteForTest,
 } from './business.routes';
 
 test('business user role mapping accepts admin aliases as OWNER', () => {
@@ -66,4 +69,62 @@ test('user hard delete is blocked only by business history', () => {
     }),
     true,
   );
+});
+
+test('business user permissions parse canonical codes into direct permission rows', () => {
+  assert.deepEqual(
+    permissionRowsFromCodesForTest([
+      'payments.create',
+      'clients.read',
+      'payments.read',
+      'sales.update',
+      'lots.read',
+    ]),
+    [
+      { module: 'clients', actions: ['read'] },
+      { module: 'lots', actions: ['read'] },
+      { module: 'payments', actions: ['create', 'read'] },
+      { module: 'sales', actions: ['update'] },
+    ],
+  );
+});
+
+test('business user permissions normalize legacy aliases without broadening actions', () => {
+  assert.deepEqual(
+    permissionRowsFromCodesForTest([
+      'pagos.anular',
+      'ventas.ver',
+      'solares.ver',
+      'configuracion.editar',
+    ]),
+    [
+      { module: 'configuration', actions: ['update'] },
+      { module: 'lots', actions: ['read'] },
+      { module: 'payments', actions: ['annul'] },
+      { module: 'sales', actions: ['read'] },
+    ],
+  );
+});
+
+test('business user permission readback emits exact canonical codes', () => {
+  assert.deepEqual(
+    permissionCodesFromRowsForTest([
+      { module: 'payments', actions: ['read', 'create'] },
+      { module: 'sales', actions: ['read', 'update'] },
+    ]),
+    ['payments.create', 'payments.read', 'sales.read', 'sales.update'],
+  );
+});
+
+test('business user permission writes require user management privilege', () => {
+  assert.equal(requiresUserManageForUserWriteForTest({ role: 'TECH' }), false);
+  assert.equal(
+    requiresUserManageForUserWriteForTest({ role: 'TECH', permissions: [] }),
+    true,
+  );
+  assert.equal(
+    requiresUserManageForUserWriteForTest({ role: 'TECH', permissions: ['clients.read'] }),
+    true,
+  );
+  assert.equal(requiresUserManageForUserWriteForTest({ role: 'OWNER' }), true);
 });

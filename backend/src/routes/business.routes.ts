@@ -6,7 +6,14 @@ import { authGuard } from '../auth';
 import { resolveCompanyForRequest } from '../companyIdentity';
 import { hashPassword } from '../password';
 import { prisma } from '../prisma';
-import { permissionDomains, requirePermission } from '../rbac';
+import {
+  canonicalPermissionAction,
+  canonicalPermissionModule,
+  ownerPermissionCodes,
+  hasPermission,
+  permissionDomains,
+  requirePermission,
+} from '../rbac';
 import { authoritativeErrorResponse } from '../services/authoritativeErrors.service';
 import { AuthoritativeSaleService } from '../services/authoritativeSale.service';
 import {
@@ -19,6 +26,7 @@ export const businessRouter = Router();
 
 const authoritativeSales = new AuthoritativeSaleService(prisma);
 const permissionDomainSet = new Set<string>(permissionDomains);
+const userPermissionSchema = z.array(z.string().min(1)).default([]);
 const allowedBusinessConfigKeys = new Set([
   'business_name',
   'receipt_footer',
@@ -44,9 +52,16 @@ businessRouter.get('/users', requirePermission('users', 'read'), async (req, res
       localRole: true,
       phone: true,
       companyId: true,
+      createdAt: true,
+      updatedAt: true,
+      directPermissions: {
+        where: { deletedAt: null },
+        select: { module: true, actions: true },
+        orderBy: { module: 'asc' },
+      },
     },
   });
-  return res.json({ data: { users } });
+  return res.json({ data: { users: users.map(businessUserDto) } });
 });
 
 businessRouter.post('/users', requirePermission('users', 'create'), async (req, res) => {
@@ -59,24 +74,52 @@ businessRouter.post('/users', requirePermission('users', 'create'), async (req, 
       role: z.enum(['OWNER', 'TECH']).default('TECH'),
       phone: z.string().optional(),
       active: z.boolean().default(true),
+      permissions: userPermissionSchema,
     })
     .safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: { code: 'INVALID_USER', message: 'Usuario invalido.' } });
   }
-  const user = await prisma.user.create({
-    data: {
-      companyId: company.id,
-      email: parsed.data.email.trim().toLowerCase(),
-      name: parsed.data.name.trim(),
-      role: parsed.data.role,
-      phone: parsed.data.phone,
-      active: parsed.data.active,
-      passwordHash: await hashPassword(parsed.data.password),
-    },
-    select: { id: true, email: true, name: true, role: true, active: true, companyId: true },
+  if (requiresUserManageForUserWrite({ role: parsed.data.role, permissions: parsed.data.permissions })) {
+    const canManageUsers = req.user
+      ? await hasPermission(req.user.id, req.user.role, 'users', 'manage')
+      : false;
+    if (!canManageUsers) {
+      return res.status(403).json({
+        error: {
+          code: 'PERMISSION_DENIED',
+          message: 'No tienes permiso para gestionar permisos de usuarios.',
+        },
+      });
+    }
+  }
+  const permissionRows = safePermissionRowsFromCodes(parsed.data.permissions);
+  if (!permissionRows) {
+    return res.status(400).json({ error: { code: 'INVALID_PERMISSION', message: 'Permiso invalido.' } });
+  }
+  const user = await prisma.$transaction(async (tx) => {
+    const created = await tx.user.create({
+      data: {
+        companyId: company.id,
+        email: parsed.data.email.trim().toLowerCase(),
+        name: parsed.data.name.trim(),
+        role: parsed.data.role,
+        phone: parsed.data.phone,
+        active: parsed.data.active,
+        passwordHash: await hashPassword(parsed.data.password),
+      },
+      select: businessUserSelect,
+    });
+    if (created.role === 'TECH') {
+      await replaceDirectUserPermissions(tx, {
+        companyId: company.id,
+        userId: created.id,
+        permissionRows,
+      });
+    }
+    return findBusinessUserOrThrow(tx, company.id, created.id);
   });
-  return res.status(201).json({ data: { user } });
+  return res.status(201).json({ data: { user: businessUserDto(user) } });
 });
 
 businessRouter.get('/clients', requirePermission('clients', 'read'), async (req, res) => {
@@ -418,6 +461,7 @@ businessRouter.patch('/users/:userId', requirePermission('users', 'update'), asy
       active: z.boolean().optional(),
       isActive: z.boolean().optional(),
       password: z.string().min(8).optional(),
+      permissions: userPermissionSchema.optional(),
     })
     .safeParse(req.body);
   if (!parsed.success) {
@@ -467,12 +511,39 @@ businessRouter.patch('/users/:userId', requirePermission('users', 'update'), asy
     passwordUpdatedAt: parsed.data.password ? new Date() : undefined,
     version: { increment: 1 },
   };
-  const user = await prisma.user.update({
-    where: { id: existing.id },
-    data,
-    select: { id: true, email: true, name: true, role: true, active: true, localRole: true, phone: true, companyId: true },
+  const permissionRows = parsed.data.permissions ? safePermissionRowsFromCodes(parsed.data.permissions) : null;
+  if (parsed.data.permissions && !permissionRows) {
+    return res.status(400).json({ error: { code: 'INVALID_PERMISSION', message: 'Permiso invalido.' } });
+  }
+  if (requiresUserManageForUserWrite({ role: parsed.data.role, permissions: parsed.data.permissions })) {
+    const canManageUsers = req.user
+      ? await hasPermission(req.user.id, req.user.role, 'users', 'manage')
+      : false;
+    if (!canManageUsers) {
+      return res.status(403).json({
+        error: {
+          code: 'PERMISSION_DENIED',
+          message: 'No tienes permiso para gestionar permisos de usuarios.',
+        },
+      });
+    }
+  }
+  const user = await prisma.$transaction(async (tx) => {
+    const updated = await tx.user.update({
+      where: { id: existing.id },
+      data,
+      select: businessUserSelect,
+    });
+    if (permissionRows !== null || updated.role === 'OWNER') {
+      await replaceDirectUserPermissions(tx, {
+        companyId: company.id,
+        userId: existing.id,
+        permissionRows: updated.role === 'OWNER' ? [] : permissionRows ?? [],
+      });
+    }
+    return findBusinessUserOrThrow(tx, company.id, existing.id);
   });
-  return res.json({ data: { user } });
+  return res.json({ data: { user: businessUserDto(user) } });
 });
 
 businessRouter.delete('/users/:userId', requirePermission('users', 'delete'), async (req, res) => {
@@ -799,6 +870,174 @@ async function financialParameters(companyId: string) {
     },
     update: {},
   });
+}
+
+const businessUserSelect = {
+  id: true,
+  email: true,
+  name: true,
+  role: true,
+  active: true,
+  localRole: true,
+  phone: true,
+  companyId: true,
+  createdAt: true,
+  updatedAt: true,
+  directPermissions: {
+    where: { deletedAt: null },
+    select: { module: true, actions: true },
+    orderBy: { module: 'asc' },
+  },
+} satisfies Prisma.UserSelect;
+
+type BusinessUserDtoSource = Prisma.UserGetPayload<{
+  select: typeof businessUserSelect;
+}>;
+
+type PermissionRow = {
+  module: string;
+  actions: string[];
+};
+
+function businessUserDto(user: BusinessUserDtoSource) {
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    active: user.active,
+    localRole: user.localRole,
+    phone: user.phone,
+    companyId: user.companyId,
+    createdAt: user.createdAt.toISOString(),
+    updatedAt: user.updatedAt.toISOString(),
+    permissions: user.role === 'OWNER'
+      ? ownerPermissionCodes
+      : permissionCodesFromRows(user.directPermissions),
+  };
+}
+
+function requiresUserManageForUserWrite(input: {
+  role?: 'OWNER' | 'TECH';
+  permissions?: string[];
+}) {
+  return input.role === 'OWNER' || input.permissions !== undefined;
+}
+
+function permissionRowsFromCodes(codes: string[]): PermissionRow[] {
+  const rows = new Map<string, Set<string>>();
+  for (const rawCode of codes) {
+    const code = rawCode.trim().toLowerCase();
+    const separator = code.indexOf('.');
+    if (separator <= 0 || separator >= code.length - 1) {
+      throw new Error(`invalid_permission_code=${rawCode}`);
+    }
+
+    const module = canonicalPermissionModule(code.slice(0, separator));
+    const action = canonicalPermissionAction(code.slice(separator + 1));
+    if (!permissionDomainSet.has(module) || !action) {
+      throw new Error(`invalid_permission_code=${rawCode}`);
+    }
+
+    const actions = rows.get(module) ?? new Set<string>();
+    actions.add(action);
+    rows.set(module, actions);
+  }
+
+  return [...rows.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([module, actions]) => ({
+      module,
+      actions: [...actions].sort(),
+    }));
+}
+
+function safePermissionRowsFromCodes(codes: string[]) {
+  try {
+    return permissionRowsFromCodes(codes);
+  } catch {
+    return null;
+  }
+}
+
+function permissionCodesFromRows(rows: Array<{ module: string; actions: unknown }>) {
+  const codes: string[] = [];
+  for (const row of rows) {
+    const module = canonicalPermissionModule(row.module);
+    for (const action of actionsArray(row.actions)) {
+      codes.push(`${module}.${action}`);
+    }
+  }
+  return [...new Set(codes)].sort();
+}
+
+async function replaceDirectUserPermissions(
+  tx: Prisma.TransactionClient,
+  input: {
+    companyId: string;
+    userId: string;
+    permissionRows: PermissionRow[];
+  },
+) {
+  await tx.permission.deleteMany({
+    where: { companyId: input.companyId, userId: input.userId },
+  });
+  for (const permission of input.permissionRows) {
+    if (permission.actions.length === 0) {
+      continue;
+    }
+    await tx.permission.create({
+      data: {
+        companyId: input.companyId,
+        userId: input.userId,
+        module: permission.module,
+        actions: permission.actions,
+      },
+    });
+  }
+}
+
+async function findBusinessUserOrThrow(
+  tx: Prisma.TransactionClient,
+  companyId: string,
+  userId: string,
+) {
+  const user = await tx.user.findFirst({
+    where: {
+      id: userId,
+      deletedAt: null,
+      OR: [{ companyId }, { companyId: null }],
+    },
+    select: businessUserSelect,
+  });
+  if (!user) {
+    throw new Error(`user_not_found_after_write=${userId}`);
+  }
+  return user;
+}
+
+function actionsArray(actions: unknown) {
+  if (!Array.isArray(actions)) {
+    return [];
+  }
+  return actions
+    .map((action) => canonicalPermissionAction(String(action)))
+    .filter((action): action is NonNullable<ReturnType<typeof canonicalPermissionAction>> => action !== null);
+}
+
+export function permissionRowsFromCodesForTest(codes: string[]) {
+  return permissionRowsFromCodes(codes);
+}
+
+export function permissionCodesFromRowsForTest(rows: Array<{ module: string; actions: unknown }>) {
+  return permissionCodesFromRows(rows);
+}
+
+export function requiresUserManageForUserWriteForTest(input: {
+  role?: 'OWNER' | 'TECH';
+  permissions?: string[];
+}) {
+  return requiresUserManageForUserWrite(input);
 }
 
 function sanitizeProfile<T extends { logoLocalPath?: string | null }>(profile: T) {

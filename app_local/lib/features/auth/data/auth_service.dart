@@ -2209,6 +2209,9 @@ class AuthService {
         'password': password,
         'active': active,
         'role': role == UserRole.admin ? 'OWNER' : 'TECH',
+        'permissions': role == UserRole.admin
+            ? const <String>[]
+            : _permissionCodesForBackend(permissions),
       },
     );
     final payload = response is Map<String, dynamic>
@@ -2252,6 +2255,9 @@ class AuthService {
           'password': newPassword,
         'active': active,
         'role': role == UserRole.admin ? 'OWNER' : 'TECH',
+        'permissions': role == UserRole.admin
+            ? const <String>[]
+            : _permissionCodesForBackend(permissions),
       },
     );
     final payload = response is Map<String, dynamic>
@@ -2259,8 +2265,14 @@ class AuthService {
         : (response as Map).map(
             (key, value) => MapEntry(key.toString(), value),
           );
+    final unwrapped = _unwrapResponseEnvelope(payload);
+    final userPayload = unwrapped['user'] is Map
+        ? (unwrapped['user'] as Map).map(
+            (key, value) => MapEntry(key.toString(), value),
+          )
+        : unwrapped;
     return _mapBackendUser(
-      payload,
+      userPayload,
       fallbackPassword: (newPassword != null && newPassword.isNotEmpty)
           ? newPassword
           : user.passwordHash,
@@ -2293,7 +2305,13 @@ class AuthService {
         : (response as Map).map(
             (key, value) => MapEntry(key.toString(), value),
           );
-    return _mapBackendUser(payload, fallbackPassword: user.passwordHash);
+    final unwrapped = _unwrapResponseEnvelope(payload);
+    final userPayload = unwrapped['user'] is Map
+        ? (unwrapped['user'] as Map).map(
+            (key, value) => MapEntry(key.toString(), value),
+          )
+        : unwrapped;
+    return _mapBackendUser(userPayload, fallbackPassword: user.passwordHash);
   }
 
   Future<String?> _resolveRemoteUserId(int? userId) async {
@@ -2424,6 +2442,9 @@ class AuthService {
   /// Traduce un recurso canonico del backend al modulo local del catalogo.
   String? _localModuleForResource(String resource) {
     switch (resource) {
+      case 'dashboard':
+      case 'summary':
+        return PermissionCatalog.dashboard;
       case 'clients':
         return PermissionCatalog.clients;
       case 'sellers':
@@ -2445,6 +2466,62 @@ class AuthService {
         return PermissionCatalog.dashboard;
       case 'search':
         return PermissionCatalog.search;
+      default:
+        return null;
+    }
+  }
+
+  List<String> _permissionCodesForBackend(List<PermissionModel> permissions) {
+    final codes = <String>[];
+    for (final permission in permissions) {
+      final resource = _backendResourceForLocalModule(permission.module);
+      if (resource == null) {
+        continue;
+      }
+      if (permission.read) {
+        codes.add('$resource.read');
+      }
+      if (permission.create) {
+        codes.add('$resource.create');
+      }
+      if (permission.update) {
+        codes.add('$resource.update');
+      }
+      if (permission.delete) {
+        codes.add('$resource.delete');
+      }
+      if (permission.cancel) {
+        codes.add(
+          permission.module == PermissionCatalog.payments
+              ? '$resource.annul'
+              : '$resource.cancel',
+        );
+      }
+    }
+    codes.sort();
+    return codes.toSet().toList(growable: false);
+  }
+
+  String? _backendResourceForLocalModule(String module) {
+    switch (module) {
+      case PermissionCatalog.dashboard:
+        return 'dashboard';
+      case PermissionCatalog.sales:
+        return 'sales';
+      case PermissionCatalog.payments:
+        return 'payments';
+      case PermissionCatalog.installments:
+        return 'installments';
+      case PermissionCatalog.clients:
+        return 'clients';
+      case PermissionCatalog.sellers:
+        return 'sellers';
+      case PermissionCatalog.settings:
+        return 'configuration';
+      case PermissionCatalog.lots:
+        return 'lots';
+      case PermissionCatalog.search:
+        return 'search';
       default:
         return null;
     }
