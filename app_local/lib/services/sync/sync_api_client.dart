@@ -327,7 +327,7 @@ class SyncApiClient {
     final trimmed = responseBody.trimLeft();
     final looksLikeJson = trimmed.startsWith('{') || trimmed.startsWith('[');
     if (!looksLikeJson) {
-      throw HttpException(serverConnectionErrorMessage, uri: uri);
+      throw HttpException(_httpFailureMessage(response.statusCode), uri: uri);
     }
 
     Map<String, dynamic> decodedBody;
@@ -336,7 +336,7 @@ class SyncApiClient {
         _unwrapResponseEnvelope(_decodeJsonObject(responseBody)),
       );
     } on FormatException {
-      throw HttpException(serverConnectionErrorMessage, uri: uri);
+      throw HttpException(_httpFailureMessage(response.statusCode), uri: uri);
     }
     if (response.statusCode == 409) {
       throw SyncConflictException(
@@ -376,12 +376,7 @@ class SyncApiClient {
         }
       }
 
-      final message = decodedBody['message']?.toString().trim();
-      throw HttpException(
-        'El backend rechazo la sesion (401). '
-        '${message == null || message.isEmpty ? 'Inicia sesion en linea nuevamente.' : message}',
-        uri: uri,
-      );
+      throw HttpException(_httpFailureMessage(response.statusCode), uri: uri);
     }
 
     if (response.statusCode == HttpStatus.forbidden) {
@@ -404,16 +399,32 @@ class SyncApiClient {
           uri: uri,
         );
       }
-      if (message.isNotEmpty) {
+      if (message.isNotEmpty && message.toLowerCase() != 'forbidden') {
         throw HttpException(message, uri: uri);
       }
     }
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw HttpException(serverConnectionErrorMessage, uri: uri);
+      throw HttpException(_httpFailureMessage(response.statusCode), uri: uri);
     }
 
     return decodedBody;
+  }
+
+  String _httpFailureMessage(int statusCode) {
+    if (statusCode == 401) {
+      return 'Correo o contrasena incorrectos.';
+    }
+    if (statusCode == 403) {
+      return 'No tienes permiso para acceder.';
+    }
+    if (statusCode >= 500) {
+      return 'El servicio no esta disponible temporalmente.';
+    }
+    if (statusCode == 0) {
+      return 'No se pudo conectar al servicio. Revisa tu conexion.';
+    }
+    return 'No se pudo conectar al servicio. Revisa tu conexion.';
   }
 
   Future<String?> _tryRefreshJwtToken({

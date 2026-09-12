@@ -13,6 +13,8 @@ class FakeBackendState {
   final Set<String> unreachableHosts = <String>{};
   bool rejectSyncDownloadUnauthorized = false;
   bool rejectSyncDownloadForDeviceUnauthorized = false;
+  bool rejectSyncDownloadForbidden = false;
+  bool rejectSyncDownloadServerError = false;
   bool systemReadOnly = false;
   String companyName = '';
   String adminEmail = '';
@@ -658,6 +660,13 @@ class _FakeHttpClientRequest implements HttpClientRequest {
     }
 
     if (_method == 'GET' && path.endsWith('/sync/download')) {
+      if (_state.rejectSyncDownloadServerError) {
+        return _jsonResponse(
+          status: HttpStatus.serviceUnavailable,
+          body: {'success': false, 'message': 'Service unavailable'},
+        );
+      }
+
       if (_state.rejectSyncDownloadUnauthorized) {
         return _jsonResponse(
           status: HttpStatus.unauthorized,
@@ -669,6 +678,13 @@ class _FakeHttpClientRequest implements HttpClientRequest {
         return _jsonResponse(
           status: HttpStatus.forbidden,
           body: {'success': false, 'message': 'DEVICE_NOT_AUTHORIZED'},
+        );
+      }
+
+      if (_state.rejectSyncDownloadForbidden) {
+        return _jsonResponse(
+          status: HttpStatus.forbidden,
+          body: {'success': false, 'message': 'Forbidden'},
         );
       }
 
