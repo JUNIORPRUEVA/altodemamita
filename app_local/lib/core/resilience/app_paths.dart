@@ -5,10 +5,25 @@ import 'package:path/path.dart' as path;
 class AppPaths {
   AppPaths({String? supportDirectory}) : _supportDirectory = supportDirectory;
 
+  static String? _debugDefaultSupportDirectoryOverride;
+
+  static String? get debugDefaultSupportDirectoryOverride =>
+      _debugDefaultSupportDirectoryOverride;
+
+  static void debugOverrideDefaultSupportDirectory(String? supportDirectory) {
+    _debugDefaultSupportDirectoryOverride = supportDirectory;
+  }
+
   final String? _supportDirectory;
+
+  bool get _usesInjectedSupportDirectory =>
+      _supportDirectory != null ||
+      _debugDefaultSupportDirectoryOverride != null;
 
   late final String supportDirectory =
       _supportDirectory ??
+      _debugDefaultSupportDirectoryOverride ??
+      _flutterTestSupportDirectory() ??
       path.join(
         Platform.environment['LOCALAPPDATA'] ??
             Platform.environment['APPDATA'] ??
@@ -17,7 +32,11 @@ class AppPaths {
       );
 
   String get legacySupportDirectory => path.join(
-    Platform.environment['APPDATA'] ?? _fallbackAppData(),
+    _supportDirectory ??
+        _debugDefaultSupportDirectoryOverride ??
+        _flutterTestSupportDirectory() ??
+        Platform.environment['APPDATA'] ??
+        _fallbackAppData(),
     'SistemaSolares',
   );
 
@@ -34,7 +53,7 @@ class AppPaths {
   String get backupsDirectory => path.join(supportDirectory, 'backups');
   String get localBackupsDirectory => path.join(backupsDirectory, 'local');
   String get professionalLocalBackupsDirectory {
-    if (_supportDirectory != null) {
+    if (_usesInjectedSupportDirectory || _isFlutterTest) {
       return path.join(backupsDirectory, 'local');
     }
 
@@ -78,6 +97,15 @@ class AppPaths {
       path.join(legacySupportDirectory, 'backup_history.json');
 
   String get defaultBackupDirectory {
+    if (_usesInjectedSupportDirectory || _isFlutterTest) {
+      return path.join(
+        supportDirectory,
+        'Documents',
+        'SistemaSolares',
+        'Backups',
+      );
+    }
+
     final userProfile = Platform.environment['USERPROFILE'];
     if (userProfile != null && userProfile.isNotEmpty) {
       return path.join(userProfile, 'Documents', 'SistemaSolares', 'Backups');
@@ -145,5 +173,21 @@ class AppPaths {
       return path.join(userProfile, 'AppData', 'Local');
     }
     return Directory.systemTemp.parent.path;
+  }
+
+  static bool get _isFlutterTest =>
+      Platform.environment['FLUTTER_TEST'] == 'true' ||
+      Platform.environment['DART_TEST'] == 'true';
+
+  static String? _flutterTestSupportDirectory() {
+    if (!_isFlutterTest) {
+      return null;
+    }
+
+    return path.join(
+      Directory.systemTemp.path,
+      'SistemaSolaresFlutterTests',
+      'pid_$pid',
+    );
   }
 }

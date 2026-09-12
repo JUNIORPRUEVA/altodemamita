@@ -884,7 +884,10 @@ class SyncService {
 
   bool _isUnauthorizedSyncError(HttpException error) {
     final message = error.message.toLowerCase();
-    return message.contains('401') || message.contains('unauthorized');
+    return message.contains('401') ||
+        message.contains('unauthorized') ||
+        message.contains('correo o contrasena incorrectos') ||
+        message.contains('correo o contraseña incorrectos');
   }
 
   bool _isDeviceUnauthorizedSyncError(HttpException error) {
