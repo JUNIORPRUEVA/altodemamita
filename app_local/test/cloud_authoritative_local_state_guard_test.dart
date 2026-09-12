@@ -213,7 +213,7 @@ void main() {
           expect(request.headers['authorization'], 'Bearer jwt-test-token');
           expect(request.url.path, '/api/business/users');
           return http.Response(
-            '{"data":{"user":{"id":"remote-user-created","email":"acceptance.user.001@sistema.local","name":"ACCEPTANCE-USER-001","role":"TECH","active":true,"companyId":"company-1"}}}',
+            '{"data":{"user":{"id":"remote-user-created","email":"acceptance.user.001@sistema.local","name":"ACCEPTANCE-USER-001","role":"TECH","active":true,"companyId":"company-1","permissions":["clients.read","payments.create","payments.read","sales.read"]}}}',
             201,
             headers: {'content-type': 'application/json'},
           );
@@ -342,6 +342,132 @@ void main() {
       expect(updated.permissionFor(PermissionCatalog.lots).read, isTrue);
       expect(updated.permissionFor(PermissionCatalog.sales).update, isTrue);
       expect(updated.permissionFor(PermissionCatalog.payments).create, isFalse);
+    },
+  );
+
+  test(
+    'CLOUD_AUTHORITATIVE no reporta exito si el backend ignora los permisos',
+    () async {
+      if (cloudCutoverMode != CloudCutoverMode.cloudAuthoritative) {
+        return;
+      }
+
+      final configRepository = FakeSyncConfigRepository(
+        settings: buildFakeSettings(),
+      );
+      await configRepository.saveJwtToken('jwt-test-token');
+      final systemConfigService = SystemConfigService.test(
+        syncConfigRepository: configRepository,
+      );
+      var requestNumber = 0;
+      final backendClient = BackendApiClient(
+        syncConfigRepository: configRepository,
+        client: MockClient((request) async {
+          requestNumber += 1;
+          if (requestNumber == 1) {
+            return http.Response(
+              '{"data":{"user":{"id":"remote-user-skew","email":"qa.skew@sistema.local","name":"QA-SKEW","role":"TECH","active":true,"companyId":"company-1","permissions":["clients.read","payments.create","payments.read","sales.read"]}}}',
+              201,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          return http.Response(
+            '{"data":{"user":{"id":"remote-user-skew","email":"qa.skew@sistema.local","name":"QA-SKEW","role":"TECH","active":true,"companyId":"company-1"}}}',
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+      final authService = AuthService(
+        appDatabase: appDatabase,
+        syncConfigRepository: configRepository,
+        apiClient: backendClient,
+        systemConfigService: systemConfigService,
+      );
+
+      final created = await authService.createUser(
+        nombre: 'QA-SKEW',
+        email: 'qa.skew@sistema.local',
+        password: 'ValidPassword123',
+        role: UserRole.user,
+        permissions: const <PermissionModel>[
+          PermissionModel(module: PermissionCatalog.clients, read: true),
+          PermissionModel(module: PermissionCatalog.sales, read: true),
+          PermissionModel(
+            module: PermissionCatalog.payments,
+            read: true,
+            create: true,
+          ),
+        ],
+      );
+
+      await expectLater(
+        authService.updateUser(
+          user: created,
+          nombre: 'QA-SKEW',
+          email: 'qa.skew@sistema.local',
+          role: UserRole.user,
+          active: true,
+          permissions: const <PermissionModel>[
+            PermissionModel(module: PermissionCatalog.clients, read: true),
+            PermissionModel(module: PermissionCatalog.lots, read: true),
+          ],
+        ),
+        throwsA(
+          isA<AuthException>().having(
+            (error) => error.message,
+            'message',
+            'No se pudieron guardar todos los permisos. Intenta nuevamente.',
+          ),
+        ),
+      );
+    },
+  );
+
+  test(
+    'CLOUD_AUTHORITATIVE no bloquea el guardado de OWNER sin filas directas',
+    () async {
+      if (cloudCutoverMode != CloudCutoverMode.cloudAuthoritative) {
+        return;
+      }
+
+      final configRepository = FakeSyncConfigRepository(
+        settings: buildFakeSettings(),
+      );
+      await configRepository.saveJwtToken('jwt-test-token');
+      final systemConfigService = SystemConfigService.test(
+        syncConfigRepository: configRepository,
+      );
+      final backendClient = BackendApiClient(
+        syncConfigRepository: configRepository,
+        client: MockClient((request) async {
+          return http.Response(
+            '{"data":{"user":{"id":"remote-owner-skew","email":"owner.skew@sistema.local","name":"OWNER-SKEW","role":"OWNER","active":true,"companyId":"company-1"}}}',
+            201,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+      final authService = AuthService(
+        appDatabase: appDatabase,
+        syncConfigRepository: configRepository,
+        apiClient: backendClient,
+        systemConfigService: systemConfigService,
+      );
+
+      final owner = await authService.createUser(
+        nombre: 'OWNER-SKEW',
+        email: 'owner.skew@sistema.local',
+        password: 'ValidPassword123',
+        role: UserRole.admin,
+        permissions: const <PermissionModel>[],
+      );
+
+      expect(owner.role, UserRole.admin);
+      expect(
+        owner.allows(PermissionCatalog.sales, PermissionAction.create),
+        isTrue,
+      );
     },
   );
 

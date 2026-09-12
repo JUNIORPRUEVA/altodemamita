@@ -145,15 +145,13 @@ class StartupRecoveryService {
         );
       }
 
-      if (warnings.isNotEmpty || databaseResult.startedWithFreshDatabase) {
+      if (databaseResult.startedWithFreshDatabase) {
         final friendly = FriendlyErrorMessage(
           title: 'El sistema pudo abrirse con recuperacion asistida',
-          message: databaseResult.startedWithFreshDatabase
-              ? 'Protegimos el estado anterior y preparamos una base local segura para que pueda continuar.'
-              : 'El sistema esta utilizable, pero quedaron verificaciones pendientes por completar.',
-          details: databaseResult.startedWithFreshDatabase
-              ? 'Se creo un entorno local limpio para que pueda retomar el trabajo mientras revisa el estado previo si lo necesita.'
-              : 'Puede seguir trabajando, pero conviene revisar las advertencias y ejecutar una verificacion adicional cuando sea oportuno.',
+          message:
+              'Protegimos el estado anterior y preparamos una base local segura para que pueda continuar.',
+          details:
+              'Se creo un entorno local limpio para que pueda retomar el trabajo mientras revisa el estado previo si lo necesita.',
           suggestions: [
             'Puede continuar trabajando si todo luce correcto.',
             'Use Reparacion automatica si desea volver a intentar la verificacion completa.',
@@ -187,8 +185,26 @@ class StartupRecoveryService {
         );
       }
 
+      if (warnings.isNotEmpty) {
+        await _incidentLogger.logIncident(
+          category: 'startup_warning',
+          severity: AppIncidentSeverity.warning,
+          friendlyMessage: const FriendlyErrorMessage(
+            title: 'Sistema listo con revision pendiente',
+            message:
+                'La aplicacion pudo abrir normalmente, pero queda una verificacion operativa pendiente.',
+            details:
+                'La advertencia se registro para soporte sin interrumpir el inicio del sistema.',
+            suggestions: [
+              'Revise la configuracion de respaldo cuando tenga oportunidad.',
+            ],
+          ),
+          extra: {'repairs': repairs, 'warnings': warnings},
+        );
+      }
+
       return StartupRecoveryReport(
-        status: repairs.isEmpty
+        status: repairs.isEmpty && warnings.isEmpty
             ? StartupRecoveryStatus.healthy
             : StartupRecoveryStatus.recovered,
         title: 'Sistema listo',
@@ -350,7 +366,10 @@ class StartupRecoveryService {
             );
           }
 
-          if (_shouldRecreateDatabase(error, aggressiveRepair: aggressiveRepair)) {
+          if (_shouldRecreateDatabase(
+            error,
+            aggressiveRepair: aggressiveRepair,
+          )) {
             await _recreateDatabase(databasePath);
             repairs.add(
               'Se forzo la recreacion de la base local despues de detectar que no aceptaba escritura.',
@@ -383,10 +402,7 @@ class StartupRecoveryService {
     return fullRows.isNotEmpty ? '${fullRows.first.values.first}' : 'unknown';
   }
 
-  bool _shouldRecreateDatabase(
-    Object error, {
-    required bool aggressiveRepair,
-  }) {
+  bool _shouldRecreateDatabase(Object error, {required bool aggressiveRepair}) {
     final message = error.toString().toLowerCase();
     return message.contains('readonly database') ||
         message.contains('attempt to write a readonly database') ||

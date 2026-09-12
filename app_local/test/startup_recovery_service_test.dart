@@ -105,51 +105,117 @@ void main() {
     expect(quarantinedFiles, isNotEmpty);
   });
 
-  test('no reemplaza una base no vacia cuando el archivo esta corrupto', () async {
-    final dbPath = path.join(tempDirectory.path, 'db', 'corrupt.db');
-    final configPath = path.join(tempDirectory.path, 'config', 'backup.json');
-    final historyPath = path.join(tempDirectory.path, 'config', 'history.json');
-    final backupPath = path.join(tempDirectory.path, 'backups');
-    final supportPath = path.join(tempDirectory.path, 'support');
+  test(
+    'no muestra recuperacion asistida cuando solo falla la ruta de respaldo',
+    () async {
+      final dbPath = path.join(tempDirectory.path, 'db', 'test.db');
+      final configPath = path.join(tempDirectory.path, 'config', 'backup.json');
+      final historyPath = path.join(
+        tempDirectory.path,
+        'config',
+        'history.json',
+      );
+      final backupPath = path.join(tempDirectory.path, 'unidad-no-disponible');
+      final supportPath = path.join(tempDirectory.path, 'support');
 
-    await File(dbPath).parent.create(recursive: true);
-    await File(dbPath).writeAsBytes(const [1, 2, 3, 4, 5], flush: true);
+      final appDatabase = AppDatabase.test(dbPath);
+      addTearDown(() async {
+        await appDatabase.close();
+      });
+      await appDatabase.initialize();
 
-    final appDatabase = AppDatabase.test(dbPath);
-    addTearDown(() async {
-      await appDatabase.close();
-    });
+      final configRepository = BackupConfigRepository(
+        configPath: configPath,
+        backupHistoryPath: historyPath,
+      );
+      await configRepository.saveConfig(BackupConfig.defaults(backupPath));
+      await configRepository.ensureReadableHistory();
 
-    final configRepository = BackupConfigRepository(
-      configPath: configPath,
-      backupHistoryPath: historyPath,
-    );
-    await configRepository.saveConfig(BackupConfig.defaults(backupPath));
-    await configRepository.ensureReadableHistory();
-
-    final appPaths = AppPaths(supportDirectory: supportPath);
-    final service = StartupRecoveryService(
-      appDatabase: appDatabase,
-      backupConfigRepository: configRepository,
-      backupService: BackupService(
+      final appPaths = AppPaths(supportDirectory: supportPath);
+      final diskDetectionService = _UnavailableBackupPathDiskService();
+      final backupService = BackupService(
         appDatabase: appDatabase,
         configRepository: configRepository,
+        diskDetectionService: diskDetectionService,
+      );
+      final service = StartupRecoveryService(
+        appDatabase: appDatabase,
+        backupConfigRepository: configRepository,
+        backupService: backupService,
+        diskDetectionService: diskDetectionService,
+        incidentLogger: IncidentLogger(appPaths: appPaths),
+        appPaths: appPaths,
+      );
+
+      final report = await service.prepareApplication();
+
+      expect(report.status, StartupRecoveryStatus.recovered);
+      expect(report.canContinue, isTrue);
+      expect(report.showRecoveryScreen, isFalse);
+      expect(report.suggestions, isEmpty);
+    },
+  );
+
+  test(
+    'no reemplaza una base no vacia cuando el archivo esta corrupto',
+    () async {
+      final dbPath = path.join(tempDirectory.path, 'db', 'corrupt.db');
+      final configPath = path.join(tempDirectory.path, 'config', 'backup.json');
+      final historyPath = path.join(
+        tempDirectory.path,
+        'config',
+        'history.json',
+      );
+      final backupPath = path.join(tempDirectory.path, 'backups');
+      final supportPath = path.join(tempDirectory.path, 'support');
+
+      await File(dbPath).parent.create(recursive: true);
+      await File(dbPath).writeAsBytes(const [1, 2, 3, 4, 5], flush: true);
+
+      final appDatabase = AppDatabase.test(dbPath);
+      addTearDown(() async {
+        await appDatabase.close();
+      });
+
+      final configRepository = BackupConfigRepository(
+        configPath: configPath,
+        backupHistoryPath: historyPath,
+      );
+      await configRepository.saveConfig(BackupConfig.defaults(backupPath));
+      await configRepository.ensureReadableHistory();
+
+      final appPaths = AppPaths(supportDirectory: supportPath);
+      final service = StartupRecoveryService(
+        appDatabase: appDatabase,
+        backupConfigRepository: configRepository,
+        backupService: BackupService(
+          appDatabase: appDatabase,
+          configRepository: configRepository,
+          diskDetectionService: DiskDetectionService(),
+        ),
         diskDetectionService: DiskDetectionService(),
-      ),
-      diskDetectionService: DiskDetectionService(),
-      incidentLogger: IncidentLogger(appPaths: appPaths),
-      appPaths: appPaths,
-    );
+        incidentLogger: IncidentLogger(appPaths: appPaths),
+        appPaths: appPaths,
+      );
 
-    final report = await service.prepareApplication();
-    final snapshots = await Directory(
-      path.join(supportPath, 'recovery', 'snapshots'),
-    ).list().toList();
+      final report = await service.prepareApplication();
+      final snapshots = await Directory(
+        path.join(supportPath, 'recovery', 'snapshots'),
+      ).list().toList();
 
-    expect(report.status, StartupRecoveryStatus.failed);
-    expect(report.canContinue, isFalse);
-    expect(await File(dbPath).exists(), isTrue);
-    expect(await File(dbPath).length(), 5);
-    expect(snapshots, isNotEmpty);
-  });
+      expect(report.status, StartupRecoveryStatus.failed);
+      expect(report.canContinue, isFalse);
+      expect(await File(dbPath).exists(), isTrue);
+      expect(await File(dbPath).length(), 5);
+      expect(snapshots, isNotEmpty);
+    },
+  );
+}
+
+class _UnavailableBackupPathDiskService extends DiskDetectionService {
+  @override
+  Future<bool> isPathAvailable(String path) async => false;
+
+  @override
+  Future<bool> createBackupDirectory(String path) async => false;
 }

@@ -2230,7 +2230,13 @@ class AuthService {
             (key, value) => MapEntry(key.toString(), value),
           )
         : unwrapped;
-    return _mapBackendUser(userPayload, fallbackPassword: password);
+    final created = _mapBackendUser(userPayload, fallbackPassword: password);
+    _assertPermissionsPersisted(
+      role: role,
+      requested: permissions,
+      persisted: created,
+    );
+    return created;
   }
 
   Future<UserModel> _updateUserInBackend({
@@ -2271,13 +2277,19 @@ class AuthService {
             (key, value) => MapEntry(key.toString(), value),
           )
         : unwrapped;
-    return _mapBackendUser(
+    final updated = _mapBackendUser(
       userPayload,
       fallbackPassword: (newPassword != null && newPassword.isNotEmpty)
           ? newPassword
           : user.passwordHash,
       passwordIsPlaintext: newPassword != null && newPassword.isNotEmpty,
     );
+    _assertPermissionsPersisted(
+      role: role,
+      requested: permissions,
+      persisted: updated,
+    );
+    return updated;
   }
 
   Future<void> _deleteUserInBackend(int userId) async {
@@ -2468,6 +2480,30 @@ class AuthService {
         return PermissionCatalog.search;
       default:
         return null;
+    }
+  }
+
+  /// Impide un falso exito: un backend que responde 2xx pero ignora
+  /// `permissions` no debe reportar que el usuario se guardo correctamente.
+  void _assertPermissionsPersisted({
+    required UserRole role,
+    required List<PermissionModel> requested,
+    required UserModel persisted,
+  }) {
+    if (role == UserRole.admin) {
+      return;
+    }
+
+    final requestedCodes = _permissionCodesForBackend(requested).toSet();
+    final persistedCodes = _permissionCodesForBackend(
+      persisted.permissions,
+    ).toSet();
+
+    if (requestedCodes.length != persistedCodes.length ||
+        !requestedCodes.containsAll(persistedCodes)) {
+      throw const AuthException(
+        'No se pudieron guardar todos los permisos. Intenta nuevamente.',
+      );
     }
   }
 
