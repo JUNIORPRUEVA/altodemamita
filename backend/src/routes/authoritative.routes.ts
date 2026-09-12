@@ -53,6 +53,49 @@ authoritativeRouter.post('/payments', requirePermission('payments', 'create'), a
   }
 });
 
+authoritativeRouter.get(
+  '/sales/:saleId/settlement-quote',
+  requirePermission('payments', 'read'),
+  async (req, res) => {
+    try {
+      const company = await resolveCompanyForRequest(req);
+      const quote = await payments.getSettlementQuote({
+        companyId: company.id,
+        saleId: paramValue(req.params.saleId),
+        asOfDate: stringValue(req.query.asOfDate),
+      });
+      res.status(200).json({ data: quote });
+    } catch (error) {
+      const response = authoritativeErrorResponse(error);
+      res.status(response.status).json(response.body);
+    }
+  },
+);
+
+authoritativeRouter.post(
+  '/sales/:saleId/settle',
+  requirePermission('payments', 'create'),
+  async (req, res) => {
+    try {
+      const company = await resolveCompanyForRequest(req);
+      const result = await payments.settleSale({
+        ...(req.body as Record<string, never>),
+        companyId: company.id,
+        receivedByUserId: req.user?.id ?? '',
+        saleId: paramValue(req.params.saleId),
+        idempotencyKey: idempotencyKey(req) ?? '',
+      });
+      res.status(result.replayed ? 200 : 201).json({
+        data: result.response,
+        idempotentReplay: result.replayed,
+      });
+    } catch (error) {
+      const response = authoritativeErrorResponse(error);
+      res.status(response.status).json(response.body);
+    }
+  },
+);
+
 authoritativeRouter.post(
   '/payments/:paymentId/annul',
   requirePaymentCancelAuthorization(),

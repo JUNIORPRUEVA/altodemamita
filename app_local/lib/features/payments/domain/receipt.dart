@@ -112,6 +112,8 @@ class Receipt {
             'apartado' => 'Pago de apartado',
             'abono_inicial' => 'Abono a inicial',
             'abono_capital' => 'Abono a capital',
+            'liquidacion_total' => 'Liquidacion total de deuda',
+            'contado' => 'Venta al contado',
             _ => 'Cuota #${item.installmentNumber ?? '-'}',
           };
           return ReceiptLineItem(label: label, amount: item.amountPaid);

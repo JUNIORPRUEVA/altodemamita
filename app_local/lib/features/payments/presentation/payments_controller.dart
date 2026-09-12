@@ -6,6 +6,7 @@ import '../domain/payment_draft.dart';
 import '../domain/payment_sale_context.dart';
 import '../domain/payment_sale_option.dart';
 import '../domain/payment_work_queue.dart';
+import '../domain/settlement_quote.dart';
 
 class PaymentsController extends ChangeNotifier {
   PaymentsController({required PaymentsRepository paymentsRepository})
@@ -278,6 +279,55 @@ class PaymentsController extends ChangeNotifier {
     } catch (error) {
       return FriendlyErrorMessages.forOperation(
         'registrar el pago',
+        error,
+        module: 'pagos',
+      );
+    } finally {
+      isSaving = false;
+      notifyListeners();
+    }
+  }
+
+  Future<({SettlementQuote? quote, String? error})> fetchSettlementQuote(
+    int saleId,
+  ) async {
+    try {
+      final quote = await _paymentsRepository.fetchSettlementQuote(saleId);
+      return (quote: quote, error: null);
+    } catch (error) {
+      return (
+        quote: null,
+        error: FriendlyErrorMessages.forOperation(
+          'calcular la liquidacion total',
+          error,
+          module: 'pagos',
+        ),
+      );
+    }
+  }
+
+  Future<String?> settleSale({
+    required int saleId,
+    required SettlementQuote quote,
+    required String paymentMethod,
+  }) async {
+    isSaving = true;
+    notifyListeners();
+
+    try {
+      await _paymentsRepository.settleSale(
+        saleId: saleId,
+        quote: quote,
+        paymentMethod: paymentMethod,
+      );
+      if (_isDisposed) {
+        return null;
+      }
+      await load(preferredSaleId: saleId);
+      return null;
+    } catch (error) {
+      return FriendlyErrorMessages.forOperation(
+        'saldar la deuda total',
         error,
         module: 'pagos',
       );

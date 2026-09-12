@@ -181,6 +181,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
   bool _useDirectInstallmentCount = true;
   int _durationYears = 5;
   String _selectedInitialPaymentMethod = _initialPaymentMethods.first;
+  bool _isCashSale = false;
 
   /// Cuando es `true`, el monto que el usuario tipea en "Inicial real pagado"
   /// se interpreta como APARTADO (reserva del solar) y NO se aplica al inicial
@@ -372,13 +373,17 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
     widget.defaults.installmentCount,
   );
 
-  double get _requiredInitialPayment =>
-      SaleCalculator.calculateDownPaymentAmount(
-        salePrice: _salePrice,
-        downPaymentPercentage: _downPaymentPercentage,
-      );
+  double get _requiredInitialPayment => _isCashSale
+      ? _salePrice
+      : SaleCalculator.calculateDownPaymentAmount(
+          salePrice: _salePrice,
+          downPaymentPercentage: _downPaymentPercentage,
+        );
 
   double get _appliedInitialPayment {
+    if (_isCashSale) {
+      return _salePrice;
+    }
     final parsed = _parseDouble(_initialPaidController.text, 0);
     if (parsed <= 0) {
       return 0;
@@ -393,6 +398,9 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
 
   /// Monto bruto que el usuario tecleó (sin importar si es apartado o inicial).
   double get _enteredDepositAmount {
+    if (_isCashSale) {
+      return _salePrice;
+    }
     final parsed = _parseDouble(_initialPaidController.text, 0);
     if (parsed <= 0) return 0;
     return parsed > _salePrice ? _salePrice : parsed;
@@ -406,13 +414,17 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
   double get _initialPaymentPaid =>
       _parseDouble(_initialPaidController.text, 0);
 
-  double get _pendingInitialPayment =>
-      SaleCalculator.calculatePendingInitialPayment(
-        requiredInitialPayment: _requiredInitialPayment,
-        initialPaymentPaid: _appliedInitialPayment,
-      );
+  double get _pendingInitialPayment => _isCashSale
+      ? 0
+      : SaleCalculator.calculatePendingInitialPayment(
+          requiredInitialPayment: _requiredInitialPayment,
+          initialPaymentPaid: _appliedInitialPayment,
+        );
 
   String get _saleLifecycleStatus {
+    if (_isCashSale) {
+      return 'pagada';
+    }
     if (_financedBalance <= 0.009) {
       return 'pagada';
     }
@@ -454,6 +466,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
     _selectedLotId = initialDraft?.lotId;
     _selectedSellerId = initialDraft?.sellerId;
     _saleDate = initialDraft?.saleDate ?? _saleDate;
+    _isCashSale = initialDraft?.saleType == 'CASH';
 
     _saleDateController = TextEditingController(text: _formatDate(_saleDate));
     _downPaymentController = TextEditingController(
@@ -684,14 +697,18 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
               children: [
                 _buildSelectorGroup(),
                 const SizedBox(height: 12),
+                _buildSaleTypeSelector(),
+                const SizedBox(height: 12),
                 Divider(
                   height: 1,
                   color: Theme.of(context).colorScheme.outlineVariant,
                 ),
                 const SizedBox(height: 12),
-                _buildSaleTermsBand(),
+                if (!_isCashSale) _buildSaleTermsBand(),
                 const SizedBox(height: 10),
-                _buildInitialPaymentBand(),
+                _isCashSale
+                    ? _buildCashPaymentBand()
+                    : _buildInitialPaymentBand(),
                 const SizedBox(height: 16),
                 Divider(
                   height: 1,
@@ -1242,6 +1259,162 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
     );
   }
 
+  Widget _buildSaleTypeSelector() {
+    final theme = Theme.of(context);
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 360, minHeight: 46),
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: theme.colorScheme.outlineVariant),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: _buildSaleTypeOption(
+                label: 'Financiada',
+                selected: !_isCashSale,
+                icon: Icons.calendar_month_outlined,
+                onTap: () => setState(() => _isCashSale = false),
+              ),
+            ),
+            const SizedBox(width: 4),
+            Expanded(
+              child: _buildSaleTypeOption(
+                label: 'Al contado',
+                selected: _isCashSale,
+                icon: Icons.payments_outlined,
+                onTap: () {
+                  setState(() {
+                    _isCashSale = true;
+                    _initialIsApartado = false;
+                    _initialPaymentDeadline = null;
+                    _initialDeadlineController.clear();
+                    _initialPaidController.text = _formatCurrencyInput(
+                      _salePrice,
+                    );
+                  });
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSaleTypeOption({
+    required String label,
+    required bool selected,
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    final theme = Theme.of(context);
+    final foregroundColor = selected
+        ? theme.colorScheme.onSecondaryContainer
+        : theme.colorScheme.onSurfaceVariant;
+    return Material(
+      color: selected
+          ? theme.colorScheme.secondaryContainer.withValues(alpha: 0.95)
+          : Colors.transparent,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 16, color: foregroundColor),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: foregroundColor,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCashPaymentBand() {
+    return Wrap(
+      spacing: 10,
+      runSpacing: 10,
+      children: [
+        SizedBox(
+          width: 190,
+          child: TextFormField(
+            key: ValueKey('cash-price-${_salePrice.toStringAsFixed(2)}'),
+            initialValue: _formatCurrencyInput(_salePrice),
+            readOnly: true,
+            decoration: const InputDecoration(
+              labelText: 'Precio del solar',
+              prefixText: 'RD\$ ',
+            ),
+          ),
+        ),
+        SizedBox(
+          width: 190,
+          child: TextFormField(
+            key: ValueKey('cash-paid-${_salePrice.toStringAsFixed(2)}'),
+            initialValue: _formatCurrencyInput(_salePrice),
+            readOnly: true,
+            decoration: const InputDecoration(
+              labelText: 'Monto recibido',
+              prefixText: 'RD\$ ',
+            ),
+            validator: (_) {
+              if (_salePrice <= 0.009) {
+                return 'Solar con precio valido';
+              }
+              return null;
+            },
+          ),
+        ),
+        SizedBox(
+          width: 190,
+          child: DropdownButtonFormField<String>(
+            isExpanded: true,
+            initialValue: _selectedInitialPaymentMethod,
+            decoration: const InputDecoration(labelText: 'Metodo de pago'),
+            items: _initialPaymentMethods
+                .map(
+                  (method) => DropdownMenuItem<String>(
+                    value: method,
+                    child: Text(
+                      _formatPaymentMethod(method),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                )
+                .toList(),
+            onChanged: (value) {
+              if (value == null) {
+                return;
+              }
+              setState(() {
+                _selectedInitialPaymentMethod = value;
+              });
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildInitialPaymentTypeSelector() {
     final theme = Theme.of(context);
 
@@ -1445,6 +1618,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
 
   Widget _buildSummaryActionButton() {
     final canPreview =
+        !_isCashSale &&
         _selectedLot != null &&
         _findClientById(_selectedClientId) != null &&
         _installmentCount > 0;
@@ -2093,7 +2267,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
       return;
     }
 
-    if (_initialPaymentPaid - salePrice > 0.009) {
+    if (!_isCashSale && _initialPaymentPaid - salePrice > 0.009) {
       print(
         '[SALE-FORM][SAVE] stop: initialPaid exceeds salePrice initial=$_initialPaymentPaid salePrice=$salePrice',
       );
@@ -2101,6 +2275,18 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
         const SnackBar(
           content: Text(
             'El inicial pagado no puede exceder el precio total de la venta.',
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    if (_isCashSale && (_enteredDepositAmount - salePrice).abs() > 0.009) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Para una venta al contado, el monto recibido debe coincidir con el precio total.',
           ),
           backgroundColor: Colors.red,
         ),
@@ -2141,10 +2327,12 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
       initialPaymentPaid: _enteredDepositAmount,
       initialPaymentMethod: _selectedInitialPaymentMethod,
       minimumReserveAmount: null,
-      initialPaymentDeadline: _initialPaymentDeadline,
-      initialIsApartado: _initialIsApartado && _enteredDepositAmount > 0,
+      initialPaymentDeadline: _isCashSale ? null : _initialPaymentDeadline,
+      initialIsApartado:
+          !_isCashSale && _initialIsApartado && _enteredDepositAmount > 0,
+      saleType: _isCashSale ? 'CASH' : 'FINANCED',
       monthlyInterest: _monthlyInterest,
-      installmentCount: _installmentCount,
+      installmentCount: _isCashSale ? 0 : _installmentCount,
       status: _saleLifecycleStatus,
       additionalLotIds: _additionalLotIds.toList(),
     );
@@ -2257,6 +2445,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
         'deadline=${draft.initialPaymentDeadline?.toIso8601String() ?? ''};',
       )
       ..write('apartado=${draft.initialIsApartado};')
+      ..write('saleType=${draft.saleType};')
       ..write('interest=${draft.monthlyInterest.toStringAsFixed(4)};')
       ..write('count=${draft.installmentCount};')
       ..write(

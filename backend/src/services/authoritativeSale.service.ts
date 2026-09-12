@@ -51,6 +51,7 @@ export type CreateAuthoritativeSaleInput = {
   installmentCount?: number;
   initialPaymentMethod?: string | null;
   reference?: string | null;
+  saleType?: string | null;
 };
 
 export type CancelAuthoritativeSaleInput = {
@@ -205,6 +206,8 @@ async function createSaleInTransaction(
     toNumber(defaults?.initialPercentage);
   const monthlyInterest = input.monthlyInterest ?? toNumber(defaults?.monthlyInterestRate);
   const installmentCount = input.installmentCount ?? defaults?.installmentCount ?? 0;
+  const saleType = normalizeSaleType(input.saleType);
+  const isCashSale = saleType === 'CASH';
 
   if (downPaymentPercentage < 0 || downPaymentPercentage > 100) {
     throw new AuthoritativeError(
@@ -218,7 +221,7 @@ async function createSaleInTransaction(
       'El interes mensual no puede ser negativo.',
     );
   }
-  if (installmentCount <= 0) {
+  if (!isCashSale && installmentCount <= 0) {
     throw new AuthoritativeError(
       'INVALID_INSTALLMENT_COUNT',
       'La venta debe generar al menos una cuota.',
@@ -273,6 +276,13 @@ async function createSaleInTransaction(
       }),
   );
   const providedAmount = roundCurrency(input.initialPaymentPaid ?? 0);
+  if (isCashSale && Math.abs(providedAmount - salePrice) > 0.009) {
+    throw new AuthoritativeError(
+      'INVALID_CASH_PAYMENT_AMOUNT',
+      'El monto recibido debe coincidir con el precio total para una venta al contado.',
+      409,
+    );
+  }
   const initialPaid = input.initialIsApartado ? 0 : providedAmount;
   const reservationPaid = input.initialIsApartado ? providedAmount : 0;
   const minimumReserveAmount =
@@ -313,16 +323,18 @@ async function createSaleInTransaction(
     salePrice,
     downPaymentAmount: initialPaid,
   });
-  const initialPendingAmount = calculatePendingInitialPayment({
+  const initialPendingAmount = isCashSale ? 0 : calculatePendingInitialPayment({
     requiredInitialPayment: requiredInitial,
     initialPaymentPaid: initialPaid,
   });
-  const status = resolveSaleStatus({
-    initialRequiredAmount: requiredInitial,
-    initialPaidAmount: initialPaid,
-    minimumReserveAmount,
-    financedBalance,
-  });
+  const status = isCashSale
+    ? 'pagada'
+    : resolveSaleStatus({
+        initialRequiredAmount: requiredInitial,
+        initialPaidAmount: initialPaid,
+        minimumReserveAmount,
+        financedBalance,
+      });
 
   const sale = await tx.sale.create({
     data: {
@@ -350,14 +362,17 @@ async function createSaleInTransaction(
       activationDate: status === 'activa' || status === 'pagada' ? saleDate : null,
       financedBalance: decimal(financedBalance),
       monthlyInterestRate: decimal(monthlyInterest),
-      installmentCount,
-      balance: decimal(financedBalance),
-      raw: { authoritativeSource: 'phase_1d' },
+      installmentCount: isCashSale ? 0 : installmentCount,
+      balance: decimal(isCashSale ? 0 : financedBalance),
+      raw: {
+        authoritativeSource: 'phase_1d',
+        saleType: isCashSale ? 'CASH' : 'FINANCED',
+      },
       version: 1,
     },
   });
 
-  if (status === 'activa') {
+  if (!isCashSale && status === 'activa') {
     const installments = buildInstallmentSchedule({
       saleDate,
       financedBalance,
@@ -402,15 +417,19 @@ async function createSaleInTransaction(
         paidAt: saleDate,
         amount: decimal(initialPaymentAmount),
         method: normalizePaymentMethod(input.initialPaymentMethod),
-        paymentType:
-          input.initialIsApartado || status === 'apartado'
+        paymentType: isCashSale
+          ? 'contado'
+          : input.initialIsApartado || status === 'apartado'
             ? 'apartado'
             : 'abono_inicial',
         reference:
           input.reference ?? `SALE-INIT-${sale.id}-${now.getTime().toString()}`,
-        principalApplied: decimal(0),
+        principalApplied: decimal(isCashSale ? salePrice : 0),
         interestApplied: decimal(0),
-        raw: { authoritativeSource: 'phase_1d' },
+        raw: {
+          authoritativeSource: 'phase_1d',
+          saleType: isCashSale ? 'CASH' : 'FINANCED',
+        },
       },
       select: { id: true },
     });
@@ -429,13 +448,22 @@ async function createSaleInTransaction(
     saleId: sale.id,
     saleSyncId: sale.syncId,
     status,
-    balance: financedBalance,
+    balance: isCashSale ? 0 : financedBalance,
     initialRequiredAmount: requiredInitial,
     initialPaid,
     initialPendingAmount,
     reservationPaidAmount: reservationPaid,
     initialPaymentId,
+    saleType: isCashSale ? 'CASH' : 'FINANCED',
   };
+}
+
+function normalizeSaleType(value: unknown) {
+  const normalized = String(value ?? '').trim().toUpperCase();
+  if (normalized === 'CASH' || normalized === 'CONTADO') {
+    return 'CASH';
+  }
+  return 'FINANCED';
 }
 
 async function cancelSaleInTransaction(

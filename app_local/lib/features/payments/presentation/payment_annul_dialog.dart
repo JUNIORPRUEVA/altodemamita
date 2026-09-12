@@ -56,10 +56,12 @@ String paymentAnnulConceptLabel(String paymentType, int? installmentNumber) {
       return 'Abono a apartado';
     case 'abono_capital':
       return 'Abono a capital';
+    case 'liquidacion_total':
+      return 'Liquidacion total de deuda';
+    case 'contado':
+      return 'Venta al contado';
     case 'cuota':
-      return installmentNumber == null
-          ? 'Cuota'
-          : 'Cuota $installmentNumber';
+      return installmentNumber == null ? 'Cuota' : 'Cuota $installmentNumber';
     default:
       return paymentType.isEmpty ? 'Pago' : paymentType;
   }
@@ -133,9 +135,7 @@ class _PaymentAnnulDialogState extends State<PaymentAnnulDialog> {
   Future<void> _submit() async {
     final reason = _resolvedReason;
     if (reason == null) {
-      setState(
-        () => _error = 'Selecciona un motivo para anular el pago.',
-      );
+      setState(() => _error = 'Selecciona un motivo para anular el pago.');
       return;
     }
 
@@ -293,9 +293,8 @@ class _PaymentAnnulDialogState extends State<PaymentAnnulDialog> {
                             : Icons.visibility_off_outlined,
                         size: 18,
                       ),
-                      onPressed: () => setState(
-                        () => _obscurePassword = !_obscurePassword,
-                      ),
+                      onPressed: () =>
+                          setState(() => _obscurePassword = !_obscurePassword),
                     ),
                   ),
                 ),
@@ -344,10 +343,7 @@ class _PaymentAnnulDialogState extends State<PaymentAnnulDialog> {
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
             ),
           ),
         ],

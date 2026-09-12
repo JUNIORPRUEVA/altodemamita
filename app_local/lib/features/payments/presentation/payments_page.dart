@@ -19,6 +19,7 @@ import '../domain/payment_history_item.dart';
 import '../domain/payment_sale_context.dart';
 import '../domain/payment_sale_option.dart';
 import '../domain/payment_work_queue.dart';
+import '../domain/settlement_quote.dart';
 import 'payment_annul_dialog.dart';
 import 'payment_form_dialog.dart';
 import 'payment_history_fullscreen.dart';
@@ -541,61 +542,61 @@ class _PaymentsPageState extends State<PaymentsPage> {
             color: const Color(0xFFF5F7FA),
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final wide = constraints.maxWidth >= 900;
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final wide = constraints.maxWidth >= 900;
 
-            if (!wide) {
-              return ListView(
-                children: [
-                  _buildInstallmentsPanel(
-                    contextData,
-                    visibleInstallments,
-                    matchedSalesCount: matchedSales.length,
-                    totalInstallments: totalInstallments,
-                    hasPendingContexts: hasPendingContexts,
-                    fillAvailableHeight: false,
-                  ),
-                  const SizedBox(height: 12),
-                  _buildDetailsPanel(
-                    contextData,
-                    visibleHistory,
-                    isAdmin: isAdmin,
-                    selectedHistoryPaymentId: selectedHistoryPaymentId,
-                    scrollable: false,
-                    isContextLoading: contextLoading,
-                  ),
-                ],
-              );
-            }
+                  if (!wide) {
+                    return ListView(
+                      children: [
+                        _buildInstallmentsPanel(
+                          contextData,
+                          visibleInstallments,
+                          matchedSalesCount: matchedSales.length,
+                          totalInstallments: totalInstallments,
+                          hasPendingContexts: hasPendingContexts,
+                          fillAvailableHeight: false,
+                        ),
+                        const SizedBox(height: 12),
+                        _buildDetailsPanel(
+                          contextData,
+                          visibleHistory,
+                          isAdmin: isAdmin,
+                          selectedHistoryPaymentId: selectedHistoryPaymentId,
+                          scrollable: false,
+                          isContextLoading: contextLoading,
+                        ),
+                      ],
+                    );
+                  }
 
-            return Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(
-                  flex: 65,
-                  child: _buildInstallmentsPanel(
-                    contextData,
-                    visibleInstallments,
-                    matchedSalesCount: matchedSales.length,
-                    totalInstallments: totalInstallments,
-                    hasPendingContexts: hasPendingContexts,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  flex: 35,
-                  child: _buildDetailsPanel(
-                    contextData,
-                    visibleHistory,
-                    isAdmin: isAdmin,
-                    selectedHistoryPaymentId: selectedHistoryPaymentId,
-                    isContextLoading: contextLoading,
-                  ),
-                ),
-              ],
-            );
-          },
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(
+                        flex: 65,
+                        child: _buildInstallmentsPanel(
+                          contextData,
+                          visibleInstallments,
+                          matchedSalesCount: matchedSales.length,
+                          totalInstallments: totalInstallments,
+                          hasPendingContexts: hasPendingContexts,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        flex: 35,
+                        child: _buildDetailsPanel(
+                          contextData,
+                          visibleHistory,
+                          isAdmin: isAdmin,
+                          selectedHistoryPaymentId: selectedHistoryPaymentId,
+                          isContextLoading: contextLoading,
+                        ),
+                      ),
+                    ],
+                  );
+                },
               ),
             ),
           ),
@@ -1009,8 +1010,18 @@ class _PaymentsPageState extends State<PaymentsPage> {
     final authProvider = context.watch<AuthProvider>();
     final canCancelPayments =
         authProvider.currentUser?.canCancelPayments ?? authProvider.isAdmin;
+    final canCreatePayments = authProvider.canAccess(
+      PermissionCatalog.payments,
+      PermissionAction.create,
+    );
     final actionableInstallment = contextData.actionableInstallment;
     final isFinancingActive = sale.isFinancingActive;
+    final canSettleSale =
+        canCreatePayments &&
+        isFinancingActive &&
+        sale.pendingInitialPayment <= 0.009 &&
+        sale.pendingBalance > 0.009 &&
+        !_controller.isSaving;
     final paidCount = contextData.installments
         .where((item) => item.status == 'pagada' || item.status == 'ajustada')
         .length;
@@ -1095,17 +1106,39 @@ class _PaymentsPageState extends State<PaymentsPage> {
           const Divider(height: 28),
           _DetailSection(
             title: 'Estado actual',
-            trailing: _SummaryBadge(
-              label: !isFinancingActive
-                  ? 'Inicial en proceso'
-                  : actionableInstallment == null
-                  ? 'Ira a capital'
-                  : 'Cuota prioritaria',
-              color: !isFinancingActive
-                  ? const Color(0xFFE67E00)
-                  : actionableInstallment == null
-                  ? const Color(0xFF3B5BDB)
-                  : const Color(0xFFE67E00),
+            trailing: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              alignment: WrapAlignment.end,
+              children: [
+                if (isFinancingActive && sale.pendingBalance > 0.009)
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(0, 34),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                    ),
+                    onPressed: canSettleSale
+                        ? () => _settleTotalDebt(contextData)
+                        : null,
+                    icon: const Icon(Icons.done_all_outlined, size: 16),
+                    label: const Text(
+                      'Saldar deuda total',
+                      style: TextStyle(fontSize: 13),
+                    ),
+                  ),
+                _SummaryBadge(
+                  label: !isFinancingActive
+                      ? 'Inicial en proceso'
+                      : actionableInstallment == null
+                      ? 'Ira a capital'
+                      : 'Cuota prioritaria',
+                  color: !isFinancingActive
+                      ? const Color(0xFFE67E00)
+                      : actionableInstallment == null
+                      ? const Color(0xFF3B5BDB)
+                      : const Color(0xFFE67E00),
+                ),
+              ],
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1222,7 +1255,9 @@ class _PaymentsPageState extends State<PaymentsPage> {
                             canDelete:
                                 (canCancelPayments || isAdmin) &&
                                 payment.id ==
-                                    _latestAnnullablePaymentId(visibleHistory) &&
+                                    _latestAnnullablePaymentId(
+                                      visibleHistory,
+                                    ) &&
                                 !_controller.isSaving,
                             selected: selectedHistoryPaymentId == payment.id,
                             onTap: () {
@@ -1957,6 +1992,53 @@ class _PaymentsPageState extends State<PaymentsPage> {
     )?.showSnackBar(SnackBar(content: Text(error)));
   }
 
+  Future<void> _settleTotalDebt(PaymentSaleContext contextData) async {
+    final quoteResult = await _controller.fetchSettlementQuote(
+      contextData.sale.saleId,
+    );
+    if (!mounted) {
+      return;
+    }
+    final quote = quoteResult.quote;
+    if (quote == null) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          content: Text(
+            quoteResult.error ??
+                'No se pudo calcular el monto para saldar la deuda.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _SettlementQuoteDialog(
+        quote: quote,
+        clientName: contextData.sale.clientName,
+        lotDisplayCode: contextData.sale.lotDisplayCode,
+        moneyFormatter: _money,
+      ),
+    );
+    if (!mounted || confirmed != true) {
+      return;
+    }
+
+    final error = await _controller.settleSale(
+      saleId: contextData.sale.saleId,
+      quote: quote,
+      paymentMethod: _controller.defaultPaymentMethod,
+    );
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(content: Text(error ?? 'Deuda saldada correctamente.')),
+    );
+  }
+
   Future<bool> _confirmApplyPayment({
     required PaymentSaleOption sale,
     required PaymentDraft draft,
@@ -2230,12 +2312,11 @@ class _PaymentsPageState extends State<PaymentsPage> {
         amount: _money(payment.amountPaid),
         paymentDate: _formatDate(payment.paymentDate),
         requiresAdminAuthorization: !canCancelDirectly,
-        onAuthorize: (email, password) =>
-            _controller.requestAdminAuthorization(
-              paymentId: payment.id,
-              email: email,
-              password: password,
-            ),
+        onAuthorize: (email, password) => _controller.requestAdminAuthorization(
+          paymentId: payment.id,
+          email: email,
+          password: password,
+        ),
       ),
     );
     if (result == null || !mounted) {
@@ -2299,6 +2380,8 @@ class _PaymentsPageState extends State<PaymentsPage> {
       'apartado' => 'Pago de apartado',
       'abono_inicial' => 'Abono a inicial',
       'abono_capital' => 'Abono a capital',
+      'liquidacion_total' => 'Liquidacion total de deuda',
+      'contado' => 'Venta al contado',
       _ => 'Pago de cuota #${installmentNumber ?? '-'}',
     };
   }
@@ -2310,6 +2393,8 @@ class _PaymentsPageState extends State<PaymentsPage> {
         'apartado' => 'Pago de apartado',
         'abono_inicial' => 'Abono a inicial',
         'abono_capital' => 'Abono a capital',
+        'liquidacion_total' => 'Liquidacion total de deuda',
+        'contado' => 'Venta al contado',
         'cuota_vencida' => 'Pago de cuota vencida',
         _ => 'Pago de cuota',
       };
@@ -2822,6 +2907,7 @@ Color _installmentColor(String status) {
 Color _paymentTypeColor(String type) {
   return switch (type) {
     'abono_capital' => const Color(0xFF1565C0),
+    'liquidacion_total' || 'contado' => const Color(0xFF2E7D32),
     'apartado' || 'abono_inicial' => const Color(0xFFE67E00),
     _ => const Color(0xFF2E7D32),
   };
@@ -2830,7 +2916,139 @@ Color _paymentTypeColor(String type) {
 IconData _paymentTypeIcon(String type) {
   return switch (type) {
     'abono_capital' => Icons.trending_down_outlined,
+    'liquidacion_total' => Icons.done_all_outlined,
+    'contado' => Icons.payments_outlined,
     'apartado' || 'abono_inicial' => Icons.flag_outlined,
     _ => Icons.receipt_long_outlined,
   };
+}
+
+class _SettlementQuoteDialog extends StatelessWidget {
+  const _SettlementQuoteDialog({
+    required this.quote,
+    required this.clientName,
+    required this.lotDisplayCode,
+    required this.moneyFormatter,
+  });
+
+  final SettlementQuote quote;
+  final String clientName;
+  final String lotDisplayCode;
+  final String Function(double value) moneyFormatter;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return AlertDialog(
+      title: const Text('Saldar deuda total'),
+      content: SizedBox(
+        width: 440,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              clientName,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            if (lotDisplayCode.trim().isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                'Solar $lotDisplayCode',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+            const SizedBox(height: 18),
+            _SettlementQuoteRow(
+              label: 'Capital pendiente',
+              value: moneyFormatter(quote.principalOutstanding),
+            ),
+            _SettlementQuoteRow(
+              label: 'Intereses exigibles',
+              value: moneyFormatter(quote.dueInterest),
+            ),
+            _SettlementQuoteRow(
+              label: 'Interes futuro condonado',
+              value: moneyFormatter(quote.futureInterestWaived),
+            ),
+            _SettlementQuoteRow(
+              label: 'Mora',
+              value: moneyFormatter(quote.lateFees),
+            ),
+            const Divider(height: 24),
+            _SettlementQuoteRow(
+              label: 'Total a pagar hoy',
+              value: moneyFormatter(quote.settlementAmount),
+              emphasized: true,
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              'Al confirmar, la venta quedara completamente saldada.',
+              style: TextStyle(fontSize: 13, color: Color(0xFF556079)),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          onPressed: quote.settlementAmount <= 0.009
+              ? null
+              : () => Navigator.of(context).pop(true),
+          child: const Text('Confirmar pago total'),
+        ),
+      ],
+    );
+  }
+}
+
+class _SettlementQuoteRow extends StatelessWidget {
+  const _SettlementQuoteRow({
+    required this.label,
+    required this.value,
+    this.emphasized = false,
+  });
+
+  final String label;
+  final String value;
+  final bool emphasized;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: emphasized
+                    ? theme.colorScheme.onSurface
+                    : theme.colorScheme.onSurfaceVariant,
+                fontWeight: emphasized ? FontWeight.w800 : FontWeight.w600,
+              ),
+            ),
+          ),
+          Text(
+            value,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: emphasized
+                  ? theme.colorScheme.primary
+                  : theme.colorScheme.onSurface,
+              fontWeight: emphasized ? FontWeight.w900 : FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

@@ -32,141 +32,145 @@ class SearchResultDialog extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-              // Encabezado con nombre/código
-              Row(
-                children: [
-                  Expanded(
+                // Encabezado con nombre/código
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            result.displayName,
+                            style: Theme.of(context).textTheme.headlineSmall,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            result.displaySubtitle,
+                            style: Theme.of(context).textTheme.labelMedium,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Revisa coincidencias y navega directamente al módulo relacionado.',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 24),
+
+                // Información del cliente
+                if (result.client != null) ...[
+                  _buildSectionTitle(context, 'Información del cliente'),
+                  const SizedBox(height: 12),
+                  _buildClientInfo(context, result.client!),
+                  const SizedBox(height: 24),
+                ],
+
+                // Información del solar
+                if (result.lot != null) ...[
+                  _buildSectionTitle(context, 'Información del solar'),
+                  const SizedBox(height: 12),
+                  _buildLotInfo(context, result.lot!),
+                  const SizedBox(height: 24),
+                ],
+
+                // Ventas relacionadas
+                if (result.relatedSales.isNotEmpty) ...[
+                  _buildSectionTitle(
+                    context,
+                    'Ventas (${result.relatedSales.length})',
+                  ),
+                  const SizedBox(height: 12),
+                  ListView.separated(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: result.relatedSales.length,
+                    separatorBuilder: (_, _) => const Divider(height: 16),
+                    itemBuilder: (context, index) {
+                      final sale = result.relatedSales[index];
+                      return _buildSaleInfo(context, sale);
+                    },
+                  ),
+                  const SizedBox(height: 24),
+                ],
+
+                // Cuotas pendientes
+                if (result.relatedInstallments.isNotEmpty) ...[
+                  _buildSectionTitle(
+                    context,
+                    'Cuotas pendientes (${result.pendingInstallmentsCount})',
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primaryContainer,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          result.displayName,
-                          style: Theme.of(context).textTheme.headlineSmall,
+                          'Monto total pendiente: RD\$${result.totalPendingAmount.toStringAsFixed(2)}',
+                          style: Theme.of(context).textTheme.titleMedium,
                         ),
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 8),
                         Text(
-                          result.displaySubtitle,
+                          '${result.pendingInstallmentsCount} de ${result.relatedInstallments.length} cuotas pendientes',
                           style: Theme.of(context).textTheme.labelMedium,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
                         ),
                       ],
                     ),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed: () => Navigator.pop(context),
+                  const SizedBox(height: 12),
+                  ListView.separated(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: result.relatedInstallments.length,
+                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final installment = result.relatedInstallments[index];
+                      return _buildInstallmentInfo(context, installment);
+                    },
+                  ),
+                ] else if (result.relatedInstallments.isEmpty &&
+                    result.relatedSales.isNotEmpty)
+                  Text(
+                    'No hay cuotas registradas',
+                    style: Theme.of(context).textTheme.labelMedium,
+                  ),
+
+                // Historial de pagos
+                if (result.relatedPayments.isNotEmpty) ...[
+                  const SizedBox(height: 24),
+                  _buildSectionTitle(
+                    context,
+                    'Historial de pagos (${result.relatedPayments.length})',
+                  ),
+                  const SizedBox(height: 12),
+                  ListView.separated(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: result.relatedPayments.length,
+                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      return _buildPaymentInfo(
+                        context,
+                        result.relatedPayments[index],
+                      );
+                    },
                   ),
                 ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Revisa coincidencias y navega directamente al módulo relacionado.',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 24),
 
-              // Información del cliente
-              if (result.client != null) ...[
-                _buildSectionTitle(context, 'Información del cliente'),
-                const SizedBox(height: 12),
-                _buildClientInfo(context, result.client!),
                 const SizedBox(height: 24),
-              ],
-
-              // Información del solar
-              if (result.lot != null) ...[
-                _buildSectionTitle(context, 'Información del solar'),
-                const SizedBox(height: 12),
-                _buildLotInfo(context, result.lot!),
-                const SizedBox(height: 24),
-              ],
-
-              // Ventas relacionadas
-              if (result.relatedSales.isNotEmpty) ...[
-                _buildSectionTitle(context, 'Ventas (${result.relatedSales.length})'),
-                const SizedBox(height: 12),
-                ListView.separated(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: result.relatedSales.length,
-                  separatorBuilder: (_, _) => const Divider(height: 16),
-                  itemBuilder: (context, index) {
-                    final sale = result.relatedSales[index];
-                    return _buildSaleInfo(context, sale);
-                  },
-                ),
-                const SizedBox(height: 24),
-              ],
-
-              // Cuotas pendientes
-              if (result.relatedInstallments.isNotEmpty) ...[
-                _buildSectionTitle(
-                  context,
-                  'Cuotas pendientes (${result.pendingInstallmentsCount})',
-                ),
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primaryContainer,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Monto total pendiente: RD\$${result.totalPendingAmount.toStringAsFixed(2)}',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '${result.pendingInstallmentsCount} de ${result.relatedInstallments.length} cuotas pendientes',
-                        style: Theme.of(context).textTheme.labelMedium,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                ListView.separated(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: result.relatedInstallments.length,
-                  separatorBuilder: (_, _) => const Divider(height: 1),
-                  itemBuilder: (context, index) {
-                    final installment = result.relatedInstallments[index];
-                    return _buildInstallmentInfo(context, installment);
-                  },
-                ),
-              ] else if (result.relatedInstallments.isEmpty && result.relatedSales.isNotEmpty)
-                Text(
-                  'No hay cuotas registradas',
-                  style: Theme.of(context).textTheme.labelMedium,
-                ),
-
-              // Historial de pagos
-              if (result.relatedPayments.isNotEmpty) ...[
-                const SizedBox(height: 24),
-                _buildSectionTitle(
-                  context,
-                  'Historial de pagos (${result.relatedPayments.length})',
-                ),
-                const SizedBox(height: 12),
-                ListView.separated(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: result.relatedPayments.length,
-                  separatorBuilder: (_, _) => const Divider(height: 1),
-                  itemBuilder: (context, index) {
-                    return _buildPaymentInfo(
-                      context,
-                      result.relatedPayments[index],
-                    );
-                  },
-                ),
-              ],
-
-              const SizedBox(height: 24),
                 Align(
                   alignment: Alignment.centerRight,
                   child: FilledButton(
@@ -185,9 +189,9 @@ class SearchResultDialog extends StatelessWidget {
   Widget _buildSectionTitle(BuildContext context, String title) {
     return Text(
       title,
-      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-          ),
+      style: Theme.of(
+        context,
+      ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
     );
   }
 
@@ -262,7 +266,11 @@ class SearchResultDialog extends StatelessWidget {
               onNavigate: onOpenLots,
               tooltip: 'Ir a Solares',
             ),
-            _buildDetailRow(context, 'Área', '${lot.area.toStringAsFixed(2)} m²'),
+            _buildDetailRow(
+              context,
+              'Área',
+              '${lot.area.toStringAsFixed(2)} m²',
+            ),
             _buildDetailRow(
               context,
               'Precio por metro',
@@ -293,9 +301,9 @@ class SearchResultDialog extends StatelessWidget {
           children: [
             Text(
               'Venta ID: ${sale['id']}',
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600),
             ),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -438,7 +446,10 @@ class SearchResultDialog extends StatelessWidget {
 
   Widget _buildInstallmentInfo(BuildContext context, installment) {
     final isOverdue = DateTime.now().isAfter(installment.dueDate);
-    final color = _getInstallmentStatusColor(installment.calculatedStatus, isOverdue);
+    final color = _getInstallmentStatusColor(
+      installment.calculatedStatus,
+      isOverdue,
+    );
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
@@ -451,8 +462,8 @@ class SearchResultDialog extends StatelessWidget {
                 Text(
                   'Cuota #${installment.installmentNumber}',
                   style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Text(
@@ -490,6 +501,8 @@ class SearchResultDialog extends StatelessWidget {
       'apartado' => 'Pago de apartado',
       'abono_inicial' => 'Abono a inicial',
       'abono_capital' => 'Abono a capital',
+      'liquidacion_total' => 'Liquidacion total de deuda',
+      'contado' => 'Venta al contado',
       _ => cuota != null ? 'Cuota #$cuota' : 'Pago',
     };
 
@@ -503,10 +516,9 @@ class SearchResultDialog extends StatelessWidget {
               children: [
                 Text(
                   label,
-                  style: Theme.of(context)
-                      .textTheme
-                      .labelMedium
-                      ?.copyWith(fontWeight: FontWeight.w600),
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(
@@ -515,20 +527,19 @@ class SearchResultDialog extends StatelessWidget {
                 ),
                 Text(
                   'Ref: $ref',
-                  style: Theme.of(context)
-                      .textTheme
-                      .labelSmall
-                      ?.copyWith(color: Colors.grey),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.labelSmall?.copyWith(color: Colors.grey),
                 ),
               ],
             ),
           ),
           Text(
             'RD\$${monto.toStringAsFixed(2)}',
-            style: Theme.of(context)
-                .textTheme
-                .labelMedium
-                ?.copyWith(fontWeight: FontWeight.w700, color: Colors.green),
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: Colors.green,
+            ),
           ),
         ],
       ),
@@ -568,7 +579,10 @@ class SearchResultDialog extends StatelessWidget {
                 visualDensity: VisualDensity.compact,
                 splashRadius: 16,
                 padding: EdgeInsets.zero,
-                constraints: const BoxConstraints.tightFor(width: 20, height: 20),
+                constraints: const BoxConstraints.tightFor(
+                  width: 20,
+                  height: 20,
+                ),
               ),
             ),
         ],
@@ -638,14 +652,18 @@ class SearchResultDialog extends StatelessWidget {
 
   String _formatDate(dynamic date) {
     if (date == null) return 'N/A';
-    final dateTime = date is DateTime ? date : DateTime.tryParse(date.toString());
+    final dateTime = date is DateTime
+        ? date
+        : DateTime.tryParse(date.toString());
     if (dateTime == null) return 'N/A';
     return '${dateTime.day.toString().padLeft(2, '0')}/${dateTime.month.toString().padLeft(2, '0')}/${dateTime.year}';
   }
 
   String _formatDateTime(dynamic date) {
     if (date == null) return 'N/A';
-    final dateTime = date is DateTime ? date : DateTime.tryParse(date.toString());
+    final dateTime = date is DateTime
+        ? date
+        : DateTime.tryParse(date.toString());
     if (dateTime == null) return 'N/A';
     final day = dateTime.day.toString().padLeft(2, '0');
     final month = dateTime.month.toString().padLeft(2, '0');

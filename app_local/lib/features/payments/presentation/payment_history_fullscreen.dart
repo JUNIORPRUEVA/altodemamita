@@ -17,10 +17,8 @@ Future<void> openClientPaymentHistoryFullscreen(
 }) {
   return Navigator.of(context).push(
     MaterialPageRoute(
-      builder: (_) => _ClientPaymentHistoryFullscreenPage(
-        sale: sale,
-        report: report,
-      ),
+      builder: (_) =>
+          _ClientPaymentHistoryFullscreenPage(sale: sale, report: report),
     ),
   );
 }
@@ -67,9 +65,7 @@ class _ClientPaymentHistoryFullscreenPage extends StatelessWidget {
                 children: [
                   _HistoryHeader(sale: sale, report: report),
                   const SizedBox(height: 8),
-                  Expanded(
-                    child: _HistoryTableViewport(report: report),
-                  ),
+                  Expanded(child: _HistoryTableViewport(report: report)),
                   const SizedBox(height: 8),
                   _HistoryTotalsFooter(
                     totalPaid: report.totalPaid,
@@ -417,10 +413,7 @@ class _HeaderMetric extends StatelessWidget {
   Widget build(BuildContext context) {
     return RichText(
       text: TextSpan(
-        style: const TextStyle(
-          fontSize: 11.5,
-          color: Color(0xFF6B7494),
-        ),
+        style: const TextStyle(fontSize: 11.5, color: Color(0xFF6B7494)),
         children: [
           TextSpan(
             text: '$label: ',
@@ -804,13 +797,13 @@ class _HistoryTableRow extends StatelessWidget {
     final backgroundColor = selected
         ? const Color(0xFFEAF2FF)
         : hovered
-            ? const Color(0xFFF6F9FF)
-            : Colors.white;
+        ? const Color(0xFFF6F9FF)
+        : Colors.white;
     final borderColor = selected
         ? const Color(0xFF3B5BDB)
         : hovered
-            ? const Color(0xFFD7E4FF)
-            : Colors.transparent;
+        ? const Color(0xFFD7E4FF)
+        : Colors.transparent;
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -825,9 +818,7 @@ class _HistoryTableRow extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
               color: backgroundColor,
-              border: Border(
-                left: BorderSide(color: borderColor, width: 3),
-              ),
+              border: Border(left: BorderSide(color: borderColor, width: 3)),
             ),
             child: Row(
               children: [
@@ -944,13 +935,13 @@ class _SaleHistoryTableRow extends StatelessWidget {
     final backgroundColor = selected
         ? const Color(0xFFEAF2FF)
         : hovered
-            ? const Color(0xFFF6F9FF)
-            : Colors.white;
+        ? const Color(0xFFF6F9FF)
+        : Colors.white;
     final borderColor = selected
         ? const Color(0xFF3B5BDB)
         : hovered
-            ? const Color(0xFFD7E4FF)
-            : Colors.transparent;
+        ? const Color(0xFFD7E4FF)
+        : Colors.transparent;
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -965,9 +956,7 @@ class _SaleHistoryTableRow extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
               color: backgroundColor,
-              border: Border(
-                left: BorderSide(color: borderColor, width: 3),
-              ),
+              border: Border(left: BorderSide(color: borderColor, width: 3)),
             ),
             child: Row(
               children: [
@@ -1160,6 +1149,8 @@ String _paymentTypeLabel(String paymentType, int? installmentNumber) {
     'apartado' => 'Pago de apartado',
     'abono_inicial' => 'Abono a inicial',
     'abono_capital' => 'Abono a capital',
+    'liquidacion_total' => 'Liquidacion total de deuda',
+    'contado' => 'Venta al contado',
     _ => 'Pago de cuota #${installmentNumber ?? '-'}',
   };
 }

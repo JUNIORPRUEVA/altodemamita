@@ -41,6 +41,7 @@ export type RegisterAuthoritativePaymentInput = {
   targetInstallmentNumber?: number | null;
   yearToPay?: number | null;
   reference?: string | null;
+  quoteVersion?: string | null;
 };
 
 export type AnnulAuthoritativePaymentInput = {
@@ -57,8 +58,38 @@ export type AnnulAuthoritativePaymentInput = {
   authorizedByUserId?: string | null;
 };
 
+export type SettlementQuoteInput = {
+  companyId: string;
+  saleId: string;
+  asOfDate?: string | Date;
+};
+
+export type SettleSaleInput = {
+  companyId: string;
+  receivedByUserId: string;
+  idempotencyKey: string;
+  saleId: string;
+  paymentDate?: string | Date;
+  paymentMethod?: string | null;
+  quoteVersion?: string | null;
+  reference?: string | null;
+};
+
 export class AuthoritativePaymentService {
   constructor(private readonly prisma: PrismaClient) {}
+
+  async getSettlementQuote(input: SettlementQuoteInput): Promise<Prisma.JsonObject> {
+    return this.prisma.$transaction(async (tx) => {
+      const sale = await loadSale(tx, {
+        companyId: input.companyId,
+        receivedByUserId: '',
+        idempotencyKey: 'quote',
+        saleId: input.saleId,
+      });
+      const installments = await loadActiveInstallments(tx, sale.id);
+      return buildSettlementQuoteResponse(sale, installments, parseDate(input.asOfDate, new Date()));
+    });
+  }
 
   async registerPayment(
     input: RegisterAuthoritativePaymentInput,
@@ -103,6 +134,162 @@ export class AuthoritativePaymentService {
       }),
     );
   }
+
+  async settleSale(input: SettleSaleInput): Promise<IdempotentResult<Prisma.JsonObject>> {
+    const operationKey = requireIdempotencyKey(input.idempotencyKey);
+    return this.prisma.$transaction((tx) =>
+      runIdempotentOperation(tx, {
+        companyId: input.companyId,
+        operationKey,
+        operationType: 'payment.settlement',
+        requestPayload: input,
+        run: async () => {
+          const response = await settleSaleInTransaction(tx, input);
+          return {
+            response,
+            resourceType: 'payment',
+            resourceId: String(response.paymentId),
+          };
+        },
+      }),
+    );
+  }
+}
+
+async function settleSaleInTransaction(
+  tx: TransactionClient,
+  input: SettleSaleInput,
+): Promise<Prisma.JsonObject> {
+  const now = new Date();
+  const paymentDate = parseDate(input.paymentDate, now);
+  const sale = await loadSale(tx, {
+    companyId: input.companyId,
+    receivedByUserId: input.receivedByUserId,
+    idempotencyKey: input.idempotencyKey,
+    saleId: input.saleId,
+  });
+  if ((sale.status ?? '') === 'cancelada' || sale.deletedAt) {
+    throw new AuthoritativeError('SALE_STATUS_REJECTED', 'La venta seleccionada no admite liquidacion.');
+  }
+  if (toNumber(sale.initialPendingAmount) > 0.009) {
+    throw new AuthoritativeError(
+      'INITIAL_PENDING_BLOCKS_SETTLEMENT',
+      'Completa primero el inicial pendiente antes de saldar la deuda total.',
+      409,
+    );
+  }
+
+  const installments = await loadActiveInstallments(tx, sale.id);
+  const quote = buildSettlementQuoteResponse(sale, installments, paymentDate);
+  if (quote.settlementAmount <= 0.009 || quote.isFullyPaid === true) {
+    throw new AuthoritativeError('SALE_ALREADY_PAID', 'La venta seleccionada ya esta saldada.', 409);
+  }
+  if (input.quoteVersion && input.quoteVersion !== quote.quoteVersion) {
+    throw new AuthoritativeError(
+      'STALE_SETTLEMENT_QUOTE',
+      'El saldo cambio. Revisa el monto actualizado antes de continuar.',
+      409,
+    );
+  }
+
+  const lotBefore = sale.lotId
+    ? await tx.lot.findUnique({
+        where: { id: sale.lotId },
+        select: { id: true, status: true },
+      })
+    : null;
+  const preSnapshot = buildSettlementPreSnapshot(sale, installments, lotBefore);
+  for (const installment of installments) {
+    if (isClosedStatus(installment.status ?? '')) {
+      continue;
+    }
+    const due = (installment.dueDate?.getTime() ?? Number.POSITIVE_INFINITY) <= paymentDate.getTime();
+    if (due) {
+      await tx.installment.update({
+        where: { id: installment.id },
+        data: {
+          paidAmount: installment.totalAmount,
+          paidPrincipalAmount: installment.principalAmount,
+          paidInterestAmount: installment.interestAmount,
+          status: 'pagada',
+          raw: mergeRaw(installment.raw, { settlementReason: 'liquidacion_total' }),
+          version: { increment: 1 },
+        },
+      });
+    } else {
+      await tx.installment.update({
+        where: { id: installment.id },
+        data: {
+          openingBalance: decimal(0),
+          principalAmount: decimal(0),
+          interestAmount: decimal(0),
+          totalAmount: decimal(0),
+          paidAmount: decimal(0),
+          paidPrincipalAmount: decimal(0),
+          paidInterestAmount: decimal(0),
+          endingBalance: decimal(0),
+          status: 'ajustada',
+          raw: mergeRaw(installment.raw, { adjustmentReason: 'liquidacion_total' }),
+          version: { increment: 1 },
+        },
+      });
+    }
+  }
+
+  const payment = await tx.payment.create({
+    data: {
+      companyId: input.companyId,
+      syncId: newSyncId('payment'),
+      saleId: sale.id,
+      clientId: sale.clientId,
+      receivedByUserId: input.receivedByUserId,
+      saleSyncId: sale.syncId,
+      clientSyncId: sale.clientSyncId,
+      paidAt: paymentDate,
+      amount: decimal(quote.settlementAmount),
+      method: normalizePaymentMethod(input.paymentMethod),
+      paymentType: 'liquidacion_total',
+      reference: input.reference ?? `SETTLEMENT-${sale.id}-${now.getTime().toString()}`,
+      principalApplied: decimal(quote.principalOutstanding),
+      interestApplied: decimal(quote.dueInterest),
+      raw: {
+        authoritativeSource: 'settlement',
+        quote,
+        preSnapshot,
+      },
+    },
+    select: { id: true },
+  });
+
+  await tx.sale.update({
+    where: { id: sale.id },
+    data: {
+      initialPendingAmount: decimal(0),
+      balance: decimal(0),
+      status: 'pagada',
+      raw: mergeRaw(sale.raw, {
+        lastSettlementPaymentId: payment.id,
+        futureInterestWaived: quote.futureInterestWaived,
+      }),
+      version: { increment: 1 },
+    },
+  });
+  if (sale.lotId) {
+    await tx.lot.update({
+      where: { id: sale.lotId },
+      data: { status: 'vendido', version: { increment: 1 } },
+    });
+  }
+
+  return {
+    saleId: sale.id,
+    paymentId: payment.id,
+    status: 'pagada',
+    balance: 0,
+    initialPendingAmount: 0,
+    paymentType: 'liquidacion_total',
+    quote,
+  };
 }
 
 async function registerPaymentInTransaction(
@@ -573,6 +760,17 @@ async function annulPaymentInTransaction(
       performedByUserId: input.annulledByUserId,
       authorizedByUserId,
     };
+  } else if (payment.paymentType === 'liquidacion_total') {
+    await restoreSettlementPreSnapshot(tx, payment);
+    return {
+      paymentId: payment.id,
+      saleId: payment.sale.id,
+      status: snapshotSaleStatus(payment.raw) ?? 'activa',
+      balance: snapshotSaleBalance(payment.raw),
+      annulledAt: annulledAt.toISOString(),
+      performedByUserId: input.annulledByUserId,
+      authorizedByUserId,
+    };
   } else if (payment.paymentType === 'abono_capital') {
     await reverseCapitalPayment(tx, payment.sale, amount, annulledAt);
   }
@@ -601,6 +799,210 @@ async function annulPaymentInTransaction(
     performedByUserId: input.annulledByUserId,
     authorizedByUserId,
   };
+}
+
+function buildSettlementQuoteResponse(
+  sale: Awaited<ReturnType<typeof loadSale>>,
+  installments: LoadedInstallment[],
+  asOfDate: Date,
+) {
+  const open = installments.filter((item) => !isClosedStatus(item.status ?? ''));
+  const principalOutstanding = roundCurrency(
+    open.reduce(
+      (sum, item) =>
+        sum + Math.max(toNumber(item.principalAmount) - toNumber(item.paidPrincipalAmount), 0),
+      0,
+    ),
+  );
+  const dueInterest = roundCurrency(
+    open
+      .filter((item) => (item.dueDate?.getTime() ?? Number.POSITIVE_INFINITY) <= asOfDate.getTime())
+      .reduce(
+        (sum, item) =>
+          sum + Math.max(toNumber(item.interestAmount) - toNumber(item.paidInterestAmount), 0),
+        0,
+      ),
+  );
+  const futureInterestWaived = roundCurrency(
+    open
+      .filter((item) => (item.dueDate?.getTime() ?? Number.POSITIVE_INFINITY) > asOfDate.getTime())
+      .reduce(
+        (sum, item) =>
+          sum + Math.max(toNumber(item.interestAmount) - toNumber(item.paidInterestAmount), 0),
+        0,
+      ),
+  );
+  const settlementAmount = roundCurrency(principalOutstanding + dueInterest);
+  const lateFees = 0;
+  const fingerprint = [
+    sale.id,
+    sale.version,
+    toNumber(sale.balance).toFixed(2),
+    toNumber(sale.initialPendingAmount).toFixed(2),
+    ...installments.map((item) =>
+      [
+        item.id,
+        item.version,
+        item.status ?? '',
+        toNumber(item.principalAmount).toFixed(2),
+        toNumber(item.interestAmount).toFixed(2),
+        toNumber(item.paidPrincipalAmount).toFixed(2),
+        toNumber(item.paidInterestAmount).toFixed(2),
+        toNumber(item.paidAmount).toFixed(2),
+      ].join(':'),
+    ),
+  ].join('|');
+  return {
+    saleId: sale.id,
+    asOfDate: asOfDate.toISOString(),
+    principalOutstanding,
+    dueInterest,
+    lateFees,
+    futureInterestWaived,
+    settlementAmount,
+    quoteVersion: Buffer.from(fingerprint).toString('base64url'),
+    isFullyPaid:
+      toNumber(sale.initialPendingAmount) <= 0.009 &&
+      settlementAmount <= 0.009 &&
+      (sale.status ?? '') === 'pagada',
+  };
+}
+
+export function buildSettlementQuoteForTest(input: {
+  sale: Awaited<ReturnType<typeof loadSale>>;
+  installments: LoadedInstallment[];
+  asOfDate: Date;
+}) {
+  return buildSettlementQuoteResponse(input.sale, input.installments, input.asOfDate);
+}
+
+function buildSettlementPreSnapshot(
+  sale: Awaited<ReturnType<typeof loadSale>>,
+  installments: LoadedInstallment[],
+  lot: { id: string; status: string | null } | null,
+) {
+  return {
+    sale: {
+      id: sale.id,
+      status: sale.status,
+      balance: toNumber(sale.balance),
+      initialPendingAmount: toNumber(sale.initialPendingAmount),
+      initialPaid: toNumber(sale.initialPaid),
+      financedBalance: toNumber(sale.financedBalance),
+      raw: sale.raw ?? null,
+      version: sale.version,
+      lotId: sale.lotId,
+    },
+    installments: installments.map((item) => ({
+      id: item.id,
+      openingBalance: toNumber(item.openingBalance),
+      principalAmount: toNumber(item.principalAmount),
+      interestAmount: toNumber(item.interestAmount),
+      totalAmount: toNumber(item.totalAmount),
+      paidAmount: toNumber(item.paidAmount),
+      paidPrincipalAmount: toNumber(item.paidPrincipalAmount),
+      paidInterestAmount: toNumber(item.paidInterestAmount),
+      endingBalance: toNumber(item.endingBalance),
+      status: item.status,
+      raw: item.raw ?? null,
+      version: item.version,
+    })),
+    lot: lot ? { id: lot.id, status: lot.status } : null,
+  };
+}
+
+async function restoreSettlementPreSnapshot(
+  tx: TransactionClient,
+  payment: Prisma.PaymentGetPayload<{ include: { sale: true; installment: true } }>,
+) {
+  const snapshot = readSettlementSnapshot(payment.raw);
+  if (!snapshot?.sale) {
+    throw new AuthoritativeError(
+      'SETTLEMENT_SNAPSHOT_MISSING',
+      'No se encontro el snapshot financiero para anular esta liquidacion.',
+      409,
+    );
+  }
+  await tx.sale.update({
+    where: { id: String(snapshot.sale.id) },
+    data: {
+      status: stringOrNull(snapshot.sale.status) ?? 'activa',
+      balance: decimal(toNumber(snapshot.sale.balance)),
+      initialPendingAmount: decimal(toNumber(snapshot.sale.initialPendingAmount)),
+      initialPaid: decimal(toNumber(snapshot.sale.initialPaid)),
+      financedBalance: decimal(toNumber(snapshot.sale.financedBalance)),
+      raw: (snapshot.sale.raw ?? Prisma.JsonNull) as Prisma.InputJsonValue,
+      version: { increment: 1 },
+    },
+  });
+  for (const item of snapshot.installments ?? []) {
+    await tx.installment.update({
+      where: { id: String(item.id) },
+      data: {
+        openingBalance: decimal(toNumber(item.openingBalance)),
+        principalAmount: decimal(toNumber(item.principalAmount)),
+        interestAmount: decimal(toNumber(item.interestAmount)),
+        totalAmount: decimal(toNumber(item.totalAmount)),
+        paidAmount: decimal(toNumber(item.paidAmount)),
+        paidPrincipalAmount: decimal(toNumber(item.paidPrincipalAmount)),
+        paidInterestAmount: decimal(toNumber(item.paidInterestAmount)),
+        endingBalance: decimal(toNumber(item.endingBalance)),
+        status: stringOrNull(item.status),
+        raw: (item.raw ?? Prisma.JsonNull) as Prisma.InputJsonValue,
+        version: { increment: 1 },
+      },
+    });
+  }
+  const snapshotLot = readSnapshotLot(payment.raw);
+  if (snapshotLot?.id) {
+    await tx.lot.update({
+      where: { id: String(snapshotLot.id) },
+      data: {
+        status: stringOrNull(snapshotLot.status),
+        version: { increment: 1 },
+      },
+    });
+  }
+}
+
+function readSettlementSnapshot(raw: unknown) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return null;
+  }
+  const snapshot = (raw as Record<string, unknown>).preSnapshot;
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+    return null;
+  }
+  return snapshot as {
+    sale?: Record<string, unknown>;
+    installments?: Array<Record<string, unknown>>;
+    lot?: Record<string, unknown> | null;
+  };
+}
+
+function readSnapshotLot(raw: unknown) {
+  const lot = readSettlementSnapshot(raw)?.lot;
+  return lot && typeof lot === 'object' && !Array.isArray(lot) ? lot : null;
+}
+
+function snapshotSaleStatus(raw: unknown) {
+  return stringOrNull(readSettlementSnapshot(raw)?.sale?.status);
+}
+
+function snapshotSaleBalance(raw: unknown) {
+  return toNumber(readSettlementSnapshot(raw)?.sale?.balance);
+}
+
+function mergeRaw(raw: unknown, patch: Record<string, unknown>): Prisma.InputJsonValue {
+  const base =
+    raw && typeof raw === 'object' && !Array.isArray(raw)
+      ? { ...(raw as Record<string, unknown>) }
+      : {};
+  return { ...base, ...patch } as Prisma.InputJsonValue;
+}
+
+function stringOrNull(value: unknown) {
+  return typeof value === 'string' ? value : null;
 }
 
 async function loadSale(tx: TransactionClient, input: RegisterAuthoritativePaymentInput) {

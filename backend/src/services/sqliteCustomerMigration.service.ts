@@ -256,7 +256,14 @@ const validStatuses: Record<string, Set<string>> = {
   solares: new Set(['disponible', 'reservado', 'vendido']),
   ventas: new Set(['apartado', 'inicial_incompleto', 'activa', 'pagada', 'cancelada']),
   cuotas: new Set(['pendiente', 'vencida', 'parcial', 'pagada', 'ajustada', 'cancelada']),
-  pagos: new Set(['apartado', 'abono_inicial', 'cuota', 'abono_capital']),
+  pagos: new Set([
+    'apartado',
+    'abono_inicial',
+    'cuota',
+    'abono_capital',
+    'liquidacion_total',
+    'contado',
+  ]),
 };
 
 const moneyTolerance = new Prisma.Decimal('0.009');

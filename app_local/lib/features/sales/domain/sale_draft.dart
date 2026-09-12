@@ -13,6 +13,7 @@ class SaleDraft {
     this.minimumReserveAmount,
     this.initialPaymentDeadline,
     this.initialIsApartado = false,
+    this.saleType = 'FINANCED',
     required this.monthlyInterest,
     required this.installmentCount,
     this.status = 'apartado',
@@ -38,6 +39,7 @@ class SaleDraft {
   /// requerido sigue pendiente; las cuotas no se generan hasta que el inicial
   /// se complete desde el módulo de Pagos.
   final bool initialIsApartado;
+  final String saleType;
   final double monthlyInterest;
   final int installmentCount;
   final String status;
@@ -66,6 +68,7 @@ class SaleDraft {
     double? minimumReserveAmount,
     DateTime? initialPaymentDeadline,
     bool? initialIsApartado,
+    String? saleType,
     double? monthlyInterest,
     int? installmentCount,
     String? status,
@@ -78,13 +81,17 @@ class SaleDraft {
       sellerId: sellerId ?? this.sellerId,
       saleDate: saleDate ?? this.saleDate,
       salePrice: salePrice ?? this.salePrice,
-      downPaymentPercentage: downPaymentPercentage ?? this.downPaymentPercentage,
-      requiredInitialPayment: requiredInitialPayment ?? this.requiredInitialPayment,
+      downPaymentPercentage:
+          downPaymentPercentage ?? this.downPaymentPercentage,
+      requiredInitialPayment:
+          requiredInitialPayment ?? this.requiredInitialPayment,
       initialPaymentPaid: initialPaymentPaid ?? this.initialPaymentPaid,
       initialPaymentMethod: initialPaymentMethod ?? this.initialPaymentMethod,
       minimumReserveAmount: minimumReserveAmount ?? this.minimumReserveAmount,
-      initialPaymentDeadline: initialPaymentDeadline ?? this.initialPaymentDeadline,
+      initialPaymentDeadline:
+          initialPaymentDeadline ?? this.initialPaymentDeadline,
       initialIsApartado: initialIsApartado ?? this.initialIsApartado,
+      saleType: saleType ?? this.saleType,
       monthlyInterest: monthlyInterest ?? this.monthlyInterest,
       installmentCount: installmentCount ?? this.installmentCount,
       status: status ?? this.status,

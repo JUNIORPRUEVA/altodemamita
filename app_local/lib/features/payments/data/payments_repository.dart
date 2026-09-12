@@ -21,6 +21,7 @@ import '../domain/client_pagare_report.dart';
 import '../domain/payment_sale_context.dart';
 import '../domain/payment_sale_option.dart';
 import '../domain/payment_work_queue.dart';
+import '../domain/settlement_quote.dart';
 
 class PaymentsRepository {
   PaymentsRepository({
@@ -455,6 +456,51 @@ class PaymentsRepository {
       'installments',
       'payments',
     ]);
+  }
+
+  Future<SettlementQuote> fetchSettlementQuote(int saleId) async {
+    _systemConfigService.ensureWritable();
+    final saleRemoteId = _idRegistry.resolveRemoteId('sales', saleId);
+    if (saleRemoteId == null || saleRemoteId.isEmpty) {
+      throw const BackendApiException(
+        'No se pudo identificar la venta remota para calcular la liquidacion.',
+      );
+    }
+    final response = await _apiClient.get(
+      '/authoritative/sales/$saleRemoteId/settlement-quote',
+    );
+    final data = response is Map ? response['data'] : null;
+    final dataMap = data is Map
+        ? data.map((key, value) => MapEntry(key.toString(), value))
+        : <String, dynamic>{};
+    return SettlementQuote.fromMap(dataMap);
+  }
+
+  Future<void> settleSale({
+    required int saleId,
+    required SettlementQuote quote,
+    required String paymentMethod,
+  }) async {
+    _systemConfigService.ensureWritable();
+    final saleRemoteId = _idRegistry.resolveRemoteId('sales', saleId);
+    if (saleRemoteId == null || saleRemoteId.isEmpty) {
+      throw const BackendApiException(
+        'No se pudo identificar la venta remota para saldar la deuda.',
+      );
+    }
+    final operationId =
+        'desktop-settlement-$saleId-${DateTime.now().microsecondsSinceEpoch}';
+    await _apiClient.post(
+      '/authoritative/sales/$saleRemoteId/settle',
+      idempotencyKey: operationId,
+      body: {
+        'paymentDate': DateTime.now().toIso8601String(),
+        'paymentMethod': paymentMethod,
+        'quoteVersion': quote.quoteVersion,
+        'operationId': operationId,
+      },
+    );
+    await _queueSnapshot.clear();
   }
 
   Future<void> deletePayment(

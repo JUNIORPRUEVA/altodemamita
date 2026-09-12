@@ -21,14 +21,15 @@ class GlobalSearchRepository {
     SalesRepository? salesRepository,
     InstallmentsRepository? installmentsRepository,
     BackendApiClient? apiClient,
-  })  : _appDatabase = appDatabase ?? AppDatabase.instance,
-        _clientRepository =
-            clientRepository ?? ClientRepository(appDatabase: appDatabase),
-        _lotRepository =
-            lotRepository ?? LotRepository(appDatabase: appDatabase),
-        _installmentsRepository = installmentsRepository ??
-            InstallmentsRepository(database: appDatabase),
-        _apiClient = apiClient ?? BackendApiClient();
+  }) : _appDatabase = appDatabase ?? AppDatabase.instance,
+       _clientRepository =
+           clientRepository ?? ClientRepository(appDatabase: appDatabase),
+       _lotRepository =
+           lotRepository ?? LotRepository(appDatabase: appDatabase),
+       _installmentsRepository =
+           installmentsRepository ??
+           InstallmentsRepository(database: appDatabase),
+       _apiClient = apiClient ?? BackendApiClient();
 
   final AppDatabase _appDatabase;
   final ClientRepository _clientRepository;
@@ -37,8 +38,7 @@ class GlobalSearchRepository {
   final BackendApiClient _apiClient;
   final BackendEntityIdRegistry _idRegistry = BackendEntityIdRegistry.instance;
 
-  bool get _useBackendMode =>
-      cloudCutoverMode.usesAuthoritativeBusinessWrites;
+  bool get _useBackendMode => cloudCutoverMode.usesAuthoritativeBusinessWrites;
 
   /// Búsqueda global inteligente que busca clientes y solares
   /// Retorna resultados con toda la información relacionada
@@ -63,8 +63,9 @@ class GlobalSearchRepository {
       // Traer cuotas para cada venta del cliente
       for (final saleMap in sales) {
         final saleId = saleMap['id'] as int;
-        final saleInstallments =
-            await _installmentsRepository.getBySaleId(saleId);
+        final saleInstallments = await _installmentsRepository.getBySaleId(
+          saleId,
+        );
         installments.addAll(saleInstallments);
       }
 
@@ -93,8 +94,9 @@ class GlobalSearchRepository {
       final installments = <InstallmentDetail>[];
 
       if (sale != null) {
-        final saleInstallments =
-            await _installmentsRepository.getBySaleId(sale['id'] as int);
+        final saleInstallments = await _installmentsRepository.getBySaleId(
+          sale['id'] as int,
+        );
         installments.addAll(saleInstallments);
 
         final payments = await _getPaymentsForSale(sale['id'] as int);
@@ -336,10 +338,7 @@ class GlobalSearchRepository {
     );
   }
 
-  Map<String, dynamic> _saleLocalMap(
-    Map<String, dynamic> sale,
-    Client client,
-  ) {
+  Map<String, dynamic> _saleLocalMap(Map<String, dynamic> sale, Client client) {
     final remoteSaleId = _text(sale['id']).trim();
     final localSaleId = remoteSaleId.isEmpty
         ? 0
@@ -347,7 +346,9 @@ class GlobalSearchRepository {
     final lot = _mapOf(sale['lot']);
     final status = _text(sale['status']).trim().toLowerCase();
     final deadline = _text(sale['initialPaymentDeadline']);
-    final reservationMinimum = _nullableDouble(sale['reservationMinimumAmount']);
+    final reservationMinimum = _nullableDouble(
+      sale['reservationMinimumAmount'],
+    );
     return {
       'id': localSaleId,
       'sync_id': _text(sale['syncId']),
@@ -381,35 +382,38 @@ class GlobalSearchRepository {
     Map<String, dynamic> saleLocal,
   ) {
     final lotCode = _lotCodeFromLocalSale(saleLocal);
-    return _listOfMaps(sale['installments']).map((installment) {
-      final remoteId = _text(installment['id']).trim();
-      final localId = remoteId.isEmpty
-          ? 0
-          : _idRegistry.register('installments', remoteId);
-      final total = _doubleOf(installment['amount']);
-      final paid = _doubleOf(installment['paidAmount']);
-      final remaining = total - paid;
-      return InstallmentDetail(
-        id: localId,
-        installmentNumber: _intOf(installment['installmentNumber']),
-        saleId: (saleLocal['id'] as num?)?.toInt() ?? 0,
-        clientName: client.fullName,
-        clientDocumentId: client.documentId,
-        lotCode: lotCode,
-        dueDate: DateTime.tryParse(_text(installment['dueDate'])) ??
-            DateTime.now(),
-        openingBalance: _doubleOf(installment['openingBalance']),
-        principalAmount: _doubleOf(installment['principalAmount']),
-        interestAmount: _doubleOf(installment['interestAmount']),
-        totalAmount: total,
-        paidAmount: paid,
-        remainingAmount: remaining < 0 ? 0 : remaining,
-        endingBalance: _doubleOf(installment['endingBalance']),
-        status: _text(installment['status']).isEmpty
-            ? 'pendiente'
-            : _text(installment['status']),
-      );
-    }).toList(growable: false);
+    return _listOfMaps(sale['installments'])
+        .map((installment) {
+          final remoteId = _text(installment['id']).trim();
+          final localId = remoteId.isEmpty
+              ? 0
+              : _idRegistry.register('installments', remoteId);
+          final total = _doubleOf(installment['amount']);
+          final paid = _doubleOf(installment['paidAmount']);
+          final remaining = total - paid;
+          return InstallmentDetail(
+            id: localId,
+            installmentNumber: _intOf(installment['installmentNumber']),
+            saleId: (saleLocal['id'] as num?)?.toInt() ?? 0,
+            clientName: client.fullName,
+            clientDocumentId: client.documentId,
+            lotCode: lotCode,
+            dueDate:
+                DateTime.tryParse(_text(installment['dueDate'])) ??
+                DateTime.now(),
+            openingBalance: _doubleOf(installment['openingBalance']),
+            principalAmount: _doubleOf(installment['principalAmount']),
+            interestAmount: _doubleOf(installment['interestAmount']),
+            totalAmount: total,
+            paidAmount: paid,
+            remainingAmount: remaining < 0 ? 0 : remaining,
+            endingBalance: _doubleOf(installment['endingBalance']),
+            status: _text(installment['status']).isEmpty
+                ? 'pendiente'
+                : _text(installment['status']),
+          );
+        })
+        .toList(growable: false);
   }
 
   List<Map<String, dynamic>> _paymentsLocalList(
@@ -420,7 +424,9 @@ class GlobalSearchRepository {
     for (final installment in _listOfMaps(sale['installments'])) {
       final id = _text(installment['id']).trim();
       if (id.isNotEmpty) {
-        installmentNumberByRemoteId[id] = _intOf(installment['installmentNumber']);
+        installmentNumberByRemoteId[id] = _intOf(
+          installment['installmentNumber'],
+        );
       }
     }
     final installmentSyncByRemoteId = <String, int>{};
@@ -432,27 +438,29 @@ class GlobalSearchRepository {
       }
     }
 
-    return _listOfMaps(sale['payments']).map((payment) {
-      final installmentId = _text(payment['installmentId']).trim();
-      final installmentSyncId = _text(payment['installmentSyncId']).trim();
-      final numeroCuota =
-          installmentNumberByRemoteId[installmentId] ??
-          installmentSyncByRemoteId[installmentSyncId];
-      final yearToPay = _intOf(payment['yearToPay']);
-      return {
-        'fecha_pago': _text(payment['paidAt']),
-        'monto_pagado': _doubleOf(payment['amount']),
-        'metodo_pago': _text(payment['method']),
-        'tipo_pago': _localPaymentType(
-          payment,
-          hasLinkedInstallment: installmentId.isNotEmpty ||
-              installmentSyncId.isNotEmpty,
-        ),
-        'referencia': _text(payment['reference']),
-        'numero_cuota': numeroCuota,
-        'ano_a_pagar': yearToPay <= 0 ? null : yearToPay,
-      };
-    }).toList(growable: false);
+    return _listOfMaps(sale['payments'])
+        .map((payment) {
+          final installmentId = _text(payment['installmentId']).trim();
+          final installmentSyncId = _text(payment['installmentSyncId']).trim();
+          final numeroCuota =
+              installmentNumberByRemoteId[installmentId] ??
+              installmentSyncByRemoteId[installmentSyncId];
+          final yearToPay = _intOf(payment['yearToPay']);
+          return {
+            'fecha_pago': _text(payment['paidAt']),
+            'monto_pagado': _doubleOf(payment['amount']),
+            'metodo_pago': _text(payment['method']),
+            'tipo_pago': _localPaymentType(
+              payment,
+              hasLinkedInstallment:
+                  installmentId.isNotEmpty || installmentSyncId.isNotEmpty,
+            ),
+            'referencia': _text(payment['reference']),
+            'numero_cuota': numeroCuota,
+            'ano_a_pagar': yearToPay <= 0 ? null : yearToPay,
+          };
+        })
+        .toList(growable: false);
   }
 
   String _localPaymentType(
@@ -476,6 +484,14 @@ class GlobalSearchRepository {
       case 'capital':
       case 'abono_capital':
         return 'abono_capital';
+      case 'liquidacion_total':
+      case 'settlement':
+      case 'total_settlement':
+        return 'liquidacion_total';
+      case 'contado':
+      case 'cash':
+      case 'cash_sale':
+        return 'contado';
       default:
         return hasLinkedInstallment ? 'cuota' : 'pago';
     }

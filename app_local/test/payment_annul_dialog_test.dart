@@ -78,7 +78,10 @@ void main() {
     });
 
     test('Otro exige descripcion', () {
-      expect(PaymentAnnulReasons.resolve(PaymentAnnulReasons.other, ''), isNull);
+      expect(
+        PaymentAnnulReasons.resolve(PaymentAnnulReasons.other, ''),
+        isNull,
+      );
       expect(
         PaymentAnnulReasons.resolve(PaymentAnnulReasons.other, '   '),
         isNull,
@@ -114,9 +117,20 @@ void main() {
   group('etiqueta de concepto', () {
     test('traduce los tipos de pago del backend', () {
       expect(paymentAnnulConceptLabel('inicial', null), 'Abono a inicial');
-      expect(paymentAnnulConceptLabel('abono_inicial', null), 'Abono a inicial');
+      expect(
+        paymentAnnulConceptLabel('abono_inicial', null),
+        'Abono a inicial',
+      );
       expect(paymentAnnulConceptLabel('apartado', null), 'Abono a apartado');
-      expect(paymentAnnulConceptLabel('abono_capital', null), 'Abono a capital');
+      expect(
+        paymentAnnulConceptLabel('abono_capital', null),
+        'Abono a capital',
+      );
+      expect(
+        paymentAnnulConceptLabel('liquidacion_total', null),
+        'Liquidacion total de deuda',
+      );
+      expect(paymentAnnulConceptLabel('contado', null), 'Venta al contado');
       expect(paymentAnnulConceptLabel('cuota', 4), 'Cuota 4');
       expect(paymentAnnulConceptLabel('cuota', null), 'Cuota');
       expect(paymentAnnulConceptLabel('', null), 'Pago');
@@ -137,7 +151,10 @@ void main() {
       // Datos de confirmacion y advertencia financiera.
       expect(find.text('Prueva tres'), findsOneWidget);
       expect(find.text('Abono a inicial'), findsOneWidget);
-      expect(find.textContaining('revertirá el efecto financiero'), findsOneWidget);
+      expect(
+        find.textContaining('revertirá el efecto financiero'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('confirmar esta deshabilitado sin motivo', (tester) async {

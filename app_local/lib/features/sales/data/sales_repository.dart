@@ -58,8 +58,7 @@ class SalesRepository {
 
   bool get _shouldRunBackgroundSync =>
       identical(_appDatabase, AppDatabase.instance);
-  bool get _useBackendMode =>
-      cloudCutoverMode.usesAuthoritativeBusinessWrites;
+  bool get _useBackendMode => cloudCutoverMode.usesAuthoritativeBusinessWrites;
 
   void _log(String message) {
     developer.log(message, name: 'SistemaSolares.SalesSync');
@@ -356,7 +355,8 @@ class SalesRepository {
           throw StateError('El interes mensual no puede ser negativo.');
         }
 
-        if (draft.installmentCount <= 0) {
+        final isCashSale = draft.saleType == 'CASH';
+        if (!isCashSale && draft.installmentCount <= 0) {
           throw StateError('La venta debe generar al menos una cuota.');
         }
 
@@ -374,6 +374,11 @@ class SalesRepository {
         saleSyncId = _newLocalSaleSyncId();
         final downPaymentAmount = _roundCurrency(draft.requiredInitialPayment);
         final providedAmount = _roundCurrency(draft.initialPaymentPaid);
+        if (isCashSale && (providedAmount - currentSalePrice).abs() > 0.009) {
+          throw StateError(
+            'El monto recibido debe coincidir con el precio total para una venta al contado.',
+          );
+        }
         // Si el monto entregado al crear la venta es APARTADO (reserva del
         // solar), NO debe contabilizarse como inicial pagado: el inicial sigue
         // pendiente al 100% y las cuotas no se generan.
@@ -387,18 +392,21 @@ class SalesRepository {
           salePrice: currentSalePrice,
           downPaymentAmount: initialPaidAmount,
         );
-        final initialPendingAmount =
-            SaleCalculator.calculatePendingInitialPayment(
-              requiredInitialPayment: downPaymentAmount,
-              initialPaymentPaid: initialPaidAmount,
-            );
-        final saleStatus = _resolveSaleStatus(
-          initialRequiredAmount: downPaymentAmount,
-          initialPaidAmount: initialPaidAmount,
-          minimumReserveAmount: draft.minimumReserveAmount,
-          financedBalance: financedBalance,
-        );
-        final pendingBalance = financedBalance;
+        final initialPendingAmount = isCashSale
+            ? 0.0
+            : SaleCalculator.calculatePendingInitialPayment(
+                requiredInitialPayment: downPaymentAmount,
+                initialPaymentPaid: initialPaidAmount,
+              );
+        final saleStatus = isCashSale
+            ? 'pagada'
+            : _resolveSaleStatus(
+                initialRequiredAmount: downPaymentAmount,
+                initialPaidAmount: initialPaidAmount,
+                minimumReserveAmount: draft.minimumReserveAmount,
+                financedBalance: financedBalance,
+              );
+        final pendingBalance = isCashSale ? 0.0 : financedBalance;
 
         if (initialPaidAmount < 0) {
           throw StateError('El inicial pagado no puede ser negativo.');
@@ -452,7 +460,7 @@ class SalesRepository {
           'saldo_financiado': financedBalance,
           'saldo_pendiente': pendingBalance,
           'interes_mensual': draft.monthlyInterest,
-          'cantidad_cuotas': draft.installmentCount,
+          'cantidad_cuotas': isCashSale ? 0 : draft.installmentCount,
           'estado': saleStatus,
           'fecha_creacion': createdAt.toIso8601String(),
           'fecha_actualizacion': createdAt.toIso8601String(),
@@ -463,7 +471,7 @@ class SalesRepository {
         print('[SALES][DB] Venta creada -> saleId=$saleId syncId=$saleSyncId');
 
         final batch = txn.batch();
-        if (saleStatus == 'activa') {
+        if (!isCashSale && saleStatus == 'activa') {
           final installments = SaleCalculator.buildInstallmentSchedule(
             saleId: saleId,
             saleDate: draft.saleDate,
@@ -527,6 +535,8 @@ class SalesRepository {
             ),
             'tipo_pago': draft.initialIsApartado
                 ? 'apartado'
+                : isCashSale
+                ? 'contado'
                 : (saleStatus == 'apartado' ? 'apartado' : 'abono_inicial'),
             'referencia':
                 'SALE-INIT-$saleId-${createdAt.microsecondsSinceEpoch}',
@@ -1366,9 +1376,7 @@ class SalesRepository {
     final rawItems = items
         .whereType<Map>()
         .map(
-          (item) => item.map(
-            (key, value) => MapEntry(key.toString(), value),
-          ),
+          (item) => item.map((key, value) => MapEntry(key.toString(), value)),
         )
         .toList(growable: false);
     // Cache de solo lectura: guardamos la ultima lista valida completa
@@ -1429,12 +1437,16 @@ class SalesRepository {
     try {
       final db = await _appDatabase.database;
       final now = DateTime.now().toUtc().toIso8601String();
-      await db.insert(DatabaseSchema.salesListCacheTable, {
-        'cache_key': _listCacheKey,
-        'query': '',
-        'payload': jsonEncode({'savedAt': now, 'items': items}),
-        'updated_at': now,
-      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      await db.insert(
+        DatabaseSchema.salesListCacheTable,
+        {
+          'cache_key': _listCacheKey,
+          'query': '',
+          'payload': jsonEncode({'savedAt': now, 'items': items}),
+          'updated_at': now,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
     } catch (_) {
       // Best-effort: una falla de cache nunca debe fallar la lectura.
     }
@@ -1519,8 +1531,7 @@ class SalesRepository {
 
     // Si el llamador entrega operationId (reintento idempotente con los mismos
     // datos), se reutiliza para que un commit desconocido no duplique la venta.
-    final resolvedOperationId =
-        operationId?.trim().isNotEmpty == true
+    final resolvedOperationId = operationId?.trim().isNotEmpty == true
         ? operationId!.trim()
         : 'desktop-sale-${DateTime.now().microsecondsSinceEpoch}';
     final response = await _apiClient.post(
@@ -1538,11 +1549,14 @@ class SalesRepository {
         'initialPaymentPaid': draft.initialPaymentPaid,
         'initialPaymentMethod': draft.initialPaymentMethod,
         'minimumReserveAmount': draft.minimumReserveAmount,
-        'initialPaymentDeadline':
-            draft.initialPaymentDeadline?.toIso8601String(),
+        'initialPaymentDeadline': draft.initialPaymentDeadline
+            ?.toIso8601String(),
         'initialIsApartado': draft.initialIsApartado,
+        'saleType': draft.saleType,
         'monthlyInterest': draft.monthlyInterest,
-        'installmentCount': draft.installmentCount,
+        'installmentCount': draft.saleType == 'CASH'
+            ? 0
+            : draft.installmentCount,
         'operationId': resolvedOperationId,
       },
     );
@@ -1586,8 +1600,7 @@ class SalesRepository {
       );
     }
 
-    final resolvedOperationId =
-        operationId?.trim().isNotEmpty == true
+    final resolvedOperationId = operationId?.trim().isNotEmpty == true
         ? operationId!.trim()
         : 'desktop-sale-edit-${DateTime.now().microsecondsSinceEpoch}';
     await _apiClient.patch(
@@ -1606,8 +1619,8 @@ class SalesRepository {
         'initialPaymentPaid': draft.initialPaymentPaid,
         'initialPaymentMethod': draft.initialPaymentMethod,
         'minimumReserveAmount': draft.minimumReserveAmount,
-        'initialPaymentDeadline':
-            draft.initialPaymentDeadline?.toIso8601String(),
+        'initialPaymentDeadline': draft.initialPaymentDeadline
+            ?.toIso8601String(),
         'initialIsApartado': draft.initialIsApartado,
         'monthlyInterest': draft.monthlyInterest,
         'installmentCount': draft.installmentCount,
@@ -1625,7 +1638,8 @@ class SalesRepository {
         'No se pudo identificar la venta remota para eliminarla.',
       );
     }
-    final operationId = 'desktop-sale-cancel-${DateTime.now().microsecondsSinceEpoch}';
+    final operationId =
+        'desktop-sale-cancel-${DateTime.now().microsecondsSinceEpoch}';
     await _apiClient.post(
       '/authoritative/sales/$remoteSaleId/cancel',
       idempotencyKey: operationId,
@@ -1643,10 +1657,7 @@ class SalesRepository {
     final client =
         _asMap(item['clientEntity']) ??
         _asMap(item['client']) ??
-        {
-          'name': item['client'],
-          'document': item['cedula'],
-        };
+        {'name': item['client'], 'document': item['cedula']};
     final product =
         _asMap(item['lotEntity']) ??
         _asMap(item['product']) ??
@@ -1690,16 +1701,23 @@ class SalesRepository {
       ),
       paidApartadoPayment: _toDouble(item['reservationPaidAmount']),
       minimumReserveAmount: _nullableDouble(item['reservationMinimumAmount']),
-      initialPaymentDeadline: _parseNullableDate(item['initialPaymentDeadline']),
-      financedBalance: _toDouble(item['financedBalance'] ?? item['financedAmount']),
+      initialPaymentDeadline: _parseNullableDate(
+        item['initialPaymentDeadline'],
+      ),
+      financedBalance: _toDouble(
+        item['financedBalance'] ?? item['financedAmount'],
+      ),
       pendingBalance: _toDouble(item['balance'] ?? item['outstandingBalance']),
-      monthlyInterest: _toDouble(item['monthlyInterestRate'] ?? item['interestRate']),
+      monthlyInterest: _toDouble(
+        item['monthlyInterestRate'] ?? item['interestRate'],
+      ),
       installmentCount: _toInt(item['installmentCount'] ?? item['termMonths']),
       status: _mapSaleStatusFromBackend(item['status']?.toString() ?? 'activa'),
       generatedInstallments:
           (item['installments'] as List?)?.length ??
           _toInt(item['installmentCount'] ?? item['termMonths']),
-      isFullyPaid: item['isFullyPaid'] == true ||
+      isFullyPaid:
+          item['isFullyPaid'] == true ||
           (_asMap(item['settlement'])?['isFullyPaid'] == true),
     );
   }
@@ -1710,10 +1728,7 @@ class SalesRepository {
     final client =
         _asMap(item['clientEntity']) ??
         _asMap(item['client']) ??
-        {
-          'name': item['client'],
-          'document': item['cedula'],
-        };
+        {'name': item['client'], 'document': item['cedula']};
     final product =
         _asMap(item['lotEntity']) ??
         _asMap(item['product']) ??
@@ -1768,14 +1783,23 @@ class SalesRepository {
           item['initialPaymentDeadline'],
         ),
         activationDate: _parseNullableDate(item['activationDate']),
-        financedBalance: _toDouble(item['financedBalance'] ?? item['financedAmount']),
-        pendingBalance: _toDouble(item['balance'] ?? item['outstandingBalance']),
-        monthlyInterest: _toDouble(item['monthlyInterestRate'] ?? item['interestRate']),
-        installmentCount: _toInt(item['installmentCount'] ?? item['termMonths']),
+        financedBalance: _toDouble(
+          item['financedBalance'] ?? item['financedAmount'],
+        ),
+        pendingBalance: _toDouble(
+          item['balance'] ?? item['outstandingBalance'],
+        ),
+        monthlyInterest: _toDouble(
+          item['monthlyInterestRate'] ?? item['interestRate'],
+        ),
+        installmentCount: _toInt(
+          item['installmentCount'] ?? item['termMonths'],
+        ),
         status: _mapSaleStatusFromBackend(
           item['status']?.toString() ?? 'activa',
         ),
-        isFullyPaid: item['isFullyPaid'] == true ||
+        isFullyPaid:
+            item['isFullyPaid'] == true ||
             (_asMap(item['settlement'])?['isFullyPaid'] == true),
         createdAt:
             DateTime.tryParse(item['createdAt']?.toString() ?? '') ??
@@ -1857,7 +1881,9 @@ class SalesRepository {
 
   Map<String, dynamic> _responseData(Object? response) {
     if (response is! Map) return const {};
-    final payload = response.map((key, value) => MapEntry(key.toString(), value));
+    final payload = response.map(
+      (key, value) => MapEntry(key.toString(), value),
+    );
     final data = payload['data'];
     if (data is Map) {
       return data.map((key, value) => MapEntry(key.toString(), value));
