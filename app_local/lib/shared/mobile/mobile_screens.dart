@@ -24,6 +24,7 @@ class MobileSearchRow extends StatelessWidget {
     required this.controller,
     required this.hintText,
     this.onSubmitted,
+    this.onChanged,
     this.onClear,
     this.onOpenFilter,
   });
@@ -31,6 +32,7 @@ class MobileSearchRow extends StatelessWidget {
   final TextEditingController controller;
   final String hintText;
   final ValueChanged<String>? onSubmitted;
+  final ValueChanged<String>? onChanged;
   final VoidCallback? onClear;
   final VoidCallback? onOpenFilter;
 
@@ -115,6 +117,7 @@ class MobileSearchRow extends StatelessWidget {
                     ),
                   ),
                   onSubmitted: onSubmitted,
+                  onChanged: onChanged,
                 );
               },
             ),

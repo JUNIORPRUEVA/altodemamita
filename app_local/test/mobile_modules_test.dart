@@ -157,15 +157,22 @@ Widget _cuotas() => InstallmentsMobileView(
 
 Widget _pagos({ValueChanged<int>? onOpenSale}) => PaymentsMobileView(
   sales: [_paymentSale()],
+  searchResults: const [],
   isLoading: false,
+  isSearching: false,
   isRefreshing: false,
   refreshFailed: false,
   loadErrorTitle: null,
+  searchErrorTitle: null,
   canCreatePayments: true,
+  canRegisterPayment: true,
+  isSaving: false,
+  selectedSaleId: null,
   onSearch: (_) {},
   onClearSearch: () {},
   onRetry: () {},
   onRegisterPayment: () {},
+  onSelectSale: (_) {},
   onOpenSale: onOpenSale ?? (_) {},
 );
 
@@ -238,9 +245,7 @@ void main() {
       expect(find.byTooltip('Nuevo vendedor'), findsOneWidget);
     });
 
-    testWidgets('cuotas muestra cuota, cliente, vence y monto', (
-      tester,
-    ) async {
+    testWidgets('cuotas muestra cuota, cliente, vence y monto', (tester) async {
       useTestSize(tester, const Size(390, 900));
       await tester.pumpWidget(testApp(_cuotas()));
       await tester.pumpAndSettle();
@@ -260,7 +265,65 @@ void main() {
       expect(find.text('THELEMARQUE WISMIQUE'), findsOneWidget);
       expect(find.text('Solar MM-B-1-S446'), findsOneWidget);
       expect(find.text('RD\$631,250.00'), findsOneWidget);
-      expect(find.byTooltip('Registrar pago'), findsOneWidget);
+      expect(
+        find.byTooltip('Selecciona una venta para registrar pago'),
+        findsOneWidget,
+      );
+      expect(find.byTooltip('Ver detalle'), findsOneWidget);
+    });
+
+    testWidgets('pagos busca mientras se escribe y filtra la lista', (
+      tester,
+    ) async {
+      useTestSize(tester, const Size(390, 900));
+      final searches = <String>[];
+      await tester.pumpWidget(
+        testApp(
+          PaymentsMobileView(
+            sales: [
+              _paymentSale(),
+              PaymentSaleOption(
+                saleId: 11,
+                clientId: 2,
+                clientName: 'KIRSY YUDELKA MERCEDES',
+                clientDocumentId: '002-0000000-2',
+                clientPhone: '829-111-0000',
+                lotDisplayCode: 'MM-Y-S362',
+                pendingBalance: 500000,
+                requiredInitialPayment: 50000,
+                paidInitialPayment: 50000,
+                pendingInitialPayment: 0,
+                status: 'activa',
+              ),
+            ],
+            searchResults: const [],
+            isLoading: false,
+            isSearching: false,
+            isRefreshing: false,
+            refreshFailed: false,
+            loadErrorTitle: null,
+            searchErrorTitle: null,
+            canCreatePayments: true,
+            canRegisterPayment: false,
+            isSaving: false,
+            selectedSaleId: null,
+            onSearch: searches.add,
+            onClearSearch: () {},
+            onRetry: () {},
+            onRegisterPayment: () {},
+            onSelectSale: (_) {},
+            onOpenSale: (_) {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), 'kirsy');
+      await tester.pump(const Duration(milliseconds: 320));
+
+      expect(find.text('KIRSY YUDELKA MERCEDES'), findsOneWidget);
+      expect(find.text('THELEMARQUE WISMIQUE'), findsNothing);
+      expect(searches, ['kirsy']);
     });
   });
 
@@ -323,13 +386,45 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('pagos abre el historial de la venta tocada', (tester) async {
+    testWidgets('pagos selecciona tarjeta y abre detalle solo con su icono', (
+      tester,
+    ) async {
       useTestSize(tester, const Size(390, 900));
       final opened = <int>[];
-      await tester.pumpWidget(testApp(_pagos(onOpenSale: opened.add)));
+      final selected = <int>[];
+      await tester.pumpWidget(
+        testApp(
+          PaymentsMobileView(
+            sales: [_paymentSale()],
+            searchResults: const [],
+            isLoading: false,
+            isSearching: false,
+            isRefreshing: false,
+            refreshFailed: false,
+            loadErrorTitle: null,
+            searchErrorTitle: null,
+            canCreatePayments: true,
+            canRegisterPayment: false,
+            isSaving: false,
+            selectedSaleId: null,
+            onSearch: (_) {},
+            onClearSearch: () {},
+            onRetry: () {},
+            onRegisterPayment: () {},
+            onSelectSale: selected.add,
+            onOpenSale: opened.add,
+          ),
+        ),
+      );
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('THELEMARQUE WISMIQUE'));
+      await tester.pumpAndSettle();
+
+      expect(selected, [10]);
+      expect(opened, isEmpty);
+
+      await tester.tap(find.byTooltip('Ver detalle'));
       await tester.pumpAndSettle();
 
       expect(opened, [10]);

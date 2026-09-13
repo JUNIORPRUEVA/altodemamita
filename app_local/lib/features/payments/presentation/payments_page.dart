@@ -137,16 +137,26 @@ class _PaymentsPageState extends State<PaymentsPage> {
         listenable: _controller,
         builder: (context, _) => PaymentsMobileView(
           sales: _controller.activeSales,
+          searchResults: _controller.searchResults,
           isLoading: _controller.isLoading,
+          isSearching: _controller.isSearching,
           isRefreshing: _controller.isRefreshing,
           refreshFailed: _controller.refreshFailed,
           loadErrorTitle: compactLoadError,
+          searchErrorTitle: _controller.searchError?.title,
           canCreatePayments: canCreatePayments,
+          canRegisterPayment:
+              _selectedSaleId != null &&
+              _controller.selectedContext?.sale.saleId == _selectedSaleId &&
+              !_controller.isSelectedContextLoading,
+          isSaving: _controller.isSaving,
+          selectedSaleId: _selectedSaleId,
           onSearch: _controller.searchSales,
           onClearSearch: _controller.clearSearch,
           onRetry: () =>
               _controller.load(preferredSaleId: widget.initialSaleId),
           onRegisterPayment: _registerPayment,
+          onSelectSale: _commitSaleSelection,
           onOpenSale: (saleId) =>
               openSalePaymentHistoryById(context, saleId: saleId),
         ),
@@ -1753,7 +1763,13 @@ class _PaymentsPageState extends State<PaymentsPage> {
       needsRefresh = true;
     }
 
-    if (controllerSaleId != null && controllerSaleId != _selectedSaleId) {
+    final shouldMirrorControllerSelection =
+        !AppBreakpoints.usesCompactNavigation(context) ||
+        _selectedSaleId != null;
+
+    if (shouldMirrorControllerSelection &&
+        controllerSaleId != null &&
+        controllerSaleId != _selectedSaleId) {
       _selectedSaleId = controllerSaleId;
       needsRefresh = true;
     }

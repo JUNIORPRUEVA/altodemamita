@@ -55,10 +55,8 @@ Future<void> openSalePaymentHistoryById(
   final repository = paymentsRepository ?? PaymentsRepository();
   return Navigator.of(context).push(
     MaterialPageRoute(
-      builder: (_) => _SalePaymentHistoryLoaderPage(
-        saleId: saleId,
-        repository: repository,
-      ),
+      builder: (_) =>
+          _SalePaymentHistoryLoaderPage(saleId: saleId, repository: repository),
     ),
   );
 }
@@ -435,10 +433,23 @@ class _SalePaymentHistoryFullscreenPageState
                   ),
                   if (canAnnul) ...[
                     const SizedBox(height: 8),
-                    FilledButton.icon(
-                      onPressed: _isSaving ? null : _annulPayment,
-                      icon: const Icon(Icons.undo),
-                      label: const Text('Anular pago'),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size(0, 32),
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          foregroundColor: const Color(0xFF9A3412),
+                          side: const BorderSide(color: Color(0xFFF2C2A4)),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        onPressed: _isSaving ? null : _annulPayment,
+                        icon: const Icon(Icons.undo, size: 15),
+                        label: const Text(
+                          'Anular último',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                      ),
                     ),
                   ],
                 ],
@@ -1220,8 +1231,7 @@ class _HistoryTotalsFooter extends StatelessWidget {
   Widget build(BuildContext context) {
     // En compacto (PWA/mobile) los totales se recorren con scroll horizontal
     // para que ningun monto quede cortado. En escritorio no cambia nada.
-    final compact =
-        MediaQuery.sizeOf(context).width < AppBreakpoints.tabletMax;
+    final compact = MediaQuery.sizeOf(context).width < AppBreakpoints.tabletMax;
     final metrics = <Widget>[
       _FooterMetric(
         label: 'Total pagado',
