@@ -40,16 +40,26 @@ class _PaymentReminderSettingsMobilePageState
       _error = null;
     });
     try {
-      final state = await _repository.load();
+      final state = await _repository.load().timeout(
+        const Duration(seconds: 12),
+      );
       if (!mounted) return;
       setState(() {
         _state = state;
         _loading = false;
       });
-    } catch (_) {
+    } on TimeoutException {
       if (!mounted) return;
       setState(() {
-        _error = 'No pudimos cargar la informacion.';
+        _state ??= PaymentReminderAdminState.fallback();
+        _error = 'La carga esta tardando mas de lo esperado.';
+        _loading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _state ??= PaymentReminderAdminState.fallback();
+        _error = _friendlyError(error);
         _loading = false;
       });
     }
@@ -1231,16 +1241,40 @@ class _Skeleton extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListView(
       padding: const EdgeInsets.all(16),
-      children: List.generate(
-        5,
-        (index) => Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: Container(
-            height: index == 0 ? 126 : 92,
-            decoration: mobileCardDecoration(color: MobileUi.surface),
+      children: [
+        _SectionCard(
+          child: Row(
+            children: [
+              const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(strokeWidth: 2.4),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Cargando configuracion de notificaciones...',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: MobileUi.textSecondary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
-      ),
+        const SizedBox(height: 12),
+        ...List.generate(
+          4,
+          (index) => Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Container(
+              height: index == 0 ? 126 : 92,
+              decoration: mobileCardDecoration(color: MobileUi.surface),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

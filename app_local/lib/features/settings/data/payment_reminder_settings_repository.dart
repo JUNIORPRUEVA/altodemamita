@@ -81,6 +81,101 @@ class PaymentReminderAdminState {
           .toList(growable: false),
     );
   }
+
+  factory PaymentReminderAdminState.fallback() {
+    const message =
+        'Te recordamos que tienes cuotas vencidas pendientes de pago.';
+    return PaymentReminderAdminState(
+      config: const PaymentReminderConfig(
+        notificationsEnabled: false,
+        effectiveEnabled: false,
+        senderWhatsAppNumber: '',
+        editableMessageFragment: message,
+        maxMessageFragmentLength: 250,
+        templateLocked: true,
+        activeTemplateName: 'recordatorio_cuotas_vencidas_profesional5',
+        testTemplateName: 'recordatorio_cuotas_vencidas_profesional5',
+        templateLanguage: 'es',
+      ),
+      system: const PaymentReminderSystemState(
+        deliveryGateEnabled: false,
+        emergencyStop: true,
+        dryRun: true,
+        testMode: true,
+        allowRealRecipients: false,
+        whatsappConfigured: false,
+        displayWhatsappConfigured: false,
+        whatsappPhoneNumberId: 'No cargado',
+        whatsappBusinessAccountId: 'No cargado',
+        schedule: PaymentReminderSchedule(
+          timezone: 'America/Santo_Domingo',
+          allowedDays: '1,2,3,4,5,6',
+          startHour: 9,
+          endHour: 17,
+        ),
+        runFrequency:
+            'Corre una vez al dia cuando el backend de recordatorios esta activo.',
+        retryPolicy:
+            'Si falla la carga, reintenta con el boton actualizar. Los envios fallidos quedan registrados en el servidor cuando el backend responde.',
+        recipientPolicy:
+            'El sistema envia solo a clientes con venta activa, cuotas vencidas y telefono WhatsApp valido. En modo prueba redirige a numeros autorizados.',
+        duplicatePolicy:
+            'El backend evita duplicar el mismo recordatorio para la misma venta, periodo y ultima cuota vencida.',
+        templatePolicy:
+            'WhatsApp solo permite plantillas aprobadas en Meta. Desde aqui se editan los valores administrables; cambiar el cuerpo fijo requiere aprobar otra plantilla.',
+      ),
+      template: PaymentReminderTemplateState(
+        locked: true,
+        editableFields: const [
+          PaymentReminderTemplateField(
+            key: 'editableMessageFragment',
+            label: 'Mensaje administrativo',
+            value: message,
+            editable: true,
+          ),
+          PaymentReminderTemplateField(
+            key: 'lotLabel',
+            label: 'Solar vendido',
+            value: 'Se calcula desde la venta',
+            editable: false,
+          ),
+          PaymentReminderTemplateField(
+            key: 'installmentDetails',
+            label: 'Cuotas vencidas, capital y mora',
+            value: 'Se calcula desde cuotas y pagos',
+            editable: false,
+          ),
+          PaymentReminderTemplateField(
+            key: 'totalDue',
+            label: 'Total pendiente',
+            value: 'Se calcula con la mora configurada en el backend',
+            editable: false,
+          ),
+        ],
+        preview:
+            'Hola Cliente.\n\n$message\n\nSolar: M8-S24\nCuotas vencidas: 2\nDetalle: cuota mayo 2026 RD\$8,415.14 + mora RD\$2,524.54\nTotal vencido: RD\$21,879.36',
+      ),
+      candidates: const PaymentReminderCandidateSummary(
+        totalSales: 0,
+        activeSales: 0,
+        overdueSales: 0,
+        withValidPhone: 0,
+        blockedWithoutPhone: 0,
+        totalOverdueInstallments: 0,
+        totalDue: '0.00',
+        preview: [],
+      ),
+      stats: const PaymentReminderStats(
+        sent: 0,
+        delivered: 0,
+        read: 0,
+        failed: 0,
+        pending: 0,
+        dryRun: 0,
+      ),
+      history: const [],
+    );
+  }
 }
 
 class PaymentReminderConfig {
