@@ -63,6 +63,7 @@ Widget _shell({
   String title = 'Sistema de Solares',
   bool showHomeHeader = false,
   bool hideAppBar = false,
+  bool? showInstallButton,
 }) {
   return MobileNavigationShell(
     title: title,
@@ -78,6 +79,7 @@ Widget _shell({
     onBack: onBack,
     showHomeHeader: showHomeHeader,
     hideAppBar: hideAppBar,
+    showInstallButton: showInstallButton,
     child: const Center(child: Text('CONTENIDO')),
   );
 }
@@ -237,6 +239,45 @@ void main() {
       await tester.pump();
 
       expect(backPressed, 1);
+    });
+
+    testWidgets('muestra boton instalar y guia iPhone en AppBar movil', (
+      tester,
+    ) async {
+      useTestSize(tester, TestViewSizes.iphone12);
+      await tester.pumpWidget(
+        testApp(_shell(selectedId: 'sales', showInstallButton: true)),
+      );
+
+      expect(find.text('Instalar'), findsOneWidget);
+
+      await tester.tap(find.text('Instalar'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Instalar en iPhone'), findsOneWidget);
+      expect(find.text('Abre esta página en Safari.'), findsOneWidget);
+      expect(
+        find.text('Elige “Agregar a pantalla de inicio”.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('muestra instalar en el header de Resumen movil', (
+      tester,
+    ) async {
+      useTestSize(tester, TestViewSizes.iphone12);
+      await tester.pumpWidget(
+        testApp(
+          _shell(
+            selectedId: 'dashboard',
+            showHomeHeader: true,
+            showInstallButton: true,
+          ),
+        ),
+      );
+
+      expect(find.text('Instalar'), findsOneWidget);
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('el titulo largo no desborda la AppBar en 320', (tester) async {

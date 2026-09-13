@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/responsive/app_breakpoints.dart';
+import 'pwa_install_state.dart';
 
 /// Entrada de navegación móvil (módulo del sistema).
 class MobileNavigationItem {
@@ -64,6 +65,7 @@ class MobileNavigationShell extends StatelessWidget {
     this.showHomeHeader = false,
     this.onOpenProfile,
     this.onSignOut,
+    this.showInstallButton,
   });
 
   /// Título mostrado en la AppBar.
@@ -100,6 +102,7 @@ class MobileNavigationShell extends StatelessWidget {
   final bool showHomeHeader;
   final Future<void> Function()? onOpenProfile;
   final Future<void> Function()? onSignOut;
+  final bool? showInstallButton;
 
   bool get _canPop => showBackButton ?? false;
 
@@ -109,6 +112,13 @@ class MobileNavigationShell extends StatelessWidget {
     final useCompactNavigation = AppBreakpoints.usesCompactNavigation(context);
     final hasDrawer = drawerSections.any((section) => section.items.isNotEmpty);
     final homeHeader = showHomeHeader && useCompactNavigation && !_canPop;
+    final showInstall =
+        useCompactNavigation &&
+        (showInstallButton ?? shouldShowPwaInstallButton());
+    final effectiveActions = <Widget>[
+      if (showInstall) const _InstallPwaButton(),
+      ...actions,
+    ];
 
     return Scaffold(
       resizeToAvoidBottomInset: resizeToAvoidBottomInset,
@@ -140,7 +150,7 @@ class MobileNavigationShell extends StatelessWidget {
                           ),
                         )
                       : null),
-              actions: actions,
+              actions: effectiveActions,
               bottom: bottom,
             ),
       body: SafeArea(
@@ -151,6 +161,7 @@ class MobileNavigationShell extends StatelessWidget {
                 children: [
                   _MobileHomeHeader(
                     companyName: companyName ?? title,
+                    showInstallButton: showInstall,
                     onOpenDrawer: hasDrawer
                         ? (headerContext) =>
                               Scaffold.of(headerContext).openDrawer()
@@ -514,12 +525,13 @@ class MobileBottomNavigationItem extends StatelessWidget {
 class _MobileHomeHeader extends StatelessWidget {
   const _MobileHomeHeader({
     required this.companyName,
+    required this.showInstallButton,
     required this.onOpenDrawer,
     required this.onOpenProfile,
   });
 
-
   final String companyName;
+  final bool showInstallButton;
   final void Function(BuildContext context)? onOpenDrawer;
   final Future<void> Function()? onOpenProfile;
 
@@ -557,6 +569,10 @@ class _MobileHomeHeader extends StatelessWidget {
                 ),
               ),
             ),
+            if (showInstallButton) ...[
+              const SizedBox(width: 8),
+              const _InstallPwaButton(compact: true),
+            ],
             IconButton(
               icon: const Icon(Icons.person_outline),
               tooltip: 'Mi cuenta',
@@ -564,6 +580,125 @@ class _MobileHomeHeader extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _InstallPwaButton extends StatelessWidget {
+  const _InstallPwaButton({this.compact = false});
+
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = Text(
+      'Instalar',
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        fontSize: compact ? 12 : 13,
+        fontWeight: FontWeight.w800,
+      ),
+    );
+
+    return Padding(
+      padding: EdgeInsets.only(right: compact ? 0 : 8),
+      child: FilledButton.icon(
+        style: FilledButton.styleFrom(
+          minimumSize: Size(compact ? 90 : 104, compact ? 34 : 38),
+          padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 13),
+          backgroundColor: const Color(0xFF123A5E),
+          foregroundColor: Colors.white,
+          visualDensity: VisualDensity.compact,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+        onPressed: () => _showInstallInstructions(context),
+        icon: Icon(Icons.ios_share_rounded, size: compact ? 17 : 18),
+        label: label,
+      ),
+    );
+  }
+
+  void _showInstallInstructions(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Instalar en iPhone'),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Para usar Sistema Solares como app en iPhone:',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            SizedBox(height: 14),
+            _InstallStep(number: '1', text: 'Abre esta página en Safari.'),
+            _InstallStep(
+              number: '2',
+              text: 'Toca el botón Compartir de Safari.',
+            ),
+            _InstallStep(
+              number: '3',
+              text: 'Elige “Agregar a pantalla de inicio”.',
+            ),
+            _InstallStep(
+              number: '4',
+              text: 'Toca “Agregar” y abre la app desde el icono creado.',
+            ),
+          ],
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Entendido'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InstallStep extends StatelessWidget {
+  const _InstallStep({required this.number, required this.text});
+
+  final String number;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 9),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 24,
+            height: 24,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: const Color(0xFFEAF2FA),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              number,
+              style: const TextStyle(
+                color: Color(0xFF123A5E),
+                fontWeight: FontWeight.w900,
+                fontSize: 12,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(fontSize: 13.5, height: 1.25),
+            ),
+          ),
+        ],
       ),
     );
   }
