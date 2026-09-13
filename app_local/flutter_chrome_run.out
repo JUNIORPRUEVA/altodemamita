@@ -1,0 +1,63 @@
+Launching lib\main.dart on Chrome in debug mode...
+Waiting for connection from debug service on Chrome...          
+Waiting for connection from debug service on Chrome...             13.7s
+
+Flutter run key commands.
+r Hot reload. 
+R Hot restart.
+h List all available interactive commands.
+d Detach (terminate "flutter run" but leave application running).
+c Clear the screen
+q Quit (terminate the application on the device).
+
+Debug service listening on ws://127.0.0.1:57829/Rp5eqwZhr-s=/ws
+A Dart VM Service on Chrome is available at: http://127.0.0.1:57829/Rp5eqwZhr-s=
+The Flutter DevTools debugger and profiler on Chrome is available at: http://127.0.0.1:57829/Rp5eqwZhr-s=/devtools/?uri=ws://127.0.0.1:57829/Rp5eqwZhr-s=/ws
+Starting application from main method in: org-dartlang-app:/web_entrypoint.dart.
+🧠 INIT DB...
+📁 DB PATH: /SistemaSolares/data/database/sistema_solares.db
+ CREANDO TABLAS...
+[LotRepair] started
+[LotRepair] already completed, skipping
+✅ DB ABIERTA: 1 /SistemaSolares/data/database/sistema_solares.db
+📦 TABLAS: [{name: cache_lista_snapshots}, {name: cache_ventas_lista}, {name: clientes}, {name: company_profiles}, {name: configuracion}, {name: configuracion_impresoras}, {name: conflict_logs}, {name: cuotas}, {name: informacion_backups}, {name: informacion_empresa}, {name: pagos}, {name: parametros_financieros}, {name: permisos}, {name: preferencias_backup}, {name: role_permissions}, {name: roles}, {name: sesiones_auth}, {name: solares}, {name: sqlite_sequence}, {name: sync_queue}, {name: user_roles}, {name: usuarios}, {name: vendedores}, {name: ventas}]
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+[CLIENT-DIAG][DB] path=/SistemaSolares/data/database/sistema_solares.db
+[CLIENT-DIAG][DB] counts={total: 0, active: null, deleted: null}
+[CLIENT-DIAG][DB] yosaira_rows=[]
+✅ INSERT OK
+Base de datos lista en 9328 ms.
+[Bootstrap] Iniciando arranque de la app...
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+[AuthDebug][bootstrap] db_path=/SistemaSolares/data/database/sistema_solares.db
+[AuthDebug][bootstrap] local_users_count=1
+[AuthDebug][bootstrap] user={id: 1, email: admin@sistema.local, username: admin, id_remote: null, remote_auth_id: null, active: true, deleted_at: null, password_hash_empty: false, password_hash_length: 96, sync_status: synced, auth_source: local, last_online_login_at: null}
+[device-id] source=generated value=04b2c06847b4ff2f77a0b2f0d9adfc0a
+[device-id] source=SharedPreferences value=04b2c06847b4ff2f77a0b2f0d9adfc0a
+[Bootstrap] Backend: alcanzable=false, inicializado=false
+[Bootstrap] cloudIsReady=false, localRequiresInitialSetup=true, effectiveRequiresInitialSetup=false
+[Bootstrap] Intentando restaurar sesion local...
+[Bootstrap] Sin sesion local. Intentando validar JWT con backend...
+[Bootstrap] Backend no disponible. Se requiere login.
+[system-config] remote config refresh skipped: FormatException: SyntaxError: Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+[LIFECYCLE] App resumed - performing startup backup if configured
+[LIFECYCLE] App paused/hidden - omitiendo backup de shutdown
+Error loading backup config: Unsupported operation: _Namespace
+[STARTUP_BACKUP] Iniciando backup automático en startup...
+Error loading backup config: Unsupported operation: _Namespace
+[BACKUP] ERROR FATAL: Unsupported operation: _Namespace
+[STARTUP_BACKUP] ERROR: La accion solicitada no pudo terminar en este momento.

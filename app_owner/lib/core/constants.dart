@@ -4,12 +4,18 @@
 ///   flutter run --dart-define=OWNER_API_BASE_URL=http://10.0.2.2:3000
 ///
 /// Producción:
-///   flutter run --dart-define=OWNER_API_BASE_URL=https://altomamita-backend.gcdndd.easypanel.host
+///   flutter build apk --release --dart-define=OWNER_API_BASE_URL=https://altomamita-backend.gcdndd.easypanel.host --dart-define=OWNER_ACCESS_TOKEN=TOKEN
 ///
 const String baseUrl = String.fromEnvironment(
   'OWNER_API_BASE_URL',
   defaultValue: 'https://altomamita-backend.gcdndd.easypanel.host',
 );
+const String ownerAccessToken = String.fromEnvironment('OWNER_ACCESS_TOKEN');
+const String ownerUserName = String.fromEnvironment(
+  'OWNER_USER_NAME',
+  defaultValue: 'Dueño',
+);
+const String ownerUserEmail = String.fromEnvironment('OWNER_USER_EMAIL');
 const String companyTenantKey = 'alto-dona-mamita-sistema-solares';
 const Duration ownerRefreshInterval = Duration(seconds: 20);
 

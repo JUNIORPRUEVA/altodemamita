@@ -8,7 +8,7 @@ import 'app/app_theme.dart';
 import 'core/constants.dart';
 import 'core/services/api_client.dart';
 import 'core/services/customer_session_store.dart';
-import 'features/auth/login_page.dart';
+import 'core/services/owner_snapshot_cache.dart';
 import 'widgets/error_view.dart';
 
 void main() {
@@ -51,7 +51,7 @@ class OwnerApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Sistema Solares Cliente',
+      title: 'Sistema Solares Owner',
       theme: appTheme,
       home: const _AuthenticatedOwnerRoot(),
     );
@@ -68,7 +68,9 @@ class _AuthenticatedOwnerRoot extends StatefulWidget {
 
 class _AuthenticatedOwnerRootState extends State<_AuthenticatedOwnerRoot> {
   final CustomerSessionStore _sessionStore = const CustomerSessionStore();
+  final OwnerSnapshotCache _snapshotCache = const OwnerSnapshotCache();
   AuthSession? _session;
+  Object? _sessionError;
   bool _loadingSession = true;
 
   @override
@@ -79,50 +81,73 @@ class _AuthenticatedOwnerRootState extends State<_AuthenticatedOwnerRoot> {
 
   Future<void> _restoreSession() async {
     final stored = await _sessionStore.read();
-    if (stored == null) {
-      if (mounted) setState(() => _loadingSession = false);
+    final configured = _configuredOwnerSession();
+    final candidate = stored ?? configured;
+    if (candidate == null) {
+      if (!mounted) return;
+      setState(() {
+        _session = null;
+        _sessionError = const OwnerSessionConfigurationException();
+        _loadingSession = false;
+      });
       return;
     }
+
     try {
-      final refreshed = await ApiClient(baseUrl).refresh(stored.accessToken);
+      final refreshed = await ApiClient(baseUrl).refresh(candidate.accessToken);
       await _sessionStore.write(refreshed);
       if (!mounted) return;
       setState(() {
         _session = refreshed;
+        _sessionError = null;
         _loadingSession = false;
       });
     } catch (error) {
-      if (_isAuthenticationFailure(error)) {
+      Object authError = error;
+      if (_isAuthenticationFailure(authError)) {
         await _sessionStore.clear();
-        if (!mounted) return;
-        setState(() => _loadingSession = false);
-        return;
+        if (configured != null &&
+            configured.accessToken != candidate.accessToken) {
+          try {
+            final refreshed = await ApiClient(
+              baseUrl,
+            ).refresh(configured.accessToken);
+            await _sessionStore.write(refreshed);
+            if (!mounted) return;
+            setState(() {
+              _session = refreshed;
+              _sessionError = null;
+              _loadingSession = false;
+            });
+            return;
+          } catch (configuredError) {
+            authError = configuredError;
+          }
+        }
+      }
+      if (candidate == configured) {
+        await _sessionStore.clear();
       }
       if (!mounted) return;
       setState(() {
-        _session = stored;
+        _session = _isAuthenticationFailure(authError) ? null : candidate;
+        _sessionError = _isAuthenticationFailure(authError) ? authError : null;
         _loadingSession = false;
       });
     }
   }
 
-  Future<void> _login(String email, String password) async {
-    final session = await ApiClient(
-      baseUrl,
-    ).login(email: email, password: password);
-    await ApiClient(
-      baseUrl,
-      accessToken: session.accessToken,
-    ).fetchDashboardSnapshot();
-    await _sessionStore.write(session);
-    if (!mounted) return;
-    setState(() => _session = session);
-  }
-
   Future<void> _logout() async {
     await _sessionStore.clear();
-    if (!mounted) return;
-    setState(() => _session = null);
+    await _snapshotCache.clear();
+    if (mounted) {
+      setState(() {
+        _session = null;
+        _sessionError = null;
+        _loadingSession = true;
+      });
+    }
+    await _restoreSession();
   }
 
   @override
@@ -132,13 +157,34 @@ class _AuthenticatedOwnerRootState extends State<_AuthenticatedOwnerRoot> {
     }
     final session = _session;
     if (session == null) {
-      return LoginPage(onLogin: _login);
+      return Scaffold(
+        body: ErrorView(error: _sessionError, onRetry: _restoreSession),
+      );
     }
     return AppShell(session: session, onLogout: _logout);
   }
 }
 
+AuthSession? _configuredOwnerSession() {
+  final token = ownerAccessToken.trim();
+  if (token.isEmpty) return null;
+  return AuthSession(
+    accessToken: token,
+    userName: ownerUserName.trim().isEmpty ? 'Dueño' : ownerUserName.trim(),
+    email: ownerUserEmail.trim(),
+  );
+}
+
 bool _isAuthenticationFailure(Object error) {
   final message = error.toString();
   return message.contains('HTTP 401') || message.contains('HTTP 403');
+}
+
+class OwnerSessionConfigurationException implements Exception {
+  const OwnerSessionConfigurationException();
+
+  @override
+  String toString() {
+    return 'OWNER_ACCESS_TOKEN no esta configurado para app_owner.';
+  }
 }

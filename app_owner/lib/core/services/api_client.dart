@@ -16,17 +16,6 @@ class ApiClient {
   final String baseUrl;
   final String? accessToken;
 
-  Future<AuthSession> login({
-    required String email,
-    required String password,
-  }) async {
-    final body = await _post('/auth/login', {
-      'email': email.trim(),
-      'password': password,
-    });
-    return AuthSession.fromResponse(body);
-  }
-
   Future<AuthSession> refresh(String token) async {
     final body = await _post('/auth/refresh', {'token': token});
     return AuthSession.fromResponse(body);
@@ -120,7 +109,7 @@ class ApiClient {
           .timeout(_ownerRequestTimeout);
       _setRequestHeaders(request);
       final response = await request.close().timeout(_ownerRequestTimeout);
-      return _decodeResponse(response, uri);
+      return await _decodeResponse(response, uri);
     } finally {
       if (client == null) {
         httpClient.close(force: true);
@@ -149,7 +138,7 @@ class ApiClient {
       request.headers.contentType = ContentType.json;
       request.write(jsonEncode(payload));
       final response = await request.close().timeout(_ownerRequestTimeout);
-      return _decodeResponse(response, uri);
+      return await _decodeResponse(response, uri);
     } finally {
       httpClient.close(force: true);
     }

@@ -1,20 +1,36 @@
 {
   "version": "0.2.0",
   "configurations": [
-    // ============================================================
-    // 🟢 DESARROLLO LOCAL (apunta a backend local)
-    // ============================================================
     {
-      "name": "App Local DEV",
+      "name": "App Local Web Chrome DEV",
       "request": "launch",
       "type": "dart",
       "cwd": "app_local",
+      "program": "lib/main.dart",
+      "flutterMode": "debug",
+      "deviceId": "chrome",
+      "toolArgs": [
+        "--dart-define=SYNC_API_BASE_URL=https://altomamita-backend.gcdndd.easypanel.host",
+        "--dart-define=CLOUD_CUTOVER_MODE=CLOUD_AUTHORITATIVE",
+        "--dart-define=ALLOW_CLOUD_PULL=true",
+        "--dart-define=ALLOW_LEGACY_MIGRATION=false",
+        "--dart-define=ALLOW_AUTH_BOOTSTRAP=false"
+      ]
+    },
+    {
+      "name": "App Local Windows DEV",
+      "request": "launch",
+      "type": "dart",
+      "cwd": "app_local",
+      "program": "lib/main.dart",
       "flutterMode": "debug",
       "deviceId": "windows",
-      "args": [
-        "-d",
-        "windows",
-        "--dart-define=SYNC_API_BASE_URL=http://localhost:3000"
+      "toolArgs": [
+        "--dart-define=SYNC_API_BASE_URL=https://altomamita-backend.gcdndd.easypanel.host",
+        "--dart-define=CLOUD_CUTOVER_MODE=CLOUD_AUTHORITATIVE",
+        "--dart-define=ALLOW_CLOUD_PULL=true",
+        "--dart-define=ALLOW_LEGACY_MIGRATION=false",
+        "--dart-define=ALLOW_AUTH_BOOTSTRAP=false"
       ]
     },
     {
@@ -22,12 +38,11 @@
       "request": "launch",
       "type": "dart",
       "cwd": "app_owner",
+      "program": "lib/main.dart",
       "flutterMode": "debug",
       "deviceId": "emulator",
-      "args": [
-        "-d",
-        "emulator",
-        "--dart-define=OWNER_API_BASE_URL=http://10.0.2.2:3000"
+      "toolArgs": [
+        "--dart-define=OWNER_API_BASE_URL=https://altomamita-backend.gcdndd.easypanel.host"
       ]
     },
     {
@@ -41,35 +56,6 @@
         "dev"
       ],
       "console": "integratedTerminal"
-    },
-    // ============================================================
-    // 🔴 PRODUCCIÓN (apunta a EasyPanel)
-    // ============================================================
-    {
-      "name": "App Local PROD",
-      "request": "launch",
-      "type": "dart",
-      "cwd": "app_local",
-      "flutterMode": "release",
-      "deviceId": "windows",
-      "args": [
-        "-d",
-        "windows",
-        "--dart-define=SYNC_API_BASE_URL=https://altodemanita-altodemamita-backent.onqyr1.easypanel.host"
-      ]
-    },
-    {
-      "name": "App Owner PROD",
-      "request": "launch",
-      "type": "dart",
-      "cwd": "app_owner",
-      "flutterMode": "release",
-      "deviceId": "emulator",
-      "args": [
-        "-d",
-        "emulator",
-        "--dart-define=OWNER_API_BASE_URL=https://altodemanita-altodemamita-backent.onqyr1.easypanel.host"
-      ]
     }
   ]
 }

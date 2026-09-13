@@ -40,6 +40,24 @@ class OwnerSnapshotCache {
     }
   }
 
+  /// Removes the cached snapshot from the device.
+  ///
+  /// Required on logout and before a different customer signs in: the cache is
+  /// not authoritative and must never surface a previous customer's business
+  /// data to another session on the same device.
+  Future<void> clear() async {
+    try {
+      final file = await _file();
+      if (await file.exists()) {
+        await file.delete();
+      }
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint('[OwnerCache] clear failed: $error');
+      }
+    }
+  }
+
   Future<File> _file() async {
     final directory = await getApplicationSupportDirectory();
     return File('${directory.path}${Platform.pathSeparator}$_fileName');

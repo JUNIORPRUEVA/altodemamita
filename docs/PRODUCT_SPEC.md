@@ -112,4 +112,6 @@ After cloud cutover, local backup is not the primary business backup.
 
 ## Owner App
 
-`app_owner` is a Flutter owner-facing app. It consumes backend APIs and keeps an owner snapshot cache for faster loading. The owner cache is not authoritative business storage.
+`app_owner` is the owner's mobile app for Android APK and iPhone builds. It must open directly to `Resumen`; it must not expose a visible login screen, email field, or password field. The app consumes backend APIs through a configured/stored owner session and keeps an owner snapshot cache for faster loading. The owner cache is not authoritative business storage.
+
+`app_local` is the Windows administrative app. Do not modify `app_local` for owner mobile experience changes unless a later approved phase explicitly requests it.

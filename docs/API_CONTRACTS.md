@@ -29,9 +29,9 @@ Existing endpoints:
 - `POST /auth/refresh`
 - `GET /auth/me`
 
-CURRENT AUTH CONTRACT MISMATCH:
+CURRENT AUTH CONTRACT: `POST /auth/refresh` IS implemented (`{ token }` in body or bearer header) and returns a new `accessToken`. `app_local` and `app_owner` both consume it. Do not document a refresh-token rotation scheme: the endpoint re-signs a token for the same active user.
 
-The local app attempts `/auth/refresh`, but the current backend route definitions do not define `POST /auth/refresh`. Do not invent or assume a refresh-token implementation in documentation or code until an approved implementation phase adds it.
+`app_owner` mobile must not expose `POST /auth/login` through visible UI. It opens directly to `Resumen` using a configured/stored owner session; no email or password fields are part of the owner mobile experience.
 
 Missing target APIs:
 
@@ -39,6 +39,32 @@ Missing target APIs:
 - Roles management: FOUNDATION IMPLEMENTED
 - Permissions management: FOUNDATION IMPLEMENTED
 - Password reset policy compatible with local metadata: NOT IMPLEMENTED / REQUIRED
+
+## Customer API (app_owner mobile)
+
+Mounted at `/api/customer` (auth required; `authGuard` on every route). Exposed routes:
+
+- `GET /customer/me`
+- `GET /customer/snapshot`
+- `GET /customer/project`
+- `GET /customer/sale`
+- `GET /customer/installments`
+- `GET /customer/payments`
+- `GET /customer/lots/:lotId`
+- `GET /customer/sales/:saleId`
+- `GET /customer/installments/:installmentId`
+- `GET /customer/payments/:paymentId`
+
+Identity and isolation rules (IMPLEMENTED, server-side):
+
+- The customer/owner is resolved exclusively from the authenticated backend `User` record, never from a `clientId`/`clientSyncId` sent by the mobile client.
+- Linkage metadata is `User.raw.customerClientSyncId` (also accepted: `raw.clientSyncId`, `raw.client_sync_id`, `raw.customer_client_sync_id`, `raw.customer.clientSyncId`, `raw.customer.syncId`), or `User.authSource` in (`customer`, `client`, `app_owner_customer`) combined with `User.remoteAuthId`.
+- Without linkage the API fails closed: `CUSTOMER_LINK_REQUIRED` / `CUSTOMER_NOT_FOUND`. Anonymous calls return `401`.
+- Every snapshot/list/detail query is scoped by `companyId` + the resolved client (`clientId` or `clientSyncId`), so one customer can never read another customer's sales, lots, installments or payments.
+- The mobile app only stores a JWT session and a non-authoritative snapshot cache; both are cleared on logout and before a new session starts.
+
+PRODUCTION READINESS BLOCKER (as of 2026-09-10): production `altomamita` has 6 active users and **0** with customer linkage metadata, so no customer account can currently load `/api/customer/*`. Provisioning a linked customer user is a data mutation and requires explicit approval; do not automate it.
+
 
 ## Current Sync
 

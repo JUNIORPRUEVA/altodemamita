@@ -2,6 +2,10 @@ import 'dart:async';
 import 'dart:io';
 
 String friendlyErrorMessage(Object? error) {
+  if (error.toString().contains('OWNER_ACCESS_TOKEN')) {
+    return 'La app Owner no tiene configurada la sesion del dueño.';
+  }
+
   if (error is SocketException || error is TimeoutException) {
     return 'La actualización tardó más de lo esperado. Puedes seguir usando la información disponible.';
   }

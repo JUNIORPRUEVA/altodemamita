@@ -67,3 +67,11 @@ Recommended mutable root:
 Status: Accepted.
 
 Do not automatically upload a production customer DB on application startup. Production migration must be controlled, explicit, verified, and reversible.
+
+## ADR-011 Owner Mobile Opens To Resumen
+
+Status: Accepted.
+
+`app_owner` is the owner's mobile app for Android APK and iPhone builds. It must open directly to `Resumen` through a configured/stored owner session and must not expose visible login, email, or password UI.
+
+`app_local` remains the Windows administrative app and must not be changed for owner mobile UX requirements unless explicitly approved.

@@ -7,5 +7,13 @@
   },
   "search.exclude": {
     "sistema_solares_ui/**": true
-  }
+  },
+  "dart.flutterRunAdditionalArgs": [
+    "--dart-define=SYNC_API_BASE_URL=https://altomamita-backend.gcdndd.easypanel.host",
+    "--dart-define=CLOUD_CUTOVER_MODE=CLOUD_AUTHORITATIVE",
+    "--dart-define=ALLOW_CLOUD_PULL=true",
+    "--dart-define=ALLOW_LEGACY_MIGRATION=false",
+    "--dart-define=ALLOW_AUTH_BOOTSTRAP=false"
+  ],
+  "cmake.sourceDirectory": "C:/Users/pc/DEV/PROYECTOS/CLIENTES/SISTEMA_SOLARES/app_local/windows"
 }

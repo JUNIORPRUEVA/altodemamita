@@ -93,6 +93,11 @@ Known target cloud gaps:
 
 ## Source Boundaries
 
+Product app boundaries:
+
+- `app_local`: Windows administrative app. Do not touch for owner mobile UX changes unless explicitly approved.
+- `app_owner`: owner's mobile app for Android APK and iPhone builds. It opens directly to `Resumen` using a configured/stored owner session and must not expose visible email/password login UI.
+
 Current local source files:
 
 - `app_local/lib/core/database/app_database.dart`
