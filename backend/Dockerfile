@@ -22,4 +22,4 @@ COPY --from=build /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/dist ./dist
 EXPOSE 3000
-CMD ["sh", "-c", "node dist/server.js 2>&1 | tee /tmp/backend-start.log; sleep 3600"]
+CMD ["node", "dist/server.js"]
