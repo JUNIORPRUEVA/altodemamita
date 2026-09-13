@@ -542,6 +542,35 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
   @override
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.sizeOf(context);
+    final isCompact = screenSize.width < 700;
+    if (isCompact) {
+      return Dialog.fullscreen(
+        child: Scaffold(
+          backgroundColor: Theme.of(context).colorScheme.surface,
+          appBar: AppBar(
+            title: Text(widget.dialogTitle),
+            leading: IconButton(
+              tooltip: 'Cerrar',
+              icon: const Icon(Icons.close_rounded),
+              onPressed: _isSubmitting ? null : _handleCancel,
+            ),
+          ),
+          body: Column(
+            children: [
+              if (_submitError != null) _buildSubmitErrorBanner(),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+                  child: _buildForm(),
+                ),
+              ),
+              SafeArea(top: false, child: _buildDialogFooter(compact: true)),
+            ],
+          ),
+        ),
+      );
+    }
+
     final dialogWidth = math.min(screenSize.width - 20, 1220.0);
     final dialogHeight = math.min(screenSize.height - 16, 820.0);
 
@@ -738,7 +767,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
     );
   }
 
-  Widget _buildDialogFooter() {
+  Widget _buildDialogFooter({bool compact = false}) {
     final theme = Theme.of(context);
     final pendingFields = <String>[
       if (_selectedClientId == null) 'cliente',
@@ -762,10 +791,12 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
     }
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 10, 18, 12),
+      padding: compact
+          ? const EdgeInsets.fromLTRB(12, 8, 12, 10)
+          : const EdgeInsets.fromLTRB(18, 10, 18, 12),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final stacked = constraints.maxWidth < 760;
+          final stacked = compact || constraints.maxWidth < 760;
           final actionButtons = Wrap(
             spacing: 10,
             runSpacing: 10,
@@ -1012,10 +1043,14 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
   }
 
   Widget _buildSaleTermsBand() {
-    final compactFieldWidth = math.max(
-      118.0,
-      (MediaQuery.sizeOf(context).width - 440) / 6,
-    );
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final compactLayout = screenWidth < 700;
+    final compactWidth = math.max(280.0, screenWidth - 24);
+    final compactFieldWidth = math.max(118.0, (screenWidth - 440) / 6);
+    final dateFieldWidth = compactLayout ? compactWidth : 150.0;
+    final moneyFieldWidth = compactLayout ? compactWidth : 190.0;
+    final percentFieldWidth = compactLayout ? compactWidth : compactFieldWidth;
+    final installmentFieldWidth = compactLayout ? compactWidth : 340.0;
 
     return Wrap(
       spacing: 10,
@@ -1023,7 +1058,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         SizedBox(
-          width: 150,
+          width: dateFieldWidth,
           child: TextFormField(
             controller: _saleDateController,
             readOnly: true,
@@ -1037,7 +1072,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
           ),
         ),
         SizedBox(
-          width: 190,
+          width: moneyFieldWidth,
           child: TextFormField(
             controller: _lotPriceController,
             readOnly: true,
@@ -1055,7 +1090,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
           ),
         ),
         SizedBox(
-          width: compactFieldWidth,
+          width: percentFieldWidth,
           child: TextFormField(
             controller: _downPaymentController,
             readOnly: true,
@@ -1070,7 +1105,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
           ),
         ),
         SizedBox(
-          width: compactFieldWidth,
+          width: percentFieldWidth,
           child: TextFormField(
             controller: _monthlyInterestController,
             readOnly: true,
@@ -1085,7 +1120,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
           ),
         ),
         SizedBox(
-          width: 340,
+          width: installmentFieldWidth,
           child: _InstallmentCountInput(
             useDirectCount: _useDirectInstallmentCount,
             directCountController: _installmentCountController,
@@ -1120,12 +1155,19 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
   }
 
   Widget _buildInitialPaymentBand() {
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final compactLayout = screenWidth < 700;
+    final compactWidth = math.max(280.0, screenWidth - 24);
+    final narrowFieldWidth = compactLayout ? compactWidth : 165.0;
+    final regularFieldWidth = compactLayout ? compactWidth : 190.0;
+    final typeSelectorWidth = compactLayout ? compactWidth : 250.0;
+
     return Wrap(
       spacing: 10,
       runSpacing: 10,
       children: [
         SizedBox(
-          width: 165,
+          width: narrowFieldWidth,
           child: TextFormField(
             key: ValueKey(
               'required-initial-${_requiredInitialPayment.toStringAsFixed(2)}',
@@ -1139,7 +1181,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
           ),
         ),
         SizedBox(
-          width: 165,
+          width: narrowFieldWidth,
           child: TextFormField(
             controller: _initialPaidController,
             decoration: const InputDecoration(
@@ -1171,7 +1213,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
           ),
         ),
         SizedBox(
-          width: 165,
+          width: narrowFieldWidth,
           child: TextFormField(
             key: ValueKey(
               'pending-initial-${_pendingInitialPayment.toStringAsFixed(2)}',
@@ -1184,9 +1226,12 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
             ),
           ),
         ),
-        _buildInitialPaymentTypeSelector(),
         SizedBox(
-          width: 190,
+          width: typeSelectorWidth,
+          child: _buildInitialPaymentTypeSelector(),
+        ),
+        SizedBox(
+          width: regularFieldWidth,
           child: DropdownButtonFormField<String>(
             isExpanded: true,
             initialValue: _selectedInitialPaymentMethod,
@@ -1215,7 +1260,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
           ),
         ),
         SizedBox(
-          width: 190,
+          width: regularFieldWidth,
           child: TextFormField(
             controller: _initialDeadlineController,
             readOnly: true,
@@ -1350,12 +1395,18 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
   }
 
   Widget _buildCashPaymentBand() {
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final compactLayout = screenWidth < 700;
+    final fieldWidth = compactLayout
+        ? math.max(280.0, screenWidth - 24)
+        : 190.0;
+
     return Wrap(
       spacing: 10,
       runSpacing: 10,
       children: [
         SizedBox(
-          width: 190,
+          width: fieldWidth,
           child: TextFormField(
             key: ValueKey('cash-price-${_salePrice.toStringAsFixed(2)}'),
             initialValue: _formatCurrencyInput(_salePrice),
@@ -1367,7 +1418,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
           ),
         ),
         SizedBox(
-          width: 190,
+          width: fieldWidth,
           child: TextFormField(
             key: ValueKey('cash-paid-${_salePrice.toStringAsFixed(2)}'),
             initialValue: _formatCurrencyInput(_salePrice),
@@ -1385,7 +1436,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
           ),
         ),
         SizedBox(
-          width: 190,
+          width: fieldWidth,
           child: DropdownButtonFormField<String>(
             isExpanded: true,
             initialValue: _selectedInitialPaymentMethod,
@@ -1419,7 +1470,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
     final theme = Theme.of(context);
 
     return SizedBox(
-      width: 250,
+      width: double.infinity,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,

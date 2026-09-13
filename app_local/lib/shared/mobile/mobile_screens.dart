@@ -68,7 +68,8 @@ class MobileSearchRow extends StatelessWidget {
                         size: 20,
                         color: Color(0xFF5B6B80),
                       ),
-                      onPressed: () => onSubmitted?.call(controller.text.trim()),
+                      onPressed: () =>
+                          onSubmitted?.call(controller.text.trim()),
                     ),
                     prefixIconConstraints: const BoxConstraints(
                       minWidth: 38,
@@ -223,12 +224,7 @@ class _MobileModuleListViewState<T> extends State<MobileModuleListView<T>> {
         children: [
           Container(
             color: MobileUi.surface,
-            padding: const EdgeInsets.fromLTRB(
-              10,
-              8,
-              10,
-              8,
-            ),
+            padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
             child: Builder(
               builder: (buttonContext) => MobileSearchRow(
                 controller: _searchController,
@@ -252,7 +248,11 @@ class _MobileModuleListViewState<T> extends State<MobileModuleListView<T>> {
                 ),
                 child: Row(
                   children: [
-                    for (var index = 0; index < widget.chips.length; index++) ...[
+                    for (
+                      var index = 0;
+                      index < widget.chips.length;
+                      index++
+                    ) ...[
                       if (index > 0) const SizedBox(width: 8),
                       widget.chips[index],
                     ],
@@ -364,15 +364,9 @@ class MobileDetailScaffold extends StatelessWidget {
           ),
         ),
         iconTheme: const IconThemeData(color: MobileUi.textPrimary),
-        actions: [
-          ?menu,
-          const SizedBox(width: 4),
-        ],
+        actions: [?menu, const SizedBox(width: 4)],
       ),
-      body: ListView(
-        padding: padding,
-        children: children,
-      ),
+      body: ListView(padding: padding, children: children),
     );
   }
 }
@@ -387,10 +381,7 @@ class MobileSectionTitle extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(2, 0, 2, 8),
-      child: Text(
-        title.toUpperCase(),
-        style: MobileUi.sectionTitle,
-      ),
+      child: Text(title.toUpperCase(), style: MobileUi.sectionTitle),
     );
   }
 }
@@ -675,10 +666,7 @@ class MobileDetailErrorView extends StatelessWidget {
             Text(
               message,
               textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 13.5,
-                color: Color(0xFF667085),
-              ),
+              style: const TextStyle(fontSize: 13.5, color: Color(0xFF667085)),
             ),
             if (onRetry != null) ...[
               const SizedBox(height: 20),
@@ -688,7 +676,7 @@ class MobileDetailErrorView extends StatelessWidget {
                   backgroundColor: MobileUi.primary,
                   minimumSize: const Size(160, 46),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(MobileUi.radiusField),
                   ),
                 ),
                 child: const Text('Reintentar'),

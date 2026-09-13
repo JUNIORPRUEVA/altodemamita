@@ -92,7 +92,7 @@ class GlobalSearchMobileView extends StatelessWidget {
         children: [
           DecoratedBox(
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(MobileUi.radiusField),
               boxShadow: [
                 BoxShadow(
                   color: MobileUi.primary.withValues(alpha: 0.08),
@@ -160,15 +160,21 @@ class GlobalSearchMobileView extends StatelessWidget {
                         vertical: 14,
                       ),
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(
+                          MobileUi.radiusField,
+                        ),
                         borderSide: const BorderSide(color: Color(0xFFD8DFE9)),
                       ),
                       enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(
+                          MobileUi.radiusField,
+                        ),
                         borderSide: const BorderSide(color: Color(0xFFD8DFE9)),
                       ),
                       focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(
+                          MobileUi.radiusField,
+                        ),
                         borderSide: const BorderSide(
                           color: MobileUi.primary,
                           width: 1.6,

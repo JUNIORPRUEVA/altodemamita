@@ -72,13 +72,15 @@ class _SalesPageState extends State<SalesPage> {
   bool get _usesDetailPage =>
       kIsWeb || AppBreakpoints.usesCompactNavigation(context);
 
-  bool get _canUpdateSales => context
-      .read<AuthProvider>()
-      .canAccess(PermissionCatalog.sales, PermissionAction.update);
+  bool get _canUpdateSales => context.read<AuthProvider>().canAccess(
+    PermissionCatalog.sales,
+    PermissionAction.update,
+  );
 
-  bool get _canDeleteSales => context
-      .read<AuthProvider>()
-      .canAccess(PermissionCatalog.sales, PermissionAction.delete);
+  bool get _canDeleteSales => context.read<AuthProvider>().canAccess(
+    PermissionCatalog.sales,
+    PermissionAction.delete,
+  );
 
   Future<void> _reloadControllerSafely() async {
     if (!mounted || _controller.isDisposed) {
@@ -1274,7 +1276,7 @@ class _SaleMobileCard extends StatelessWidget {
       color: Colors.white,
       elevation: 0,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(MobileUi.radiusCard),
         side: const BorderSide(color: Color(0xFFE2E8F0)),
       ),
       clipBehavior: Clip.antiAlias,

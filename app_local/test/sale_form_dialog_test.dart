@@ -373,6 +373,71 @@ void main() {
     },
   );
 
+  testWidgets('en movil usa pantalla completa y campos de una columna', (
+    tester,
+  ) async {
+    final now = DateTime(2026, 3, 26);
+
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      _buildTestApp(
+        SaleFormDialog(
+          clients: [
+            Client(
+              id: 1,
+              fullName: 'Maria Gomez',
+              documentId: '001-1234567-8',
+              phone: '8095550199',
+              address: 'Calle 1',
+              createdAt: now,
+              updatedAt: now,
+            ),
+          ],
+          availableLots: [
+            _testLot(
+              id: 1,
+              blockNumber: 'A',
+              lotNumber: '10',
+              area: 180,
+              totalPrice: 850000,
+              now: now,
+            ),
+          ],
+          defaults: const SaleDefaults(
+            downPaymentPercentage: 10,
+            monthlyInterest: 1,
+            installmentCount: 12,
+          ),
+          clientRepository: clientRepository,
+          lotRepository: lotRepository,
+          sellers: const [],
+          sellerRepository: sellerRepository,
+        ),
+      ),
+    );
+    await _settle(tester);
+
+    expect(find.byType(AppBar), findsOneWidget);
+    expect(find.text('Nueva venta'), findsOneWidget);
+    expect(find.text('Inicial real pagado'), findsOneWidget);
+
+    final initialPaidSize = tester.getSize(
+      _searchableField('Inicial real pagado'),
+    );
+    expect(
+      initialPaidSize.width,
+      greaterThanOrEqualTo(330),
+      reason: 'En movil el formulario de ventas debe ser de una columna.',
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'calcula la fecha limite 25 dias despues y la limpia al completar el inicial',
     (tester) async {

@@ -35,7 +35,7 @@ class MobileUi {
   static const double rowGap = 8;
 
   // ── Radios ──
-  static const double radiusCard = 12;
+  static const double radiusCard = 8;
   static const double radiusField = 8;
 
   // ── Tipografía ──
@@ -221,10 +221,7 @@ class MobileEntityRow extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              if (leading != null) ...[
-                leading!,
-                const SizedBox(width: 12),
-              ],
+              if (leading != null) ...[leading!, const SizedBox(width: 12)],
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -257,10 +254,7 @@ class MobileEntityRow extends StatelessWidget {
                   ],
                 ),
               ),
-              if (trailing != null) ...[
-                const SizedBox(width: 8),
-                trailing!,
-              ],
+              if (trailing != null) ...[const SizedBox(width: 8), trailing!],
               if (menu != null)
                 menu!
               else if (onTap != null)
@@ -370,11 +364,7 @@ class MobileEmptyState extends StatelessWidget {
                   color: theme.colorScheme.primaryContainer,
                   borderRadius: BorderRadius.circular(22),
                 ),
-                child: Icon(
-                  icon,
-                  size: 34,
-                  color: theme.colorScheme.primary,
-                ),
+                child: Icon(icon, size: 34, color: theme.colorScheme.primary),
               ),
               const SizedBox(height: 18),
               Text(
