@@ -146,13 +146,39 @@
 
       function showUpdateBanner() {
         if (updateBanner) {
-          updateBanner.classList.add('visible');
+          updateBanner.classList.remove('visible');
         }
       }
 
       if (updateButton) {
         updateButton.addEventListener('click', function () {
-          window.location.reload();
+          if (!('serviceWorker' in navigator)) {
+            window.location.reload();
+            return;
+          }
+
+          navigator.serviceWorker.ready.then(function (registration) {
+            if (registration.waiting) {
+              var refreshed = false;
+              navigator.serviceWorker.addEventListener('controllerchange', function () {
+                if (refreshed) {
+                  return;
+                }
+                refreshed = true;
+                window.location.reload();
+              });
+              registration.waiting.postMessage('skipWaiting');
+              window.setTimeout(function () {
+                if (!refreshed) {
+                  window.location.reload();
+                }
+              }, 1200);
+              return;
+            }
+            window.location.reload();
+          }).catch(function () {
+            window.location.reload();
+          });
         });
       }
 
