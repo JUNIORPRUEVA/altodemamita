@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { config } from '../config';
 import { prisma } from '../prisma';
+import { LateFeeCalculationService, LateFeeSummary } from './lateFeeCalculation.service';
 import { paymentReminderWindowDescription } from './paymentReminderWindow.service';
 import { normalizeWhatsappPhone } from './whatsapp.service';
 
@@ -11,9 +12,11 @@ export const PAYMENT_REMINDER_CONFIG_KEYS = {
 } as const;
 
 const defaultMessageFragment = 'Te recordamos que tienes cuotas vencidas pendientes de pago.';
+const terminalSaleStatuses = new Set(['pagada', 'cancelada', 'anulada', 'cerrada', 'saldada']);
+const candidatePreviewLimit = 8;
 
 export async function getPaymentReminderAdminState(companyId: string) {
-  const [items, lastNotification, statsRows, deliveries] = await Promise.all([
+  const [items, lastNotification, statsRows, deliveries, candidates] = await Promise.all([
     configurationMap(companyId),
     prisma.paymentReminderNotification.findFirst({
       where: { companyId },
@@ -30,6 +33,7 @@ export async function getPaymentReminderAdminState(companyId: string) {
       orderBy: { createdAt: 'desc' },
       take: 30,
     }),
+    summarizeReminderCandidates(companyId),
   ]);
 
   const clientNames = await namesByClientSyncId(
@@ -49,6 +53,9 @@ export async function getPaymentReminderAdminState(companyId: string) {
       editableMessageFragment: messageFragment,
       maxMessageFragmentLength: 250,
       templateLocked: true,
+      activeTemplateName: config.whatsappPaymentTemplate,
+      testTemplateName: config.whatsappPaymentTestTemplate,
+      templateLanguage: config.whatsappTemplateLanguage,
     },
     system: {
       deliveryGateEnabled: config.paymentRemindersEnabled,
@@ -56,10 +63,24 @@ export async function getPaymentReminderAdminState(companyId: string) {
       dryRun: config.paymentRemindersDryRun,
       testMode: config.paymentRemindersTestMode,
       allowRealRecipients: config.paymentRemindersAllowRealRecipients,
-      whatsappConfigured: config.whatsappPhoneNumberId.trim().length > 0 || senderWhatsappNumber.trim().length > 0,
+      whatsappConfigured: config.whatsappPhoneNumberId.trim().length > 0,
+      displayWhatsappConfigured: senderWhatsappNumber.trim().length > 0,
+      whatsappPhoneNumberId: config.whatsappPhoneNumberId,
+      whatsappBusinessAccountId: config.whatsappBusinessAccountId,
       schedule: paymentReminderWindowDescription(),
+      runFrequency: describeRunFrequency(),
+      retryPolicy: 'El trabajo automatico corre una vez al dia. Si un envio falla, queda registrado como FAILED; puede reintentarse en una corrida futura o con envio manual forzado, sin duplicar el mismo periodo/cuota ya reservado.',
+      recipientPolicy: recipientPolicyDescription(),
+      duplicatePolicy: 'Para una misma venta, tipo de recordatorio y ultima cuota vencida, el sistema reserva una sola notificacion. Asi evita mandar el mismo recordatorio repetido por reintentos.',
+      templatePolicy: 'WhatsApp solo permite enviar plantillas aprobadas en Meta. Desde aqui se editan los valores administrables y la vista previa; cambiar el cuerpo fijo requiere aprobar otra plantilla en Meta.',
       nextRun: null,
     },
+    template: {
+      locked: true,
+      editableFields: templateEditableFields(messageFragment),
+      preview: buildAdminPreview(messageFragment),
+    },
+    candidates,
     lastRun: lastNotification
       ? {
           id: lastNotification.id,
@@ -120,6 +141,187 @@ export async function isPaymentReminderEnabledForCompany(companyId: string) {
 
 function effectiveReminderEnabled(requestedEnabled: boolean) {
   return requestedEnabled && config.paymentRemindersEnabled && !config.paymentRemindersEmergencyStop;
+}
+
+async function summarizeReminderCandidates(companyId: string) {
+  const calculator = new LateFeeCalculationService({
+    dailyRate: config.lateFeeDailyRate,
+    timezone: config.paymentReminderTimezone,
+  });
+  const sales = await prisma.sale.findMany({
+    where: { companyId, deletedAt: null },
+    select: { id: true, syncId: true, status: true, clientSyncId: true, lotSyncId: true },
+  });
+  const activeSales = sales.filter((sale) => !terminalSaleStatuses.has(String(sale.status ?? '').trim().toLowerCase()));
+  const saleSyncIds = activeSales.map((sale) => sale.syncId);
+  if (saleSyncIds.length === 0) {
+    return emptyCandidateSummary(sales.length);
+  }
+
+  const [clients, lots, installments, payments] = await Promise.all([
+    prisma.client.findMany({
+      where: {
+        companyId,
+        syncId: { in: activeSales.map((sale) => sale.clientSyncId).filter((value): value is string => Boolean(value)) },
+        deletedAt: null,
+      },
+      select: { id: true, syncId: true, name: true, phone: true },
+    }),
+    prisma.lot.findMany({
+      where: {
+        companyId,
+        syncId: { in: activeSales.map((sale) => sale.lotSyncId).filter((value): value is string => Boolean(value)) },
+        deletedAt: null,
+      },
+      select: { syncId: true, block: true, number: true },
+    }),
+    prisma.installment.findMany({
+      where: { companyId, saleSyncId: { in: saleSyncIds }, deletedAt: null },
+      orderBy: [{ dueDate: 'asc' }, { installmentNumber: 'asc' }],
+    }),
+    prisma.payment.findMany({
+      where: { companyId, saleSyncId: { in: saleSyncIds }, deletedAt: null },
+      orderBy: { paidAt: 'asc' },
+    }),
+  ]);
+
+  const clientsBySyncId = new Map(clients.map((client) => [client.syncId, client]));
+  const lotsBySyncId = new Map(lots.map((lot) => [lot.syncId, lot]));
+  const installmentsBySale = groupBy(installments, (item) => item.saleSyncId ?? '');
+  const paymentsBySale = groupBy(payments, (item) => item.saleSyncId ?? '');
+  const preview: Array<{
+    saleSyncId: string;
+    clientName: string;
+    phoneMasked: string;
+    lotLabel: string;
+    overdueInstallments: number;
+    totalDue: string;
+    status: string;
+  }> = [];
+  let overdueSales = 0;
+  let withValidPhone = 0;
+  let blockedWithoutPhone = 0;
+  let totalOverdueInstallments = 0;
+  let totalDue = new Prisma.Decimal(0);
+
+  for (const sale of activeSales) {
+    const client = sale.clientSyncId ? clientsBySyncId.get(sale.clientSyncId) : null;
+    const lot = sale.lotSyncId ? lotsBySyncId.get(sale.lotSyncId) : null;
+    const summary = calculator.calculateSaleSummary({
+      context: {
+        companyId,
+        clienteId: client?.id ?? null,
+        clientSyncId: sale.clientSyncId,
+        clienteNombre: client?.name ?? null,
+        clienteTelefono: client?.phone ?? null,
+        ventaId: sale.id,
+        saleSyncId: sale.syncId,
+        lotLabel: lot ? lotDisplay(lot) : null,
+      },
+      installments: installmentsBySale.get(sale.syncId) ?? [],
+      payments: paymentsBySale.get(sale.syncId) ?? [],
+    });
+    if (summary.cantidadCuotasVencidas <= 0 || !summary.ultimaCuotaVencidaSyncId) continue;
+    overdueSales += 1;
+    totalOverdueInstallments += summary.cantidadCuotasVencidas;
+    totalDue = totalDue.plus(summary.totalGeneral);
+    const normalizedPhone = normalizeWhatsappPhone(client?.phone ?? '');
+    if (normalizedPhone) {
+      withValidPhone += 1;
+    } else {
+      blockedWithoutPhone += 1;
+    }
+    preview.push(candidateDto(summary, client?.name, lot ? lotDisplay(lot) : null, normalizedPhone));
+  }
+
+  preview.sort((a, b) => Number(b.totalDue) - Number(a.totalDue));
+  return {
+    totalSales: sales.length,
+    activeSales: activeSales.length,
+    overdueSales,
+    withValidPhone,
+    blockedWithoutPhone,
+    totalOverdueInstallments,
+    totalDue: totalDue.toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP).toFixed(2),
+    preview: preview.slice(0, candidatePreviewLimit),
+  };
+}
+
+function emptyCandidateSummary(totalSales: number) {
+  return {
+    totalSales,
+    activeSales: 0,
+    overdueSales: 0,
+    withValidPhone: 0,
+    blockedWithoutPhone: 0,
+    totalOverdueInstallments: 0,
+    totalDue: '0.00',
+    preview: [],
+  };
+}
+
+function candidateDto(
+  summary: LateFeeSummary,
+  clientName?: string | null,
+  lotLabel?: string | null,
+  normalizedPhone?: string | null,
+) {
+  return {
+    saleSyncId: summary.ventaSyncId,
+    clientName: clientName?.trim() || 'Cliente',
+    phoneMasked: normalizedPhone ? maskPhone(normalizedPhone) : 'Sin WhatsApp valido',
+    lotLabel: lotLabel ?? 'Solar no especificado',
+    overdueInstallments: summary.cantidadCuotasVencidas,
+    totalDue: summary.totalGeneral,
+    status: normalizedPhone ? 'READY' : 'BLOCKED_PHONE',
+  };
+}
+
+function groupBy<T>(items: T[], keyFor: (item: T) => string) {
+  const grouped = new Map<string, T[]>();
+  for (const item of items) {
+    const key = keyFor(item);
+    if (!key) continue;
+    grouped.set(key, [...(grouped.get(key) ?? []), item]);
+  }
+  return grouped;
+}
+
+function templateEditableFields(messageFragment: string) {
+  return [
+    { key: 'editableMessageFragment', label: 'Mensaje administrativo', value: messageFragment, editable: true },
+    { key: 'lotLabel', label: 'Solar vendido', value: 'Se calcula desde la venta', editable: false },
+    { key: 'installmentDetails', label: 'Cuotas vencidas, capital y mora', value: 'Se calcula desde cuotas y pagos', editable: false },
+    { key: 'totalDue', label: 'Total pendiente', value: 'Se calcula con 1% diario de mora hasta 30 dias por cuota', editable: false },
+  ];
+}
+
+function buildAdminPreview(messageFragment: string) {
+  return [
+    'Hola Cliente.',
+    '',
+    messageFragment,
+    '',
+    'Solar: M8-S24',
+    'Cuotas vencidas: 2',
+    'Detalle: cuota mayo 2026 RD$8,415.14 + mora RD$2,524.54',
+    'Total vencido: RD$21,879.36',
+  ].join('\n');
+}
+
+function describeRunFrequency() {
+  const schedule = paymentReminderWindowDescription();
+  return `Corre una vez al dia segun cron ${config.paymentReminderCron}, dentro de ${schedule.timezone}.`;
+}
+
+function recipientPolicyDescription() {
+  if (config.paymentRemindersTestMode) {
+    return 'Modo prueba activo: los mensajes se redirigen a los numeros de prueba autorizados y no al cliente real.';
+  }
+  if (!config.paymentRemindersAllowRealRecipients) {
+    return 'Destinatarios reales bloqueados: aunque existan clientes elegibles, el sistema no envia al telefono real.';
+  }
+  return 'Destinatarios reales permitidos: se usa el telefono WhatsApp del cliente cuando es valido.';
 }
 
 async function configurationMap(companyId: string) {
@@ -255,6 +457,15 @@ function maskPhone(value: string) {
     return `+${digits.slice(0, 1)} ${digits.slice(1, 4)} *** ${last}`;
   }
   return `***${last}`;
+}
+
+function lotDisplay(lot: { block: string | null; number: string | null }) {
+  const block = lot.block?.trim() ?? '';
+  const number = lot.number?.trim() ?? '';
+  if (block && number) return `M${block}-S${number}`;
+  if (number) return `Solar ${number}`;
+  if (block) return `Manzana ${block}`;
+  return 'No especificado';
 }
 
 export class PaymentReminderAdminValidationError extends Error {

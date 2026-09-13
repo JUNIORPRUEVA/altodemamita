@@ -49,6 +49,8 @@ class PaymentReminderAdminState {
   const PaymentReminderAdminState({
     required this.config,
     required this.system,
+    required this.template,
+    required this.candidates,
     required this.stats,
     required this.history,
     this.lastRun,
@@ -56,6 +58,8 @@ class PaymentReminderAdminState {
 
   final PaymentReminderConfig config;
   final PaymentReminderSystemState system;
+  final PaymentReminderTemplateState template;
+  final PaymentReminderCandidateSummary candidates;
   final PaymentReminderStats stats;
   final PaymentReminderLastRun? lastRun;
   final List<PaymentReminderHistoryItem> history;
@@ -64,6 +68,10 @@ class PaymentReminderAdminState {
     return PaymentReminderAdminState(
       config: PaymentReminderConfig.fromApi(_map(map['config'])),
       system: PaymentReminderSystemState.fromApi(_map(map['system'])),
+      template: PaymentReminderTemplateState.fromApi(_map(map['template'])),
+      candidates: PaymentReminderCandidateSummary.fromApi(
+        _map(map['candidates']),
+      ),
       stats: PaymentReminderStats.fromApi(_map(map['stats'])),
       lastRun: map['lastRun'] is Map
           ? PaymentReminderLastRun.fromApi(_map(map['lastRun']))
@@ -83,6 +91,9 @@ class PaymentReminderConfig {
     required this.editableMessageFragment,
     required this.maxMessageFragmentLength,
     required this.templateLocked,
+    required this.activeTemplateName,
+    required this.testTemplateName,
+    required this.templateLanguage,
   });
 
   final bool notificationsEnabled;
@@ -91,6 +102,9 @@ class PaymentReminderConfig {
   final String editableMessageFragment;
   final int maxMessageFragmentLength;
   final bool templateLocked;
+  final String activeTemplateName;
+  final String testTemplateName;
+  final String templateLanguage;
 
   factory PaymentReminderConfig.fromApi(Map<String, dynamic> map) {
     return PaymentReminderConfig(
@@ -101,6 +115,9 @@ class PaymentReminderConfig {
       maxMessageFragmentLength:
           int.tryParse('${map['maxMessageFragmentLength'] ?? ''}') ?? 250,
       templateLocked: map['templateLocked'] != false,
+      activeTemplateName: _text(map['activeTemplateName']),
+      testTemplateName: _text(map['testTemplateName']),
+      templateLanguage: _text(map['templateLanguage']),
     );
   }
 }
@@ -113,6 +130,15 @@ class PaymentReminderSystemState {
     required this.testMode,
     required this.allowRealRecipients,
     required this.whatsappConfigured,
+    required this.displayWhatsappConfigured,
+    required this.whatsappPhoneNumberId,
+    required this.whatsappBusinessAccountId,
+    required this.schedule,
+    required this.runFrequency,
+    required this.retryPolicy,
+    required this.recipientPolicy,
+    required this.duplicatePolicy,
+    required this.templatePolicy,
   });
 
   final bool deliveryGateEnabled;
@@ -121,6 +147,15 @@ class PaymentReminderSystemState {
   final bool testMode;
   final bool allowRealRecipients;
   final bool whatsappConfigured;
+  final bool displayWhatsappConfigured;
+  final String whatsappPhoneNumberId;
+  final String whatsappBusinessAccountId;
+  final PaymentReminderSchedule schedule;
+  final String runFrequency;
+  final String retryPolicy;
+  final String recipientPolicy;
+  final String duplicatePolicy;
+  final String templatePolicy;
 
   factory PaymentReminderSystemState.fromApi(Map<String, dynamic> map) {
     return PaymentReminderSystemState(
@@ -130,6 +165,191 @@ class PaymentReminderSystemState {
       testMode: map['testMode'] == true,
       allowRealRecipients: map['allowRealRecipients'] == true,
       whatsappConfigured: map['whatsappConfigured'] == true,
+      displayWhatsappConfigured: map['displayWhatsappConfigured'] == true,
+      whatsappPhoneNumberId: _text(map['whatsappPhoneNumberId']),
+      whatsappBusinessAccountId: _text(map['whatsappBusinessAccountId']),
+      schedule: PaymentReminderSchedule.fromApi(_map(map['schedule'])),
+      runFrequency: _text(map['runFrequency']),
+      retryPolicy: _text(map['retryPolicy']),
+      recipientPolicy: _text(map['recipientPolicy']),
+      duplicatePolicy: _text(map['duplicatePolicy']),
+      templatePolicy: _text(map['templatePolicy']),
+    );
+  }
+}
+
+class PaymentReminderSchedule {
+  const PaymentReminderSchedule({
+    required this.timezone,
+    required this.allowedDays,
+    required this.startHour,
+    required this.endHour,
+    this.startDate,
+  });
+
+  final String timezone;
+  final String allowedDays;
+  final int startHour;
+  final int endHour;
+  final String? startDate;
+
+  String get windowLabel {
+    final start = startHour.toString().padLeft(2, '0');
+    final end = endHour.toString().padLeft(2, '0');
+    return '$start:00 a $end:00';
+  }
+
+  String get allowedDaysLabel {
+    final labels = <String>[];
+    for (final part in allowedDays.split(',')) {
+      switch (part.trim()) {
+        case '0':
+          labels.add('domingo');
+          break;
+        case '1':
+          labels.add('lunes');
+          break;
+        case '2':
+          labels.add('martes');
+          break;
+        case '3':
+          labels.add('miercoles');
+          break;
+        case '4':
+          labels.add('jueves');
+          break;
+        case '5':
+          labels.add('viernes');
+          break;
+        case '6':
+          labels.add('sabado');
+          break;
+      }
+    }
+    return labels.isEmpty ? 'sin dias configurados' : labels.join(', ');
+  }
+
+  factory PaymentReminderSchedule.fromApi(Map<String, dynamic> map) {
+    return PaymentReminderSchedule(
+      timezone: _text(map['timezone']),
+      allowedDays: _text(map['allowedDays']),
+      startHour: _int(map['startHour']),
+      endHour: _int(map['endHour']),
+      startDate: _nullableText(map['startDate']),
+    );
+  }
+}
+
+class PaymentReminderTemplateState {
+  const PaymentReminderTemplateState({
+    required this.locked,
+    required this.editableFields,
+    required this.preview,
+  });
+
+  final bool locked;
+  final List<PaymentReminderTemplateField> editableFields;
+  final String preview;
+
+  factory PaymentReminderTemplateState.fromApi(Map<String, dynamic> map) {
+    return PaymentReminderTemplateState(
+      locked: map['locked'] != false,
+      editableFields: _list(map['editableFields'])
+          .map((item) => PaymentReminderTemplateField.fromApi(_map(item)))
+          .toList(growable: false),
+      preview: _text(map['preview']),
+    );
+  }
+}
+
+class PaymentReminderTemplateField {
+  const PaymentReminderTemplateField({
+    required this.key,
+    required this.label,
+    required this.value,
+    required this.editable,
+  });
+
+  final String key;
+  final String label;
+  final String value;
+  final bool editable;
+
+  factory PaymentReminderTemplateField.fromApi(Map<String, dynamic> map) {
+    return PaymentReminderTemplateField(
+      key: _text(map['key']),
+      label: _text(map['label']),
+      value: _text(map['value']),
+      editable: map['editable'] == true,
+    );
+  }
+}
+
+class PaymentReminderCandidateSummary {
+  const PaymentReminderCandidateSummary({
+    required this.totalSales,
+    required this.activeSales,
+    required this.overdueSales,
+    required this.withValidPhone,
+    required this.blockedWithoutPhone,
+    required this.totalOverdueInstallments,
+    required this.totalDue,
+    required this.preview,
+  });
+
+  final int totalSales;
+  final int activeSales;
+  final int overdueSales;
+  final int withValidPhone;
+  final int blockedWithoutPhone;
+  final int totalOverdueInstallments;
+  final String totalDue;
+  final List<PaymentReminderCandidateItem> preview;
+
+  factory PaymentReminderCandidateSummary.fromApi(Map<String, dynamic> map) {
+    return PaymentReminderCandidateSummary(
+      totalSales: _int(map['totalSales']),
+      activeSales: _int(map['activeSales']),
+      overdueSales: _int(map['overdueSales']),
+      withValidPhone: _int(map['withValidPhone']),
+      blockedWithoutPhone: _int(map['blockedWithoutPhone']),
+      totalOverdueInstallments: _int(map['totalOverdueInstallments']),
+      totalDue: _text(map['totalDue']),
+      preview: _list(map['preview'])
+          .map((item) => PaymentReminderCandidateItem.fromApi(_map(item)))
+          .toList(growable: false),
+    );
+  }
+}
+
+class PaymentReminderCandidateItem {
+  const PaymentReminderCandidateItem({
+    required this.saleSyncId,
+    required this.clientName,
+    required this.phoneMasked,
+    required this.lotLabel,
+    required this.overdueInstallments,
+    required this.totalDue,
+    required this.status,
+  });
+
+  final String saleSyncId;
+  final String clientName;
+  final String phoneMasked;
+  final String lotLabel;
+  final int overdueInstallments;
+  final String totalDue;
+  final String status;
+
+  factory PaymentReminderCandidateItem.fromApi(Map<String, dynamic> map) {
+    return PaymentReminderCandidateItem(
+      saleSyncId: _text(map['saleSyncId']),
+      clientName: _text(map['clientName']),
+      phoneMasked: _text(map['phoneMasked']),
+      lotLabel: _text(map['lotLabel']),
+      overdueInstallments: _int(map['overdueInstallments']),
+      totalDue: _text(map['totalDue']),
+      status: _text(map['status']),
     );
   }
 }
@@ -239,5 +459,10 @@ Map<String, dynamic> _map(Object? value) {
 List<Object?> _list(Object? value) => value is List ? value : const [];
 
 String _text(Object? value) => value?.toString().trim() ?? '';
+
+String? _nullableText(Object? value) {
+  final text = _text(value);
+  return text.isEmpty ? null : text;
+}
 
 int _int(Object? value) => int.tryParse('${value ?? ''}') ?? 0;
