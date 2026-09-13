@@ -30,6 +30,27 @@
   <link rel="manifest" href="manifest.json">
 
   <script>
+    window.__SISTEMA_SOLARES_WEB_BUILD__ = 'notifications-instant-20260913-1';
+
+    (function () {
+      var buildKey = 'sistema_solares_web_build';
+      var buildId = window.__SISTEMA_SOLARES_WEB_BUILD__;
+      try {
+        var previousBuild = window.localStorage.getItem(buildKey);
+        if (previousBuild !== buildId && 'caches' in window) {
+          window.caches.keys().then(function (keys) {
+            return Promise.all(keys.map(function (key) {
+              return window.caches.delete(key);
+            }));
+          }).finally(function () {
+            window.localStorage.setItem(buildKey, buildId);
+          });
+        }
+      } catch (_) {
+        // La limpieza de cache no debe impedir que la app abra.
+      }
+    })();
+
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('flutter_service_worker.js').catch(function () {
         // Sin service worker la aplicacion sigue funcionando en linea.
@@ -130,8 +151,8 @@
     <button type="button" id="app-update-button">Actualizar</button>
   </div>
 
-  <script src="runtime-config.js"></script>
-  <script src="flutter_bootstrap.js" async></script>
+  <script src="runtime-config.js?v=notifications-instant-20260913-1"></script>
+  <script src="flutter_bootstrap.js?v=notifications-instant-20260913-1" async></script>
 
   <script>
     (function () {
@@ -146,7 +167,7 @@
 
       function showUpdateBanner() {
         if (updateBanner) {
-          updateBanner.classList.remove('visible');
+          updateBanner.classList.add('visible');
         }
       }
 

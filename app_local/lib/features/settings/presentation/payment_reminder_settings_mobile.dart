@@ -22,45 +22,44 @@ class _PaymentReminderSettingsMobilePageState
     extends State<PaymentReminderSettingsMobilePage> {
   late final PaymentReminderSettingsRepository _repository;
 
-  PaymentReminderAdminState? _state;
+  late PaymentReminderAdminState _state;
   String? _error;
-  bool _loading = true;
+  bool _refreshing = false;
   bool _saving = false;
 
   @override
   void initState() {
     super.initState();
+    _state = PaymentReminderAdminState.fallback();
     _repository = widget._repository ?? PaymentReminderSettingsRepository();
     unawaited(_load());
   }
 
   Future<void> _load() async {
     setState(() {
-      _loading = true;
+      _refreshing = true;
       _error = null;
     });
     try {
       final state = await _repository.load().timeout(
-        const Duration(seconds: 12),
+        const Duration(seconds: 8),
       );
       if (!mounted) return;
       setState(() {
         _state = state;
-        _loading = false;
+        _refreshing = false;
       });
     } on TimeoutException {
       if (!mounted) return;
       setState(() {
-        _state ??= PaymentReminderAdminState.fallback();
         _error = 'La carga esta tardando mas de lo esperado.';
-        _loading = false;
+        _refreshing = false;
       });
     } catch (error) {
       if (!mounted) return;
       setState(() {
-        _state ??= PaymentReminderAdminState.fallback();
         _error = _friendlyError(error);
-        _loading = false;
+        _refreshing = false;
       });
     }
   }
@@ -104,8 +103,7 @@ class _PaymentReminderSettingsMobilePageState
   }
 
   Future<void> _toggle(bool nextValue) async {
-    final current = _state;
-    if (current == null || _saving) return;
+    if (_saving) return;
     if (!nextValue) {
       final confirmed = await showDialog<bool>(
         context: context,
@@ -134,26 +132,22 @@ class _PaymentReminderSettingsMobilePageState
   }
 
   Future<void> _editPhone() async {
-    final state = _state;
-    if (state == null) return;
     final value = await showDialog<String>(
       context: context,
       builder: (context) =>
-          _PhoneDialog(initialValue: state.config.senderWhatsAppNumber),
+          _PhoneDialog(initialValue: _state.config.senderWhatsAppNumber),
     );
     if (value == null) return;
     await _save(phone: value);
   }
 
   Future<void> _editMessage() async {
-    final state = _state;
-    if (state == null) return;
     final value = await Navigator.of(context).push<String>(
       MaterialPageRoute(
         builder: (_) => _MessageEditorPage(
-          state: state,
-          initialValue: state.config.editableMessageFragment,
-          maxLength: state.config.maxMessageFragmentLength,
+          state: _state,
+          initialValue: _state.config.editableMessageFragment,
+          maxLength: _state.config.maxMessageFragmentLength,
         ),
       ),
     );
@@ -162,11 +156,9 @@ class _PaymentReminderSettingsMobilePageState
   }
 
   void _openHowItWorks() {
-    final state = _state;
-    if (state == null) return;
     Navigator.of(
       context,
-    ).push(MaterialPageRoute(builder: (_) => _HowItWorksPage(state: state)));
+    ).push(MaterialPageRoute(builder: (_) => _HowItWorksPage(state: _state)));
   }
 
   @override
@@ -178,32 +170,26 @@ class _PaymentReminderSettingsMobilePageState
         actions: [
           IconButton(
             tooltip: 'Actualizar',
-            onPressed: _saving ? null : _load,
+            onPressed: _saving || _refreshing ? null : _load,
             icon: const Icon(Icons.refresh_rounded),
           ),
         ],
       ),
       body: SafeArea(
-        child: _loading
-            ? const _Skeleton()
-            : _error != null && _state == null
-            ? MobileSearchFailedView(
-                title: 'No pudimos cargar la informacion.',
-                onRetry: _load,
-              )
-            : RefreshIndicator(
-                onRefresh: _load,
-                child: _Content(
-                  state: _state!,
-                  saving: _saving,
-                  error: _error,
-                  onRetry: _load,
-                  onToggle: _toggle,
-                  onEditPhone: _editPhone,
-                  onEditMessage: _editMessage,
-                  onHowItWorks: _openHowItWorks,
-                ),
-              ),
+        child: RefreshIndicator(
+          onRefresh: _load,
+          child: _Content(
+            state: _state,
+            saving: _saving,
+            refreshing: _refreshing,
+            error: _error,
+            onRetry: _load,
+            onToggle: _toggle,
+            onEditPhone: _editPhone,
+            onEditMessage: _editMessage,
+            onHowItWorks: _openHowItWorks,
+          ),
+        ),
       ),
     );
   }
@@ -213,6 +199,7 @@ class _Content extends StatelessWidget {
   const _Content({
     required this.state,
     required this.saving,
+    required this.refreshing,
     required this.error,
     required this.onRetry,
     required this.onToggle,
@@ -223,6 +210,7 @@ class _Content extends StatelessWidget {
 
   final PaymentReminderAdminState state;
   final bool saving;
+  final bool refreshing;
   final String? error;
   final VoidCallback onRetry;
   final ValueChanged<bool> onToggle;
@@ -238,6 +226,10 @@ class _Content extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
       children: [
+        if (refreshing) ...[
+          const _RefreshStatusCard(),
+          const SizedBox(height: 12),
+        ],
         if (error != null) ...[
           MobileRefreshFailedBanner(onRetry: onRetry),
           const SizedBox(height: 12),
@@ -1234,47 +1226,31 @@ class _SectionLabel extends StatelessWidget {
   }
 }
 
-class _Skeleton extends StatelessWidget {
-  const _Skeleton();
+class _RefreshStatusCard extends StatelessWidget {
+  const _RefreshStatusCard();
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        _SectionCard(
-          child: Row(
-            children: [
-              const SizedBox(
-                width: 22,
-                height: 22,
-                child: CircularProgressIndicator(strokeWidth: 2.4),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Cargando configuracion de notificaciones...',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: MobileUi.textSecondary,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ],
+    return _SectionCard(
+      child: Row(
+        children: [
+          const SizedBox(
+            width: 22,
+            height: 22,
+            child: CircularProgressIndicator(strokeWidth: 2.4),
           ),
-        ),
-        const SizedBox(height: 12),
-        ...List.generate(
-          4,
-          (index) => Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: Container(
-              height: index == 0 ? 126 : 92,
-              decoration: mobileCardDecoration(color: MobileUi.surface),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Actualizando datos de notificaciones...',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: MobileUi.textSecondary,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
