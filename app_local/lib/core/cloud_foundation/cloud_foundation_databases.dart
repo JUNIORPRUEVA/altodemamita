@@ -1,8 +1,9 @@
 import 'dart:io';
 
 import 'package:path/path.dart' as path;
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:sqflite_common/sqflite.dart';
 
+import '../database/platform_database_factory.dart';
 import '../resilience/app_paths.dart';
 
 class CloudFoundationDatabases {
@@ -10,7 +11,8 @@ class CloudFoundationDatabases {
     AppPaths? appPaths,
     DatabaseFactory? databaseFactoryOverride,
   }) : _appPaths = appPaths ?? AppPaths(),
-       _databaseFactory = databaseFactoryOverride ?? databaseFactoryFfi;
+       _databaseFactory =
+           databaseFactoryOverride ?? createPlatformDatabaseFactory();
 
   final AppPaths _appPaths;
   final DatabaseFactory _databaseFactory;
@@ -22,7 +24,6 @@ class CloudFoundationDatabases {
   AppPaths get appPaths => _appPaths;
 
   Future<void> initialize() async {
-    sqfliteFfiInit();
     await _appPaths.ensureCriticalDirectories();
     await Future.wait([cache, outbox, deviceState]);
   }
@@ -69,7 +70,11 @@ class CloudFoundationDatabases {
   Future<void> deleteCacheOnlyForRebuild() async {
     await _cache?.close();
     _cache = null;
-    await _deleteDatabaseFileSet(_appPaths.cacheDatabasePath);
+    await _deleteDatabaseFileSet(
+      _databaseFactory,
+      _appPaths,
+      _appPaths.cacheDatabasePath,
+    );
   }
 
   Future<Database> _open(
@@ -78,7 +83,9 @@ class CloudFoundationDatabases {
     required OnDatabaseCreateFn onCreate,
     required OnDatabaseVersionChangeFn onUpgrade,
   }) async {
-    await Directory(path.dirname(databasePath)).create(recursive: true);
+    if (_appPaths.supportsFileSystem) {
+      await Directory(path.dirname(databasePath)).create(recursive: true);
+    }
     return _databaseFactory.openDatabase(
       databasePath,
       options: OpenDatabaseOptions(
@@ -192,7 +199,21 @@ Future<void> _migrateDeviceStateSchema(
   }
 }
 
-Future<void> _deleteDatabaseFileSet(String databasePath) async {
+Future<void> _deleteDatabaseFileSet(
+  DatabaseFactory databaseFactory,
+  AppPaths appPaths,
+  String databasePath,
+) async {
+  if (!appPaths.supportsFileSystem) {
+    // En el navegador la base de datos vive en IndexedDB.
+    try {
+      await databaseFactory.deleteDatabase(databasePath);
+    } catch (_) {
+      // Best effort.
+    }
+    return;
+  }
+
   for (final suffix in ['', '-wal', '-shm', '-journal']) {
     final file = File('$databasePath$suffix');
     if (await file.exists()) {

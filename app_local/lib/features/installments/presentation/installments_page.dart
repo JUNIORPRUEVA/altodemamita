@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import '../../../shared/widgets/base_layout.dart';
 import '../data/installments_repository.dart';
 import '../domain/installment_detail.dart';
+import '../../../core/responsive/app_breakpoints.dart';
 import 'installments_controller.dart';
+import 'installments_mobile.dart';
 
 class InstallmentsPage extends StatefulWidget {
   const InstallmentsPage({
@@ -46,6 +48,27 @@ class _InstallmentsPageState extends State<InstallmentsPage> {
 
   @override
   Widget build(BuildContext context) {
+    // Layout compacto (PWA / mobile / tablet): patrón visual de Ventas.
+    if (AppBreakpoints.usesCompactNavigation(context)) {
+      return ListenableBuilder(
+        listenable: _controller,
+        builder: (context, _) => InstallmentsMobileView(
+          installments: _controller.installments,
+          isLoading: _controller.isLoading,
+          totalFinanced: _controller.totalFinanced,
+          totalPaid: _controller.totalPaid,
+          totalPending: _controller.totalPending,
+          hasOverdue: _controller.hasOverdue,
+          totalOverdueAmount: _controller.totalOverdueAmount,
+          onSearch: _controller.search,
+          onClearSearch: () => _controller.search(''),
+          onRetry: () => widget.saleId == null
+              ? _controller.load()
+              : _controller.loadBySaleId(widget.saleId!),
+        ),
+      );
+    }
+
     return BaseLayout(
       title: 'Cuotas',
       child: ListenableBuilder(

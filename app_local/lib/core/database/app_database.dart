@@ -2,12 +2,13 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as path;
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:sqflite_common/sqflite.dart';
 
 import '../config/app_flags.dart';
 import '../resilience/app_paths.dart';
 import '../utils/client_data_guard.dart';
 import 'database_schema.dart';
+import 'platform_database_factory.dart';
 
 class AppDatabase {
   AppDatabase._({
@@ -95,7 +96,11 @@ class AppDatabase {
 
     if (_customDatabasePath != null) {
       final customDatabasePath = _customDatabasePath;
-      await Directory(path.dirname(customDatabasePath)).create(recursive: true);
+      if (appPaths.supportsFileSystem) {
+        await Directory(
+          path.dirname(customDatabasePath),
+        ).create(recursive: true);
+      }
       return customDatabasePath;
     }
 
@@ -227,12 +232,17 @@ class AppDatabase {
   }
 
   void _initializeFactory() {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
+    // Nativo -> sqflite_common_ffi. Web -> sqflite_common_ffi_web.
+    databaseFactory = createPlatformDatabaseFactory();
   }
 
   Future<void> _migrateLegacyDatabaseIfNeeded(String targetPath) async {
     if (!allowLegacyMigration) {
+      return;
+    }
+
+    // En el navegador no existe el archivo de base de datos heredado.
+    if (!appPaths.supportsFileSystem) {
       return;
     }
 

@@ -9,7 +9,7 @@ import 'lot_repair_service.dart';
 class DatabaseSchema {
   static const String databaseName = 'sistema_solares.db';
   static const int databaseVersion = 28;
-  static const String defaultSyncBaseUrl = BASE_URL;
+  static String get defaultSyncBaseUrl => BASE_URL;
 
   static const String clientsTable = 'clientes';
   static const String usersTable = 'usuarios';
@@ -904,7 +904,8 @@ class DatabaseSchema {
     final rows = await db.query(
       table,
       columns: ['id'],
-      where: "deleted_at IS NOT NULL "
+      where:
+          "deleted_at IS NOT NULL "
           "AND COALESCE(TRIM(cedula), '') <> '' "
           "AND cedula NOT LIKE '__DELETED__%'",
     );

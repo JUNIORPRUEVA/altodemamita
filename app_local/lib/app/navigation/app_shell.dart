@@ -1,7 +1,10 @@
 import 'dart:async';
-import 'dart:io';
+import 'dart:io' show File, Platform;
+
+import '../../core/network/platform_http.dart';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -31,6 +34,7 @@ import '../../features/sales/presentation/sellers_page.dart';
 import '../../features/settings/data/company_repository.dart';
 import '../../features/settings/data/settings_repository.dart';
 import '../../features/settings/presentation/settings_page.dart';
+import '../../features/settings/presentation/users_screen.dart';
 import '../../repositories/company_profiles_sync_repository.dart';
 import '../../repositories/installments_sync_repository.dart';
 import '../../repositories/payments_sync_repository.dart';
@@ -48,7 +52,9 @@ import '../../services/sync/sync_manager.dart';
 import '../../services/sync/sync_queue_service.dart';
 import '../../services/sync/sync_service.dart';
 import '../../shared/widgets/base_layout.dart';
+import '../../core/responsive/app_breakpoints.dart';
 import 'app_module.dart';
+import 'mobile_navigation_shell.dart';
 import 'sync_visual_state.dart';
 
 const List<AppModule> _primarySidebarModules = [
@@ -65,11 +71,29 @@ const List<AppModule> _administrationSidebarModules = [
   AppModule.sellers,
 ];
 
+/// Modulos de la barra inferior en pantallas pequenas.
+///
+/// Se mantienen en 3 destinos: meter 9 modulos en una barra inferior de
+/// telefono los volveria inutilizables.
+const List<AppModule> _mobilePrimaryModules = [
+  AppModule.dashboard,
+  AppModule.sales,
+  AppModule.globalSearch,
+];
+
+const List<AppModule> _mobileOperationDrawerModules = [
+  AppModule.payments,
+  AppModule.clients,
+  AppModule.lots,
+  AppModule.installments,
+  AppModule.sellers,
+];
+
 const double _sidebarCollapsedWidth = 96;
 const double _sidebarExpandedWidth = 288;
 const double _sidebarSafeExpandedContentWidth = 240;
 
-bool _shellTooltipsEnabled() => !Platform.isWindows;
+bool _shellTooltipsEnabled() => kIsWeb || !Platform.isWindows;
 
 bool _hasOverlay(BuildContext context) =>
     Overlay.maybeOf(context, rootOverlay: true) != null;
@@ -87,9 +111,14 @@ Widget _safeTooltip({
 }
 
 class AppShell extends StatefulWidget {
-  const AppShell({super.key, this.enableBackgroundSync = true});
+  const AppShell({
+    super.key,
+    this.enableBackgroundSync = true,
+    this.initializeBackupOnSettingsOpen = true,
+  });
 
   final bool enableBackgroundSync;
+  final bool initializeBackupOnSettingsOpen;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -223,12 +252,17 @@ class _AppShellState extends State<AppShell> {
     );
 
     final databasePath = await AppDatabase.instance.databasePath;
-    final databaseFile = File(databasePath);
-    final exists = await databaseFile.exists();
-    final sizeBytes = exists ? await databaseFile.length() : 0;
     await logger.log('[LocalDatabase] path=$databasePath');
-    await logger.log('[LocalDatabase] exists=$exists');
-    await logger.log('[LocalDatabase] sizeBytes=$sizeBytes');
+
+    // En el navegador la base de datos vive en IndexedDB: no hay archivo que
+    // medir en disco.
+    if (AppDatabase.instance.appPaths.supportsFileSystem) {
+      final databaseFile = File(databasePath);
+      final exists = await databaseFile.exists();
+      final sizeBytes = exists ? await databaseFile.length() : 0;
+      await logger.log('[LocalDatabase] exists=$exists');
+      await logger.log('[LocalDatabase] sizeBytes=$sizeBytes');
+    }
 
     final db = await AppDatabase.instance.database;
     final counts = <String, String>{
@@ -484,6 +518,112 @@ class _AppShellState extends State<AppShell> {
     return accessibleModules.first;
   }
 
+  AppModule? _moduleForId(String id) {
+    for (final module in AppModule.values) {
+      if (module.name == id) {
+        return module;
+      }
+    }
+    return null;
+  }
+
+  List<MobileNavigationItem> _mobileItemsFor(List<AppModule> modules) {
+    return [for (final module in modules) _mobileNavigationItemFor(module)];
+  }
+
+  MobileNavigationItem _mobileNavigationItemFor(AppModule module) {
+    if (module == AppModule.dashboard) {
+      return const MobileNavigationItem(
+        id: 'dashboard',
+        label: 'Resumen',
+        icon: Icons.dashboard_outlined,
+      );
+    }
+    if (module == AppModule.globalSearch) {
+      return const MobileNavigationItem(
+        id: 'globalSearch',
+        label: 'Buscador',
+        icon: Icons.manage_search_rounded,
+      );
+    }
+    if (module == AppModule.sales) {
+      return const MobileNavigationItem(
+        id: 'sales',
+        label: 'Ventas',
+        icon: Icons.receipt_long_outlined,
+        prominent: true,
+      );
+    }
+    if (module == AppModule.payments) {
+      return const MobileNavigationItem(
+        id: 'payments',
+        label: 'Pagos',
+        icon: Icons.account_balance_wallet_outlined,
+      );
+    }
+    return MobileNavigationItem(
+      id: module.name,
+      label: module.label,
+      icon: module.icon,
+    );
+  }
+
+  String _mobileTitleFor(AppModule module) {
+    if (module == AppModule.globalSearch) {
+      return 'Buscador';
+    }
+    return module.label;
+  }
+
+  List<MobileDrawerSection> _mobileDrawerSectionsFor(
+    List<AppModule> accessibleModules,
+    AuthProvider auth,
+  ) {
+    final operationItems = _mobileItemsFor(
+      _mobileOperationDrawerModules.where(accessibleModules.contains).toList(),
+    );
+    final administrationItems = <MobileNavigationItem>[
+      if (auth.isAdmin && accessibleModules.contains(AppModule.settings))
+        const MobileNavigationItem(
+          id: 'settings.users',
+          label: 'Usuarios',
+          icon: Icons.manage_accounts_outlined,
+        ),
+      if (accessibleModules.contains(AppModule.settings))
+        _mobileNavigationItemFor(AppModule.settings),
+    ];
+
+    return [
+      if (operationItems.isNotEmpty)
+        MobileDrawerSection(title: 'Operación', items: operationItems),
+      if (administrationItems.isNotEmpty)
+        MobileDrawerSection(
+          title: 'Administración',
+          items: administrationItems,
+        ),
+    ];
+  }
+
+  /// `true` cuando el modulo activo está mostrando el detalle de una venta
+  /// concreta, en cuyo caso el movil necesita un boton de volver.
+  bool _hasDetailNavigation(AppModule module) {
+    if (module == AppModule.installments &&
+        _selectedInstallmentsSaleId != null) {
+      return true;
+    }
+    if (module == AppModule.payments && _selectedPaymentsSaleId != null) {
+      return true;
+    }
+    return false;
+  }
+
+  void _clearDetailSelection() {
+    setState(() {
+      _selectedInstallmentsSaleId = null;
+      _selectedPaymentsSaleId = null;
+    });
+  }
+
   void _openModule(AppModule module) {
     setState(() {
       _selectedModule = module;
@@ -652,6 +792,7 @@ class _AppShellState extends State<AppShell> {
         );
       case AppModule.settings:
         return SettingsPage(
+          initializeBackupOnOpen: widget.initializeBackupOnSettingsOpen,
           onCompanyInfoChanged: _loadCompanyDisplayName,
           onResetBusinessData: null,
           onResetLocalOnly: _resetLocalOnlyFromSettings,
@@ -686,11 +827,6 @@ class _AppShellState extends State<AppShell> {
     final canAccessSettings = accessibleModules.contains(AppModule.settings);
     final syncState = _syncManager.state;
     final dataVersion = syncState.dataVersion;
-    final isInitialCloudHydration =
-        _startupCloudHydrationPending || syncState.isInitialCloudHydration;
-    final pageChild = isInitialCloudHydration
-        ? const _InitialCloudHydrationPage()
-        : _buildCurrentPage(resolvedModule);
     final currentPage = KeyedSubtree(
       key: ValueKey(
         Object.hash(
@@ -698,65 +834,84 @@ class _AppShellState extends State<AppShell> {
           _selectedInstallmentsSaleId,
           _selectedPaymentsSaleId,
           dataVersion,
-          isInitialCloudHydration,
         ),
       ),
-      child: ShellLayoutScope(child: pageChild),
+      child: ShellLayoutScope(child: _buildCurrentPage(resolvedModule)),
+    );
+    final visibleSyncErrors = syncState.currentErrors
+        .where((message) => !isOfflineConnectivityMessage(message))
+        .toList(growable: false);
+    final shellContent = Stack(
+      children: [
+        Positioned.fill(child: currentPage),
+        if (visibleSyncErrors.isNotEmpty)
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: 16,
+            child: Align(
+              alignment: Alignment.bottomRight,
+              child: _NonBlockingSyncIssueBanner(
+                message: visibleSyncErrors.first,
+                onRetry: () => unawaited(_syncManager.syncNow()),
+              ),
+            ),
+          ),
+      ],
     );
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final isDesktop = constraints.maxWidth >= 960;
+        // 1024 px o mas: layout de escritorio EXISTENTE, sin cambios.
+        // Menos de 1024 px: layout movil (barra inferior + "Mas").
+        final isDesktop = AppBreakpoints.isDesktopWidth(constraints.maxWidth);
         final user = auth.currentUser;
 
         if (!isDesktop) {
-          return Scaffold(
-            appBar: AppBar(
-              title: Text(_companyDisplayName),
-              centerTitle: true,
-              toolbarHeight: 46,
-              actions: [
-                if (shouldShowOfflineChip(hasInternet: _hasInternet))
-                  const Padding(
-                    padding: EdgeInsets.only(right: 8),
-                    child: Center(child: _SyncStatusBadge(compact: true)),
+          final isHome =
+              resolvedModule == AppModule.dashboard &&
+              !_hasDetailNavigation(resolvedModule);
+          return MobileNavigationShell(
+            title: isHome
+                ? _companyDisplayName
+                : _mobileTitleFor(resolvedModule),
+            companyName: _companyDisplayName,
+            userName: user?.nombre ?? '',
+            userRole: user?.role.label ?? '',
+            selectedId: resolvedModule.name,
+            onSelected: (id) {
+              if (id == 'settings.users') {
+                // El usuario pidió ir DIRECTO a la pantalla de usuarios.
+                // El drawer ya se cerró antes de invocar este callback.
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const UsersScreen(),
                   ),
-                if (user != null)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: Center(
-                      child: _HeaderProfileButton(onTap: _openProfile),
-                    ),
-                  ),
-                IconButton(
-                  tooltip: 'Cerrar sesion',
-                  onPressed: _signOut,
-                  icon: const Icon(Icons.logout_rounded),
+                );
+                return;
+              }
+              final module = _moduleForId(id);
+              if (module != null) {
+                _openModule(module);
+              }
+            },
+            primaryItems: _mobileItemsFor(
+              _mobilePrimaryModules.where(accessibleModules.contains).toList(),
+            ),
+            drawerSections: _mobileDrawerSectionsFor(accessibleModules, auth),
+            showBackButton: _hasDetailNavigation(resolvedModule),
+            onBack: _clearDetailSelection,
+            showHomeHeader: isHome,
+            onOpenProfile: _openProfile,
+            onSignOut: _signOut,
+            actions: [
+              if (shouldShowOfflineChip(hasInternet: _hasInternet))
+                const Padding(
+                  padding: EdgeInsets.only(right: 8),
+                  child: Center(child: _SyncStatusBadge(compact: true)),
                 ),
-              ],
-            ),
-            drawer: Drawer(
-              child: _ShellNavigation(
-                selectedModule: resolvedModule,
-                primaryModules: primaryModules,
-                administrationModules: administrationModules,
-                showSettingsAction: canAccessSettings,
-                isCollapsed: false,
-                isAdministrationMenuExpanded: true,
-                onSelectModule: (module) {
-                  Navigator.of(context).pop();
-                  _openModule(module);
-                },
-                onToggleAdministrationMenu: null,
-                onAdministrationHoverChanged: null,
-              ),
-            ),
-            body: Column(
-              children: [
-                Expanded(child: currentPage),
-                _ShellFooter(companyName: _companyDisplayName),
-              ],
-            ),
+            ],
+            child: shellContent,
           );
         }
 
@@ -796,7 +951,7 @@ class _AppShellState extends State<AppShell> {
                                   hasInternet: _hasInternet,
                                   onOpenProfile: _openProfile,
                                 ),
-                                Expanded(child: currentPage),
+                                Expanded(child: shellContent),
                                 _ShellFooter(companyName: _companyDisplayName),
                               ],
                             ),
@@ -861,50 +1016,6 @@ class _AppShellState extends State<AppShell> {
           ),
         );
       },
-    );
-  }
-}
-
-class _InitialCloudHydrationPage extends StatelessWidget {
-  const _InitialCloudHydrationPage();
-
-  @override
-  Widget build(BuildContext context) {
-    return BaseLayout(
-      title: 'Panel Principal',
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(
-                width: 34,
-                height: 34,
-                child: CircularProgressIndicator(strokeWidth: 3),
-              ),
-              const SizedBox(height: 18),
-              Text(
-                'Cargando datos de la nube',
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: const Color(0xFF0D2640),
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'La informacion de clientes, solares, ventas y pagos se esta preparando.',
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: const Color(0xFF5C6B7A),
-                  height: 1.35,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }
@@ -1048,6 +1159,66 @@ class _SyncStatusBadge extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _NonBlockingSyncIssueBanner extends StatelessWidget {
+  const _NonBlockingSyncIssueBanner({
+    required this.message,
+    required this.onRetry,
+  });
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 420),
+      child: Material(
+        elevation: 8,
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: const Color(0xFFE6EAF0)),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.sync_problem_rounded,
+                  color: Color(0xFF9A5B00),
+                  size: 20,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    message,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFF243447),
+                      fontWeight: FontWeight.w600,
+                      height: 1.25,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                TextButton.icon(
+                  onPressed: onRetry,
+                  icon: const Icon(Icons.refresh_rounded, size: 18),
+                  label: const Text('Reintentar'),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

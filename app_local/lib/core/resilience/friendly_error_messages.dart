@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:io';
+import '../network/platform_http.dart';
 
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 

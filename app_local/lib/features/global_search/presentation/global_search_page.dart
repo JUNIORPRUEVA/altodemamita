@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
+import '../../../core/responsive/app_breakpoints.dart';
 import '../../../core/resilience/friendly_error_messages.dart';
+import '../../../core/utils/dominican_formatters.dart';
 import '../../../shared/widgets/base_layout.dart';
 import '../../clients/data/client_repository.dart';
 import '../../installments/data/installments_repository.dart';
@@ -8,6 +11,7 @@ import '../../lots/data/lot_repository.dart';
 import '../../sales/data/sales_repository.dart';
 import '../data/global_search_repository.dart';
 import '../domain/search_result.dart';
+import 'global_search_mobile.dart';
 import 'search_result_dialog.dart';
 
 class GlobalSearchPage extends StatefulWidget {
@@ -43,9 +47,11 @@ class GlobalSearchPage extends StatefulWidget {
 
 class _GlobalSearchPageState extends State<GlobalSearchPage> {
   late final TextEditingController _searchController;
+  late final FocusNode _searchFocusNode;
   late final GlobalSearchRepository _searchRepository;
 
   bool _isLoading = false;
+  bool _searchFailed = false;
   String _query = '';
   List<GlobalSearchResult> _results = const [];
   int _searchGeneration = 0;
@@ -54,6 +60,7 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
   void initState() {
     super.initState();
     _searchController = TextEditingController();
+    _searchFocusNode = FocusNode();
     _searchRepository = GlobalSearchRepository(
       clientRepository: widget._clientRepository,
       lotRepository: widget._lotRepository,
@@ -64,91 +71,340 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
 
   @override
   void dispose() {
+    _searchFocusNode.dispose();
     _searchController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return BaseLayout(
-      title: 'Búsqueda Global',
-      child: Column(
-        children: [
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final compact = constraints.maxWidth < 980;
+    // Layout compacto (PWA / móvil / tableta): buscador en una sola linea y
+    // detalle a pantalla completa. El escritorio (>=1024 px) no cambia.
+    if (AppBreakpoints.usesCompactNavigation(context)) {
+      return GlobalSearchMobileView(
+        controller: _searchController,
+        query: _query,
+        results: _results,
+        isLoading: _isLoading,
+        searchFailed: _searchFailed,
+        onSearch: _search,
+        onClear: _clearSearch,
+        onRetry: _search,
+        onOpenClients: widget.onOpenClients,
+        onOpenLots: widget.onOpenLots,
+        onOpenSales: widget.onOpenSales,
+        onOpenInstallments: widget.onOpenInstallments,
+        onOpenPayments: widget.onOpenPayments,
+      );
+    }
 
-                  final searchField = TextField(
-                    controller: _searchController,
-                    decoration: const InputDecoration(
-                      labelText:
-                          'Nombre, cédula, teléfono del cliente o número de solar',
-                      prefixIcon: Icon(Icons.search),
-                      helperText: 'Ejemplo: Juan Pérez, 123-4567890 o M5-S10',
-                    ),
-                    onSubmitted: (_) => _search(),
-                    onChanged: (_) => setState(() {}),
-                  );
+    return BaseLayout(title: 'Búsqueda Global', child: _buildDesktopView());
+  }
 
-                  final actions = Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: [
-                      FilledButton.icon(
-                        onPressed: _search,
-                        icon: const Icon(Icons.search_outlined),
-                        label: const Text('Buscar'),
-                      ),
-                      if (_searchController.text.isNotEmpty)
-                        OutlinedButton(
-                          onPressed: () {
-                            _searchController.clear();
-                            _searchGeneration++;
-                            setState(() {
-                              _query = '';
-                              _results = [];
-                            });
-                          },
-                          child: const Text('Limpiar'),
-                        ),
-                    ],
-                  );
+  Widget _buildDesktopView() {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final hasQuery = _query.isNotEmpty;
 
-                  if (compact) {
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        searchField,
-                        const SizedBox(height: 16),
-                        actions,
-                      ],
-                    );
-                  }
-
-                  return Row(
-                    children: [
-                      Expanded(child: searchField),
-                      const SizedBox(width: 16),
-                      actions,
-                    ],
-                  );
-                },
-              ),
+    return CallbackShortcuts(
+      bindings: <ShortcutActivator, VoidCallback>{
+        const SingleActivator(LogicalKeyboardKey.keyK, control: true): () {
+          _searchFocusNode.requestFocus();
+        },
+        const SingleActivator(LogicalKeyboardKey.escape): () {
+          if (_searchController.text.isNotEmpty || _query.isNotEmpty) {
+            _clearSearch();
+            _searchFocusNode.requestFocus();
+            return;
+          }
+          _searchFocusNode.unfocus();
+        },
+      },
+      child: Focus(
+        autofocus: true,
+        child: Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                colorScheme.surface,
+                colorScheme.secondaryContainer.withValues(alpha: 0.18),
+                theme.scaffoldBackgroundColor,
+              ],
             ),
           ),
-          const SizedBox(height: 20),
-          Expanded(
-            child: Card(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: _buildResults(),
+          child: Stack(
+            children: [
+              Positioned(
+                top: -90,
+                right: -50,
+                child: _buildDesktopGlow(
+                  colorScheme.primary.withValues(alpha: 0.10),
+                  280,
+                ),
               ),
+              Positioned(
+                left: -80,
+                bottom: -120,
+                child: _buildDesktopGlow(
+                  colorScheme.secondary.withValues(alpha: 0.12),
+                  320,
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(28, 28, 28, 24),
+                child: Column(
+                  children: [
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      curve: Curves.easeOut,
+                      padding: EdgeInsets.only(top: hasQuery ? 0 : 68),
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxWidth: hasQuery ? 1080 : 860,
+                          ),
+                          child: _buildDesktopSearchPanel(compact: hasQuery),
+                        ),
+                      ),
+                    ),
+                    if (hasQuery) ...[
+                      const SizedBox(height: 18),
+                      Expanded(
+                        child: Center(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 1180),
+                            child: _buildDesktopResultsPanel(),
+                          ),
+                        ),
+                      ),
+                    ] else
+                      const Spacer(),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDesktopGlow(Color color, double size) {
+    return IgnorePointer(
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: color,
+          boxShadow: [
+            BoxShadow(color: color, blurRadius: 70, spreadRadius: 34),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDesktopSearchPanel({required bool compact}) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return Card(
+      color: colorScheme.surface.withValues(alpha: 0.94),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(compact ? 22 : 28),
+        side: BorderSide(color: colorScheme.outline.withValues(alpha: 0.68)),
+      ),
+      child: Padding(
+        padding: EdgeInsets.all(compact ? 22 : 34),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (!compact) ...[
+              Container(
+                width: 62,
+                height: 62,
+                decoration: BoxDecoration(
+                  color: colorScheme.primary.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: colorScheme.primary.withValues(alpha: 0.16),
+                  ),
+                ),
+                child: Icon(
+                  Icons.travel_explore_rounded,
+                  color: colorScheme.primary,
+                  size: 30,
+                ),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                'Encuentra lo que necesitas',
+                style: theme.textTheme.headlineSmall?.copyWith(fontSize: 30),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Busca clientes, solares, ventas, cuotas y pagos desde un solo lugar.',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                  height: 1.35,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 26),
+            ],
+            Row(
+              children: [
+                Expanded(child: _buildDesktopSearchField()),
+                const SizedBox(width: 12),
+                SizedBox(
+                  height: 62,
+                  child: FilledButton.icon(
+                    onPressed: _search,
+                    icon: const Icon(Icons.search_rounded),
+                    label: const Text('Buscar'),
+                  ),
+                ),
+              ],
             ),
+            const SizedBox(height: 18),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              alignment: WrapAlignment.center,
+              children: const [
+                _DesktopSearchChip(
+                  icon: Icons.person_outline,
+                  label: 'Clientes',
+                ),
+                _DesktopSearchChip(icon: Icons.map_outlined, label: 'Solares'),
+                _DesktopSearchChip(
+                  icon: Icons.receipt_long_outlined,
+                  label: 'Ventas',
+                ),
+                _DesktopSearchChip(
+                  icon: Icons.event_note_outlined,
+                  label: 'Cuotas',
+                ),
+                _DesktopSearchChip(
+                  icon: Icons.payments_outlined,
+                  label: 'Pagos',
+                ),
+              ],
+            ),
+            if (!compact) ...[
+              const SizedBox(height: 16),
+              Text(
+                'Ctrl + K enfoca el buscador · Esc limpia la búsqueda',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDesktopSearchField() {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        boxShadow: [
+          BoxShadow(
+            color: colorScheme.primary.withValues(alpha: 0.08),
+            blurRadius: 26,
+            offset: const Offset(0, 12),
           ),
         ],
+      ),
+      child: TextField(
+        focusNode: _searchFocusNode,
+        controller: _searchController,
+        style: theme.textTheme.titleMedium?.copyWith(
+          fontWeight: FontWeight.w600,
+        ),
+        decoration: InputDecoration(
+          hintText: 'Buscar cliente, cédula, teléfono, solar, venta o cuota...',
+          prefixIcon: const Icon(Icons.search_rounded),
+          suffixIcon: _searchController.text.isEmpty
+              ? null
+              : IconButton(
+                  tooltip: 'Limpiar',
+                  onPressed: _clearSearch,
+                  icon: const Icon(Icons.close_rounded),
+                ),
+          filled: true,
+          fillColor: colorScheme.surface,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 18,
+            vertical: 21,
+          ),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(18),
+            borderSide: BorderSide(color: colorScheme.outline),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(18),
+            borderSide: BorderSide(color: colorScheme.outline),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(18),
+            borderSide: BorderSide(color: colorScheme.primary, width: 1.6),
+          ),
+        ),
+        onSubmitted: (_) => _search(),
+        onChanged: (_) => setState(() {}),
+      ),
+    );
+  }
+
+  Widget _buildDesktopResultsPanel() {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return Card(
+      color: colorScheme.surface.withValues(alpha: 0.96),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(24),
+        side: BorderSide(color: colorScheme.outline.withValues(alpha: 0.72)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.manage_search_rounded, color: colorScheme.primary),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    _results.isEmpty
+                        ? 'Resultados de búsqueda'
+                        : '${_results.length} resultado(s) encontrados',
+                    style: theme.textTheme.titleMedium,
+                  ),
+                ),
+                if (_isLoading)
+                  const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2.4),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Expanded(child: _buildResults()),
+          ],
+        ),
       ),
     );
   }
@@ -156,6 +412,44 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
   Widget _buildResults() {
     if (_isLoading && _results.isEmpty) {
       return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_searchFailed) {
+      return Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.cloud_off_outlined,
+                size: 46,
+                color: Theme.of(context).colorScheme.error,
+              ),
+              const SizedBox(height: 14),
+              Text(
+                'No pudimos completar la búsqueda.',
+                style: Theme.of(context).textTheme.titleMedium,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Revisa la conexión e intenta nuevamente.',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 18),
+              FilledButton.icon(
+                onPressed: _search,
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Reintentar'),
+              ),
+            ],
+          ),
+        ),
+      );
     }
 
     if (_query.isEmpty) {
@@ -190,20 +484,32 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
 
     if (_results.isEmpty) {
       return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.search_off_outlined,
-              size: 48,
-              color: Theme.of(context).colorScheme.outline,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'No se encontraron resultados para "$_query"',
-              style: Theme.of(context).textTheme.labelMedium,
-            ),
-          ],
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 440),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.search_off_rounded,
+                size: 48,
+                color: Theme.of(context).colorScheme.outline,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'No se encontraron resultados',
+                style: Theme.of(context).textTheme.titleMedium,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Prueba con otro nombre, cédula, teléfono o código de solar.',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -233,7 +539,7 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
 
     return Card(
       child: InkWell(
-        onTap: () => _showDetailDialog(result),
+        onTap: () => _openDetail(result),
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -278,7 +584,7 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
                         border: Border.all(color: Colors.orange),
                       ),
                       child: Text(
-                        'Pendiente: RD\$${result.totalPendingAmount.toStringAsFixed(2)}',
+                        'Pendiente: ${formatRdMoney(result.totalPendingAmount)}',
                         style: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
@@ -429,7 +735,7 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
               Align(
                 alignment: Alignment.centerRight,
                 child: TextButton.icon(
-                  onPressed: () => _showDetailDialog(result),
+                  onPressed: () => _openDetail(result),
                   icon: const Icon(Icons.open_in_new_outlined, size: 18),
                   label: const Text('Ver detalles'),
                 ),
@@ -441,19 +747,27 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
     );
   }
 
+  void _clearSearch() {
+    _searchController.clear();
+    _searchGeneration++;
+    setState(() {
+      _query = '';
+      _results = [];
+      _searchFailed = false;
+    });
+  }
+
   Future<void> _search() async {
     final query = _searchController.text.trim();
     if (query.isEmpty) {
-      setState(() {
-        _query = '';
-        _results = [];
-      });
+      _clearSearch();
       return;
     }
 
     final generation = ++_searchGeneration;
     setState(() {
       _isLoading = true;
+      _searchFailed = false;
       _query = query;
     });
 
@@ -476,6 +790,9 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
         error,
         module: 'busqueda global',
       );
+      setState(() {
+        _searchFailed = true;
+      });
     } finally {
       if (mounted && generation == _searchGeneration) {
         setState(() {
@@ -485,7 +802,28 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
     }
   }
 
-  Future<void> _showDetailDialog(GlobalSearchResult result) async {
+  /// Abre el detalle del resultado.
+  ///
+  /// En compacto (PWA / movil / tableta) empuja una PANTALLA COMPLETA: el
+  /// dialogo quedaba como una columna angosta flotante en pantallas pequenas.
+  /// En escritorio se conserva el dialogo actual.
+  Future<void> _openDetail(GlobalSearchResult result) async {
+    if (AppBreakpoints.usesCompactNavigation(context)) {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => SearchResultDetailPage(
+            result: result,
+            onOpenClients: widget.onOpenClients,
+            onOpenLots: widget.onOpenLots,
+            onOpenSales: widget.onOpenSales,
+            onOpenInstallments: widget.onOpenInstallments,
+            onOpenPayments: widget.onOpenPayments,
+          ),
+        ),
+      );
+      return;
+    }
+
     await showDialog(
       context: context,
       builder: (context) => SearchResultDialog(
@@ -579,8 +917,8 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
       return 'M$block-S$lot';
     }
 
-    final lotId = sale['solar_id']?.toString() ?? '';
-    return lotId.isEmpty ? 'No especificado' : 'Solar #$lotId';
+    // Sin datos de manzana/solar no se expone el id interno del solar.
+    return 'No especificado';
   }
 
   String _formatDateTime(Object? value) {
@@ -600,5 +938,43 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
     final hour = parsed.hour.toString().padLeft(2, '0');
     final minute = parsed.minute.toString().padLeft(2, '0');
     return '$day/$month/$year $hour:$minute';
+  }
+}
+
+class _DesktopSearchChip extends StatelessWidget {
+  const _DesktopSearchChip({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+      decoration: BoxDecoration(
+        color: colorScheme.secondaryContainer.withValues(alpha: 0.28),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: colorScheme.secondary.withValues(alpha: 0.16),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: colorScheme.secondary),
+          const SizedBox(width: 7),
+          Text(
+            label,
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: colorScheme.onSurface,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../diagnostics/sync_diagnostics_logger.dart';
+import 'runtime_config.dart';
 
 /// Configuración central del backend.
 ///
@@ -27,8 +28,9 @@ const String _backendBaseUrlFromEnv = String.fromEnvironment(
 /// Para construir endpoints seguros, usa:
 /// - effectiveBackendBaseUrl
 /// - backendEndpoint('/sync/upload')
-// ignore: constant_identifier_names
-const String BASE_URL = _backendBaseUrlFromEnv;
+// ignore: non_constant_identifier_names
+String get BASE_URL =>
+    runtimeConfigString('SYNC_API_BASE_URL', _backendBaseUrlFromEnv);
 
 /// Mantener vacío para evitar que la app caiga accidentalmente
 /// en un backend viejo o de producción.
@@ -37,7 +39,10 @@ const String LEGACY_BASE_URL = '';
 
 const String companyTenantKey = 'alto-dona-mamita-sistema-solares';
 
-const String serverConnectionErrorMessage = 'Servicio cloud no configurado';
+const String cloudServiceNotConfiguredMessage = 'Servicio cloud no configurado';
+
+const String serverConnectionErrorMessage =
+    'No se pudo conectar con el servicio cloud.';
 
 /// Normaliza la URL base del backend.
 ///
@@ -102,7 +107,7 @@ String normalizeBackendBaseUrl(String baseUrl) {
 String get effectiveBackendBaseUrl {
   final normalized = normalizeBackendBaseUrl(BASE_URL);
   SyncDiagnosticsLogger.instance.logUnawaited(
-    '[BackendConfig] SYNC_API_BASE_URL=$_backendBaseUrlFromEnv',
+    '[BackendConfig] SYNC_API_BASE_URL=$BASE_URL',
   );
   SyncDiagnosticsLogger.instance.logUnawaited(
     '[BackendConfig] effectiveBackendBaseUrl=$normalized',
@@ -115,7 +120,7 @@ String get effectiveBackendBaseUrl {
   );
 
   if (kDebugMode) {
-    debugPrint('[BackendConfig] SYNC_API_BASE_URL=$_backendBaseUrlFromEnv');
+    debugPrint('[BackendConfig] SYNC_API_BASE_URL=$BASE_URL');
     debugPrint('[BackendConfig] effectiveBackendBaseUrl=$normalized');
 
     if (normalized.contains('easypanel.host')) {

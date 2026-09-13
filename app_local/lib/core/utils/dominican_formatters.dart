@@ -11,6 +11,9 @@ String formatRdCurrency(num value) {
   return _rdCurrencyFormat.format(safeValue);
 }
 
+/// Formato monetario visible de la aplicación: `RD$ 20,000.20`.
+String formatRdMoney(num value) => 'RD\$${formatRdCurrency(value)}';
+
 double parseRdCurrency(String value) {
   final trimmed = value.trim();
   if (trimmed.isEmpty || !RegExp(r'\d').hasMatch(trimmed)) {

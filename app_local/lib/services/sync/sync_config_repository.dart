@@ -27,7 +27,7 @@ class SyncConfigRepository {
            preferencesFactory ?? SharedPreferences.getInstance;
 
   static const syncBaseUrlKey = 'sync.base_url';
-  static const defaultSyncBaseUrl = backend_config.BASE_URL;
+  static String get defaultSyncBaseUrl => backend_config.BASE_URL;
   static const syncQueueRetrySecondsKey = 'sync.queue_retry_seconds';
   static const syncRealtimePollingSecondsKey = 'sync.realtime_polling_seconds';
   static const syncConflictStrategyKey = 'sync.conflict_strategy';
@@ -410,12 +410,24 @@ class SyncConfigRepository {
     int pendingCount = 0,
   }) async {
     final values = await _settingsRepository.fetchByKeys([
+      syncBaseUrlKey,
       syncLastRunAtKey,
       syncLastErrorKey,
       syncLastStatusKey,
     ]);
     final lastRunAt = DateTime.tryParse(values[syncLastRunAtKey]?.value ?? '');
     final lastError = values[syncLastErrorKey]?.value.trim();
+    final configuredBaseUrl = values[syncBaseUrlKey]?.value.trim();
+    final hasConfiguredBaseUrl = normalizeBackendBaseUrl(
+      configuredBaseUrl == null || configuredBaseUrl.isEmpty
+          ? defaultSyncBaseUrl
+          : configuredBaseUrl,
+    ).isNotEmpty;
+    final effectiveLastError =
+        hasConfiguredBaseUrl &&
+            lastError == backend_config.cloudServiceNotConfiguredMessage
+        ? null
+        : lastError;
     final normalizedStatus = values[syncLastStatusKey]?.value
         .trim()
         .toLowerCase();
@@ -430,7 +442,9 @@ class SyncConfigRepository {
       isSyncing: isSyncing,
       status: isSyncing ? SyncRuntimeStatus.syncing : status,
       lastSyncAt: lastRunAt,
-      lastError: (lastError == null || lastError.isEmpty) ? null : lastError,
+      lastError: (effectiveLastError == null || effectiveLastError.isEmpty)
+          ? null
+          : effectiveLastError,
       pendingCount: pendingCount,
     );
   }

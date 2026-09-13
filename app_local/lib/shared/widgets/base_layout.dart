@@ -43,17 +43,8 @@ class BaseLayout extends StatelessWidget {
     final content = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (showPageTitle)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-            child: Text(
-              title,
-              style: Theme.of(
-                context,
-              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
-            ),
-          ),
-        if (showPageTitle) const SizedBox(height: 12),
+        // El titulo ya se muestra en el AppBar de esta misma pantalla: no se
+        // repite dentro del cuerpo (evita el efecto de "dos appbar").
         Expanded(child: paddedChild),
       ],
     );

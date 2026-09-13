@@ -4,7 +4,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'app/app.dart';
+import 'core/config/app_flags.dart';
 import 'core/database/app_database.dart';
+import 'devtools/pwa_runtime_diagnostic_app.dart';
 import 'core/resilience/app_incident.dart';
 import 'core/resilience/app_incident_reporter.dart';
 import 'core/resilience/app_paths.dart';
@@ -17,6 +19,7 @@ import 'features/backup/data/backup_config_repository.dart';
 import 'features/backup/presentation/backup_lifecycle_observer.dart';
 import 'features/backup/services/backup_service.dart';
 import 'features/backup/services/disk_detection_service.dart';
+import 'shared/widgets/preparation_status_screen.dart';
 import 'shared/widgets/recovery_experience.dart';
 
 Future<void> main() async {
@@ -25,6 +28,11 @@ Future<void> main() async {
   await runZonedGuarded(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
+
+      if (kIsWeb && pwaRuntimeDiagnostic) {
+        runApp(const PwaRuntimeDiagnosticApp());
+        return;
+      }
 
       final appPaths = AppPaths();
       final backupConfigRepository = BackupConfigRepository();
@@ -234,23 +242,9 @@ class _SistemaSolaresBootstrapState extends State<SistemaSolaresBootstrap> {
         final report = snapshot.data;
         if (report == null) {
           return _standalone(
-            StartupRecoveryPage(
-              report: const StartupRecoveryReport(
-                status: StartupRecoveryStatus.failed,
-                title: 'No se pudo completar el inicio',
-                message:
-                    'El sistema no pudo terminar de prepararse en este momento.',
-                suggestions: [
-                  'Use Reintentar inicio para volver a cargar.',
-                  'Si no mejora, pruebe la reparación automática.',
-                ],
-                repairs: [],
-                showRecoveryScreen: true,
-                canContinue: false,
-                allowBackupRestore: false,
-              ),
-              onRetryStart: () async => _runStartup(),
-              onRetryRepair: () async => _runStartup(aggressiveRepair: true),
+            PreparationStatusScreen(
+              status: PreparationStatus.error,
+              onRetry: () => _runStartup(),
             ),
           );
         }

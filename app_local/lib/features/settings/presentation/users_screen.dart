@@ -11,7 +11,9 @@ import '../../../features/auth/domain/permission_model.dart';
 import '../../../features/auth/presentation/admin_override_prompt.dart';
 import '../../../features/auth/domain/user_model.dart';
 import '../../../features/auth/presentation/auth_provider.dart';
+import '../../../core/responsive/app_breakpoints.dart';
 import '../../../shared/widgets/base_layout.dart';
+import 'users_mobile.dart';
 
 class UsersScreen extends StatefulWidget {
   const UsersScreen({super.key});
@@ -299,6 +301,22 @@ class _UsersScreenState extends State<UsersScreen> {
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
     final isReadOnly = context.watch<SystemConfigService>().isReadOnly;
+
+    // Layout compacto (PWA / mobile / tablet): lista ordenada estilo Ventas.
+    if (AppBreakpoints.usesCompactNavigation(context)) {
+      return UsersMobileView(
+        users: _users,
+        isReadOnly: isReadOnly,
+        canManage: _canManageUsers(auth),
+        currentUserId: auth.currentUser?.id,
+        onRetry: _loadUsers,
+        onCreate: () => _openEditor(),
+        onRecoveryCode: _openRecoveryCodeDialog,
+        onEdit: (user) => _openEditor(user: user),
+        onToggleActive: (user, active) => _toggleActive(user, active),
+        onDelete: _deleteUser,
+      );
+    }
     final currentUserId = auth.currentUser?.id;
 
     return BaseLayout(

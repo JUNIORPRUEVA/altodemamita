@@ -9,7 +9,9 @@ import '../../../shared/widgets/recovery_experience.dart';
 import '../data/lot_repository.dart';
 import '../domain/lot.dart';
 import 'lot_form_dialog.dart';
+import '../../../core/responsive/app_breakpoints.dart';
 import 'lots_controller.dart';
+import 'lots_mobile.dart';
 
 class LotsPage extends StatefulWidget {
   const LotsPage({super.key, required this.repository});
@@ -55,11 +57,33 @@ class _LotsPageState extends State<LotsPage> {
       PermissionAction.delete,
     );
 
-    return BaseLayout(
-      title: 'Solares',
-      child: ListenableBuilder(
-        listenable: _controller,
-        builder: (context, _) => Column(
+    final body = ListenableBuilder(
+      listenable: _controller,
+      builder: (context, _) {
+        // Layout compacto (PWA / mobile / tablet): patrón visual de Ventas.
+        if (AppBreakpoints.usesCompactNavigation(context)) {
+          return LotsMobileView(
+            lots: _controller.lots,
+            query: _controller.currentQuery,
+            isLoading: _controller.isLoading && !_controller.hasVisibleData,
+            isRefreshing: _controller.isRefreshing,
+            refreshFailed: _controller.refreshFailed,
+            searchFailed: _controller.searchFailed,
+            hasVisibleData: _controller.hasVisibleData,
+            loadErrorTitle: _controller.loadError?.title,
+            canCreate: canCreate,
+            canUpdate: canUpdate,
+            canDelete: canDelete,
+            onSearch: (query) => _controller.load(query: query),
+            onClearSearch: _clearSearch,
+            onRetry: _runSearch,
+            onCreate: _createLot,
+            onEdit: _editLot,
+            onDelete: _confirmDelete,
+          );
+        }
+
+        return Column(
           children: [
             _buildToolbar(canCreate: canCreate),
             Expanded(
@@ -70,9 +94,14 @@ class _LotsPageState extends State<LotsPage> {
               ),
             ),
           ],
-        ),
-      ),
+        );
+      },
     );
+
+    if (AppBreakpoints.usesCompactNavigation(context)) {
+      return body;
+    }
+    return BaseLayout(title: 'Solares', child: body);
   }
 
   Widget _buildToolbar({required bool canCreate}) {
@@ -82,63 +111,86 @@ class _LotsPageState extends State<LotsPage> {
         border: Border(bottom: BorderSide(color: Color(0xFFE4EAF2))),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-      child: Row(
-        children: [
-          Expanded(
-            child: SizedBox(
-              height: 42,
-              child: TextField(
-                controller: _searchController,
-                style: const TextStyle(fontSize: 14),
-                decoration: InputDecoration(
-                  hintText: 'Buscar por manzana, solar o estado…',
-                  prefixIcon: const Icon(Icons.search, size: 18),
-                  isDense: true,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 10),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: Color(0xFFD0D7E4)),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 720;
+          final searchField = SizedBox(
+            height: 42,
+            child: TextField(
+              controller: _searchController,
+              style: const TextStyle(fontSize: 14),
+              decoration: InputDecoration(
+                hintText: 'Buscar por manzana, solar o estado…',
+                prefixIcon: const Icon(Icons.search, size: 18),
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: Color(0xFFD0D7E4)),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: Color(0xFFD0D7E4)),
+                ),
+              ),
+              onSubmitted: (_) => _runSearch(),
+            ),
+          );
+          final actions = Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              if (canCreate)
+                FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(0, 38),
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
                   ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: Color(0xFFD0D7E4)),
+                  onPressed: _createLot,
+                  icon: const Icon(Icons.add_location_alt_outlined, size: 18),
+                  label: const Text(
+                    'Nuevo solar',
+                    style: TextStyle(fontSize: 14),
                   ),
                 ),
-                onSubmitted: (_) => _runSearch(),
+              OutlinedButton(
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(0, 38),
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                ),
+                onPressed: _runSearch,
+                child: const Text('Buscar', style: TextStyle(fontSize: 14)),
               ),
-            ),
-          ),
-          const SizedBox(width: 16),
-          if (canCreate) ...[
-            FilledButton.icon(
-              style: FilledButton.styleFrom(
-                minimumSize: const Size(0, 38),
-                padding: const EdgeInsets.symmetric(horizontal: 16),
+              OutlinedButton(
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(0, 38),
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                ),
+                onPressed: _clearSearch,
+                child: const Text('Limpiar', style: TextStyle(fontSize: 14)),
               ),
-              onPressed: _createLot,
-              icon: const Icon(Icons.add_location_alt_outlined, size: 18),
-              label: const Text('Nuevo solar', style: TextStyle(fontSize: 14)),
-            ),
-            const SizedBox(width: 8),
-          ],
-          OutlinedButton(
-            style: OutlinedButton.styleFrom(
-              minimumSize: const Size(0, 38),
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-            ),
-            onPressed: _runSearch,
-            child: const Text('Buscar', style: TextStyle(fontSize: 14)),
-          ),
-          const SizedBox(width: 6),
-          OutlinedButton(
-            style: OutlinedButton.styleFrom(
-              minimumSize: const Size(0, 38),
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-            ),
-            onPressed: _clearSearch,
-            child: const Text('Limpiar', style: TextStyle(fontSize: 14)),
-          ),
-        ],
+            ],
+          );
+
+          if (compact) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                searchField,
+                const SizedBox(height: 10),
+                Align(alignment: Alignment.centerLeft, child: actions),
+              ],
+            );
+          }
+
+          return Row(
+            children: [
+              Expanded(child: searchField),
+              const SizedBox(width: 16),
+              actions,
+            ],
+          );
+        },
       ),
     );
   }
@@ -261,137 +313,134 @@ class _LotsPageState extends State<LotsPage> {
           Expanded(
             child: ListView.separated(
               itemCount: controller.lots.length,
-              separatorBuilder: (_, _) => const Divider(
-                height: 1,
-                indent: 64,
-              ),
+              separatorBuilder: (_, _) => const Divider(height: 1, indent: 64),
               itemBuilder: (context, index) {
                 final lot = controller.lots[index];
-          final statusColor = _lotStatusColor(lot.status);
-          final badge = lot.displayCode.length >= 2
-              ? lot.displayCode.substring(0, 2).toUpperCase()
-              : lot.displayCode.toUpperCase();
+                final statusColor = _lotStatusColor(lot.status);
+                final badge = lot.displayCode.length >= 2
+                    ? lot.displayCode.substring(0, 2).toUpperCase()
+                    : lot.displayCode.toUpperCase();
 
-          return InkWell(
-            onTap: canUpdate ? () => _editLot(lot) : null,
-            child: SizedBox(
-              height: 72,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 36,
-                      height: 36,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE8EFF8),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      alignment: Alignment.center,
-                      child: Text(
-                        badge,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w800,
-                          color: Color(0xFF1E3A5F),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      flex: 2,
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                return InkWell(
+                  onTap: canUpdate ? () => _editLot(lot) : null,
+                  child: SizedBox(
+                    height: 72,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Row(
                         children: [
-                          Text(
-                            lot.displayCode,
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF1A2235),
+                          Container(
+                            width: 36,
+                            height: 36,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFE8EFF8),
+                              borderRadius: BorderRadius.circular(8),
                             ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          Text(
-                            'Manz. ${lot.blockNumber}  ·  Solar ${lot.lotNumber}',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Color(0xFF8893AA),
+                            alignment: Alignment.center,
+                            child: Text(
+                              badge,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                                color: Color(0xFF1E3A5F),
+                              ),
                             ),
                           ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            flex: 2,
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  lot.displayCode,
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF1A2235),
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                Text(
+                                  'Manz. ${lot.blockNumber}  ·  Solar ${lot.lotNumber}',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Color(0xFF8893AA),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '${lot.area.toStringAsFixed(2)} m²',
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w500,
+                                    color: Color(0xFF1A2235),
+                                  ),
+                                ),
+                                Text(
+                                  'RD\$${_formatPrice(lot.pricePerSquareMeter)} /m²',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Color(0xFF8893AA),
+                                  ),
+                                ),
+                                Text(
+                                  'Total RD\$${_formatPrice(lot.totalPrice)}',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Color(0xFF8893AA),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: statusColor.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              lot.status,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: statusColor,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          if (canUpdate)
+                            IconButton(
+                              icon: const Icon(Icons.edit_outlined, size: 18),
+                              color: const Color(0xFF6B7494),
+                              onPressed: () => _editLot(lot),
+                            ),
+                          if (canDelete)
+                            IconButton(
+                              icon: const Icon(Icons.delete_outline, size: 18),
+                              color: const Color(0xFF6B7494),
+                              onPressed: () => _confirmDelete(lot),
+                            ),
                         ],
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '${lot.area.toStringAsFixed(2)} m²',
-                            style: const TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
-                              color: Color(0xFF1A2235),
-                            ),
-                          ),
-                          Text(
-                            'RD\$${_formatPrice(lot.pricePerSquareMeter)} /m²',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Color(0xFF8893AA),
-                            ),
-                          ),
-                          Text(
-                            'Total RD\$${_formatPrice(lot.totalPrice)}',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Color(0xFF8893AA),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: statusColor.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        lot.status,
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: statusColor,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    if (canUpdate)
-                      IconButton(
-                        icon: const Icon(Icons.edit_outlined, size: 18),
-                        color: const Color(0xFF6B7494),
-                        onPressed: () => _editLot(lot),
-                      ),
-                    if (canDelete)
-                      IconButton(
-                        icon: const Icon(Icons.delete_outline, size: 18),
-                        color: const Color(0xFF6B7494),
-                        onPressed: () => _confirmDelete(lot),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        },
+                  ),
+                );
+              },
             ),
           ),
         ],

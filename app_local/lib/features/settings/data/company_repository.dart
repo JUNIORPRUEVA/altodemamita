@@ -71,6 +71,38 @@ class CompanyRepository {
     }
   }
 
+  /// Stores the cloud-authoritative profile as a local cache projection.
+  ///
+  /// This intentionally does not call [SystemConfigService.ensureWritable]:
+  /// in cloud-authoritative mode the local database/IndexedDB is cache, not
+  /// the business source of truth.
+  Future<CompanyInfo> cacheCloudCompanyInfo(CompanyInfo company) async {
+    final existing = await getCompanyInfo();
+    final persisted = company.copyWith(
+      id: existing?.id,
+      fechaCreacion: existing?.fechaCreacion ?? company.fechaCreacion,
+    );
+
+    if (existing == null) {
+      final id = await database.insert(
+        DatabaseSchema.companyInfoTable,
+        persisted.toMap(),
+      );
+      final withId = persisted.copyWith(id: id);
+      await _upsertCompanyProfile(withId);
+      return withId;
+    }
+
+    await database.update(
+      DatabaseSchema.companyInfoTable,
+      persisted.toMap(),
+      where: 'id = ?',
+      whereArgs: [existing.id],
+    );
+    await _upsertCompanyProfile(persisted);
+    return persisted;
+  }
+
   Future<void> deleteCompanyInfo() async {
     SystemConfigService.instance.ensureWritable();
 

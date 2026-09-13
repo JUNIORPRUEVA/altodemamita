@@ -14,7 +14,9 @@ import '../data/seller_repository.dart';
 import '../domain/seller.dart';
 import 'seller_detail_dialog.dart';
 import 'seller_form_dialog.dart';
+import '../../../core/responsive/app_breakpoints.dart';
 import 'sellers_controller.dart';
+import 'sellers_mobile.dart';
 
 class SellersPage extends StatefulWidget {
   const SellersPage({
@@ -260,11 +262,33 @@ class _SellersPageState extends State<SellersPage> {
       PermissionAction.delete,
     );
 
-    return BaseLayout(
-      title: 'Vendedores',
-      child: ListenableBuilder(
-        listenable: _controller,
-        builder: (context, _) => Column(
+    final body = ListenableBuilder(
+      listenable: _controller,
+      builder: (context, _) {
+        // Layout compacto (PWA / mobile / tablet): patrón visual de Ventas.
+        if (AppBreakpoints.usesCompactNavigation(context)) {
+          return SellersMobileView(
+            sellers: _controller.sellers,
+            query: _controller.currentQuery,
+            isLoading: _controller.isLoading && !_controller.hasVisibleData,
+            isRefreshing: _controller.isRefreshing,
+            refreshFailed: _controller.refreshFailed,
+            searchFailed: _controller.searchFailed,
+            hasVisibleData: _controller.hasVisibleData,
+            loadErrorTitle: _controller.loadError?.title,
+            canCreate: canCreate,
+            canUpdate: canUpdate,
+            canDelete: canDelete,
+            onSearch: (query) => _controller.load(query: query),
+            onClearSearch: _clearSearch,
+            onRetry: _runSearch,
+            onCreate: _createSeller,
+            onEdit: _editSeller,
+            onDelete: _confirmDelete,
+          );
+        }
+
+        return Column(
           children: [
             _buildToolbar(context, canCreate: canCreate),
             Expanded(
@@ -275,9 +299,14 @@ class _SellersPageState extends State<SellersPage> {
               ),
             ),
           ],
-        ),
-      ),
+        );
+      },
     );
+
+    if (AppBreakpoints.usesCompactNavigation(context)) {
+      return body;
+    }
+    return BaseLayout(title: 'Vendedores', child: body);
   }
 
   Widget _buildToolbar(BuildContext context, {required bool canCreate}) {
@@ -314,43 +343,58 @@ class _SellersPageState extends State<SellersPage> {
             ),
           );
 
-          final actions = Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (canCreate) ...[
-                FilledButton.icon(
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size(0, 38),
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                  ),
-                  onPressed: _createSeller,
-                  icon: const Icon(Icons.person_add_alt_1_outlined, size: 18),
-                  label: const Text(
-                    'Nuevo vendedor',
-                    style: TextStyle(fontSize: 14),
-                  ),
-                ),
-                const SizedBox(width: 8),
-              ],
-              OutlinedButton(
-                style: OutlinedButton.styleFrom(
+          final actionChildren = <Widget>[
+            if (canCreate)
+              FilledButton.icon(
+                style: FilledButton.styleFrom(
                   minimumSize: const Size(0, 38),
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
                 ),
-                onPressed: _runSearch,
-                child: const Text('Buscar', style: TextStyle(fontSize: 14)),
-              ),
-              const SizedBox(width: 6),
-              OutlinedButton(
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size(0, 38),
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                onPressed: _createSeller,
+                icon: const Icon(Icons.person_add_alt_1_outlined, size: 18),
+                label: const Text(
+                  'Nuevo vendedor',
+                  style: TextStyle(fontSize: 14),
                 ),
-                onPressed: _clearSearch,
-                child: const Text('Limpiar', style: TextStyle(fontSize: 14)),
               ),
-            ],
-          );
+            OutlinedButton(
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size(0, 38),
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+              ),
+              onPressed: _runSearch,
+              child: const Text('Buscar', style: TextStyle(fontSize: 14)),
+            ),
+            OutlinedButton(
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size(0, 38),
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+              ),
+              onPressed: _clearSearch,
+              child: const Text('Limpiar', style: TextStyle(fontSize: 14)),
+            ),
+          ];
+
+          // En pantallas estrechas las acciones se envuelven en varias lineas
+          // en lugar de desbordarse horizontalmente.
+          final actions = compact
+              ? Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  alignment: WrapAlignment.start,
+                  children: actionChildren,
+                )
+              : Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (var index = 0;
+                        index < actionChildren.length;
+                        index++) ...[
+                      if (index > 0) const SizedBox(width: 8),
+                      actionChildren[index],
+                    ],
+                  ],
+                );
 
           if (compact) {
             return Column(

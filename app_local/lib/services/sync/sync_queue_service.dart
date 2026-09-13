@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as developer;
-import 'dart:io';
+import '../../core/network/platform_http.dart';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';

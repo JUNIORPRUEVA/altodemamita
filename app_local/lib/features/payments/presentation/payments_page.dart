@@ -23,7 +23,9 @@ import '../domain/settlement_quote.dart';
 import 'payment_annul_dialog.dart';
 import 'payment_form_dialog.dart';
 import 'payment_history_fullscreen.dart';
+import '../../../core/responsive/app_breakpoints.dart';
 import 'payments_controller.dart';
+import 'payments_mobile.dart';
 import 'receipt/receipt_dialog.dart';
 import 'reports/client_pagare_dialog.dart';
 
@@ -122,6 +124,35 @@ class _PaymentsPageState extends State<PaymentsPage> {
     );
     final isAdmin = auth.isAdmin;
 
+    // Layout compacto (PWA / mobile / tablet): patrón visual de Ventas.
+    if (AppBreakpoints.usesCompactNavigation(context)) {
+      final loadError = _controller.loadError;
+      final compactLoadError =
+          loadError != null &&
+              _controller.activeSales.isEmpty &&
+              _controller.workQueue == null
+          ? loadError.title
+          : null;
+      return ListenableBuilder(
+        listenable: _controller,
+        builder: (context, _) => PaymentsMobileView(
+          sales: _controller.activeSales,
+          isLoading: _controller.isLoading,
+          isRefreshing: _controller.isRefreshing,
+          refreshFailed: _controller.refreshFailed,
+          loadErrorTitle: compactLoadError,
+          canCreatePayments: canCreatePayments,
+          onSearch: _controller.searchSales,
+          onClearSearch: _controller.clearSearch,
+          onRetry: () =>
+              _controller.load(preferredSaleId: widget.initialSaleId),
+          onRegisterPayment: _registerPayment,
+          onOpenSale: (saleId) =>
+              openSalePaymentHistoryById(context, saleId: saleId),
+        ),
+      );
+    }
+
     return BaseLayout(
       title: 'Pagos',
       child: ListenableBuilder(
@@ -150,62 +181,85 @@ class _PaymentsPageState extends State<PaymentsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              Expanded(child: _buildSaleSearchField()),
-              const SizedBox(width: 12),
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size(0, 40),
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                ),
-                onPressed: _openFiltersDialog,
-                icon: const Icon(Icons.filter_alt_outlined, size: 18),
-                label: Text(
-                  _activeFilterCount == 0
-                      ? 'Filtros'
-                      : 'Filtros ($_activeFilterCount)',
-                  style: const TextStyle(fontSize: 14),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Builder(
-                builder: (_) {
-                  final selected = _controller.selectedContext?.sale;
-                  final isInitialPending =
-                      selected != null &&
-                      !selected.isFinancingActive &&
-                      selected.pendingInitialPayment > 0.009;
-                  final buttonLabel = _controller.isSaving
-                      ? 'Guardando...'
-                      : isInitialPending
-                      ? (selected.paidInitialPayment <= 0.009
-                            ? 'Pagar apartado'
-                            : 'Pagar completivo del inicial')
-                      : 'Registrar pago';
-                  final buttonIcon = isInitialPending
-                      ? Icons.flag_outlined
-                      : Icons.point_of_sale_outlined;
-                  return FilledButton.icon(
-                    style: FilledButton.styleFrom(
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final compact = constraints.maxWidth < 720;
+              final actions = Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
                       minimumSize: const Size(0, 40),
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
                     ),
-                    onPressed:
-                        !canCreatePayments ||
-                            _controller.selectedContext == null ||
-                            _controller.isSaving
-                        ? null
-                        : _registerPayment,
-                    icon: Icon(buttonIcon, size: 18),
+                    onPressed: _openFiltersDialog,
+                    icon: const Icon(Icons.filter_alt_outlined, size: 18),
                     label: Text(
-                      buttonLabel,
+                      _activeFilterCount == 0
+                          ? 'Filtros'
+                          : 'Filtros ($_activeFilterCount)',
                       style: const TextStyle(fontSize: 14),
                     ),
-                  );
-                },
-              ),
-            ],
+                  ),
+                  Builder(
+                    builder: (_) {
+                      final selected = _controller.selectedContext?.sale;
+                      final isInitialPending =
+                          selected != null &&
+                          !selected.isFinancingActive &&
+                          selected.pendingInitialPayment > 0.009;
+                      final buttonLabel = _controller.isSaving
+                          ? 'Guardando...'
+                          : isInitialPending
+                          ? (selected.paidInitialPayment <= 0.009
+                                ? 'Pagar apartado'
+                                : 'Pagar completivo del inicial')
+                          : 'Registrar pago';
+                      final buttonIcon = isInitialPending
+                          ? Icons.flag_outlined
+                          : Icons.point_of_sale_outlined;
+                      return FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          minimumSize: const Size(0, 40),
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                        ),
+                        onPressed:
+                            !canCreatePayments ||
+                                _controller.selectedContext == null ||
+                                _controller.isSaving
+                            ? null
+                            : _registerPayment,
+                        icon: Icon(buttonIcon, size: 18),
+                        label: Text(
+                          buttonLabel,
+                          style: const TextStyle(fontSize: 14),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              );
+
+              if (compact) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _buildSaleSearchField(),
+                    const SizedBox(height: 10),
+                    Align(alignment: Alignment.centerLeft, child: actions),
+                  ],
+                );
+              }
+
+              return Row(
+                children: [
+                  Expanded(child: _buildSaleSearchField()),
+                  const SizedBox(width: 12),
+                  actions,
+                ],
+              );
+            },
           ),
           if (showSearchMatches) ...[
             const SizedBox(height: 10),

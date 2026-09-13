@@ -51,6 +51,12 @@ class IncidentLogger {
     String? incidentType,
     Map<String, Object?> extra = const {},
   }) async {
+    // En el navegador no hay carpeta de incidentes en disco. Se devuelve el
+    // codigo para que la UI pueda referenciarlo sin intentar escribir archivos.
+    if (!_appPaths.supportsFileSystem) {
+      return _buildIncidentCode(DateTime.now());
+    }
+
     await _appPaths.ensureCriticalDirectories();
 
     final now = DateTime.now();

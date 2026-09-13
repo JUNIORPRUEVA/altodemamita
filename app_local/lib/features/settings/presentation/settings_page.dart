@@ -19,16 +19,20 @@ import 'company_info_page.dart';
 import 'documentation_page.dart';
 import 'financial_params_page.dart';
 import 'printers_page.dart';
+import '../../../core/responsive/app_breakpoints.dart';
+import 'settings_mobile.dart';
 import 'users_screen.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({
     super.key,
+    this.initializeBackupOnOpen = true,
     this.onCompanyInfoChanged,
     this.onResetBusinessData,
     this.onResetLocalOnly,
   });
 
+  final bool initializeBackupOnOpen;
   final VoidCallback? onCompanyInfoChanged;
   final Future<String> Function()? onResetBusinessData;
   final Future<String> Function()? onResetLocalOnly;
@@ -54,7 +58,10 @@ class _SettingsPageState extends State<SettingsPage> {
     _backupController = BackupController(
       backupService: _backupService,
       diskDetectionService: _diskDetectionService,
-    )..initialize(silent: true);
+    );
+    if (widget.initializeBackupOnOpen) {
+      unawaited(_backupController.initialize(silent: true));
+    }
   }
 
   @override
@@ -121,6 +128,64 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
     final canOpenSettingsTools = auth.canReadModule(PermissionCatalog.settings);
+
+    // Layout compacto (PWA / mobile): lista compacta (sin una tarjeta por
+    // opcion) y solo lo que aplica en el dispositivo. Impresoras y Respaldo
+    // son herramientas de escritorio y no se muestran aqui.
+    if (AppBreakpoints.usesCompactNavigation(context)) {
+      return SettingsMobileView(
+        entries: [
+          SettingsEntry(
+            icon: Icons.business_outlined,
+            label: 'Empresa',
+            onTap: () => _openProtectedSettingsPage(
+              scope: AdminOverrideScope.settingsCompany,
+              title: 'Autorización administrativa requerida',
+              message:
+                  'Necesitas la clave de un administrador para abrir o modificar la información de la empresa.',
+              builder: (_) => const CompanyInfoPage(),
+              onClosed: () async {
+                widget.onCompanyInfoChanged?.call();
+              },
+            ),
+          ),
+          if (auth.isAdmin && canOpenSettingsTools)
+            SettingsEntry(
+              icon: Icons.people_outline,
+              label: 'Usuarios',
+              onTap: () => _openProtectedSettingsPage(
+                scope: AdminOverrideScope.settingsUsers,
+                title: 'Autorización administrativa requerida',
+                message:
+                    'Necesitas la clave de un administrador para gestionar usuarios y permisos.',
+                builder: (_) => const UsersScreen(),
+              ),
+            ),
+          SettingsEntry(
+            icon: Icons.trending_up_outlined,
+            label: 'Financiero',
+            onTap: () => _openProtectedSettingsPage(
+              scope: AdminOverrideScope.settingsFinancial,
+              title: 'Autorización administrativa requerida',
+              message:
+                  'Necesitas la clave de un administrador para abrir o modificar los parámetros financieros.',
+              builder: (_) => const FinancialParamsPage(),
+            ),
+          ),
+          SettingsEntry(
+            icon: Icons.menu_book_outlined,
+            label: 'Documentación',
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const DocumentationPage(),
+                ),
+              );
+            },
+          ),
+        ],
+      );
+    }
 
     return BaseLayout(
       title: 'Configuración',
@@ -245,7 +310,6 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
     );
   }
-
 }
 
 class _SettingCard extends StatelessWidget {

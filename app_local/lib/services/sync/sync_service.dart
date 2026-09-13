@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
+import '../../core/network/platform_http.dart';
 
 import 'package:flutter/foundation.dart';
 
@@ -21,7 +21,7 @@ import 'sync_logger.dart';
 import 'sync_queue_service.dart';
 
 class SyncService {
-  static const bool _downloadFromCloudEnabled = allowCloudPull;
+  static bool get _downloadFromCloudEnabled => allowCloudPull;
   static const Set<String> _tombstoneRepairScopes = {
     'products',
     'sales',
@@ -983,7 +983,7 @@ class SyncService {
     final hasBaseUrl = settings.baseUrl.trim().isNotEmpty;
 
     if (!hasBaseUrl) {
-      return serverConnectionErrorMessage;
+      return cloudServiceNotConfiguredMessage;
     }
     return 'La sincronizacion no esta configurada correctamente.';
   }

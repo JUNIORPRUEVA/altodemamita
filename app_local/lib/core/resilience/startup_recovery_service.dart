@@ -71,6 +71,48 @@ class StartupRecoveryService {
     final repairs = <String>[];
     final warnings = <String>[];
 
+    // En el navegador no existe sistema de archivos, ni respaldos en disco, ni
+    // carpetas del sistema, ni archivos sidecar de SQLite. La base de datos se
+    // crea en IndexedDB y el resto de la recuperacion local no aplica.
+    if (!_appPaths.supportsFileSystem) {
+      try {
+        onStatus?.call('Preparando almacenamiento del navegador...');
+        await _appDatabase.initialize();
+        return const StartupRecoveryReport(
+          status: StartupRecoveryStatus.healthy,
+          title: 'Sistema listo',
+          message: 'La aplicacion se preparo correctamente.',
+          suggestions: [],
+          repairs: [],
+          showRecoveryScreen: false,
+          canContinue: true,
+          allowBackupRestore: false,
+        );
+      } catch (error, stackTrace) {
+        final friendly = FriendlyErrorMessages.unexpected(error);
+        final incidentCode = await _incidentLogger.logIncident(
+          category: 'startup_unexpected',
+          severity: AppIncidentSeverity.critical,
+          friendlyMessage: friendly,
+          error: error,
+          stackTrace: stackTrace,
+        );
+
+        return StartupRecoveryReport(
+          status: StartupRecoveryStatus.failed,
+          title: 'No se pudo completar el inicio',
+          message:
+              'El sistema encontro un problema inesperado antes de abrir la aplicacion.',
+          suggestions: const ['Use Reintentar inicio para volver a cargar.'],
+          repairs: repairs,
+          showRecoveryScreen: true,
+          canContinue: false,
+          allowBackupRestore: false,
+          incidentCode: incidentCode,
+        );
+      }
+    }
+
     try {
       onStatus?.call('Verificando carpetas del sistema...');
       await _appPaths.ensureCriticalDirectories();

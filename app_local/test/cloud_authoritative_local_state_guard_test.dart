@@ -101,6 +101,56 @@ void main() {
   );
 
   test(
+    'CLOUD_AUTHORITATIVE no usa fallback local cuando el backend falla',
+    () async {
+      if (cloudCutoverMode != CloudCutoverMode.cloudAuthoritative) {
+        return;
+      }
+
+      final db = await appDatabase.database;
+      await db.delete(DatabaseSchema.usersTable);
+      final now = DateTime.now().toIso8601String();
+      await db.insert(DatabaseSchema.usersTable, {
+        'sync_id': 'cloud-cached-admin',
+        'nombre': 'Admin Cloud Cache',
+        'email': 'admin@sistema.local',
+        'password_hash': PasswordHasher.hashPassword('PasswordLocal123'),
+        'password_reset_required': 0,
+        'rol': 'admin',
+        'activo': 1,
+        'fecha_creacion': now,
+        'fecha_actualizacion': now,
+        'remote_auth_id': 'remote-admin-1',
+        'auth_source': 'cloud',
+        'deleted_at': null,
+      });
+
+      final backendState = FakeBackendState()..offline = true;
+      final authService = AuthService(
+        appDatabase: appDatabase,
+        syncConfigRepository: FakeSyncConfigRepository(
+          settings: buildFakeSettings(),
+        ),
+        httpClient: FakeBackendHttpClient(state: backendState),
+      );
+
+      expect(
+        () => authService.signInHybrid(
+          email: 'admin@sistema.local',
+          password: 'PasswordLocal123',
+        ),
+        throwsA(
+          isA<AuthException>().having(
+            (error) => error.message,
+            'message',
+            AuthService.cloudServiceUnavailableMessage,
+          ),
+        ),
+      );
+    },
+  );
+
+  test(
     'CLOUD_AUTHORITATIVE restaura identidad cloud antes que sesion local stale',
     () async {
       if (cloudCutoverMode != CloudCutoverMode.cloudAuthoritative) {
@@ -352,6 +402,8 @@ void main() {
         return;
       }
 
+      // Simula el contrato viejo (a323aed): responde 2xx pero no persiste ni
+      // devuelve `permissions`. Debe tratarse como FALLO, no como exito.
       final configRepository = FakeSyncConfigRepository(
         settings: buildFakeSettings(),
       );
@@ -431,6 +483,8 @@ void main() {
         return;
       }
 
+      // OWNER/ADMIN hereda todos los permisos por rol: el backend puede no
+      // devolver filas directas y aun asi el guardado es valido.
       final configRepository = FakeSyncConfigRepository(
         settings: buildFakeSettings(),
       );

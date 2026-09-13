@@ -242,6 +242,77 @@ void main() {
     },
   );
 
+  test(
+    'session persistence stores no password and logout clears session',
+    () async {
+      backendState.initialized = true;
+      backendState.adminEmail = 'admin@sistema.local';
+      backendState.adminPassword = 'PasswordNube123';
+      backendState.adminFullName = 'Admin Produccion';
+
+      await authService.signInHybrid(
+        email: 'admin@sistema.local',
+        password: 'PasswordNube123',
+      );
+
+      final preferences = await SharedPreferences.getInstance();
+      for (final key in preferences.getKeys()) {
+        expect(
+          preferences.get(key)?.toString(),
+          isNot(contains('PasswordNube123')),
+          reason: 'La sesion no debe persistir la contrasena en $key.',
+        );
+      }
+
+      final db = await appDatabase.database;
+      final sessionRows = await db.query('sesiones_auth');
+      expect(sessionRows, isNotEmpty);
+      expect(
+        sessionRows.any(
+          (row) => row.values.any(
+            (value) => value?.toString().contains('PasswordNube123') ?? false,
+          ),
+        ),
+        isFalse,
+      );
+
+      await authService.signOut();
+
+      expect(configRepository.savedJwtToken, isEmpty);
+      final revokedRows = await db.query(
+        'sesiones_auth',
+        where: 'revoked_at IS NOT NULL',
+      );
+      expect(revokedRows.length, sessionRows.length);
+      expect(await authService.restoreSession(), isNull);
+    },
+  );
+
+  test('logout then login enters immediately through auth result', () async {
+    backendState.initialized = true;
+    backendState.adminEmail = 'admin@sistema.local';
+    backendState.adminPassword = 'PasswordNube123';
+    backendState.adminFullName = 'Admin Produccion';
+
+    final first = await authService.signInHybrid(
+      email: 'admin@sistema.local',
+      password: 'PasswordNube123',
+    );
+    expect(first.user.email, 'admin@sistema.local');
+    expect(first.mode, AuthSignInMode.online);
+
+    await authService.signOut();
+
+    final second = await authService.signInHybrid(
+      email: 'admin@sistema.local',
+      password: 'PasswordNube123',
+    );
+
+    expect(second.user.email, 'admin@sistema.local');
+    expect(second.mode, AuthSignInMode.online);
+    expect(await authService.requiresInitialSetup(), isFalse);
+  });
+
   test('missing truly-required remote user id still fails safely', () async {
     backendState.initialized = true;
     backendState.adminEmail = 'admin@sistema.local';

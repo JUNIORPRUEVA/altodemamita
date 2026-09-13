@@ -1,6 +1,6 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
+import '../../../core/network/platform_http.dart';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
@@ -15,7 +15,9 @@ import '../../../shared/widgets/recovery_experience.dart';
 import '../data/client_repository.dart';
 import '../domain/client.dart';
 import 'client_form_dialog.dart';
+import '../../../core/responsive/app_breakpoints.dart';
 import 'clients_controller.dart';
+import 'clients_mobile.dart';
 
 class ClientsPage extends StatefulWidget {
   const ClientsPage({super.key, required this.repository});
@@ -114,11 +116,33 @@ class _ClientsPageState extends State<ClientsPage> {
       PermissionAction.delete,
     );
 
-    return BaseLayout(
-      title: 'Clientes',
-      child: ListenableBuilder(
-        listenable: _controller,
-        builder: (context, _) => Column(
+    final body = ListenableBuilder(
+      listenable: _controller,
+      builder: (context, _) {
+        // Layout compacto (PWA / mobile / tablet): patrón visual de Ventas.
+        if (AppBreakpoints.usesCompactNavigation(context)) {
+          return ClientsMobileView(
+            clients: _controller.clients,
+            query: _controller.currentQuery,
+            isLoading: _controller.isLoading && !_controller.hasVisibleData,
+            isRefreshing: _controller.isRefreshing,
+            refreshFailed: _controller.refreshFailed,
+            searchFailed: _controller.searchFailed,
+            hasVisibleData: _controller.hasVisibleData,
+            loadErrorTitle: _controller.loadError?.title,
+            canCreate: canCreate,
+            canUpdate: canUpdate,
+            canDelete: canDelete,
+            onSearch: (query) => _controller.load(query: query),
+            onClearSearch: _clearSearch,
+            onRetry: _runSearch,
+            onCreate: _createClient,
+            onEdit: _editClient,
+            onDelete: _confirmDelete,
+          );
+        }
+
+        return Column(
           children: [
             _buildToolbar(context, canCreate: canCreate),
             Expanded(
@@ -130,9 +154,14 @@ class _ClientsPageState extends State<ClientsPage> {
               ),
             ),
           ],
-        ),
-      ),
+        );
+      },
     );
+
+    if (AppBreakpoints.usesCompactNavigation(context)) {
+      return body;
+    }
+    return BaseLayout(title: 'Clientes', child: body);
   }
 
   Widget _buildToolbar(BuildContext context, {required bool canCreate}) {
@@ -169,48 +198,51 @@ class _ClientsPageState extends State<ClientsPage> {
             ),
           );
 
-          final actions = Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (canCreate) ...[
-                FilledButton.icon(
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size(0, 38),
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                  ),
-                  onPressed: _createClient,
-                  icon: const Icon(Icons.person_add_alt_1_outlined, size: 18),
-                  label: const Text(
-                    'Nuevo cliente',
-                    style: TextStyle(fontSize: 14),
-                  ),
-                ),
-                const SizedBox(width: 8),
-              ],
-              OutlinedButton(
-                style: OutlinedButton.styleFrom(
+          final actionButtons = <Widget>[
+            if (canCreate)
+              FilledButton.icon(
+                style: FilledButton.styleFrom(
                   minimumSize: const Size(0, 38),
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
                 ),
-                onPressed: _runSearch,
-                child: const Text('Buscar', style: TextStyle(fontSize: 14)),
-              ),
-              const SizedBox(width: 6),
-              OutlinedButton(
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size(0, 38),
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                onPressed: _createClient,
+                icon: const Icon(Icons.person_add_alt_1_outlined, size: 18),
+                label: const Text(
+                  'Nuevo cliente',
+                  style: TextStyle(fontSize: 14),
                 ),
-                onPressed: _clearSearch,
-                child: const Text('Limpiar', style: TextStyle(fontSize: 14)),
               ),
-            ],
+            OutlinedButton(
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size(0, 38),
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+              ),
+              onPressed: _runSearch,
+              child: const Text('Buscar', style: TextStyle(fontSize: 14)),
+            ),
+            OutlinedButton(
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size(0, 38),
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+              ),
+              onPressed: _clearSearch,
+              child: const Text('Limpiar', style: TextStyle(fontSize: 14)),
+            ),
+          ];
+          final actions = Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [...actionButtons],
           );
 
           if (compact) {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [searchField, const SizedBox(height: 10), actions],
+              children: [
+                searchField,
+                const SizedBox(height: 10),
+                Align(alignment: Alignment.centerLeft, child: actions),
+              ],
             );
           }
 
@@ -348,115 +380,115 @@ class _ClientsPageState extends State<ClientsPage> {
           Expanded(
             child: ListView.separated(
               itemCount: controller.clients.length,
-              separatorBuilder: (_, _) => const Divider(
-                height: 1,
-                indent: 64,
-              ),
+              separatorBuilder: (_, _) => const Divider(height: 1, indent: 64),
               itemBuilder: (context, index) {
                 final client = controller.clients[index];
-          final initials = client.fullName.isEmpty
-              ? '?'
-              : client.fullName[0].toUpperCase();
-          final meta = [
-            client.documentId,
-            if (client.phone != null && client.phone!.isNotEmpty) client.phone!,
-          ].where((s) => s.isNotEmpty).join('  ·  ');
-          final showSyncBadge = shouldShowRowSyncBadge(
-            hasInternet: _hasInternet,
-            syncStatus: client.syncStatus.storageValue,
-            isFailed: client.syncStatus.isFailed,
-          );
-          final syncBadgeLabel = rowSyncBadgeLabel(
-            syncStatus: client.syncStatus.storageValue,
-            isFailed: client.syncStatus.isFailed,
-          );
+                final initials = client.fullName.isEmpty
+                    ? '?'
+                    : client.fullName[0].toUpperCase();
+                final meta = [
+                  client.documentId,
+                  if (client.phone != null && client.phone!.isNotEmpty)
+                    client.phone!,
+                ].where((s) => s.isNotEmpty).join('  ·  ');
+                final showSyncBadge = shouldShowRowSyncBadge(
+                  hasInternet: _hasInternet,
+                  syncStatus: client.syncStatus.storageValue,
+                  isFailed: client.syncStatus.isFailed,
+                );
+                final syncBadgeLabel = rowSyncBadgeLabel(
+                  syncStatus: client.syncStatus.storageValue,
+                  isFailed: client.syncStatus.isFailed,
+                );
 
-          return InkWell(
-            onTap: canUpdate ? () => _editClient(client) : null,
-            child: SizedBox(
-              height: 62,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 18,
-                      backgroundColor: const Color(0xFFE8EFF8),
-                      child: Text(
-                        initials,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF1E3A5F),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                return InkWell(
+                  onTap: canUpdate ? () => _editClient(client) : null,
+                  child: SizedBox(
+                    height: 62,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Row(
                         children: [
-                          Text(
-                            client.fullName,
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF1A2235),
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          if (meta.isNotEmpty)
-                            Text(
-                              meta,
+                          CircleAvatar(
+                            radius: 18,
+                            backgroundColor: const Color(0xFFE8EFF8),
+                            child: Text(
+                              initials,
                               style: const TextStyle(
-                                fontSize: 12,
-                                color: Color(0xFF8893AA),
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF1E3A5F),
                               ),
-                              overflow: TextOverflow.ellipsis,
                             ),
-                          if (showSyncBadge && syncBadgeLabel != null)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 3),
-                              child: RowSyncListBadge(label: syncBadgeLabel),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  client.fullName,
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF1A2235),
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                if (meta.isNotEmpty)
+                                  Text(
+                                    meta,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Color(0xFF8893AA),
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                if (showSyncBadge && syncBadgeLabel != null)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 3),
+                                    child: RowSyncListBadge(
+                                      label: syncBadgeLabel,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                          if (client.address != null &&
+                              client.address!.isNotEmpty) ...[
+                            const SizedBox(width: 12),
+                            Flexible(
+                              child: Text(
+                                client.address!,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Color(0xFF8893AA),
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                                maxLines: 1,
+                              ),
+                            ),
+                          ],
+                          const SizedBox(width: 8),
+                          if (canUpdate)
+                            IconButton(
+                              icon: const Icon(Icons.edit_outlined, size: 18),
+                              color: const Color(0xFF6B7494),
+                              onPressed: () => _editClient(client),
+                            ),
+                          if (canDelete)
+                            IconButton(
+                              icon: const Icon(Icons.delete_outline, size: 18),
+                              color: const Color(0xFF6B7494),
+                              onPressed: () => _confirmDelete(client),
                             ),
                         ],
                       ),
                     ),
-                    if (client.address != null &&
-                        client.address!.isNotEmpty) ...[
-                      const SizedBox(width: 12),
-                      Flexible(
-                        child: Text(
-                          client.address!,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: Color(0xFF8893AA),
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                          maxLines: 1,
-                        ),
-                      ),
-                    ],
-                    const SizedBox(width: 8),
-                    if (canUpdate)
-                      IconButton(
-                        icon: const Icon(Icons.edit_outlined, size: 18),
-                        color: const Color(0xFF6B7494),
-                        onPressed: () => _editClient(client),
-                      ),
-                    if (canDelete)
-                      IconButton(
-                        icon: const Icon(Icons.delete_outline, size: 18),
-                        color: const Color(0xFF6B7494),
-                        onPressed: () => _confirmDelete(client),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        },
+                  ),
+                );
+              },
             ),
           ),
         ],
@@ -498,9 +530,9 @@ class _ClientsPageState extends State<ClientsPage> {
 
     if (error != null) {
       debugPrint('ERROR AL GUARDAR CLIENTE (mensaje): $error');
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text(error)),
-      );
+      ScaffoldMessenger.maybeOf(
+        context,
+      )?.showSnackBar(SnackBar(content: Text(error)));
       return;
     }
 
@@ -547,9 +579,9 @@ class _ClientsPageState extends State<ClientsPage> {
 
     if (error != null) {
       debugPrint('ERROR AL ELIMINAR CLIENTE (mensaje): $error');
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text(error)),
-      );
+      ScaffoldMessenger.maybeOf(
+        context,
+      )?.showSnackBar(SnackBar(content: Text(error)));
       return;
     }
 

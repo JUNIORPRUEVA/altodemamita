@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../../core/resilience/app_incident.dart';
 import '../../core/resilience/global_error_controller.dart';
 import '../../core/resilience/startup_recovery_service.dart';
+import 'preparation_status_screen.dart';
 
 class StartupProgressScreen extends StatelessWidget {
   const StartupProgressScreen({
@@ -17,27 +18,23 @@ class StartupProgressScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _RecoveryScaffold(
-      accentColor: const Color(0xFF1E88E5),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const SizedBox(
-            width: 56,
-            height: 56,
-            child: CircularProgressIndicator(strokeWidth: 3.5),
-          ),
-          const SizedBox(height: 24),
-          Text(title, style: Theme.of(context).textTheme.headlineSmall),
-          const SizedBox(height: 12),
-          Text(
-            message,
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodyLarge,
-          ),
-        ],
-      ),
-    );
+    return PreparationStatusScreen(status: _statusFromMessage(message));
+  }
+
+  PreparationStatus _statusFromMessage(String value) {
+    final normalized = value.toLowerCase();
+    if (normalized.contains('listo') ||
+        normalized.contains('complet') ||
+        normalized.contains('correct')) {
+      return PreparationStatus.ready;
+    }
+    if (normalized.contains('organ') ||
+        normalized.contains('repar') ||
+        normalized.contains('valid') ||
+        normalized.contains('restaur')) {
+      return PreparationStatus.organizing;
+    }
+    return PreparationStatus.loading;
   }
 }
 

@@ -2,7 +2,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../../core/config/app_flags.dart';
 import '../data/auth_service.dart';
 import 'auth_provider.dart';
 
@@ -91,7 +90,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
     final errorMessage = auth.errorMessage;
-    final backendMessage = auth.backendStatusMessage?.trim();
+    final backendMessage = kIsWeb ? null : auth.backendStatusMessage?.trim();
 
     return Scaffold(
       body: Container(
@@ -163,21 +162,18 @@ class _LoginScreenState extends State<LoginScreen> {
                                       fontWeight: FontWeight.w700,
                                     ),
                                   ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    cloudCutoverMode
-                                            .usesAuthoritativeBusinessWrites
-                                        ? 'Iniciar sesion'
-                                        : 'Iniciar sesion local',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      color: Colors.white.withValues(
-                                        alpha: 0.88,
+                                  if (!kIsWeb) ...[
+                                    const SizedBox(height: 6),
+                                    const Text(
+                                      'Iniciar sesion',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w500,
                                       ),
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w500,
                                     ),
-                                  ),
+                                  ],
                                   if (backendMessage != null &&
                                       backendMessage.isNotEmpty) ...[
                                     const SizedBox(height: 10),
@@ -239,7 +235,9 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                               _LoginField(
                                 controller: _emailController,
-                                hintText: 'Correo o usuario',
+                                hintText: kIsWeb
+                                    ? 'Correo'
+                                    : 'Correo o usuario',
                                 icon: Icons.mail_outline,
                                 textInputAction: TextInputAction.next,
                                 keyboardType: TextInputType.text,
@@ -309,7 +307,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                         ),
                                       )
                                     : const Text(
-                                        'Entrar',
+                                        'Iniciar sesion',
                                         style: TextStyle(
                                           fontSize: 15,
                                           fontWeight: FontWeight.w700,

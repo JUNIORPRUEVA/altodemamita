@@ -1,21 +1,22 @@
 import 'dart:convert';
-import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:path/path.dart' as path;
 import 'package:provider/provider.dart';
 
+import '../../../core/cloud_foundation/cloud_api_client.dart';
+import '../../../core/config/backend_config.dart' as backend_config;
 import '../../../core/database/app_database.dart';
 import '../../../core/resilience/friendly_error_messages.dart';
-import '../../../core/resilience/app_paths.dart';
 import '../../../core/system/system_config_service.dart';
 import '../../../core/utils/dominican_formatters.dart';
 import '../../../features/auth/domain/admin_override_scope.dart';
 import '../../../features/auth/domain/permission_model.dart';
 import '../../../features/auth/presentation/admin_override_prompt.dart';
 import '../../../features/auth/presentation/auth_provider.dart';
+import '../../../services/sync/sync_config_repository.dart';
+import '../data/company_logo_storage.dart';
 import '../data/company_repository.dart';
 import '../domain/company_info.dart';
 import '../../../shared/widgets/base_layout.dart';
@@ -39,8 +40,11 @@ class _CompanyInfoPageState extends State<CompanyInfoPage> {
   String? _logoLocalPath;
   String? _logoRemoteUrl;
   Uint8List? _logoBytes;
+  String? _cloudLogoUrl;
+  bool _cloudLogoPresent = false;
   bool _logoDirty = false;
   bool _isLoading = true;
+  bool _isRefreshingCloud = false;
   bool _isSaving = false;
   FriendlyErrorMessage? _loadError;
 
@@ -120,7 +124,7 @@ class _CompanyInfoPageState extends State<CompanyInfoPage> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'La información guardada se utiliza en recibos y reportes de la aplicación.',
+                      'La información se obtiene del perfil cloud de la empresa y se usa en recibos y reportes.',
                       style: Theme.of(
                         context,
                       ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
@@ -148,33 +152,7 @@ class _CompanyInfoPageState extends State<CompanyInfoPage> {
                             child: InkWell(
                               onTap: isReadOnly ? null : _uploadLogo,
                               borderRadius: BorderRadius.circular(16),
-                              child: _logoBytes == null
-                                  ? Column(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        Icon(
-                                          Icons.image_outlined,
-                                          size: 48,
-                                          color: Colors.grey[600],
-                                        ),
-                                        const SizedBox(height: 8),
-                                        Text(
-                                          'Subir logo',
-                                          style: Theme.of(
-                                            context,
-                                          ).textTheme.labelSmall,
-                                          textAlign: TextAlign.center,
-                                        ),
-                                      ],
-                                    )
-                                  : ClipRRect(
-                                      borderRadius: BorderRadius.circular(14),
-                                      child: Image.memory(
-                                        _logoBytes!,
-                                        fit: BoxFit.cover,
-                                      ),
-                                    ),
+                              child: _buildLogoPreview(context),
                             ),
                           ),
                           const SizedBox(height: 10),
@@ -196,6 +174,14 @@ class _CompanyInfoPageState extends State<CompanyInfoPage> {
                           ),
                           const SizedBox(height: 8),
                           _buildUploadStatusChip(),
+                          if (_isRefreshingCloud) ...[
+                            const SizedBox(height: 8),
+                            const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -291,43 +277,44 @@ class _CompanyInfoPageState extends State<CompanyInfoPage> {
   }
 
   Future<void> _loadCompanyInfo() async {
+    setState(() {
+      _isLoading = true;
+      _loadError = null;
+    });
+
     try {
       final db = await AppDatabase.instance.database;
-      final company = await CompanyRepository(db).getCompanyInfo();
+      final repository = CompanyRepository(db);
+      final cachedCompany = await repository.getCompanyInfo();
 
       if (!mounted) {
         return;
       }
 
+      if (cachedCompany != null) {
+        _applyCompanyInfo(cachedCompany);
+        setState(() {
+          _isLoading = false;
+          _isRefreshingCloud = true;
+        });
+      }
+
+      await _refreshCloudLogoAvailability();
+      final cloudCompany = await _loadCloudCompanyInfo(repository);
+
+      if (!mounted) {
+        return;
+      }
+
+      if (cloudCompany != null) {
+        _applyCompanyInfo(cloudCompany);
+      }
+
       setState(() {
-        _company = company;
-        _nombreController.text = company?.nombre ?? '';
-        _telefonoController.text = company?.telefono ?? '';
-        _direccionController.text = company?.direccion ?? '';
-        _logoBase64 = company?.logoBytesBase64;
-        _logoLocalPath = company?.logoLocalPath;
-        _logoRemoteUrl = company?.logoRemoteUrl;
-        _logoBytes = null;
-        if (_logoLocalPath != null && _logoLocalPath!.trim().isNotEmpty) {
-          final file = File(_logoLocalPath!.trim());
-          if (file.existsSync()) {
-            try {
-              _logoBytes = file.readAsBytesSync();
-            } catch (_) {
-              _logoBytes = null;
-            }
-          }
-        }
-        if (_logoBytes == null && _logoBase64 != null && _logoBase64!.isNotEmpty) {
-          try {
-            _logoBytes = base64Decode(_logoBase64!);
-          } catch (_) {
-            _logoBytes = null;
-          }
-        }
         _logoDirty = false;
         _loadError = null;
         _isLoading = false;
+        _isRefreshingCloud = false;
       });
     } catch (error) {
       if (!mounted) {
@@ -339,8 +326,134 @@ class _CompanyInfoPageState extends State<CompanyInfoPage> {
           error,
         );
         _isLoading = false;
+        _isRefreshingCloud = false;
       });
     }
+  }
+
+  Future<void> _refreshCloudLogoAvailability() async {
+    final response = await CloudApiClient().get(
+      '/system/branding',
+      accessToken: '',
+    );
+    if (!response.isSuccess) {
+      return;
+    }
+
+    final data = response.body['data'];
+    if (data is! Map) {
+      return;
+    }
+
+    final present = data['present'] == true;
+    final updatedAt = data['updatedAt']?.toString().trim();
+    setState(() {
+      _cloudLogoPresent = present;
+      _cloudLogoUrl = present
+          ? _brandingLogoUrl(
+              version: updatedAt?.isEmpty == true ? null : updatedAt,
+            )
+          : null;
+    });
+  }
+
+  Future<CompanyInfo?> _loadCloudCompanyInfo(
+    CompanyRepository repository,
+  ) async {
+    final settings = await SyncConfigRepository().loadSettings();
+    final token = settings.jwtToken.trim();
+    if (token.isEmpty) {
+      if (_company == null) {
+        throw StateError('No hay una sesión cloud activa.');
+      }
+      return null;
+    }
+
+    final response = await CloudApiClient().getCompanyProfile(
+      accessToken: token,
+    );
+    if (!response.isSuccess) {
+      if (_company == null) {
+        throw StateError('No pudimos cargar la información de la empresa.');
+      }
+      return null;
+    }
+
+    final data = response.body['data'];
+    if (data is! Map) {
+      return null;
+    }
+    final profile = data['profile'];
+    if (profile is! Map) {
+      return null;
+    }
+
+    final now = DateTime.now();
+    final updatedAt =
+        DateTime.tryParse(profile['updatedAt']?.toString() ?? '') ?? now;
+    final createdAt =
+        DateTime.tryParse(profile['createdAt']?.toString() ?? '') ?? updatedAt;
+    final cloudCompany = CompanyInfo(
+      nombre: profile['name']?.toString().trim() ?? '',
+      telefono: _nullableCloudText(profile['phone']),
+      direccion: _nullableCloudText(profile['address']),
+      logoBytesBase64: _nullableCloudText(profile['logoBase64']),
+      logoLocalPath: null,
+      logoRemoteUrl: _nullableCloudText(profile['logoRemoteUrl']),
+      logoUploadStatus:
+          _nullableCloudText(profile['logoUploadStatus']) ?? 'uploaded',
+      fechaCreacion: createdAt,
+      fechaActualizacion: updatedAt,
+    );
+
+    return repository.cacheCloudCompanyInfo(cloudCompany);
+  }
+
+  void _applyCompanyInfo(CompanyInfo company) {
+    _company = company;
+    _nombreController.text = company.nombre;
+    _telefonoController.text = company.telefono ?? '';
+    _direccionController.text = company.direccion ?? '';
+    _logoBase64 = company.logoBytesBase64;
+    _logoLocalPath = company.logoLocalPath;
+    _logoRemoteUrl = company.logoRemoteUrl;
+    _logoBytes = null;
+
+    final logoBase64 = _logoBase64?.trim();
+    if (logoBase64 != null && logoBase64.isNotEmpty) {
+      try {
+        _logoBytes = base64Decode(logoBase64);
+      } catch (_) {
+        _logoBytes = null;
+      }
+    }
+
+    if (!kIsWeb && _logoBytes == null) {
+      readLogoBytesFromLocalPath(_logoLocalPath).then((bytes) {
+        if (!mounted || bytes == null || bytes.isEmpty) {
+          return;
+        }
+        setState(() => _logoBytes = bytes);
+      });
+    }
+  }
+
+  String? _nullableCloudText(Object? value) {
+    final text = value?.toString().trim();
+    if (text == null || text.isEmpty) {
+      return null;
+    }
+    return text;
+  }
+
+  String _brandingLogoUrl({String? version}) {
+    final base = backend_config.backendEndpoint('/system/branding/logo');
+    if (version == null || version.trim().isEmpty) {
+      return base;
+    }
+    return Uri.parse(
+      base,
+    ).replace(queryParameters: {'v': version.trim()}).toString();
   }
 
   Future<void> _uploadLogo() async {
@@ -358,11 +471,7 @@ class _CompanyInfoPageState extends State<CompanyInfoPage> {
         return;
       }
 
-      Uint8List? bytes = result.files.single.bytes;
-      if ((bytes == null || bytes.isEmpty) &&
-          result.files.single.path != null) {
-        bytes = await File(result.files.single.path!).readAsBytes();
-      }
+      final bytes = await readPickedLogoBytes(result.files.single);
       if (bytes == null || bytes.isEmpty) {
         throw StateError('No fue posible leer la imagen seleccionada.');
       }
@@ -373,7 +482,7 @@ class _CompanyInfoPageState extends State<CompanyInfoPage> {
 
       setState(() {
         _logoBytes = bytes;
-        _logoBase64 = base64Encode(bytes!);
+        _logoBase64 = base64Encode(bytes);
         _logoDirty = true;
       });
     } catch (error) {
@@ -402,20 +511,6 @@ class _CompanyInfoPageState extends State<CompanyInfoPage> {
     });
   }
 
-  Future<String?> _persistLogoLocally(Uint8List? bytes) async {
-    if (bytes == null || bytes.isEmpty) {
-      return null;
-    }
-
-    final appPaths = AppPaths();
-    await Directory(appPaths.mediaDirectory).create(recursive: true);
-    final filename = 'company_logo_${DateTime.now().millisecondsSinceEpoch}.png';
-    final filePath = path.join(appPaths.mediaDirectory, filename);
-    final file = File(filePath);
-    await file.writeAsBytes(bytes, flush: true);
-    return filePath;
-  }
-
   Future<void> _save() async {
     if (!await _ensureAuthorized()) {
       return;
@@ -433,7 +528,7 @@ class _CompanyInfoPageState extends State<CompanyInfoPage> {
       final now = DateTime.now();
       final existing = _company;
       final persistedLocalPath = _logoDirty
-          ? await _persistLogoLocally(_logoBytes)
+          ? await persistCompanyLogoLocally(_logoBytes)
           : (existing?.logoLocalPath ?? _logoLocalPath);
       final nextRemoteUrl = _logoDirty
           ? (_logoBytes == null ? null : null)
@@ -489,6 +584,9 @@ class _CompanyInfoPageState extends State<CompanyInfoPage> {
     final effectiveStatus = _logoDirty
         ? (_logoBytes == null ? 'uploaded' : 'pending_upload')
         : (_company?.logoUploadStatus ?? 'uploaded');
+    final hasRenderableLogo =
+        _logoBytes != null ||
+        (_cloudLogoPresent && (_cloudLogoUrl?.trim().isNotEmpty ?? false));
 
     switch (effectiveStatus) {
       case 'pending_upload':
@@ -502,10 +600,56 @@ class _CompanyInfoPageState extends State<CompanyInfoPage> {
           label: Text('Error de subida, se reintentará'),
         );
       default:
+        if (!hasRenderableLogo) {
+          return const Chip(
+            avatar: Icon(Icons.hide_image_outlined, size: 18),
+            label: Text('Logo no publicado'),
+          );
+        }
         return const Chip(
           avatar: Icon(Icons.cloud_done_outlined, size: 18),
-          label: Text('Logo sincronizado'),
+          label: Text('Logo disponible en cloud'),
         );
     }
+  }
+
+  Widget _buildLogoPreview(BuildContext context) {
+    final cloudUrl = _cloudLogoUrl?.trim();
+    if (_logoBytes != null) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: Image.memory(_logoBytes!, fit: BoxFit.cover),
+      );
+    }
+
+    if (_cloudLogoPresent && cloudUrl != null && cloudUrl.isNotEmpty) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: Image.network(
+          cloudUrl,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            return _buildLogoPlaceholder(context, label: 'Logo no disponible');
+          },
+        ),
+      );
+    }
+
+    return _buildLogoPlaceholder(context, label: 'Subir logo');
+  }
+
+  Widget _buildLogoPlaceholder(BuildContext context, {required String label}) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(Icons.image_outlined, size: 48, color: Colors.grey[600]),
+        const SizedBox(height: 8),
+        Text(
+          label,
+          style: Theme.of(context).textTheme.labelSmall,
+          textAlign: TextAlign.center,
+        ),
+      ],
+    );
   }
 }

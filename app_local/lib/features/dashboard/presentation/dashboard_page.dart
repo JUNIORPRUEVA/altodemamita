@@ -50,62 +50,65 @@ class _DashboardPageState extends State<DashboardPage> {
 
   Future<_DashboardStats> _loadStats() async {
     try {
-    final results = await Future.wait<dynamic>([
-      widget.clientRepository.countAll(),
-      widget.lotRepository.countAll(),
-      widget.lotRepository.countByStatus('disponible'),
-      widget.lotRepository.countByStatus('vendido'),
-      widget.salesRepository.fetchAll(),
-      widget.installmentsRepository.getAll(),
-    ]);
+      final results = await Future.wait<dynamic>([
+        widget.clientRepository.countAll(),
+        widget.lotRepository.countAll(),
+        widget.lotRepository.countByStatus('disponible'),
+        widget.lotRepository.countByStatus('vendido'),
+        widget.salesRepository.fetchAll(),
+        widget.installmentsRepository.getAll(),
+      ]);
 
-    final sales = results[4] as List<SaleSummary>;
-    final installments = results[5] as List<dynamic>;
+      final sales = results[4] as List<SaleSummary>;
+      final installments = results[5] as List<dynamic>;
 
-    final pendingPayments = installments
-        .where((item) => item.calculatedStatus != 'pagada')
-        .length;
-    final overduePayments = installments
-        .where((item) => item.calculatedStatus == 'vencida')
-        .length;
-    final incompleteInitialPayments = sales
-        .where((sale) => sale.pendingInitialPayment > 0.009)
-        .length;
-    final activeFinancing = sales
-        .where((sale) => sale.status == 'activa' && sale.pendingBalance > 0.009)
-        .length;
-    final portfolioPendingAmount = sales.fold<double>(
-      0,
-      (total, sale) => total + sale.pendingInitialPayment + sale.pendingBalance,
-    );
-    final collectedAmount = sales.fold<double>(
-      0,
-      (total, sale) =>
-          total +
-          sale.paidInitialPayment +
-          (sale.salePrice - sale.pendingBalance - sale.downPaymentAmount),
-    );
-    final soldAmount = sales.fold<double>(
-      0,
-      (total, sale) => total + sale.salePrice,
-    );
+      final pendingPayments = installments
+          .where((item) => item.calculatedStatus != 'pagada')
+          .length;
+      final overduePayments = installments
+          .where((item) => item.calculatedStatus == 'vencida')
+          .length;
+      final incompleteInitialPayments = sales
+          .where((sale) => sale.pendingInitialPayment > 0.009)
+          .length;
+      final activeFinancing = sales
+          .where(
+            (sale) => sale.status == 'activa' && sale.pendingBalance > 0.009,
+          )
+          .length;
+      final portfolioPendingAmount = sales.fold<double>(
+        0,
+        (total, sale) =>
+            total + sale.pendingInitialPayment + sale.pendingBalance,
+      );
+      final collectedAmount = sales.fold<double>(
+        0,
+        (total, sale) =>
+            total +
+            sale.paidInitialPayment +
+            (sale.salePrice - sale.pendingBalance - sale.downPaymentAmount),
+      );
+      final soldAmount = sales.fold<double>(
+        0,
+        (total, sale) => total + sale.salePrice,
+      );
 
-    final stats = _DashboardStats(
-      totalClients: results[0],
-      totalLots: results[1],
-      availableLots: results[2],
-      soldLots: results[3],
-      pendingPayments: pendingPayments,
-      incompleteInitialPayments: incompleteInitialPayments,
-      overduePayments: overduePayments,
-      activeFinancing: activeFinancing,
-      portfolioPendingAmount: portfolioPendingAmount,
-      collectedAmount: collectedAmount,
-      soldAmount: soldAmount,
-    );
-    _lastGoodStats = stats;
-    _lastLoadFailed = false;
-    return stats;
+      final stats = _DashboardStats(
+        totalClients: results[0],
+        totalLots: results[1],
+        availableLots: results[2],
+        soldLots: results[3],
+        pendingPayments: pendingPayments,
+        incompleteInitialPayments: incompleteInitialPayments,
+        overduePayments: overduePayments,
+        activeFinancing: activeFinancing,
+        portfolioPendingAmount: portfolioPendingAmount,
+        collectedAmount: collectedAmount,
+        soldAmount: soldAmount,
+      );
+      _lastGoodStats = stats;
+      _lastLoadFailed = false;
+      return stats;
     } catch (_) {
       // Nunca mostrar ceros silenciosos: conservar el ultimo estado valido.
       _lastLoadFailed = true;
@@ -139,6 +142,7 @@ class _DashboardPageState extends State<DashboardPage> {
               final width = constraints.maxWidth;
               final isDesktop = width >= 1200;
               final isMedium = width >= 860;
+              final isMobile = width < 600;
 
               if (isDesktop) {
                 return SingleChildScrollView(
@@ -224,6 +228,24 @@ class _DashboardPageState extends State<DashboardPage> {
                 );
               }
 
+              if (isMobile) {
+                return ListView(
+                  children: [
+                    if (dataAlerts.isNotEmpty) ...[
+                      _DashboardDataAlert(messages: dataAlerts),
+                      const SizedBox(height: 12),
+                    ],
+                    _MobileFinancialSummary(stats: stats),
+                    const SizedBox(height: 12),
+                    _MobileOperationsSummary(stats: stats),
+                    const SizedBox(height: 12),
+                    _CollectionPriorityCard(stats: stats),
+                    const SizedBox(height: 12),
+                    _InventoryCard(stats: stats, compact: true),
+                  ],
+                );
+              }
+
               return ListView(
                 children: [
                   if (dataAlerts.isNotEmpty) ...[
@@ -244,6 +266,225 @@ class _DashboardPageState extends State<DashboardPage> {
             },
           );
         },
+      ),
+    );
+  }
+}
+
+class _MobileFinancialSummary extends StatelessWidget {
+  const _MobileFinancialSummary({required this.stats});
+
+  final _DashboardStats stats;
+
+  @override
+  Widget build(BuildContext context) {
+    return _MobileDashboardSection(
+      title: 'Resumen financiero',
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final twoColumns = constraints.maxWidth >= 340;
+          final gap = 10.0;
+          final itemWidth = twoColumns
+              ? (constraints.maxWidth - gap) / 2
+              : constraints.maxWidth;
+
+          return Wrap(
+            spacing: gap,
+            runSpacing: gap,
+            children: [
+              SizedBox(
+                width: itemWidth,
+                child: _CompactKpiCard(
+                  label: 'Cobrado',
+                  value: _formatCurrency(stats.collectedAmount),
+                  icon: Icons.account_balance_wallet_outlined,
+                  accentColor: const Color(0xFF2E7D5B),
+                ),
+              ),
+              SizedBox(
+                width: itemWidth,
+                child: _CompactKpiCard(
+                  label: 'Pendiente',
+                  value: _formatCurrency(stats.portfolioPendingAmount),
+                  icon: Icons.receipt_long_outlined,
+                  accentColor: const Color(0xFFB66A12),
+                ),
+              ),
+              SizedBox(
+                width: constraints.maxWidth,
+                child: _CompactKpiCard(
+                  label: 'Vendido',
+                  value: _formatCurrency(stats.soldAmount),
+                  icon: Icons.trending_up,
+                  accentColor: const Color(0xFF204A71),
+                  horizontal: true,
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _MobileOperationsSummary extends StatelessWidget {
+  const _MobileOperationsSummary({required this.stats});
+
+  final _DashboardStats stats;
+
+  @override
+  Widget build(BuildContext context) {
+    return _MobileDashboardSection(
+      title: 'Operación',
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final twoColumns = constraints.maxWidth >= 340;
+          final gap = 10.0;
+          final itemWidth = twoColumns
+              ? (constraints.maxWidth - gap) / 2
+              : constraints.maxWidth;
+
+          return Wrap(
+            spacing: gap,
+            runSpacing: gap,
+            children: [
+              SizedBox(
+                width: itemWidth,
+                child: _CompactKpiCard(
+                  label: 'Clientes',
+                  value: stats.totalClients.toString(),
+                  icon: Icons.people_outline,
+                  accentColor: const Color(0xFF173450),
+                ),
+              ),
+              SizedBox(
+                width: itemWidth,
+                child: _CompactKpiCard(
+                  label: 'Solares',
+                  value: stats.totalLots.toString(),
+                  icon: Icons.map_outlined,
+                  accentColor: const Color(0xFF204A71),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _MobileDashboardSection extends StatelessWidget {
+  const _MobileDashboardSection({required this.title, required this.child});
+
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+            color: const Color(0xFF173450),
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 8),
+        child,
+      ],
+    );
+  }
+}
+
+class _CompactKpiCard extends StatelessWidget {
+  const _CompactKpiCard({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.accentColor,
+    this.horizontal = false,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color accentColor;
+  final bool horizontal;
+
+  @override
+  Widget build(BuildContext context) {
+    final iconBox = Container(
+      width: 32,
+      height: 32,
+      decoration: BoxDecoration(
+        color: accentColor.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Icon(icon, color: accentColor, size: 18),
+    );
+    final labels = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+            color: const Color(0xFF667085),
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 3),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text(
+            value,
+            maxLines: 1,
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+              color: accentColor,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0,
+            ),
+          ),
+        ),
+      ],
+    );
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE4EAF2)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x08000000),
+            blurRadius: 12,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: horizontal ? 14 : 12,
+          vertical: 12,
+        ),
+        child: horizontal
+            ? Row(
+                children: [
+                  iconBox,
+                  const SizedBox(width: 12),
+                  Expanded(child: labels),
+                ],
+              )
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [iconBox, const SizedBox(height: 9), labels],
+              ),
       ),
     );
   }

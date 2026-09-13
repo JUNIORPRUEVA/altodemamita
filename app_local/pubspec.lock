@@ -193,6 +193,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.7.12"
+  dev_build:
+    dependency: transitive
+    description:
+      name: dev_build
+      sha256: f2742f154e484a52471dcc7eda17e6da06ab8b1d0a64b4845710d5de4fa9cc47
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.1.7+4"
   fake_async:
     dependency: transitive
     description:
@@ -664,6 +672,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "5.14.3"
+  process_run:
+    dependency: transitive
+    description:
+      name: process_run
+      sha256: e0e24c11a49445c449911daef46cf28d68e80a5e33daafbfbc6d6819a1f83519
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.3.3+1"
   provider:
     dependency: "direct main"
     description:
@@ -822,7 +838,7 @@ packages:
     source: hosted
     version: "1.10.2"
   sqflite_common:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: sqflite_common
       sha256: "6ef422a4525ecc601db6c0a2233ff448c731307906e92cabc9ba292afaae16a6"
@@ -837,6 +853,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.4.0+2"
+  sqflite_common_ffi_web:
+    dependency: "direct main"
+    description:
+      name: sqflite_common_ffi_web
+      sha256: "79338d0b69521d70cea10f841209ac87ce617921aaf7d33e7380682c83da1f06"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.1.1"
   sqlite3:
     dependency: "direct overridden"
     description:

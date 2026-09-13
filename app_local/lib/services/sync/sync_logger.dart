@@ -19,6 +19,10 @@ class SyncLogger {
     String? error,
     Map<String, Object?> extra = const {},
   }) async {
+    // En el navegador no hay archivo de log en disco.
+    if (!_appPaths.supportsFileSystem) {
+      return;
+    }
     await _appPaths.ensureCriticalDirectories();
     final file = File(path.join(_appPaths.logsDirectory, 'sync.log'));
     final payload = <String, Object?>{

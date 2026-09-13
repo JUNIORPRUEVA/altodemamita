@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/resilience/friendly_error_messages.dart';
+import '../../../core/responsive/app_breakpoints.dart';
 import '../../../core/utils/dominican_formatters.dart';
 import '../../auth/presentation/auth_provider.dart';
 import '../data/payments_repository.dart';
 import '../domain/client_pagare_report.dart';
 import '../domain/payment_history_item.dart';
+import '../domain/payment_sale_context.dart';
 import '../domain/payment_sale_option.dart';
 import 'payment_annul_dialog.dart';
 
@@ -38,6 +40,160 @@ Future<void> openSalePaymentHistoryFullscreen(
       ),
     ),
   );
+}
+
+/// Abre el historial de pagos de una venta NAVEGANDO DE INMEDIATO.
+///
+/// La ruta se empuja en el momento del tap y la consulta se resuelve dentro de
+/// la pantalla (estado de carga propio). Esto elimina la espera perceptible
+/// antes de ver la pantalla.
+Future<void> openSalePaymentHistoryById(
+  BuildContext context, {
+  required int saleId,
+  PaymentsRepository? paymentsRepository,
+}) {
+  final repository = paymentsRepository ?? PaymentsRepository();
+  return Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (_) => _SalePaymentHistoryLoaderPage(
+        saleId: saleId,
+        repository: repository,
+      ),
+    ),
+  );
+}
+
+/// Carga el contexto de la venta DENTRO de la pantalla ya visible.
+class _SalePaymentHistoryLoaderPage extends StatefulWidget {
+  const _SalePaymentHistoryLoaderPage({
+    required this.saleId,
+    required this.repository,
+  });
+
+  final int saleId;
+  final PaymentsRepository repository;
+
+  @override
+  State<_SalePaymentHistoryLoaderPage> createState() =>
+      _SalePaymentHistoryLoaderPageState();
+}
+
+class _SalePaymentHistoryLoaderPageState
+    extends State<_SalePaymentHistoryLoaderPage> {
+  bool _isLoading = true;
+  PaymentSaleContext? _context;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _isLoading = true);
+    PaymentSaleContext? context;
+    try {
+      context = await widget.repository.fetchSaleContext(widget.saleId);
+    } catch (_) {
+      context = null;
+    }
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _isLoading = false;
+      _context = context;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final loaded = _context;
+    if (loaded != null) {
+      return _SalePaymentHistoryFullscreenPage(
+        sale: loaded.sale,
+        history: loaded.history,
+        paymentsRepository: widget.repository,
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF6F8FC),
+      body: SafeArea(
+        child: Stack(
+          children: [
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.all(28),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_isLoading) ...[
+                      const SizedBox(
+                        width: 30,
+                        height: 30,
+                        child: CircularProgressIndicator(strokeWidth: 3),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Cargando pagos…',
+                        style: TextStyle(
+                          fontSize: 14.5,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF6B7494),
+                        ),
+                      ),
+                    ] else ...[
+                      const Icon(
+                        Icons.cloud_off_outlined,
+                        size: 40,
+                        color: Color(0xFF8893AA),
+                      ),
+                      const SizedBox(height: 14),
+                      const Text(
+                        'No pudimos cargar los pagos de esta venta.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF172433),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Revisa tu conexión e inténtalo nuevamente.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 13.5,
+                          color: Color(0xFF6B7494),
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      FilledButton(
+                        onPressed: _load,
+                        child: const Text('Reintentar'),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            Positioned(
+              top: 10,
+              left: 12,
+              child: FloatingActionButton.small(
+                heroTag: 'sale-payments-history-loading-back',
+                backgroundColor: Colors.white,
+                foregroundColor: const Color(0xFF1F4B99),
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Icon(Icons.arrow_back),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _ClientPaymentHistoryFullscreenPage extends StatelessWidget {
@@ -1062,6 +1218,25 @@ class _HistoryTotalsFooter extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // En compacto (PWA/mobile) los totales se recorren con scroll horizontal
+    // para que ningun monto quede cortado. En escritorio no cambia nada.
+    final compact =
+        MediaQuery.sizeOf(context).width < AppBreakpoints.tabletMax;
+    final metrics = <Widget>[
+      _FooterMetric(
+        label: 'Total pagado',
+        value: _money(totalPaid),
+        color: const Color(0xFF2E7D32),
+      ),
+      if (compact) const SizedBox(width: 18) else const Spacer(),
+      _FooterMetric(
+        label: 'Restante por pagar',
+        value: _money(remainingAmount),
+        color: const Color(0xFFE67E00),
+        emphasize: true,
+      ),
+    ];
+
     return Container(
       height: 42,
       padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -1070,22 +1245,14 @@ class _HistoryTotalsFooter extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: const Color(0xFFE4EAF2)),
       ),
-      child: Row(
-        children: [
-          _FooterMetric(
-            label: 'Total pagado',
-            value: _money(totalPaid),
-            color: const Color(0xFF2E7D32),
-          ),
-          const Spacer(),
-          _FooterMetric(
-            label: 'Restante por pagar',
-            value: _money(remainingAmount),
-            color: const Color(0xFFE67E00),
-            emphasize: true,
-          ),
-        ],
-      ),
+      child: compact
+          ? Center(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(mainAxisSize: MainAxisSize.min, children: metrics),
+              ),
+            )
+          : Row(children: metrics),
     );
   }
 }

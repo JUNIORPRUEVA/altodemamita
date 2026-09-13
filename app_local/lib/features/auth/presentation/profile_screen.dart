@@ -182,9 +182,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    _ProfileInfoRow(label: 'Nombre', value: user.nombre),
-                    _ProfileInfoRow(label: 'Correo', value: user.email),
+                    // El nombre y el correo ya se muestran en la tarjeta de
+                    // identidad: aqui solo los datos que no se repiten.
                     _ProfileInfoRow(label: 'Rol', value: user.role.label),
+                    _ProfileInfoRow(
+                      label: 'Estado',
+                      value: user.activo ? 'Cuenta activa' : 'Cuenta inactiva',
+                    ),
                     _ProfileInfoRow(
                       label: 'Teléfono',
                       value: (user.telefono ?? '').trim().isEmpty

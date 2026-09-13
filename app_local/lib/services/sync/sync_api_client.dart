@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'dart:developer' as developer;
-import 'dart:io';
+import '../../core/network/platform_http.dart';
 
 import '../../core/config/backend_config.dart';
 import '../../core/diagnostics/sync_diagnostics_logger.dart';

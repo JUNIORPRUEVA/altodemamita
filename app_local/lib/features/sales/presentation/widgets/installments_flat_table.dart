@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/responsive/app_breakpoints.dart';
 import '../../../installments/domain/installment.dart';
 
 String _effectiveStatus(Installment item) {
@@ -12,7 +13,14 @@ String _effectiveStatus(Installment item) {
   return item.status;
 }
 
-class InstallmentsFlatTable extends StatelessWidget {
+/// Tabla plana de cuotas amortizadas.
+///
+/// Comportamiento por ancho de dispositivo:
+/// - Compacto (PWA / mobile / tablet, < 1024 px): la tabla conserva su ancho
+///   natural de columnas y se recorre con SCROLL HORIZONTAL intencional, en
+///   lugar de comprimir/acortar las columnas y romper el layout.
+/// - Escritorio (>= 1024 px): layout original sin cambios.
+class InstallmentsFlatTable extends StatefulWidget {
   const InstallmentsFlatTable({
     super.key,
     required this.installments,
@@ -20,10 +28,31 @@ class InstallmentsFlatTable extends StatelessWidget {
   });
 
   final List<Installment> installments;
+
+  /// Controlador del scroll VERTICAL (lista de cuotas).
   final ScrollController scrollController;
+
+  /// Ancho natural de la tabla: suma de columnas + padding horizontal.
+  static const double tableWidth = 936;
+
+  @override
+  State<InstallmentsFlatTable> createState() => _InstallmentsFlatTableState();
+}
+
+class _InstallmentsFlatTableState extends State<InstallmentsFlatTable> {
+  final ScrollController _horizontalController = ScrollController();
+
+  @override
+  void dispose() {
+    _horizontalController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
+    final windowWidth = MediaQuery.sizeOf(context).width;
+    final compact = windowWidth < AppBreakpoints.tabletMax;
+
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -32,28 +61,50 @@ class InstallmentsFlatTable extends StatelessWidget {
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(14),
-        child: Column(
-          children: [
-            const _Header(),
-            const Divider(height: 1),
-            Expanded(
-              child: Scrollbar(
-                controller: scrollController,
-                thumbVisibility: true,
-                child: ListView.separated(
-                  controller: scrollController,
-                  padding: EdgeInsets.zero,
-                  itemCount: installments.length,
-                  separatorBuilder: (_, _) => const Divider(height: 1),
-                  itemBuilder: (context, index) {
-                    return _Row(item: installments[index]);
-                  },
-                ),
-              ),
-            ),
-          ],
+        child: compact ? _buildScrollable() : _buildPlain(),
+      ),
+    );
+  }
+
+  Widget _buildPlain() => _buildTableContent();
+
+  Widget _buildScrollable() {
+    return Scrollbar(
+      controller: _horizontalController,
+      thumbVisibility: true,
+      scrollbarOrientation: ScrollbarOrientation.bottom,
+      child: SingleChildScrollView(
+        controller: _horizontalController,
+        scrollDirection: Axis.horizontal,
+        child: SizedBox(
+          width: InstallmentsFlatTable.tableWidth,
+          child: _buildTableContent(),
         ),
       ),
+    );
+  }
+
+  Widget _buildTableContent() {
+    return Column(
+      children: [
+        const _Header(),
+        const Divider(height: 1),
+        Expanded(
+          child: Scrollbar(
+            controller: widget.scrollController,
+            thumbVisibility: true,
+            child: ListView.separated(
+              controller: widget.scrollController,
+              padding: EdgeInsets.zero,
+              itemCount: widget.installments.length,
+              separatorBuilder: (_, _) => const Divider(height: 1),
+              itemBuilder: (context, index) {
+                return _Row(item: widget.installments[index]);
+              },
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
+import '../../../core/network/platform_http.dart';
 
 import 'package:bcrypt/bcrypt.dart';
 import 'package:flutter/foundation.dart';
@@ -165,6 +165,8 @@ class AuthService {
       'Tu cuenta esta inactiva. Contacta al administrador.';
   static const String invalidLocalCredentialsMessage =
       'Usuario o contraseña incorrectos.';
+  static const String cloudServiceUnavailableMessage =
+      'No se pudo conectar al servicio.';
   static const String localDatabaseErrorMessage =
       'Ocurrio un error al validar el usuario local. Intenta de nuevo.';
   final AppDatabase _appDatabase;
@@ -288,19 +290,40 @@ class AuthService {
     required String email,
     required String password,
   }) async {
-    try {
-      final onlineUser = await loginOnline(email: email, password: password);
-      return AuthSignInResult(
-        user: onlineUser,
-        mode: AuthSignInMode.online,
-        syncTriggered: true,
-      );
-    } on SocketException catch (error) {
-      debugPrint('[SignIn] Backend offline, intentando login local: $error');
-    } on TimeoutException catch (error) {
-      debugPrint('[SignIn] Backend timeout, intentando login local: $error');
-    } on IOException catch (error) {
-      debugPrint('[SignIn] Error de red, intentando login local: $error');
+    final settings = await _syncConfigRepository.loadSettings();
+    if (settings.normalizedBaseUrl.trim().isEmpty) {
+      if (_requiresCloudBackedLocalAuth) {
+        debugPrint('[SignIn] Backend no configurado en modo cloud.');
+        throw const AuthException(cloudServiceUnavailableMessage);
+      }
+      debugPrint('[SignIn] Backend no configurado, intentando login local.');
+    } else {
+      try {
+        final onlineUser = await loginOnline(email: email, password: password);
+        return AuthSignInResult(
+          user: onlineUser,
+          mode: AuthSignInMode.online,
+          syncTriggered: true,
+        );
+      } on SocketException catch (error) {
+        if (_requiresCloudBackedLocalAuth) {
+          debugPrint('[SignIn] Backend offline en modo cloud: $error');
+          throw const AuthException(cloudServiceUnavailableMessage);
+        }
+        debugPrint('[SignIn] Backend offline, intentando login local: $error');
+      } on TimeoutException catch (error) {
+        if (_requiresCloudBackedLocalAuth) {
+          debugPrint('[SignIn] Backend timeout en modo cloud: $error');
+          throw const AuthException(cloudServiceUnavailableMessage);
+        }
+        debugPrint('[SignIn] Backend timeout, intentando login local: $error');
+      } on IOException catch (error) {
+        if (_requiresCloudBackedLocalAuth) {
+          debugPrint('[SignIn] Error de red en modo cloud: $error');
+          throw const AuthException(cloudServiceUnavailableMessage);
+        }
+        debugPrint('[SignIn] Error de red, intentando login local: $error');
+      }
     }
 
     debugPrint('[SignIn] Intento de login local para $email...');
@@ -673,6 +696,10 @@ class AuthService {
   }
 
   Future<AdminRecoveryCredentials?> getDebugAdminPrefillCredentials() async {
+    if (_requiresCloudBackedLocalAuth) {
+      return null;
+    }
+
     final db = await _appDatabase.database;
 
     if (await requiresInitialSetup()) {
@@ -1723,14 +1750,17 @@ class AuthService {
         );
       }
 
-      return lastStatus ??
-          const _RemoteSystemStatus(
-            isReachable: false,
-            initialized: false,
-            statusAvailable: false,
-            connectionStatus: BackendConnectionStatus.unreachable,
-            message: serverConnectionErrorMessage,
-          );
+      if (lastStatus != null) {
+        return lastStatus;
+      }
+
+      return const _RemoteSystemStatus(
+        isReachable: false,
+        initialized: false,
+        statusAvailable: false,
+        connectionStatus: BackendConnectionStatus.unconfigured,
+        message: cloudServiceNotConfiguredMessage,
+      );
     } on SocketException {
       return const _RemoteSystemStatus(
         isReachable: false,
@@ -1758,8 +1788,8 @@ class AuthService {
           isReachable: false,
           initialized: false,
           statusAvailable: false,
-          connectionStatus: BackendConnectionStatus.unreachable,
-          message: serverConnectionErrorMessage,
+          connectionStatus: BackendConnectionStatus.unconfigured,
+          message: cloudServiceNotConfiguredMessage,
         );
       }
 
@@ -2483,8 +2513,14 @@ class AuthService {
     }
   }
 
-  /// Impide un falso exito: un backend que responde 2xx pero ignora
-  /// `permissions` no debe reportar que el usuario se guardo correctamente.
+  /// Impide un "falso exito": un backend que responde 2xx pero ignora
+  /// `permissions` (por ejemplo por version skew frontend/backend) no debe
+  /// reportar que el usuario se guardo correctamente.
+  ///
+  /// Se comparan los codigos canonicos solicitados contra los devueltos por la
+  /// API (el backend los lee de la fila persistida dentro de la misma
+  /// transaccion). OWNER/ADMIN hereda todos los permisos por rol y no se
+  /// compara, para no romper esa semantica.
   void _assertPermissionsPersisted({
     required UserRole role,
     required List<PermissionModel> requested,

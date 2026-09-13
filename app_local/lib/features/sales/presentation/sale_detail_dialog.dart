@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../core/responsive/app_breakpoints.dart';
 import '../../payments/data/payments_repository.dart';
 import '../../payments/presentation/payment_history_fullscreen.dart';
 import '../domain/sale_calculator.dart';
@@ -14,6 +15,12 @@ import 'widgets/installments_flat_table.dart';
 Future<void> _printSaleDocument(BuildContext context, SaleDetail detail) async {
   await _showPrintDocumentOptions(context, detail);
 }
+
+/// Entrada pública del flujo de impresión del detalle de venta.
+///
+/// La usa la página de detalle sin duplicar el selector de documentos.
+Future<void> printSaleDocument(BuildContext context, SaleDetail detail) =>
+    _printSaleDocument(context, detail);
 
 Future<void> _showPrintDocumentOptions(
   BuildContext context,
@@ -202,44 +209,21 @@ Future<void> openInstallmentsFullscreen(
   );
 }
 
+/// Abre el historial de pagos de una venta.
+///
+/// NAVEGA DE INMEDIATO: la pantalla aparece al instante y la consulta se
+/// resuelve dentro de ella, con su propio estado de carga. Ya no se espera a
+/// la red para empujar la ruta.
 Future<void> openSalePaymentsHistory(
   BuildContext context, {
   required int saleId,
-}) async {
-  final messenger = ScaffoldMessenger.maybeOf(context);
-  final repository = PaymentsRepository();
-
-  try {
-    final paymentContext = await repository.fetchSaleContext(saleId);
-    if (!context.mounted || paymentContext == null) {
-      return;
-    }
-
-    if (paymentContext.history.isEmpty) {
-      messenger?.showSnackBar(
-        const SnackBar(
-          content: Text('Esta venta todavia no tiene pagos registrados.'),
-        ),
-      );
-      return;
-    }
-
-    await openSalePaymentHistoryFullscreen(
-      context,
-      sale: paymentContext.sale,
-      history: paymentContext.history,
-      paymentsRepository: repository,
-    );
-  } catch (_) {
-    if (!context.mounted) {
-      return;
-    }
-    messenger?.showSnackBar(
-      const SnackBar(
-        content: Text('No se pudo cargar el historial de pagos de la venta.'),
-      ),
-    );
-  }
+  PaymentsRepository? paymentsRepository,
+}) {
+  return openSalePaymentHistoryById(
+    context,
+    saleId: saleId,
+    paymentsRepository: paymentsRepository,
+  );
 }
 
 class _DialogHeader extends StatelessWidget {
@@ -899,6 +883,31 @@ class _FullscreenTotalsFooter extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // En compacto (PWA/mobile) los totales se recorren con scroll horizontal
+    // para que ningun monto quede cortado. En escritorio no cambia nada.
+    final compact =
+        MediaQuery.sizeOf(context).width < AppBreakpoints.tabletMax;
+    final metrics = <Widget>[
+      _FooterMetric(
+        label: 'Capital',
+        value: _money(totalPrincipal),
+        color: const Color(0xFF1565C0),
+      ),
+      const SizedBox(width: 18),
+      _FooterMetric(
+        label: 'Interés',
+        value: _money(totalInterest),
+        color: const Color(0xFFE67E00),
+      ),
+      if (compact) const SizedBox(width: 18) else const Spacer(),
+      _FooterMetric(
+        label: 'Total',
+        value: _money(totalPlan),
+        color: const Color(0xFF2E7D32),
+        emphasize: true,
+      ),
+    ];
+
     return Container(
       height: 42,
       padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -907,28 +916,14 @@ class _FullscreenTotalsFooter extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: const Color(0xFFE4EAF2)),
       ),
-      child: Row(
-        children: [
-          _FooterMetric(
-            label: 'Capital',
-            value: _money(totalPrincipal),
-            color: const Color(0xFF1565C0),
-          ),
-          const SizedBox(width: 18),
-          _FooterMetric(
-            label: 'Interés',
-            value: _money(totalInterest),
-            color: const Color(0xFFE67E00),
-          ),
-          const Spacer(),
-          _FooterMetric(
-            label: 'Total',
-            value: _money(totalPlan),
-            color: const Color(0xFF2E7D32),
-            emphasize: true,
-          ),
-        ],
-      ),
+      child: compact
+          ? Center(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(mainAxisSize: MainAxisSize.min, children: metrics),
+              ),
+            )
+          : Row(children: metrics),
     );
   }
 }

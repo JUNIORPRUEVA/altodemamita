@@ -1,27 +1,35 @@
 import 'dart:async';
-import 'dart:io';
+import '../../../core/network/platform_http.dart';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/network/backend_api_client.dart';
+import '../../../core/responsive/app_breakpoints.dart';
+import '../../../core/utils/dominican_formatters.dart';
 import '../../../core/resilience/friendly_error_messages.dart';
 import '../../../features/auth/domain/permission_model.dart';
 import '../../../features/auth/presentation/auth_provider.dart';
 import '../../../shared/sync/row_sync_badge_policy.dart';
 import '../../../shared/widgets/base_layout.dart';
 import '../../../shared/widgets/recovery_experience.dart';
+import '../../../shared/mobile/mobile_screens.dart';
+import '../../../shared/mobile/mobile_ui.dart';
 import '../../clients/data/client_repository.dart';
 import '../../lots/data/lot_repository.dart';
 import '../../settings/data/settings_repository.dart';
 import '../data/sales_repository.dart';
 import '../data/seller_repository.dart';
+import '../domain/sale_detail.dart';
 import '../domain/sale_draft.dart';
 import '../domain/sale_summary.dart';
 import 'sale_detail_dialog.dart';
+import 'sale_detail_page.dart';
 import 'sale_form_dialog.dart';
 import 'sales_controller.dart';
+import 'widgets/sale_mobile_amounts_row.dart';
 
 class SalesPage extends StatefulWidget {
   const SalesPage({
@@ -52,6 +60,25 @@ class _SalesPageState extends State<SalesPage> {
 
   /// Venta creada en el ultimo submit autoritativo exitoso del modal.
   int? _createdSaleId;
+
+  /// `true` mientras se edita desde la pagina de detalle: evita abrir una
+  /// segunda pagina de detalle encima de la existente.
+  bool _editingFromDetailPage = false;
+
+  /// `true` cuando el detalle debe abrirse como PAGINA completa.
+  ///
+  /// Aplica a la PWA (web) y al layout compacto (mobile/tablet). Windows de
+  /// escritorio conserva el modal existente sin cambios.
+  bool get _usesDetailPage =>
+      kIsWeb || AppBreakpoints.usesCompactNavigation(context);
+
+  bool get _canUpdateSales => context
+      .read<AuthProvider>()
+      .canAccess(PermissionCatalog.sales, PermissionAction.update);
+
+  bool get _canDeleteSales => context
+      .read<AuthProvider>()
+      .canAccess(PermissionCatalog.sales, PermissionAction.delete);
 
   Future<void> _reloadControllerSafely() async {
     if (!mounted || _controller.isDisposed) {
@@ -149,127 +176,29 @@ class _SalesPageState extends State<SalesPage> {
 
     return ListenableBuilder(
       listenable: _controller,
-      builder: (context, _) => BaseLayout(
-        title: 'Ventas',
-        child: Column(
+      builder: (context, _) {
+        final compact = AppBreakpoints.usesCompactNavigation(context);
+        if (compact) {
+          return _buildMobileScaffold(
+            context,
+            canCreateSales: canCreateSales,
+            canUpdateSales: canUpdateSales,
+            canDeleteSales: canDeleteSales,
+          );
+        }
+
+        final content = Column(
           children: [
-            // ── Search bar ──────────────────────────────────────────
-            Container(
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                border: Border(bottom: BorderSide(color: Color(0xFFE4EAF2))),
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final compact = constraints.maxWidth < 900;
-
-                  final searchField = SizedBox(
-                    height: 42,
-                    child: TextField(
-                      controller: _searchController,
-                      style: const TextStyle(fontSize: 14),
-                      decoration: InputDecoration(
-                        hintText: 'Buscar por cliente, cédula, solar o estado…',
-                        prefixIcon: const Icon(Icons.search, size: 18),
-                        isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(
-                          vertical: 10,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: const BorderSide(
-                            color: Color(0xFFD0D7E4),
-                          ),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: const BorderSide(
-                            color: Color(0xFFD0D7E4),
-                          ),
-                        ),
-                      ),
-                      onSubmitted: (_) => _runSearch(),
-                    ),
-                  );
-
-                  final actions = Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      FilterChip(
-                        label: const Text(
-                          'Venta definitiva',
-                          style: TextStyle(fontSize: 13),
-                        ),
-                        selected: _controller.isFullyPaidFilter,
-                        tooltip:
-                            'Mostrar solo ventas saldadas (completamente pagadas)',
-                        onSelected: (_) => _controller.toggleFullyPaidFilter(),
-                      ),
-                      const SizedBox(width: 8),
-                      FilledButton.icon(
-                        style: FilledButton.styleFrom(
-                          minimumSize: const Size(0, 38),
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                        ),
-                        onPressed: !canCreateSales || _controller.isSaving
-                            ? null
-                            : _createSale,
-                        icon: const Icon(Icons.add, size: 18),
-                        label: Text(
-                          _controller.isSaving ? 'Guardando…' : 'Nueva venta',
-                          style: const TextStyle(fontSize: 14),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      OutlinedButton(
-                        style: OutlinedButton.styleFrom(
-                          minimumSize: const Size(0, 38),
-                          padding: const EdgeInsets.symmetric(horizontal: 14),
-                        ),
-                        onPressed: _runSearch,
-                        child: const Text(
-                          'Buscar',
-                          style: TextStyle(fontSize: 14),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      OutlinedButton(
-                        style: OutlinedButton.styleFrom(
-                          minimumSize: const Size(0, 38),
-                          padding: const EdgeInsets.symmetric(horizontal: 14),
-                        ),
-                        onPressed: _clearSearch,
-                        child: const Text(
-                          'Limpiar',
-                          style: TextStyle(fontSize: 14),
-                        ),
-                      ),
-                    ],
-                  );
-
-                  if (compact) {
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        searchField,
-                        const SizedBox(height: 10),
-                        actions,
-                      ],
-                    );
-                  }
-
-                  return Row(
-                    children: [
-                      Expanded(child: searchField),
-                      const SizedBox(width: 16),
-                      actions,
-                    ],
-                  );
-                },
-              ),
+            _SalesToolbar(
+              controller: _searchController,
+              onlySettled: _controller.isFullyPaidFilter,
+              isSaving: _controller.isSaving,
+              canCreateSales: canCreateSales,
+              onSearch: _runSearch,
+              onClear: _clearSearch,
+              onToggleSettled: _controller.toggleFullyPaidFilter,
+              onCreate: _createSale,
             ),
-            // ── List ──────────────────────────────────────────────────
             Expanded(
               child: _buildBody(
                 canCreateSales: canCreateSales,
@@ -278,8 +207,49 @@ class _SalesPageState extends State<SalesPage> {
               ),
             ),
           ],
-        ),
+        );
+
+        return BaseLayout(title: 'Ventas', child: content);
+      },
+    );
+  }
+
+  Widget _buildMobileScaffold(
+    BuildContext context, {
+    required bool canCreateSales,
+    required bool canUpdateSales,
+    required bool canDeleteSales,
+  }) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF6F3ED),
+      endDrawer: _SalesFilterDrawer(
+        onlySettled: _controller.isFullyPaidFilter,
+        onToggleSettled: _controller.toggleFullyPaidFilter,
       ),
+      body: Column(
+        children: [
+          _SalesMobileSearchBar(
+            controller: _searchController,
+            onSearch: _runSearch,
+            onClear: _clearSearch,
+          ),
+          Expanded(
+            child: _buildBody(
+              canCreateSales: canCreateSales,
+              canUpdateSales: canUpdateSales,
+              canDeleteSales: canDeleteSales,
+            ),
+          ),
+        ],
+      ),
+      floatingActionButton: canCreateSales
+          ? FloatingActionButton(
+              heroTag: 'sales-create-mobile',
+              tooltip: 'Nueva venta',
+              onPressed: _controller.isSaving ? null : _createSale,
+              child: const Icon(Icons.add),
+            )
+          : null,
     );
   }
 
@@ -394,7 +364,7 @@ class _SalesPageState extends State<SalesPage> {
     );
 
     if (detail != null) {
-      await SaleDetailDialog.show(context, detail);
+      await _showDetailAfterMutation(detail);
     }
   }
 
@@ -487,7 +457,7 @@ class _SalesPageState extends State<SalesPage> {
     return fallback;
   }
 
-  Future<void> _confirmDeleteSale(SaleSummary summary) async {
+  Future<bool> _confirmDeleteSale(SaleSummary summary) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
@@ -516,15 +486,16 @@ class _SalesPageState extends State<SalesPage> {
     );
 
     if (confirmed != true) {
-      return;
+      return false;
     }
 
     final error = await _controller.deleteSale(summary.id);
     if (!mounted) {
-      return;
+      return false;
     }
 
     _showMessage(error ?? 'Venta eliminada correctamente.');
+    return error == null;
   }
 
   Future<void> _editSale(SaleSummary summary) async {
@@ -585,8 +556,8 @@ class _SalesPageState extends State<SalesPage> {
       return;
     }
     _showMessage('Venta actualizada correctamente.');
-    if (updatedDetail != null) {
-      await SaleDetailDialog.show(context, updatedDetail);
+    if (updatedDetail != null && !_editingFromDetailPage) {
+      await _showDetailAfterMutation(updatedDetail);
     }
   }
 
@@ -630,6 +601,24 @@ class _SalesPageState extends State<SalesPage> {
   }
 
   Future<void> _openDetail(SaleSummary summary) async {
+    // PWA / compacto: el detalle es una PAGINA completa, ordenada y adaptable.
+    if (_usesDetailPage) {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => SaleDetailPage(
+            loadDetail: () => _controller.fetchDetail(summary.id),
+            previewClientName: summary.clientName,
+            previewLotCode: summary.lotDisplayCode,
+            canUpdate: _canUpdateSales,
+            canDelete: _canDeleteSales,
+            onEdit: () => _editSaleFromDetailPage(summary),
+            onDelete: () => _confirmDeleteSale(summary),
+          ),
+        ),
+      );
+      return;
+    }
+
     final detail = await _controller.fetchDetail(summary.id);
     if (!mounted) {
       return;
@@ -642,6 +631,68 @@ class _SalesPageState extends State<SalesPage> {
     }
 
     await SaleDetailDialog.show(context, detail);
+  }
+
+  /// Edicion lanzada desde la pagina de detalle.
+  ///
+  /// La pagina se refresca sola al terminar, por eso no se abre otro detalle.
+  Future<void> _editSaleFromDetailPage(SaleSummary summary) async {
+    _editingFromDetailPage = true;
+    try {
+      await _editSale(summary);
+    } finally {
+      _editingFromDetailPage = false;
+    }
+  }
+
+  /// Abre el detalle despues de crear o editar una venta.
+  Future<void> _showDetailAfterMutation(SaleDetail detail) async {
+    if (!_usesDetailPage) {
+      await SaleDetailDialog.show(context, detail);
+      return;
+    }
+
+    final summary = _summaryFromDetail(detail);
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SaleDetailPage(
+          initialDetail: detail,
+          canUpdate: _canUpdateSales,
+          canDelete: _canDeleteSales,
+          onEdit: () => _editSaleFromDetailPage(summary),
+          onDelete: () => _confirmDeleteSale(summary),
+        ),
+      ),
+    );
+  }
+
+  /// Reempaqueta el detalle con los MISMOS campos ya cargados para reutilizar
+  /// los flujos de editar/eliminar. No inventa ni recalcula datos de negocio.
+  SaleSummary _summaryFromDetail(SaleDetail detail) {
+    final sale = detail.sale;
+    return SaleSummary(
+      id: sale.id ?? 0,
+      syncStatus: '',
+      clientName: detail.clientName,
+      clientDocumentId: detail.clientDocumentId,
+      lotDisplayCode: detail.lotDisplayCode,
+      saleDate: sale.saleDate,
+      salePrice: sale.salePrice,
+      downPaymentAmount: sale.downPaymentAmount,
+      requiredInitialPayment: sale.requiredInitialPayment,
+      paidInitialPayment: sale.paidInitialPayment,
+      pendingInitialPayment: sale.pendingInitialPayment,
+      minimumReserveAmount: sale.minimumReserveAmount,
+      initialPaymentDeadline: sale.initialPaymentDeadline,
+      financedBalance: sale.financedBalance,
+      pendingBalance: sale.pendingBalance,
+      monthlyInterest: sale.monthlyInterest,
+      installmentCount: sale.installmentCount,
+      status: sale.status,
+      generatedInstallments: detail.activeInstallmentCount,
+      overdueInstallmentCount: detail.overdueInstallmentCount,
+      isFullyPaid: sale.isFullyPaid,
+    );
   }
 
   void _runSearch() {
@@ -835,6 +886,215 @@ class _SalesSearchFailedView extends StatelessWidget {
   }
 }
 
+/// Buscador del layout compacto de Ventas.
+///
+/// El título "Ventas" lo aporta el AppBar del shell (igual que el resto de los
+/// módulos); aquí solo vive el buscador con la lupa integrada.
+class _SalesMobileSearchBar extends StatelessWidget {
+  const _SalesMobileSearchBar({
+    required this.controller,
+    required this.onSearch,
+    required this.onClear,
+  });
+
+  final TextEditingController controller;
+  final VoidCallback onSearch;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: MobileUi.surface,
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+      child: MobileSearchRow(
+        controller: controller,
+        hintText: 'Buscar ventas…',
+        onSubmitted: (_) => onSearch(),
+        onClear: onClear,
+        onOpenFilter: () => Scaffold.of(context).openEndDrawer(),
+      ),
+    );
+  }
+}
+
+class _SalesFilterDrawer extends StatelessWidget {
+  const _SalesFilterDrawer({
+    required this.onlySettled,
+    required this.onToggleSettled,
+  });
+
+  final bool onlySettled;
+  final VoidCallback onToggleSettled;
+
+  @override
+  Widget build(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
+    final drawerWidth = (width * 0.52).clamp(280.0, 360.0);
+    return Drawer(
+      width: drawerWidth,
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Filtros',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFF12243A),
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Cerrar',
+                    icon: const Icon(Icons.close_rounded),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                value: onlySettled,
+                onChanged: (_) => onToggleSettled(),
+                title: const Text(
+                  'Venta definitiva',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+                subtitle: const Text('Mostrar solo ventas saldadas.'),
+                secondary: const Icon(Icons.verified_rounded),
+              ),
+              const Spacer(),
+              OutlinedButton.icon(
+                onPressed: onlySettled ? onToggleSettled : null,
+                icon: const Icon(Icons.filter_alt_off_outlined),
+                label: const Text('Limpiar filtros'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SalesToolbar extends StatelessWidget {
+  const _SalesToolbar({
+    required this.controller,
+    required this.onlySettled,
+    required this.isSaving,
+    required this.canCreateSales,
+    required this.onSearch,
+    required this.onClear,
+    required this.onToggleSettled,
+    required this.onCreate,
+  });
+
+  final TextEditingController controller;
+  final bool onlySettled;
+  final bool isSaving;
+  final bool canCreateSales;
+  final VoidCallback onSearch;
+  final VoidCallback onClear;
+  final VoidCallback onToggleSettled;
+  final VoidCallback onCreate;
+
+  @override
+  Widget build(BuildContext context) {
+    final actionChildren = <Widget>[
+      FilterChip(
+        label: const Text('Venta definitiva', style: TextStyle(fontSize: 13)),
+        selected: onlySettled,
+        tooltip: 'Mostrar solo ventas saldadas (completamente pagadas)',
+        onSelected: (_) => onToggleSettled(),
+      ),
+      FilledButton.icon(
+        style: FilledButton.styleFrom(
+          minimumSize: const Size(0, 38),
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+        ),
+        onPressed: !canCreateSales || isSaving ? null : onCreate,
+        icon: const Icon(Icons.add, size: 18),
+        label: Text(
+          isSaving ? 'Guardando...' : 'Nueva venta',
+          style: const TextStyle(fontSize: 14),
+        ),
+      ),
+      OutlinedButton(
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size(0, 38),
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+        ),
+        onPressed: onSearch,
+        child: const Text('Buscar', style: TextStyle(fontSize: 14)),
+      ),
+      OutlinedButton(
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size(0, 38),
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+        ),
+        onPressed: onClear,
+        child: const Text('Limpiar', style: TextStyle(fontSize: 14)),
+      ),
+    ];
+
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(bottom: BorderSide(color: Color(0xFFE4EAF2))),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      child: Row(
+        children: [
+          Expanded(child: SizedBox(height: 42, child: _searchField())),
+          const SizedBox(width: 16),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (var index = 0; index < actionChildren.length; index++) ...[
+                if (index > 0) const SizedBox(width: 8),
+                actionChildren[index],
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _searchField() {
+    return TextField(
+      controller: controller,
+      style: const TextStyle(fontSize: 14),
+      textInputAction: TextInputAction.search,
+      decoration: InputDecoration(
+        hintText: 'Buscar por cliente, cédula, solar o estado...',
+        prefixIcon: const Icon(Icons.search_rounded, size: 20),
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(vertical: 10),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Color(0xFFD0D7E4)),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Color(0xFFD0D7E4)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Color(0xFF163A5F), width: 1.4),
+        ),
+      ),
+      onSubmitted: (_) => onSearch(),
+    );
+  }
+}
+
 /// Lista visible SIEMPRE. El refresh (o su fallo) es un aviso no bloqueante.
 class _SalesListPane extends StatelessWidget {
   const _SalesListPane({
@@ -861,6 +1121,7 @@ class _SalesListPane extends StatelessWidget {
   Widget build(BuildContext context) {
     final refreshFailed = controller.refreshFailed;
     final refreshing = controller.isRefreshing && !refreshFailed;
+    final compact = AppBreakpoints.usesCompactNavigation(context);
     return Container(
       color: Colors.white,
       child: Column(
@@ -870,22 +1131,40 @@ class _SalesListPane extends StatelessWidget {
           else if (refreshing)
             const _SalesRefreshingBar(),
           Expanded(
-            child: ListView.separated(
-              itemCount: controller.sales.length,
-              separatorBuilder: (_, _) => const Divider(height: 1, indent: 64),
-              itemBuilder: (context, index) {
-                final sale = controller.sales[index];
-                return _SaleRow(
-                  sale: sale,
-                  hasInternet: hasInternet,
-                  onTap: () => onOpenDetail(sale),
-                  canUpdateSale: canUpdateSales,
-                  canDeleteSale: canDeleteSales,
-                  onEdit: () => onEditSale(sale),
-                  onDelete: () => onDeleteSale(sale),
-                );
-              },
-            ),
+            child: compact
+                ? ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(10, 8, 10, 88),
+                    itemCount: controller.sales.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 8),
+                    itemBuilder: (context, index) {
+                      final sale = controller.sales[index];
+                      return _SaleMobileCard(
+                        sale: sale,
+                        onTap: () => onOpenDetail(sale),
+                        canUpdateSale: canUpdateSales,
+                        canDeleteSale: canDeleteSales,
+                        onEdit: () => onEditSale(sale),
+                        onDelete: () => onDeleteSale(sale),
+                      );
+                    },
+                  )
+                : ListView.separated(
+                    itemCount: controller.sales.length,
+                    separatorBuilder: (_, _) =>
+                        const Divider(height: 1, indent: 64),
+                    itemBuilder: (context, index) {
+                      final sale = controller.sales[index];
+                      return _SaleRow(
+                        sale: sale,
+                        hasInternet: hasInternet,
+                        onTap: () => onOpenDetail(sale),
+                        canUpdateSale: canUpdateSales,
+                        canDeleteSale: canDeleteSales,
+                        onEdit: () => onEditSale(sale),
+                        onDelete: () => onDeleteSale(sale),
+                      );
+                    },
+                  ),
           ),
         ],
       ),
@@ -958,6 +1237,153 @@ class _SalesRefreshFailedBanner extends StatelessWidget {
             child: const Text('Reintentar', style: TextStyle(fontSize: 12)),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _SaleMobileCard extends StatelessWidget {
+  const _SaleMobileCard({
+    required this.sale,
+    required this.onTap,
+    required this.canUpdateSale,
+    required this.canDeleteSale,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final SaleSummary sale;
+  final VoidCallback onTap;
+  final bool canUpdateSale;
+  final bool canDeleteSale;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final statusColor = _saleRowStatusColor(sale.status);
+    final statusLabel = sale.overdueInstallmentCount > 0
+        ? 'Atraso ${sale.overdueInstallmentCount}'
+        : sale.isFullyPaid
+        ? 'Saldada'
+        : _saleRowStatusLabel(sale.status);
+    final metaLabel =
+        '${sale.lotDisplayCode} · ${_formatShortDate(context, sale.saleDate)}';
+
+    return Material(
+      color: Colors.white,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: Color(0xFFE2E8F0)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 6, 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      sale.clientName.isEmpty
+                          ? 'Cliente sin nombre'
+                          : sale.clientName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.1,
+                        color: Color(0xFF1F2937),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  _SaleStatusPill(label: statusLabel, color: statusColor),
+                  if (canUpdateSale || canDeleteSale)
+                    SizedBox(
+                      width: 34,
+                      height: 34,
+                      child: PopupMenuButton<_SaleCardAction>(
+                        tooltip: 'Acciones',
+                        padding: EdgeInsets.zero,
+                        icon: const Icon(Icons.more_vert_rounded, size: 20),
+                        onSelected: (action) {
+                          switch (action) {
+                            case _SaleCardAction.edit:
+                              onEdit();
+                            case _SaleCardAction.delete:
+                              onDelete();
+                          }
+                        },
+                        itemBuilder: (context) => [
+                          if (canUpdateSale)
+                            const PopupMenuItem(
+                              value: _SaleCardAction.edit,
+                              child: ListTile(
+                                leading: Icon(Icons.edit_outlined),
+                                title: Text('Editar'),
+                                contentPadding: EdgeInsets.zero,
+                              ),
+                            ),
+                          if (canDeleteSale)
+                            const PopupMenuItem(
+                              value: _SaleCardAction.delete,
+                              child: ListTile(
+                                leading: Icon(Icons.delete_outline),
+                                title: Text('Eliminar'),
+                                contentPadding: EdgeInsets.zero,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              SaleMobileAmountsRow(
+                metaLabel: metaLabel,
+                price: sale.salePrice,
+                pending: sale.pendingBalance,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+enum _SaleCardAction { edit, delete }
+
+class _SaleStatusPill extends StatelessWidget {
+  const _SaleStatusPill({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.09),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.18)),
+      ),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontSize: 10.5,
+          fontWeight: FontWeight.w700,
+          color: color,
+        ),
       ),
     );
   }
@@ -1045,7 +1471,7 @@ class _SaleRow extends StatelessWidget {
                         ),
                         const SizedBox(width: 12),
                         Text(
-                          'RD\$${sale.salePrice.toStringAsFixed(2)}',
+                          _formatSaleMoney(sale.salePrice),
                           style: const TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w800,
@@ -1119,11 +1545,13 @@ class _SaleRow extends StatelessWidget {
                               vertical: 4,
                             ),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFE67E00).withValues(alpha: 0.10),
+                              color: const Color(
+                                0xFFE67E00,
+                              ).withValues(alpha: 0.10),
                               borderRadius: BorderRadius.circular(20),
                             ),
                             child: Text(
-                              'Apartado: RD\$${sale.paidApartadoPayment.toStringAsFixed(2)}',
+                              'Apartado: ${_formatSaleMoney(sale.paidApartadoPayment)}',
                               style: const TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.w700,
@@ -1140,7 +1568,9 @@ class _SaleRow extends StatelessWidget {
                               vertical: 4,
                             ),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFC62828).withValues(alpha: 0.10),
+                              color: const Color(
+                                0xFFC62828,
+                              ).withValues(alpha: 0.10),
                               borderRadius: BorderRadius.circular(20),
                             ),
                             child: Text(
@@ -1206,6 +1636,8 @@ class _SaleRow extends StatelessWidget {
 String _formatShortDate(BuildContext context, DateTime date) {
   return MaterialLocalizations.of(context).formatShortDate(date);
 }
+
+String _formatSaleMoney(double value) => formatRdMoney(value);
 
 String _saleRowStatusLabel(String status) {
   return switch (status.toLowerCase()) {

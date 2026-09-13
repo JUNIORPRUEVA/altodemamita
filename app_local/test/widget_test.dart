@@ -16,6 +16,8 @@ import 'package:sistema_solares/features/auth/domain/permission_model.dart';
 import 'package:sistema_solares/features/auth/domain/user_model.dart';
 import 'package:sistema_solares/features/auth/presentation/auth_provider.dart';
 
+import 'helpers/responsive_test_harness.dart';
+
 Future<void> _settleApp(WidgetTester tester) async {
   for (var index = 0; index < 20; index++) {
     await tester.pump(const Duration(milliseconds: 100));
@@ -110,10 +112,10 @@ void main() {
   testWidgets('muestra el shell principal y navega por modulos base', (
     WidgetTester tester,
   ) async {
-    await tester.binding.setSurfaceSize(const Size(1280, 900));
-    addTearDown(() async {
-      await tester.binding.setSurfaceSize(null);
-    });
+    // El shell de escritorio exige >= 1024 px lógicos. `setSurfaceSize` no
+    // cambia el tamano real de la vista en esta version de Flutter, por eso
+    // se usa el harness responsive (vista real + devicePixelRatio 1:1).
+    useTestSize(tester, const Size(1280, 900));
 
     final errorController = GlobalErrorController(
       incidentLogger: IncidentLogger(),

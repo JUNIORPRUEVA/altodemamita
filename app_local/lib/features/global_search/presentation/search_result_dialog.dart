@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/utils/dominican_formatters.dart';
 import '../domain/search_result.dart';
 
 class SearchResultDialog extends StatelessWidget {
@@ -274,12 +275,12 @@ class SearchResultDialog extends StatelessWidget {
             _buildDetailRow(
               context,
               'Precio por metro',
-              'RD\$${lot.pricePerSquareMeter.toStringAsFixed(2)} /m²',
+              '${formatRdMoney(lot.pricePerSquareMeter)} /m²',
             ),
             _buildDetailRow(
               context,
               'Precio total',
-              'RD\$${lot.totalPrice.toStringAsFixed(2)}',
+              formatRdMoney(lot.totalPrice),
             ),
             _buildDetailRow(context, 'Estado', lot.status.toUpperCase()),
           ],
@@ -288,7 +289,12 @@ class SearchResultDialog extends StatelessWidget {
     );
   }
 
-  Widget _buildSaleInfo(BuildContext context, sale) {
+  Widget _buildSaleInfo(
+    BuildContext context,
+    sale, {
+    int order = 1,
+    int total = 1,
+  }) {
     final sellerName = _readText(sale['vendedor_nombre']);
     final creatorUser = _readText(sale['usuario_nombre']);
     final lotCode = _buildLotCode(sale);
@@ -300,7 +306,7 @@ class SearchResultDialog extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
-              'Venta ID: ${sale['id']}',
+              total > 1 ? 'Venta $order de $total' : 'Venta',
               style: Theme.of(
                 context,
               ).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600),
@@ -357,32 +363,32 @@ class SearchResultDialog extends StatelessWidget {
         _buildDetailRow(
           context,
           'Precio total venta',
-          'RD\$${(sale['precio_venta'] ?? 0).toStringAsFixed(2)}',
+          formatRdMoney(_toDouble(sale['precio_venta'])),
         ),
         _buildDetailRow(
           context,
           'Inicial mínimo requerido',
-          'RD\$${_toDouble(sale['monto_inicial_requerido']).toStringAsFixed(2)}',
+          formatRdMoney(_toDouble(sale['monto_inicial_requerido'])),
         ),
         _buildDetailRow(
           context,
           'Inicial real pagado',
-          'RD\$${_toDouble(sale['monto_inicial_pagado']).toStringAsFixed(2)}',
+          formatRdMoney(_toDouble(sale['monto_inicial_pagado'])),
         ),
         _buildDetailRow(
           context,
           'Inicial pendiente',
-          'RD\$${_toDouble(sale['monto_inicial_pendiente']).toStringAsFixed(2)}',
+          formatRdMoney(_toDouble(sale['monto_inicial_pendiente'])),
         ),
         _buildDetailRow(
           context,
           'Financiado',
-          'RD\$${_toDouble(sale['saldo_financiado']).toStringAsFixed(2)}',
+          formatRdMoney(_toDouble(sale['saldo_financiado'])),
         ),
         _buildDetailRow(
           context,
           'Pendiente',
-          'RD\$${_toDouble(sale['saldo_pendiente']).toStringAsFixed(2)}',
+          formatRdMoney(_toDouble(sale['saldo_pendiente'])),
           onNavigate: () => onOpenPayments?.call(_saleIdFromMap(sale)),
           tooltip: 'Ir a Pagos/Préstamos',
         ),
@@ -390,7 +396,7 @@ class SearchResultDialog extends StatelessWidget {
           _buildDetailRow(
             context,
             'Apartado mínimo',
-            'RD\$${_toDouble(sale['monto_apartado_minimo']).toStringAsFixed(2)}',
+            formatRdMoney(_toDouble(sale['monto_apartado_minimo'])),
           ),
         if (sale['fecha_limite_inicial'] != null)
           _buildDetailRow(
@@ -467,7 +473,7 @@ class SearchResultDialog extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '${_formatDate(installment.dueDate)} • Total: RD\$${installment.totalAmount.toStringAsFixed(2)}',
+                  '${_formatDate(installment.dueDate)} • Total: ${formatRdMoney(installment.totalAmount)}',
                   style: Theme.of(context).textTheme.labelSmall,
                 ),
               ],
@@ -480,7 +486,7 @@ class SearchResultDialog extends StatelessWidget {
               borderRadius: BorderRadius.circular(4),
             ),
             child: Text(
-              'Pendiente: RD\$${installment.remainingAmount.toStringAsFixed(2)}',
+              'Pendiente: ${formatRdMoney(installment.remainingAmount)}',
               style: const TextStyle(fontSize: 12, color: Colors.white),
             ),
           ),
@@ -525,17 +531,18 @@ class SearchResultDialog extends StatelessWidget {
                   '$fecha • $metodo${ano != null ? " • Año: $ano" : ""}',
                   style: Theme.of(context).textTheme.labelSmall,
                 ),
-                Text(
-                  'Ref: $ref',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.labelSmall?.copyWith(color: Colors.grey),
-                ),
+                if (ref != 'No especificado')
+                  Text(
+                    'Ref: $ref',
+                    style: Theme.of(
+                      context,
+                    ).textTheme.labelSmall?.copyWith(color: Colors.grey),
+                  ),
               ],
             ),
           ),
           Text(
-            'RD\$${monto.toStringAsFixed(2)}',
+            formatRdMoney(monto),
             style: Theme.of(context).textTheme.labelMedium?.copyWith(
               fontWeight: FontWeight.w700,
               color: Colors.green,
@@ -685,8 +692,8 @@ class SearchResultDialog extends StatelessWidget {
       return 'M$block-S$lot';
     }
 
-    final lotId = sale['solar_id']?.toString() ?? '';
-    return lotId.isEmpty ? 'No especificado' : 'Solar #$lotId';
+    // Nunca se expone el id interno del solar al cliente.
+    return 'No especificado';
   }
 
   int? _saleIdFromMap(Map<String, dynamic> sale) {
