@@ -1,0 +1,267 @@
+import { Prisma } from '@prisma/client';
+import { config } from '../config';
+import { prisma } from '../prisma';
+import { paymentReminderWindowDescription } from './paymentReminderWindow.service';
+import { normalizeWhatsappPhone } from './whatsapp.service';
+
+export const PAYMENT_REMINDER_CONFIG_KEYS = {
+  enabled: 'payment_reminders_enabled',
+  senderWhatsappNumber: 'payment_reminders_sender_whatsapp_number',
+  messageFragment: 'payment_reminders_message_fragment',
+} as const;
+
+const defaultMessageFragment = 'Te recordamos que tienes cuotas vencidas pendientes de pago.';
+
+export async function getPaymentReminderAdminState(companyId: string) {
+  const [items, lastNotification, statsRows, deliveries] = await Promise.all([
+    configurationMap(companyId),
+    prisma.paymentReminderNotification.findFirst({
+      where: { companyId },
+      orderBy: { createdAt: 'desc' },
+    }),
+    prisma.paymentReminderDelivery.groupBy({
+      by: ['status'],
+      where: { notification: { companyId } },
+      _count: { _all: true },
+    }),
+    prisma.paymentReminderDelivery.findMany({
+      where: { notification: { companyId } },
+      include: { notification: true },
+      orderBy: { createdAt: 'desc' },
+      take: 30,
+    }),
+  ]);
+
+  const clientNames = await namesByClientSyncId(
+    companyId,
+    deliveries.map((item) => item.notification.clientSyncId).filter((value): value is string => Boolean(value)),
+  );
+  const requestedEnabled = boolValue(items.get(PAYMENT_REMINDER_CONFIG_KEYS.enabled)?.value, config.paymentRemindersEnabled);
+  const senderWhatsappNumber = items.get(PAYMENT_REMINDER_CONFIG_KEYS.senderWhatsappNumber)?.value ?? '';
+  const messageFragment = items.get(PAYMENT_REMINDER_CONFIG_KEYS.messageFragment)?.value ?? defaultMessageFragment;
+  const stats = statusCounts(statsRows);
+
+  return {
+    config: {
+      notificationsEnabled: requestedEnabled,
+      effectiveEnabled: effectiveReminderEnabled(requestedEnabled),
+      senderWhatsAppNumber: senderWhatsappNumber,
+      editableMessageFragment: messageFragment,
+      maxMessageFragmentLength: 250,
+      templateLocked: true,
+    },
+    system: {
+      deliveryGateEnabled: config.paymentRemindersEnabled,
+      emergencyStop: config.paymentRemindersEmergencyStop,
+      dryRun: config.paymentRemindersDryRun,
+      testMode: config.paymentRemindersTestMode,
+      allowRealRecipients: config.paymentRemindersAllowRealRecipients,
+      whatsappConfigured: config.whatsappPhoneNumberId.trim().length > 0 || senderWhatsappNumber.trim().length > 0,
+      schedule: paymentReminderWindowDescription(),
+      nextRun: null,
+    },
+    lastRun: lastNotification
+      ? {
+          id: lastNotification.id,
+          status: lastNotification.status,
+          processedCount: lastNotification.overdueInstallmentCount,
+          createdAt: lastNotification.createdAt.toISOString(),
+          sentAt: lastNotification.sentAt?.toISOString() ?? null,
+        }
+      : null,
+    stats,
+    history: deliveries.map((delivery) => deliveryDto(delivery, clientNames)),
+  };
+}
+
+export async function updatePaymentReminderAdminConfig(
+  companyId: string,
+  input: {
+    notificationsEnabled?: boolean;
+    senderWhatsAppNumber?: string | null;
+    editableMessageFragment?: string;
+  },
+) {
+  if (input.notificationsEnabled !== undefined) {
+    await upsertConfiguration(companyId, PAYMENT_REMINDER_CONFIG_KEYS.enabled, input.notificationsEnabled ? 'true' : 'false', 'Activa o desactiva recordatorios automaticos de cuotas vencidas.');
+  }
+
+  if (input.senderWhatsAppNumber !== undefined) {
+    const normalized = normalizeDisplayWhatsappNumber(input.senderWhatsAppNumber);
+    await upsertConfiguration(companyId, PAYMENT_REMINDER_CONFIG_KEYS.senderWhatsappNumber, normalized, 'Numero visible de WhatsApp utilizado como canal emisor.');
+  }
+
+  if (input.editableMessageFragment !== undefined) {
+    const normalized = normalizeMessageFragment(input.editableMessageFragment);
+    await upsertConfiguration(companyId, PAYMENT_REMINDER_CONFIG_KEYS.messageFragment, normalized, 'Fragmento editable presentado en la vista previa del recordatorio.');
+  }
+
+  return getPaymentReminderAdminState(companyId);
+}
+
+export async function isPaymentReminderEnabledForCompany(companyId: string) {
+  if (!config.paymentRemindersEnabled || config.paymentRemindersEmergencyStop) {
+    return false;
+  }
+  const row = await prisma.businessConfiguration.findUnique({
+    where: {
+      companyId_key: {
+        companyId,
+        key: PAYMENT_REMINDER_CONFIG_KEYS.enabled,
+      },
+    },
+    select: { value: true, deletedAt: true },
+  });
+  if (row?.deletedAt) {
+    return false;
+  }
+  return boolValue(row?.value, true);
+}
+
+function effectiveReminderEnabled(requestedEnabled: boolean) {
+  return requestedEnabled && config.paymentRemindersEnabled && !config.paymentRemindersEmergencyStop;
+}
+
+async function configurationMap(companyId: string) {
+  const rows = await prisma.businessConfiguration.findMany({
+    where: {
+      companyId,
+      deletedAt: null,
+      key: { in: Object.values(PAYMENT_REMINDER_CONFIG_KEYS) },
+    },
+  });
+  return new Map(rows.map((row) => [row.key, row]));
+}
+
+async function upsertConfiguration(companyId: string, key: string, value: string, description: string) {
+  await prisma.businessConfiguration.upsert({
+    where: { companyId_key: { companyId, key } },
+    create: { companyId, key, value, description },
+    update: { value, description, deletedAt: null, version: { increment: 1 } },
+  });
+}
+
+async function namesByClientSyncId(companyId: string, syncIds: string[]) {
+  const unique = [...new Set(syncIds)];
+  if (unique.length === 0) {
+    return new Map<string, string>();
+  }
+  const clients = await prisma.client.findMany({
+    where: { companyId, syncId: { in: unique } },
+    select: { syncId: true, name: true },
+  });
+  return new Map(clients.map((client) => [client.syncId, client.name]));
+}
+
+function statusCounts(rows: Array<{ status: string; _count: { _all: number } }>) {
+  const counts: Record<string, number> = {
+    sent: 0,
+    delivered: 0,
+    read: 0,
+    failed: 0,
+    pending: 0,
+    dryRun: 0,
+  };
+  for (const row of rows) {
+    switch (row.status) {
+      case 'SENT':
+        counts.sent += row._count._all;
+        break;
+      case 'DELIVERED':
+        counts.delivered += row._count._all;
+        break;
+      case 'READ':
+        counts.read += row._count._all;
+        break;
+      case 'FAILED':
+        counts.failed += row._count._all;
+        break;
+      case 'DRY_RUN':
+        counts.dryRun += row._count._all;
+        break;
+      default:
+        counts.pending += row._count._all;
+        break;
+    }
+  }
+  return counts;
+}
+
+function deliveryDto(
+  delivery: Prisma.PaymentReminderDeliveryGetPayload<{
+    include: { notification: true };
+  }>,
+  clientNames: Map<string, string>,
+) {
+  const clientSyncId = delivery.notification.clientSyncId ?? '';
+  return {
+    id: delivery.id,
+    clientName: clientNames.get(clientSyncId) ?? 'Cliente',
+    phoneMasked: delivery.originalRecipientMasked ?? maskPhone(delivery.actualRecipient),
+    status: delivery.status,
+    saleSyncId: delivery.notification.saleSyncId,
+    installmentCount: delivery.notification.overdueInstallmentCount,
+    scheduledAt: delivery.notification.scheduledAt?.toISOString() ?? null,
+    sentAt: delivery.sentAt?.toISOString() ?? null,
+    deliveredAt: delivery.deliveredAt?.toISOString() ?? null,
+    readAt: delivery.readAt?.toISOString() ?? null,
+    createdAt: delivery.createdAt.toISOString(),
+  };
+}
+
+function boolValue(value: string | null | undefined, fallback: boolean) {
+  if (value == null) {
+    return fallback;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (['true', '1', 'yes', 'si', 'sí'].includes(normalized)) return true;
+  if (['false', '0', 'no'].includes(normalized)) return false;
+  return fallback;
+}
+
+function normalizeDisplayWhatsappNumber(value: string | null | undefined) {
+  const trimmed = value?.trim() ?? '';
+  if (!trimmed) {
+    return '';
+  }
+  const normalized = normalizeWhatsappPhone(trimmed);
+  if (!normalized) {
+    throw new PaymentReminderAdminValidationError('INVALID_WHATSAPP_NUMBER', 'Ingresa un numero de WhatsApp dominicano valido con codigo de pais.');
+  }
+  return `+${normalized}`;
+}
+
+function normalizeMessageFragment(value: string) {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    throw new PaymentReminderAdminValidationError('EMPTY_MESSAGE_FRAGMENT', 'El mensaje no puede quedar vacio.');
+  }
+  if (normalized.length > 250) {
+    throw new PaymentReminderAdminValidationError('MESSAGE_FRAGMENT_TOO_LONG', 'El mensaje no puede superar 250 caracteres.');
+  }
+  if (/\{\{|\}\}/.test(normalized)) {
+    throw new PaymentReminderAdminValidationError('MESSAGE_FRAGMENT_HAS_TEMPLATE_VARIABLES', 'No escribas variables de plantilla en el texto personalizado.');
+  }
+  return normalized;
+}
+
+function maskPhone(value: string) {
+  const digits = value.replace(/\D/g, '');
+  if (digits.length < 4) {
+    return 'Telefono oculto';
+  }
+  const last = digits.slice(-4);
+  if (digits.length >= 11) {
+    return `+${digits.slice(0, 1)} ${digits.slice(1, 4)} *** ${last}`;
+  }
+  return `***${last}`;
+}
+
+export class PaymentReminderAdminValidationError extends Error {
+  constructor(
+    public readonly code: string,
+    message: string,
+  ) {
+    super(message);
+  }
+}

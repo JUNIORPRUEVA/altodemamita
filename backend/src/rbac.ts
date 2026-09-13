@@ -10,31 +10,9 @@ import { prisma } from './prisma';
  * existir comparacion ES/EN dispersa por la aplicacion.
  */
 
-export const permissionDomains = [
-  'clients',
-  'lots',
-  'products',
-  'sellers',
-  'sales',
-  'payments',
-  'installments',
-  'users',
-  'configuration',
-  'reports',
-  'dashboard',
-  'search',
-  'notifications',
-  'auth',
-] as const;
+export const permissionDomains = ['clients', 'lots', 'products', 'sellers', 'sales', 'payments', 'installments', 'users', 'configuration', 'reports', 'dashboard', 'search', 'notifications', 'auth'] as const;
 
-export type CanonicalAction =
-  | 'read'
-  | 'create'
-  | 'update'
-  | 'delete'
-  | 'annul'
-  | 'cancel'
-  | 'manage';
+export type CanonicalAction = 'read' | 'create' | 'update' | 'delete' | 'annul' | 'cancel' | 'manage';
 
 const resourceAliases: Record<string, string> = {
   products: 'lots',
@@ -108,7 +86,9 @@ export function canonicalActions(actions: unknown): Set<CanonicalAction> {
     return result;
   }
   for (const raw of actions) {
-    const value = String(raw ?? '').trim().toLowerCase();
+    const value = String(raw ?? '')
+      .trim()
+      .toLowerCase();
     if (!value) continue;
     const direct = actionAliases[value];
     if (direct) {
@@ -131,10 +111,7 @@ export type CanonicalPermissionMap = Map<string, Set<CanonicalAction>>;
  * Permisos efectivos del usuario: filas directas + filas heredadas de sus
  * roles, ya normalizadas a recurso/accion canonicos.
  */
-export async function canonicalPermissionsFor(
-  userId: string,
-  role: 'OWNER' | 'TECH',
-): Promise<CanonicalPermissionMap> {
+export async function canonicalPermissionsFor(userId: string, role: 'OWNER' | 'TECH'): Promise<CanonicalPermissionMap> {
   const map: CanonicalPermissionMap = new Map();
   if (role === 'OWNER') {
     return map;
@@ -166,7 +143,10 @@ export async function canonicalPermissionsFor(
   });
   if (assignments.length > 0) {
     const rolePermissions = await prisma.businessRolePermission.findMany({
-      where: { roleId: { in: assignments.map((item) => item.roleId) }, deletedAt: null },
+      where: {
+        roleId: { in: assignments.map((item) => item.roleId) },
+        deletedAt: null,
+      },
       include: { permission: true },
     });
     for (const row of rolePermissions) {
@@ -177,11 +157,7 @@ export async function canonicalPermissionsFor(
   return map;
 }
 
-export function mapAllows(
-  map: CanonicalPermissionMap,
-  resource: string,
-  action: CanonicalAction,
-) {
+export function mapAllows(map: CanonicalPermissionMap, resource: string, action: CanonicalAction) {
   const set = map.get(canonicalPermissionModule(resource));
   return set?.has(action) ?? false;
 }
@@ -203,12 +179,7 @@ export function requirePermission(module: string, action: string) {
   };
 }
 
-export async function hasPermission(
-  userId: string,
-  role: 'OWNER' | 'TECH',
-  module: string,
-  action: string,
-) {
+export async function hasPermission(userId: string, role: 'OWNER' | 'TECH', module: string, action: string) {
   const canonicalAction = canonicalPermissionAction(action);
   if (!canonicalAction) {
     return false;
@@ -220,10 +191,7 @@ export async function hasPermission(
   return mapAllows(map, module, canonicalAction);
 }
 
-export async function hasPaymentCancellationPermission(
-  userId: string,
-  role: 'OWNER' | 'TECH',
-) {
+export async function hasPaymentCancellationPermission(userId: string, role: 'OWNER' | 'TECH') {
   if (role === 'OWNER') return true;
   const map = await canonicalPermissionsFor(userId, role);
   return mapAllows(map, 'payments', 'annul');
@@ -249,7 +217,10 @@ export async function permissionSnapshot(userId: string) {
     },
   });
   return {
-    direct: direct.map((item) => ({ module: item.module, actions: actionsArray(item.actions) })),
+    direct: direct.map((item) => ({
+      module: item.module,
+      actions: actionsArray(item.actions),
+    })),
     roles: assignedRoles.map((item) => ({
       id: item.role.id,
       code: item.role.code,
@@ -262,46 +233,9 @@ export async function permissionSnapshot(userId: string) {
  * Codigos de permiso que expone el contrato de autenticacion, p. ej.
  * `payments.annul`. OWNER recibe el catalogo administrativo completo.
  */
-export const ownerPermissionCodes = [
-  'clients.read',
-  'clients.create',
-  'clients.update',
-  'clients.delete',
-  'products.read',
-  'products.create',
-  'products.update',
-  'products.delete',
-  'sellers.read',
-  'sellers.create',
-  'sellers.update',
-  'sellers.delete',
-  'sales.read',
-  'sales.create',
-  'sales.update',
-  'sales.delete',
-  'sales.cancel',
-  'payments.read',
-  'payments.create',
-  'payments.update',
-  'payments.annul',
-  'installments.read',
-  'installments.create',
-  'installments.update',
-  'users.read',
-  'users.create',
-  'users.update',
-  'users.delete',
-  'users.manage',
-  'configuration.read',
-  'configuration.update',
-  'reports.read',
-  'sync.manage',
-];
+export const ownerPermissionCodes = ['clients.read', 'clients.create', 'clients.update', 'clients.delete', 'products.read', 'products.create', 'products.update', 'products.delete', 'sellers.read', 'sellers.create', 'sellers.update', 'sellers.delete', 'sales.read', 'sales.create', 'sales.update', 'sales.delete', 'sales.cancel', 'payments.read', 'payments.create', 'payments.update', 'payments.annul', 'installments.read', 'installments.create', 'installments.update', 'users.read', 'users.create', 'users.update', 'users.delete', 'users.manage', 'configuration.read', 'configuration.update', 'notifications.read', 'notifications.update', 'reports.read', 'sync.manage'];
 
-export function contractPermissionCodes(
-  role: 'OWNER' | 'TECH',
-  map: CanonicalPermissionMap,
-) {
+export function contractPermissionCodes(role: 'OWNER' | 'TECH', map: CanonicalPermissionMap) {
   if (role === 'OWNER') {
     return ownerPermissionCodes;
   }

@@ -6,42 +6,27 @@ import { authGuard } from '../auth';
 import { resolveCompanyForRequest } from '../companyIdentity';
 import { hashPassword } from '../password';
 import { prisma } from '../prisma';
-import {
-  canonicalPermissionAction,
-  canonicalPermissionModule,
-  ownerPermissionCodes,
-  hasPermission,
-  permissionDomains,
-  requirePermission,
-} from '../rbac';
+import { canonicalPermissionAction, canonicalPermissionModule, ownerPermissionCodes, hasPermission, permissionDomains, requirePermission } from '../rbac';
 import { authoritativeErrorResponse } from '../services/authoritativeErrors.service';
 import { AuthoritativeSaleService } from '../services/authoritativeSale.service';
-import {
-  BrandingValidationError,
-  decodeBrandingBase64,
-  saveBrandingLogo,
-} from '../services/branding.service';
+import { BrandingValidationError, decodeBrandingBase64, saveBrandingLogo } from '../services/branding.service';
 
 export const businessRouter = Router();
 
 const authoritativeSales = new AuthoritativeSaleService(prisma);
 const permissionDomainSet = new Set<string>(permissionDomains);
 const userPermissionSchema = z.array(z.string().min(1)).default([]);
-const allowedBusinessConfigKeys = new Set([
-  'business_name',
-  'receipt_footer',
-  'default_currency',
-  'payment_terms',
-  'late_fee_policy',
-  'invoice_prefix',
-]);
+const allowedBusinessConfigKeys = new Set(['business_name', 'receipt_footer', 'default_currency', 'payment_terms', 'late_fee_policy', 'invoice_prefix', 'payment_reminders_enabled', 'payment_reminders_sender_whatsapp_number', 'payment_reminders_message_fragment']);
 
 businessRouter.use(authGuard);
 
 businessRouter.get('/users', requirePermission('users', 'read'), async (req, res) => {
   const company = await resolveCompanyForRequest(req);
   const users = await prisma.user.findMany({
-    where: { OR: [{ companyId: company.id }, { companyId: null }], deletedAt: null },
+    where: {
+      OR: [{ companyId: company.id }, { companyId: null }],
+      deletedAt: null,
+    },
     orderBy: { email: 'asc' },
     select: {
       id: true,
@@ -78,12 +63,17 @@ businessRouter.post('/users', requirePermission('users', 'create'), async (req, 
     })
     .safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: { code: 'INVALID_USER', message: 'Usuario invalido.' } });
+    return res.status(400).json({
+      error: { code: 'INVALID_USER', message: 'Usuario invalido.' },
+    });
   }
-  if (requiresUserManageForUserWrite({ role: parsed.data.role, permissions: parsed.data.permissions })) {
-    const canManageUsers = req.user
-      ? await hasPermission(req.user.id, req.user.role, 'users', 'manage')
-      : false;
+  if (
+    requiresUserManageForUserWrite({
+      role: parsed.data.role,
+      permissions: parsed.data.permissions,
+    })
+  ) {
+    const canManageUsers = req.user ? await hasPermission(req.user.id, req.user.role, 'users', 'manage') : false;
     if (!canManageUsers) {
       return res.status(403).json({
         error: {
@@ -95,7 +85,9 @@ businessRouter.post('/users', requirePermission('users', 'create'), async (req, 
   }
   const permissionRows = safePermissionRowsFromCodes(parsed.data.permissions);
   if (!permissionRows) {
-    return res.status(400).json({ error: { code: 'INVALID_PERMISSION', message: 'Permiso invalido.' } });
+    return res.status(400).json({
+      error: { code: 'INVALID_PERMISSION', message: 'Permiso invalido.' },
+    });
   }
   const user = await prisma.$transaction(async (tx) => {
     const created = await tx.user.create({
@@ -130,31 +122,40 @@ businessRouter.get('/clients', requirePermission('clients', 'read'), async (req,
     deletedAt: null,
     ...(search
       ? {
-          OR: [
-            { name: { contains: search, mode: 'insensitive' } },
-            { document: { contains: search, mode: 'insensitive' } },
-            { phone: { contains: search, mode: 'insensitive' } },
-            { address: { contains: search, mode: 'insensitive' } },
-          ],
+          OR: [{ name: { contains: search, mode: 'insensitive' } }, { document: { contains: search, mode: 'insensitive' } }, { phone: { contains: search, mode: 'insensitive' } }, { address: { contains: search, mode: 'insensitive' } }],
         }
       : {}),
   };
   const [items, total] = await Promise.all([
-    prisma.client.findMany({ where, orderBy: { name: 'asc' }, skip, take: pageSize }),
+    prisma.client.findMany({
+      where,
+      orderBy: { name: 'asc' },
+      skip,
+      take: pageSize,
+    }),
     prisma.client.count({ where }),
   ]);
-  return res.json({ data: { items: items.map(clientDto), total, page, pageSize } });
+  return res.json({
+    data: { items: items.map(clientDto), total, page, pageSize },
+  });
 });
 
 businessRouter.post('/clients', requirePermission('clients', 'create'), async (req, res) => {
   const company = await resolveCompanyForRequest(req);
   const parsed = clientSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: { code: 'INVALID_CLIENT', message: 'Cliente invalido.' } });
+    return res.status(400).json({
+      error: { code: 'INVALID_CLIENT', message: 'Cliente invalido.' },
+    });
   }
   const duplicate = await findActiveClientDocument(company.id, parsed.data.document);
   if (duplicate) {
-    return res.status(409).json({ error: { code: 'CLIENT_DOCUMENT_EXISTS', message: 'Ya existe un cliente activo con esta cedula.' } });
+    return res.status(409).json({
+      error: {
+        code: 'CLIENT_DOCUMENT_EXISTS',
+        message: 'Ya existe un cliente activo con esta cedula.',
+      },
+    });
   }
   const client = await prisma.client.create({
     data: {
@@ -175,16 +176,27 @@ businessRouter.patch('/clients/:clientId', requirePermission('clients', 'update'
   const clientId = paramValue(req.params.clientId);
   const parsed = clientSchema.partial().safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: { code: 'INVALID_CLIENT', message: 'Cliente invalido.' } });
+    return res.status(400).json({
+      error: { code: 'INVALID_CLIENT', message: 'Cliente invalido.' },
+    });
   }
-  const existing = await prisma.client.findFirst({ where: { id: clientId, companyId: company.id, deletedAt: null } });
+  const existing = await prisma.client.findFirst({
+    where: { id: clientId, companyId: company.id, deletedAt: null },
+  });
   if (!existing) {
-    return res.status(404).json({ error: { code: 'CLIENT_NOT_FOUND', message: 'El cliente no existe.' } });
+    return res.status(404).json({
+      error: { code: 'CLIENT_NOT_FOUND', message: 'El cliente no existe.' },
+    });
   }
   if (parsed.data.document) {
     const duplicate = await findActiveClientDocument(company.id, parsed.data.document, existing.id);
     if (duplicate) {
-      return res.status(409).json({ error: { code: 'CLIENT_DOCUMENT_EXISTS', message: 'Ya existe un cliente activo con esta cedula.' } });
+      return res.status(409).json({
+        error: {
+          code: 'CLIENT_DOCUMENT_EXISTS',
+          message: 'Ya existe un cliente activo con esta cedula.',
+        },
+      });
     }
   }
   const client = await prisma.client.update({
@@ -204,24 +216,34 @@ businessRouter.patch('/clients/:clientId', requirePermission('clients', 'update'
 businessRouter.delete('/clients/:clientId', requirePermission('clients', 'delete'), async (req, res) => {
   const company = await resolveCompanyForRequest(req);
   const clientId = paramValue(req.params.clientId);
-  const existing = await prisma.client.findFirst({ where: { id: clientId, companyId: company.id, deletedAt: null } });
+  const existing = await prisma.client.findFirst({
+    where: { id: clientId, companyId: company.id, deletedAt: null },
+  });
   if (!existing) {
-    return res.status(404).json({ error: { code: 'CLIENT_NOT_FOUND', message: 'El cliente no existe.' } });
+    return res.status(404).json({
+      error: { code: 'CLIENT_NOT_FOUND', message: 'El cliente no existe.' },
+    });
   }
   const relatedSale = await prisma.sale.findFirst({
     where: { companyId: company.id, clientId: existing.id },
     select: { id: true },
   });
   if (relatedSale) {
-    return res.status(409).json({ error: {
-      code: 'CLIENT_HAS_SALES',
-      message: 'No puedes eliminar este cliente porque tiene ventas relacionadas. Puedes editar sus datos, pero no eliminarlo mientras exista historial de ventas.',
-    } });
+    return res.status(409).json({
+      error: {
+        code: 'CLIENT_HAS_SALES',
+        message: 'No puedes eliminar este cliente porque tiene ventas relacionadas. Puedes editar sus datos, pero no eliminarlo mientras exista historial de ventas.',
+      },
+    });
   }
   const now = new Date();
   const client = await prisma.client.update({
     where: { id: existing.id },
-    data: { deletedAt: now, document: deletedDocument(existing.document, existing.id), version: { increment: 1 } },
+    data: {
+      deletedAt: now,
+      document: deletedDocument(existing.document, existing.id),
+      version: { increment: 1 },
+    },
   });
   return res.json({ data: { client: clientDto(client) } });
 });
@@ -234,30 +256,40 @@ businessRouter.get('/sellers', requirePermission('sellers', 'read'), async (req,
     deletedAt: null,
     ...(search
       ? {
-          OR: [
-            { name: { contains: search, mode: 'insensitive' } },
-            { document: { contains: search, mode: 'insensitive' } },
-            { phone: { contains: search, mode: 'insensitive' } },
-          ],
+          OR: [{ name: { contains: search, mode: 'insensitive' } }, { document: { contains: search, mode: 'insensitive' } }, { phone: { contains: search, mode: 'insensitive' } }],
         }
       : {}),
   };
   const [items, total] = await Promise.all([
-    prisma.seller.findMany({ where, orderBy: { name: 'asc' }, skip, take: pageSize }),
+    prisma.seller.findMany({
+      where,
+      orderBy: { name: 'asc' },
+      skip,
+      take: pageSize,
+    }),
     prisma.seller.count({ where }),
   ]);
-  return res.json({ data: { items: items.map(sellerDto), total, page, pageSize } });
+  return res.json({
+    data: { items: items.map(sellerDto), total, page, pageSize },
+  });
 });
 
 businessRouter.post('/sellers', requirePermission('sellers', 'create'), async (req, res) => {
   const company = await resolveCompanyForRequest(req);
   const parsed = sellerSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: { code: 'INVALID_SELLER', message: 'Vendedor invalido.' } });
+    return res.status(400).json({
+      error: { code: 'INVALID_SELLER', message: 'Vendedor invalido.' },
+    });
   }
   const duplicate = await findActiveSellerDocument(company.id, parsed.data.document);
   if (duplicate) {
-    return res.status(409).json({ error: { code: 'SELLER_DOCUMENT_EXISTS', message: 'Ya existe un vendedor activo con esta cedula.' } });
+    return res.status(409).json({
+      error: {
+        code: 'SELLER_DOCUMENT_EXISTS',
+        message: 'Ya existe un vendedor activo con esta cedula.',
+      },
+    });
   }
   const seller = await prisma.seller.create({
     data: {
@@ -278,16 +310,30 @@ businessRouter.patch('/sellers/:sellerId', requirePermission('sellers', 'update'
   const sellerId = paramValue(req.params.sellerId);
   const parsed = sellerSchema.partial().safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: { code: 'INVALID_SELLER', message: 'Vendedor invalido.' } });
+    return res.status(400).json({
+      error: { code: 'INVALID_SELLER', message: 'Vendedor invalido.' },
+    });
   }
-  const existing = await prisma.seller.findFirst({ where: { id: sellerId, companyId: company.id, deletedAt: null } });
+  const existing = await prisma.seller.findFirst({
+    where: { id: sellerId, companyId: company.id, deletedAt: null },
+  });
   if (!existing) {
-    return res.status(404).json({ error: { code: 'SELLER_NOT_FOUND', message: 'El vendedor no existe.' } });
+    return res.status(404).json({
+      error: {
+        code: 'SELLER_NOT_FOUND',
+        message: 'El vendedor no existe.',
+      },
+    });
   }
   if (parsed.data.document) {
     const duplicate = await findActiveSellerDocument(company.id, parsed.data.document, existing.id);
     if (duplicate) {
-      return res.status(409).json({ error: { code: 'SELLER_DOCUMENT_EXISTS', message: 'Ya existe un vendedor activo con esta cedula.' } });
+      return res.status(409).json({
+        error: {
+          code: 'SELLER_DOCUMENT_EXISTS',
+          message: 'Ya existe un vendedor activo con esta cedula.',
+        },
+      });
     }
   }
   const seller = await prisma.seller.update({
@@ -307,20 +353,42 @@ businessRouter.patch('/sellers/:sellerId', requirePermission('sellers', 'update'
 businessRouter.delete('/sellers/:sellerId', requirePermission('sellers', 'delete'), async (req, res) => {
   const company = await resolveCompanyForRequest(req);
   const sellerId = paramValue(req.params.sellerId);
-  const existing = await prisma.seller.findFirst({ where: { id: sellerId, companyId: company.id, deletedAt: null } });
+  const existing = await prisma.seller.findFirst({
+    where: { id: sellerId, companyId: company.id, deletedAt: null },
+  });
   if (!existing) {
-    return res.status(404).json({ error: { code: 'SELLER_NOT_FOUND', message: 'El vendedor no existe.' } });
+    return res.status(404).json({
+      error: {
+        code: 'SELLER_NOT_FOUND',
+        message: 'El vendedor no existe.',
+      },
+    });
   }
   const activeSale = await prisma.sale.findFirst({
-    where: { companyId: company.id, sellerId: existing.id, deletedAt: null, NOT: { status: 'cancelada' } },
+    where: {
+      companyId: company.id,
+      sellerId: existing.id,
+      deletedAt: null,
+      NOT: { status: 'cancelada' },
+    },
     select: { id: true },
   });
   if (activeSale) {
-    return res.status(409).json({ error: { code: 'SELLER_HAS_ACTIVE_SALE', message: 'No puedes eliminar este vendedor porque tiene una venta activa relacionada.' } });
+    return res.status(409).json({
+      error: {
+        code: 'SELLER_HAS_ACTIVE_SALE',
+        message: 'No puedes eliminar este vendedor porque tiene una venta activa relacionada.',
+      },
+    });
   }
   const seller = await prisma.seller.update({
     where: { id: existing.id },
-    data: { active: false, deletedAt: new Date(), document: deletedDocument(existing.document, existing.id), version: { increment: 1 } },
+    data: {
+      active: false,
+      deletedAt: new Date(),
+      document: deletedDocument(existing.document, existing.id),
+      version: { increment: 1 },
+    },
   });
   return res.json({ data: { seller: sellerDto(seller) } });
 });
@@ -335,19 +403,22 @@ businessRouter.get('/lots', requirePermission('lots', 'read'), async (req, res) 
     ...(status ? { status } : {}),
     ...(search
       ? {
-          OR: [
-            { block: { contains: search, mode: 'insensitive' } },
-            { number: { contains: search, mode: 'insensitive' } },
-            { status: { contains: search, mode: 'insensitive' } },
-          ],
+          OR: [{ block: { contains: search, mode: 'insensitive' } }, { number: { contains: search, mode: 'insensitive' } }, { status: { contains: search, mode: 'insensitive' } }],
         }
       : {}),
   };
   const [items, total] = await Promise.all([
-    prisma.lot.findMany({ where, orderBy: [{ block: 'asc' }, { number: 'asc' }], skip, take: pageSize }),
+    prisma.lot.findMany({
+      where,
+      orderBy: [{ block: 'asc' }, { number: 'asc' }],
+      skip,
+      take: pageSize,
+    }),
     prisma.lot.count({ where }),
   ]);
-  return res.json({ data: { items: items.map(lotDto), total, page, pageSize } });
+  return res.json({
+    data: { items: items.map(lotDto), total, page, pageSize },
+  });
 });
 
 businessRouter.post('/lots', requirePermission('lots', 'create'), async (req, res) => {
@@ -358,7 +429,12 @@ businessRouter.post('/lots', requirePermission('lots', 'create'), async (req, re
   }
   const duplicate = await findActiveLot(company.id, parsed.data.block, parsed.data.number);
   if (duplicate) {
-    return res.status(409).json({ error: { code: 'LOT_EXISTS', message: 'Ya existe un solar activo con esta manzana y numero.' } });
+    return res.status(409).json({
+      error: {
+        code: 'LOT_EXISTS',
+        message: 'Ya existe un solar activo con esta manzana y numero.',
+      },
+    });
   }
   const lot = await prisma.lot.create({
     data: {
@@ -382,15 +458,24 @@ businessRouter.patch('/lots/:lotId', requirePermission('lots', 'update'), async 
   if (!parsed.success) {
     return res.status(400).json({ error: { code: 'INVALID_LOT', message: 'Solar invalido.' } });
   }
-  const existing = await prisma.lot.findFirst({ where: { id: lotId, companyId: company.id, deletedAt: null } });
+  const existing = await prisma.lot.findFirst({
+    where: { id: lotId, companyId: company.id, deletedAt: null },
+  });
   if (!existing) {
-    return res.status(404).json({ error: { code: 'LOT_NOT_FOUND', message: 'El solar no existe.' } });
+    return res.status(404).json({
+      error: { code: 'LOT_NOT_FOUND', message: 'El solar no existe.' },
+    });
   }
   const nextBlock = parsed.data.block ?? existing.block ?? '';
   const nextNumber = parsed.data.number ?? existing.number ?? '';
   const duplicate = await findActiveLot(company.id, nextBlock, nextNumber, existing.id);
   if (duplicate) {
-    return res.status(409).json({ error: { code: 'LOT_EXISTS', message: 'Ya existe un solar activo con esta manzana y numero.' } });
+    return res.status(409).json({
+      error: {
+        code: 'LOT_EXISTS',
+        message: 'Ya existe un solar activo con esta manzana y numero.',
+      },
+    });
   }
   const lot = await prisma.lot.update({
     where: { id: existing.id },
@@ -410,16 +495,30 @@ businessRouter.patch('/lots/:lotId', requirePermission('lots', 'update'), async 
 businessRouter.delete('/lots/:lotId', requirePermission('lots', 'delete'), async (req, res) => {
   const company = await resolveCompanyForRequest(req);
   const lotId = paramValue(req.params.lotId);
-  const existing = await prisma.lot.findFirst({ where: { id: lotId, companyId: company.id, deletedAt: null } });
+  const existing = await prisma.lot.findFirst({
+    where: { id: lotId, companyId: company.id, deletedAt: null },
+  });
   if (!existing) {
-    return res.status(404).json({ error: { code: 'LOT_NOT_FOUND', message: 'El solar no existe.' } });
+    return res.status(404).json({
+      error: { code: 'LOT_NOT_FOUND', message: 'El solar no existe.' },
+    });
   }
   const activeSale = await prisma.sale.findFirst({
-    where: { companyId: company.id, lotId: existing.id, deletedAt: null, NOT: { status: 'cancelada' } },
+    where: {
+      companyId: company.id,
+      lotId: existing.id,
+      deletedAt: null,
+      NOT: { status: 'cancelada' },
+    },
     select: { id: true, syncId: true },
   });
   if (activeSale) {
-    return res.status(409).json({ error: { code: 'LOT_HAS_ACTIVE_SALE', message: 'No puedes eliminar este solar porque tiene una venta activa.' } });
+    return res.status(409).json({
+      error: {
+        code: 'LOT_HAS_ACTIVE_SALE',
+        message: 'No puedes eliminar este solar porque tiene una venta activa.',
+      },
+    });
   }
   const lot = await prisma.lot.update({
     where: { id: existing.id },
@@ -465,7 +564,9 @@ businessRouter.patch('/users/:userId', requirePermission('users', 'update'), asy
     })
     .safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: { code: 'INVALID_USER', message: 'Usuario invalido.' } });
+    return res.status(400).json({
+      error: { code: 'INVALID_USER', message: 'Usuario invalido.' },
+    });
   }
 
   const existing = await prisma.user.findFirst({
@@ -474,10 +575,20 @@ businessRouter.patch('/users/:userId', requirePermission('users', 'update'), asy
       deletedAt: null,
       OR: [{ companyId: company.id }, { companyId: null }],
     },
-    select: { id: true, email: true, name: true, role: true, active: true, passwordHash: true, companyId: true },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      role: true,
+      active: true,
+      passwordHash: true,
+      companyId: true,
+    },
   });
   if (!existing) {
-    return res.status(404).json({ error: { code: 'USER_NOT_FOUND', message: 'El usuario no existe.' } });
+    return res.status(404).json({
+      error: { code: 'USER_NOT_FOUND', message: 'El usuario no existe.' },
+    });
   }
 
   const nextActive = parsed.data.active ?? parsed.data.isActive ?? existing.active;
@@ -513,12 +624,17 @@ businessRouter.patch('/users/:userId', requirePermission('users', 'update'), asy
   };
   const permissionRows = parsed.data.permissions ? safePermissionRowsFromCodes(parsed.data.permissions) : null;
   if (parsed.data.permissions && !permissionRows) {
-    return res.status(400).json({ error: { code: 'INVALID_PERMISSION', message: 'Permiso invalido.' } });
+    return res.status(400).json({
+      error: { code: 'INVALID_PERMISSION', message: 'Permiso invalido.' },
+    });
   }
-  if (requiresUserManageForUserWrite({ role: parsed.data.role, permissions: parsed.data.permissions })) {
-    const canManageUsers = req.user
-      ? await hasPermission(req.user.id, req.user.role, 'users', 'manage')
-      : false;
+  if (
+    requiresUserManageForUserWrite({
+      role: parsed.data.role,
+      permissions: parsed.data.permissions,
+    })
+  ) {
+    const canManageUsers = req.user ? await hasPermission(req.user.id, req.user.role, 'users', 'manage') : false;
     if (!canManageUsers) {
       return res.status(403).json({
         error: {
@@ -538,7 +654,7 @@ businessRouter.patch('/users/:userId', requirePermission('users', 'update'), asy
       await replaceDirectUserPermissions(tx, {
         companyId: company.id,
         userId: existing.id,
-        permissionRows: updated.role === 'OWNER' ? [] : permissionRows ?? [],
+        permissionRows: updated.role === 'OWNER' ? [] : (permissionRows ?? []),
       });
     }
     return findBusinessUserOrThrow(tx, company.id, existing.id);
@@ -558,7 +674,9 @@ businessRouter.delete('/users/:userId', requirePermission('users', 'delete'), as
     select: { id: true, role: true, active: true },
   });
   if (!existing) {
-    return res.status(404).json({ error: { code: 'USER_NOT_FOUND', message: 'El usuario no existe.' } });
+    return res.status(404).json({
+      error: { code: 'USER_NOT_FOUND', message: 'El usuario no existe.' },
+    });
   }
   if (req.user?.id === existing.id) {
     return res.status(409).json({
@@ -581,11 +699,23 @@ businessRouter.delete('/users/:userId', requirePermission('users', 'delete'), as
   }
 
   const [operatedSales, receivedPayments, annulledPayments] = await Promise.all([
-    prisma.sale.count({ where: { companyId: company.id, operatorUserId: existing.id } }),
-    prisma.payment.count({ where: { companyId: company.id, receivedByUserId: existing.id } }),
-    prisma.payment.count({ where: { companyId: company.id, annulledByUserId: existing.id } }),
+    prisma.sale.count({
+      where: { companyId: company.id, operatorUserId: existing.id },
+    }),
+    prisma.payment.count({
+      where: { companyId: company.id, receivedByUserId: existing.id },
+    }),
+    prisma.payment.count({
+      where: { companyId: company.id, annulledByUserId: existing.id },
+    }),
   ]);
-  if (hasBlockingUserHistoryForDelete({ operatedSales, receivedPayments, annulledPayments })) {
+  if (
+    hasBlockingUserHistoryForDelete({
+      operatedSales,
+      receivedPayments,
+      annulledPayments,
+    })
+  ) {
     return res.status(409).json({
       error: {
         code: 'USER_HAS_HISTORY',
@@ -596,8 +726,12 @@ businessRouter.delete('/users/:userId', requirePermission('users', 'delete'), as
 
   try {
     await prisma.$transaction(async (tx) => {
-      await tx.permission.deleteMany({ where: { companyId: company.id, userId: existing.id } });
-      await tx.businessUserRole.deleteMany({ where: { companyId: company.id, userId: existing.id } });
+      await tx.permission.deleteMany({
+        where: { companyId: company.id, userId: existing.id },
+      });
+      await tx.businessUserRole.deleteMany({
+        where: { companyId: company.id, userId: existing.id },
+      });
       await tx.user.delete({ where: { id: existing.id } });
     });
   } catch (error) {
@@ -636,9 +770,15 @@ businessRouter.post('/roles', requirePermission('users', 'manage'), async (req, 
     return res.status(400).json({ error: { code: 'INVALID_ROLE', message: 'Rol invalido.' } });
   }
   const role = await prisma.businessRole.upsert({
-    where: { companyId_code: { companyId: company.id, code: parsed.data.code } },
+    where: {
+      companyId_code: { companyId: company.id, code: parsed.data.code },
+    },
     create: { companyId: company.id, ...parsed.data },
-    update: { name: parsed.data.name, description: parsed.data.description, deletedAt: null },
+    update: {
+      name: parsed.data.name,
+      description: parsed.data.description,
+      deletedAt: null,
+    },
   });
   return res.status(201).json({ data: { role } });
 });
@@ -647,7 +787,12 @@ businessRouter.post('/users/:userId/roles', requirePermission('users', 'manage')
   const company = await resolveCompanyForRequest(req);
   const parsed = z.object({ roleId: z.string().min(1) }).safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: { code: 'INVALID_ROLE_ASSIGNMENT', message: 'Asignacion invalida.' } });
+    return res.status(400).json({
+      error: {
+        code: 'INVALID_ROLE_ASSIGNMENT',
+        message: 'Asignacion invalida.',
+      },
+    });
   }
   const assignment = await prisma.businessUserRole.upsert({
     where: {
@@ -657,7 +802,11 @@ businessRouter.post('/users/:userId/roles', requirePermission('users', 'manage')
         roleId: parsed.data.roleId,
       },
     },
-    create: { companyId: company.id, userId: paramValue(req.params.userId), roleId: parsed.data.roleId },
+    create: {
+      companyId: company.id,
+      userId: paramValue(req.params.userId),
+      roleId: parsed.data.roleId,
+    },
     update: { deletedAt: null },
   });
   return res.status(201).json({ data: { assignment } });
@@ -673,11 +822,17 @@ businessRouter.post('/permissions', requirePermission('users', 'manage'), async 
     })
     .safeParse(req.body);
   if (!parsed.success || !permissionDomainSet.has(normalizeModule(parsed.data.module))) {
-    return res.status(400).json({ error: { code: 'INVALID_PERMISSION', message: 'Permiso invalido.' } });
+    return res.status(400).json({
+      error: { code: 'INVALID_PERMISSION', message: 'Permiso invalido.' },
+    });
   }
   const module = normalizeModule(parsed.data.module);
   const existingPermission = await prisma.permission.findFirst({
-    where: { companyId: company.id, userId: parsed.data.userId ?? null, module },
+    where: {
+      companyId: company.id,
+      userId: parsed.data.userId ?? null,
+      module,
+    },
   });
   const permission = existingPermission
     ? await prisma.permission.update({
@@ -699,7 +854,12 @@ businessRouter.post('/roles/:roleId/permissions', requirePermission('users', 'ma
   const company = await resolveCompanyForRequest(req);
   const parsed = z.object({ permissionId: z.string().min(1) }).safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: { code: 'INVALID_PERMISSION_ASSIGNMENT', message: 'Asignacion invalida.' } });
+    return res.status(400).json({
+      error: {
+        code: 'INVALID_PERMISSION_ASSIGNMENT',
+        message: 'Asignacion invalida.',
+      },
+    });
   }
   const rolePermission = await prisma.businessRolePermission.upsert({
     where: {
@@ -709,7 +869,11 @@ businessRouter.post('/roles/:roleId/permissions', requirePermission('users', 'ma
         permissionId: parsed.data.permissionId,
       },
     },
-    create: { companyId: company.id, roleId: paramValue(req.params.roleId), permissionId: parsed.data.permissionId },
+    create: {
+      companyId: company.id,
+      roleId: paramValue(req.params.roleId),
+      permissionId: parsed.data.permissionId,
+    },
     update: { deletedAt: null },
   });
   return res.status(201).json({ data: { rolePermission } });
@@ -737,14 +901,22 @@ businessRouter.put('/company-profile', requirePermission('configuration', 'updat
     })
     .safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: { code: 'INVALID_COMPANY_PROFILE', message: 'Perfil invalido.' } });
+    return res.status(400).json({
+      error: {
+        code: 'INVALID_COMPANY_PROFILE',
+        message: 'Perfil invalido.',
+      },
+    });
   }
   const profile = await prisma.companyProfile.upsert({
     where: { companyId: company.id },
     create: { companyId: company.id, ...parsed.data },
     update: { ...parsed.data, logoLocalPath: null },
   });
-  await prisma.company.update({ where: { id: company.id }, data: { name: parsed.data.name } });
+  await prisma.company.update({
+    where: { id: company.id },
+    data: { name: parsed.data.name },
+  });
   return res.json({ data: { profile: sanitizeProfile(profile) } });
 });
 
@@ -767,7 +939,10 @@ businessRouter.put('/branding/logo', requirePermission('configuration', 'update'
     .safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({
-      error: { code: 'INVALID_BRANDING_PAYLOAD', message: 'Payload de logo invalido.' },
+      error: {
+        code: 'INVALID_BRANDING_PAYLOAD',
+        message: 'Payload de logo invalido.',
+      },
     });
   }
 
@@ -791,7 +966,10 @@ businessRouter.put('/branding/logo', requirePermission('configuration', 'update'
       return res.status(400).json({ error: { code: error.code, message: error.message } });
     }
     return res.status(500).json({
-      error: { code: 'BRANDING_SAVE_FAILED', message: 'No se pudo guardar el logo institucional.' },
+      error: {
+        code: 'BRANDING_SAVE_FAILED',
+        message: 'No se pudo guardar el logo institucional.',
+      },
     });
   }
 });
@@ -814,7 +992,12 @@ businessRouter.put('/financial-parameters', requirePermission('configuration', '
     })
     .safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: { code: 'INVALID_FINANCIAL_PARAMETERS', message: 'Parametros invalidos.' } });
+    return res.status(400).json({
+      error: {
+        code: 'INVALID_FINANCIAL_PARAMETERS',
+        message: 'Parametros invalidos.',
+      },
+    });
   }
   const parameters = await prisma.financialParameters.upsert({
     where: { companyId: company.id },
@@ -837,7 +1020,12 @@ businessRouter.put('/business-config/:key', requirePermission('configuration', '
   const company = await resolveCompanyForRequest(req);
   const key = paramValue(req.params.key).trim();
   if (!allowedBusinessConfigKeys.has(key)) {
-    return res.status(400).json({ error: { code: 'BUSINESS_CONFIG_KEY_NOT_ALLOWED', message: 'Configuracion no permitida.' } });
+    return res.status(400).json({
+      error: {
+        code: 'BUSINESS_CONFIG_KEY_NOT_ALLOWED',
+        message: 'Configuracion no permitida.',
+      },
+    });
   }
   const parsed = z
     .object({
@@ -847,7 +1035,12 @@ businessRouter.put('/business-config/:key', requirePermission('configuration', '
     })
     .safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: { code: 'INVALID_BUSINESS_CONFIG', message: 'Configuracion invalida.' } });
+    return res.status(400).json({
+      error: {
+        code: 'INVALID_BUSINESS_CONFIG',
+        message: 'Configuracion invalida.',
+      },
+    });
   }
   const item = await prisma.businessConfiguration.upsert({
     where: { companyId_key: { companyId: company.id, key } },
@@ -911,16 +1104,11 @@ function businessUserDto(user: BusinessUserDtoSource) {
     companyId: user.companyId,
     createdAt: user.createdAt.toISOString(),
     updatedAt: user.updatedAt.toISOString(),
-    permissions: user.role === 'OWNER'
-      ? ownerPermissionCodes
-      : permissionCodesFromRows(user.directPermissions),
+    permissions: user.role === 'OWNER' ? ownerPermissionCodes : permissionCodesFromRows(user.directPermissions),
   };
 }
 
-function requiresUserManageForUserWrite(input: {
-  role?: 'OWNER' | 'TECH';
-  permissions?: string[];
-}) {
+function requiresUserManageForUserWrite(input: { role?: 'OWNER' | 'TECH'; permissions?: string[] }) {
   return input.role === 'OWNER' || input.permissions !== undefined;
 }
 
@@ -997,11 +1185,7 @@ async function replaceDirectUserPermissions(
   }
 }
 
-async function findBusinessUserOrThrow(
-  tx: Prisma.TransactionClient,
-  companyId: string,
-  userId: string,
-) {
+async function findBusinessUserOrThrow(tx: Prisma.TransactionClient, companyId: string, userId: string) {
   const user = await tx.user.findFirst({
     where: {
       id: userId,
@@ -1020,9 +1204,7 @@ function actionsArray(actions: unknown) {
   if (!Array.isArray(actions)) {
     return [];
   }
-  return actions
-    .map((action) => canonicalPermissionAction(String(action)))
-    .filter((action): action is NonNullable<ReturnType<typeof canonicalPermissionAction>> => action !== null);
+  return actions.map((action) => canonicalPermissionAction(String(action))).filter((action): action is NonNullable<ReturnType<typeof canonicalPermissionAction>> => action !== null);
 }
 
 export function permissionRowsFromCodesForTest(codes: string[]) {
@@ -1033,10 +1215,7 @@ export function permissionCodesFromRowsForTest(rows: Array<{ module: string; act
   return permissionCodesFromRows(rows);
 }
 
-export function requiresUserManageForUserWriteForTest(input: {
-  role?: 'OWNER' | 'TECH';
-  permissions?: string[];
-}) {
+export function requiresUserManageForUserWriteForTest(input: { role?: 'OWNER' | 'TECH'; permissions?: string[] }) {
   return requiresUserManageForUserWrite(input);
 }
 
@@ -1111,18 +1290,7 @@ function numeric(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function clientDto(client: {
-  id: string;
-  syncId: string;
-  name: string;
-  document: string | null;
-  phone: string | null;
-  address: string | null;
-  version: number;
-  deletedAt: Date | null;
-  createdAt: Date;
-  updatedAt: Date;
-}) {
+function clientDto(client: { id: string; syncId: string; name: string; document: string | null; phone: string | null; address: string | null; version: number; deletedAt: Date | null; createdAt: Date; updatedAt: Date }) {
   return {
     id: client.id,
     syncId: client.syncId,
@@ -1144,18 +1312,7 @@ function clientDto(client: {
   };
 }
 
-function sellerDto(seller: {
-  id: string;
-  syncId: string;
-  name: string;
-  document: string | null;
-  phone: string | null;
-  active: boolean;
-  version: number;
-  deletedAt: Date | null;
-  createdAt: Date;
-  updatedAt: Date;
-}) {
+function sellerDto(seller: { id: string; syncId: string; name: string; document: string | null; phone: string | null; active: boolean; version: number; deletedAt: Date | null; createdAt: Date; updatedAt: Date }) {
   return {
     id: seller.id,
     syncId: seller.syncId,
@@ -1177,19 +1334,7 @@ function sellerDto(seller: {
   };
 }
 
-function lotDto(lot: {
-  id: string;
-  syncId: string;
-  block: string | null;
-  number: string | null;
-  status: string | null;
-  area: unknown;
-  price: unknown;
-  version: number;
-  deletedAt: Date | null;
-  createdAt: Date;
-  updatedAt: Date;
-}) {
+function lotDto(lot: { id: string; syncId: string; block: string | null; number: string | null; status: string | null; area: unknown; price: unknown; version: number; deletedAt: Date | null; createdAt: Date; updatedAt: Date }) {
   return {
     id: lot.id,
     syncId: lot.syncId,
@@ -1264,16 +1409,12 @@ function normalizeModule(module: string) {
 }
 
 function paramValue(value: string | string[] | undefined) {
-  return Array.isArray(value) ? value[0] : value ?? '';
+  return Array.isArray(value) ? value[0] : (value ?? '');
 }
 
 function idempotencyKey(req: { header: (name: string) => string | undefined; body?: unknown }) {
   const body = req.body as Record<string, unknown> | undefined;
-  return (
-    req.header('idempotency-key') ??
-    stringValue(body?.idempotencyKey) ??
-    stringValue(body?.operationId)
-  );
+  return req.header('idempotency-key') ?? stringValue(body?.idempotencyKey) ?? stringValue(body?.operationId);
 }
 
 function stringValue(value: unknown) {
@@ -1295,27 +1436,15 @@ export function normalizeBusinessUserRoleForTest(value: string | undefined) {
   return normalizeUserRole(value);
 }
 
-export function isSelfDeactivation(
-  actorUserId: string | undefined,
-  targetUserId: string,
-  nextActive: boolean,
-) {
+export function isSelfDeactivation(actorUserId: string | undefined, targetUserId: string, nextActive: boolean) {
   return actorUserId === targetUserId && !nextActive;
 }
 
-export function isOwnerRemovalAttempt(
-  currentRole: 'OWNER' | 'TECH',
-  nextRole: 'OWNER' | 'TECH',
-  nextActive: boolean,
-) {
+export function isOwnerRemovalAttempt(currentRole: 'OWNER' | 'TECH', nextRole: 'OWNER' | 'TECH', nextActive: boolean) {
   return currentRole === 'OWNER' && (!nextActive || nextRole !== 'OWNER');
 }
 
-export function hasBlockingUserHistoryForDelete(counts: {
-  operatedSales: number;
-  receivedPayments: number;
-  annulledPayments: number;
-}) {
+export function hasBlockingUserHistoryForDelete(counts: { operatedSales: number; receivedPayments: number; annulledPayments: number }) {
   return counts.operatedSales > 0 || counts.receivedPayments > 0 || counts.annulledPayments > 0;
 }
 

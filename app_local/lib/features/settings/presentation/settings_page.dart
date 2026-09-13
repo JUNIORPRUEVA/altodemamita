@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -18,6 +19,7 @@ import '../../backup/services/disk_detection_service.dart';
 import 'company_info_page.dart';
 import 'documentation_page.dart';
 import 'financial_params_page.dart';
+import 'payment_reminder_settings_mobile.dart';
 import 'printers_page.dart';
 import '../../../core/responsive/app_breakpoints.dart';
 import 'settings_mobile.dart';
@@ -172,6 +174,18 @@ class _SettingsPageState extends State<SettingsPage> {
               builder: (_) => const FinancialParamsPage(),
             ),
           ),
+          if (kIsWeb && auth.isAdmin && canOpenSettingsTools)
+            SettingsEntry(
+              icon: Icons.notifications_active_outlined,
+              label: 'Notificaciones y recordatorios',
+              onTap: () => _openProtectedSettingsPage(
+                scope: AdminOverrideScope.settingsNotifications,
+                title: 'Autorización administrativa requerida',
+                message:
+                    'Necesitas la clave de un administrador para administrar los recordatorios de cuotas.',
+                builder: (_) => const PaymentReminderSettingsMobilePage(),
+              ),
+            ),
           SettingsEntry(
             icon: Icons.menu_book_outlined,
             label: 'Documentación',

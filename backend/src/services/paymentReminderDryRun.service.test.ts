@@ -16,6 +16,7 @@ const originalCreate = prisma.paymentReminderNotification.create;
 const originalUpsertDelivery = prisma.paymentReminderDelivery.upsert;
 const originalFindDeliveries = prisma.paymentReminderDelivery.findMany;
 const originalCreateSnapshots = prisma.lateFeeSnapshot.createMany;
+const originalFindBusinessConfiguration = prisma.businessConfiguration.findUnique;
 
 describe('PaymentReminderService dry run audit', () => {
   afterEach(() => {
@@ -27,6 +28,7 @@ describe('PaymentReminderService dry run audit', () => {
     prisma.paymentReminderDelivery.upsert = originalUpsertDelivery;
     prisma.paymentReminderDelivery.findMany = originalFindDeliveries;
     prisma.lateFeeSnapshot.createMany = originalCreateSnapshots;
+    prisma.businessConfiguration.findUnique = originalFindBusinessConfiguration;
   });
 
   it('persiste notificacion, entregas y snapshot sin enviar al proveedor', async () => {
@@ -51,6 +53,7 @@ describe('PaymentReminderService dry run audit', () => {
       snapshots.push(args);
       return { count: 1 };
     }) as typeof prisma.lateFeeSnapshot.createMany;
+    prisma.businessConfiguration.findUnique = (async () => null) as unknown as typeof prisma.businessConfiguration.findUnique;
 
     const service = new PaymentReminderService();
     (service as any).getSaleSummary = async () => saleSummary();
@@ -89,6 +92,7 @@ describe('PaymentReminderService dry run audit', () => {
         clientVersion: 'test',
       });
     }) as unknown as typeof prisma.paymentReminderNotification.create;
+    prisma.businessConfiguration.findUnique = (async () => null) as unknown as typeof prisma.businessConfiguration.findUnique;
 
     const service = new PaymentReminderService();
     (service as any).getSaleSummary = async () => saleSummary();

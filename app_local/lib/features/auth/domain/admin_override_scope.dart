@@ -7,4 +7,5 @@ class AdminOverrideScope {
   static const String settingsUsers = 'settings.users';
   static const String settingsBackup = 'settings.backup';
   static const String settingsSync = 'settings.sync';
+  static const String settingsNotifications = 'settings.notifications';
 }

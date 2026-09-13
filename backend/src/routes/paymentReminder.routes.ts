@@ -1,10 +1,49 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import { authGuard } from '../auth';
 import { resolveCompanyForRequest } from '../companyIdentity';
+import { requirePermission } from '../rbac';
+import { PaymentReminderAdminValidationError, getPaymentReminderAdminState, updatePaymentReminderAdminConfig } from '../services/paymentReminderAdmin.service';
 import { PaymentReminderService } from '../services/paymentReminder.service';
 
 export const paymentReminderRouter = Router();
 const service = new PaymentReminderService();
+
+const adminConfigSchema = z.object({
+  notificationsEnabled: z.boolean().optional(),
+  senderWhatsAppNumber: z.string().nullable().optional(),
+  editableMessageFragment: z.string().optional(),
+});
+
+paymentReminderRouter.get('/admin', authGuard, requirePermission('notifications', 'read'), async (req, res) => {
+  const company = await resolveCompanyForRequest(req);
+  const state = await getPaymentReminderAdminState(company.id);
+  return res.json({ data: state });
+});
+
+paymentReminderRouter.patch('/admin', authGuard, requirePermission('notifications', 'update'), async (req, res) => {
+  const parsed = adminConfigSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: {
+        code: 'INVALID_PAYMENT_REMINDER_CONFIG',
+        message: 'Configuracion invalida.',
+      },
+    });
+  }
+  try {
+    const company = await resolveCompanyForRequest(req);
+    const state = await updatePaymentReminderAdminConfig(company.id, parsed.data);
+    return res.json({ data: state });
+  } catch (error) {
+    if (error instanceof PaymentReminderAdminValidationError) {
+      return res.status(400).json({
+        error: { code: error.code, message: error.message },
+      });
+    }
+    throw error;
+  }
+});
 
 paymentReminderRouter.get('/sales/:saleSyncId/overdue-summary', async (req, res) => {
   const company = await resolveCompanyForRequest(req);
@@ -46,10 +85,7 @@ paymentReminderRouter.post('/run', authGuard, async (req, res) => {
 
 paymentReminderRouter.get('/whatsapp/webhook', (req, res) => {
   const verifyToken = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN ?? '';
-  if (
-    req.query['hub.mode'] === 'subscribe' &&
-    req.query['hub.verify_token'] === verifyToken
-  ) {
+  if (req.query['hub.mode'] === 'subscribe' && req.query['hub.verify_token'] === verifyToken) {
     return res.send(req.query['hub.challenge']);
   }
   return res.sendStatus(403);
