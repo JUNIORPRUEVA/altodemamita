@@ -100,6 +100,7 @@ export function validateConfig() {
   if (config.paymentRemindersEnabled && !config.paymentRemindersDryRun) {
     if (!config.whatsappAccessToken.trim()) missing.push('WHATSAPP_ACCESS_TOKEN');
     if (!config.whatsappPhoneNumberId.trim()) missing.push('WHATSAPP_PHONE_NUMBER_ID');
+    if (!config.whatsappBusinessAccountId.trim()) missing.push('WHATSAPP_BUSINESS_ACCOUNT_ID');
   }
   if (missing.length > 0) {
     throw new Error(`Variables requeridas invalidas: ${missing.join(', ')}`);

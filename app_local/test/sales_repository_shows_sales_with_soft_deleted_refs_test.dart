@@ -105,7 +105,7 @@ void main() {
   );
 
   test(
-    'fetchAll agrega cuotas pendientes sin contar pagadas, ajustadas ni canceladas',
+    'fetchAll agrega cuotas vencidas sin contar futuras, pagadas, ajustadas ni canceladas',
     () async {
       final db = await appDatabase.database;
       final now = DateTime(2026, 3, 6, 9, 0).toIso8601String();
@@ -164,21 +164,41 @@ void main() {
         'sync_status': DatabaseSchema.syncStatusSynced,
       });
 
-      for (var index = 1; index <= 117; index++) {
-        await _insertInstallment(
-          appDatabase: appDatabase,
-          saleId: saleId,
-          number: index,
-          now: now,
-          status: index.isEven ? 'pendiente' : 'parcial',
-          totalAmount: 1000,
-          paidAmount: index.isEven ? 0 : 250,
-        );
-      }
       await _insertInstallment(
         appDatabase: appDatabase,
         saleId: saleId,
-        number: 118,
+        number: 1,
+        dueDate: DateTime(2026, 9, 12),
+        now: now,
+        status: 'pendiente',
+        totalAmount: 1000,
+        paidAmount: 0,
+      );
+      await _insertInstallment(
+        appDatabase: appDatabase,
+        saleId: saleId,
+        number: 2,
+        dueDate: DateTime(2026, 9, 13),
+        now: now,
+        status: 'parcial',
+        totalAmount: 1000,
+        paidAmount: 250,
+      );
+      await _insertInstallment(
+        appDatabase: appDatabase,
+        saleId: saleId,
+        number: 3,
+        dueDate: DateTime(2026, 10, 13),
+        now: now,
+        status: 'pendiente',
+        totalAmount: 1000,
+        paidAmount: 0,
+      );
+      await _insertInstallment(
+        appDatabase: appDatabase,
+        saleId: saleId,
+        number: 4,
+        dueDate: DateTime(2026, 9, 11),
         now: now,
         status: 'pagada',
         totalAmount: 1000,
@@ -187,7 +207,8 @@ void main() {
       await _insertInstallment(
         appDatabase: appDatabase,
         saleId: saleId,
-        number: 119,
+        number: 5,
+        dueDate: DateTime(2026, 9, 11),
         now: now,
         status: 'ajustada',
         totalAmount: 0,
@@ -196,7 +217,8 @@ void main() {
       await _insertInstallment(
         appDatabase: appDatabase,
         saleId: saleId,
-        number: 120,
+        number: 6,
+        dueDate: DateTime(2026, 9, 11),
         now: now,
         status: 'cancelada',
         totalAmount: 1000,
@@ -206,11 +228,8 @@ void main() {
       final summaries = await repository.fetchAll();
 
       expect(summaries, hasLength(1));
-      expect(summaries.single.pendingInstallmentCount, 117);
-      expect(
-        summaries.single.pendingInstallmentsLabel,
-        '117 cuotas pendientes',
-      );
+      expect(summaries.single.overdueInstallmentCount, 2);
+      expect(summaries.single.overdueInstallmentsLabel, '2 cuotas vencidas');
     },
   );
 }
@@ -219,6 +238,7 @@ Future<void> _insertInstallment({
   required AppDatabase appDatabase,
   required int saleId,
   required int number,
+  required DateTime dueDate,
   required String now,
   required String status,
   required double totalAmount,
@@ -230,7 +250,7 @@ Future<void> _insertInstallment({
     'version': 1,
     'venta_id': saleId,
     'numero_cuota': number,
-    'fecha_vencimiento': DateTime(2026, 4, number).toIso8601String(),
+    'fecha_vencimiento': dueDate.toIso8601String(),
     'saldo_inicial': 0,
     'capital_cuota': totalAmount,
     'interes_cuota': 0,

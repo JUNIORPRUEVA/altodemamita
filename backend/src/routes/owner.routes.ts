@@ -140,6 +140,7 @@ async function listSales(req: any, res: any) {
   const onlyFullyPaid = settlementFilter === 'fully_paid';
   const skip = (page - 1) * pageSize;
   const company = await resolveCompanyForRequest(req);
+  const today = startOfUtcDay(new Date());
   const lotIdFilter = String(req.query.lotId ?? '').trim();
   const baseWhere = lotIdFilter
     ? {
@@ -178,7 +179,7 @@ async function listSales(req: any, res: any) {
 
   const candidateIds = candidateSales.map((sale: any) => sale.id);
   const outstandingBySaleId = new Map<string, number>();
-  const pendingInstallmentCountBySaleId = new Map<string, number>();
+  const overdueInstallmentCountBySaleId = new Map<string, number>();
   if (candidateIds.length > 0) {
     const installmentsForCandidates = await prisma.installment.findMany({
       where: {
@@ -188,6 +189,7 @@ async function listSales(req: any, res: any) {
       },
       select: {
         saleId: true,
+        dueDate: true,
         status: true,
         totalAmount: true,
         paidAmount: true,
@@ -206,10 +208,10 @@ async function listSales(req: any, res: any) {
         saleId,
         roundMoney((outstandingBySaleId.get(saleId) ?? 0) + remaining),
       );
-      if (isPendingInstallmentObligation(installment)) {
-        pendingInstallmentCountBySaleId.set(
+      if (isOverdueInstallmentObligation(installment, today)) {
+        overdueInstallmentCountBySaleId.set(
           saleId,
-          (pendingInstallmentCountBySaleId.get(saleId) ?? 0) + 1,
+          (overdueInstallmentCountBySaleId.get(saleId) ?? 0) + 1,
         );
       }
     }
@@ -261,7 +263,7 @@ async function listSales(req: any, res: any) {
           lotsBySyncId,
           sellersBySyncId,
           settlementBySaleId.get(sale.id),
-          pendingInstallmentCountBySaleId.get(sale.id) ?? 0,
+          overdueInstallmentCountBySaleId.get(sale.id) ?? 0,
         ),
       ),
       page,
@@ -750,11 +752,13 @@ export function outstandingFromInstallments(installments: Array<any>) {
   );
 }
 
-export function pendingInstallmentCountFromInstallments(installments: Array<any>) {
-  return installments.filter(isPendingInstallmentObligation).length;
+export function overdueInstallmentCountFromInstallments(installments: Array<any>, today: Date) {
+  return installments.filter((installment) =>
+    isOverdueInstallmentObligation(installment, today),
+  ).length;
 }
 
-function isPendingInstallmentObligation(installment: any) {
+function isOpenInstallmentObligation(installment: any) {
   const closedStatuses = [
     'pagada',
     'paid',
@@ -770,6 +774,17 @@ function isPendingInstallmentObligation(installment: any) {
   return remaining > 0.009 && !closedStatuses.includes(status);
 }
 
+function isOverdueInstallmentObligation(installment: any, today: Date) {
+  const dueDate = installment.dueDate instanceof Date
+    ? installment.dueDate
+    : new Date(installment.dueDate);
+  return (
+    isOpenInstallmentObligation(installment) &&
+    !Number.isNaN(dueDate.getTime()) &&
+    dueDate < today
+  );
+}
+
 function roundMoney(value: number) {
   return Math.round(value * 100) / 100;
 }
@@ -780,7 +795,7 @@ export function serializeSaleRow(
   lotsBySyncId: Map<string, any>,
   sellersBySyncId: Map<string, any>,
   settlement?: SaleSettlement,
-  pendingInstallmentCount = 0,
+  overdueInstallmentCount = 0,
 ) {
   const client = sale.clientSyncId ? clientsBySyncId.get(sale.clientSyncId) : null;
   const lot = sale.lotSyncId ? lotsBySyncId.get(sale.lotSyncId) : null;
@@ -837,7 +852,7 @@ export function serializeSaleRow(
     settlement: settlement ?? null,
     isFullyPaid: settlement?.isFullyPaid ?? false,
     settlementLabel: settlement?.label ?? null,
-    pendingInstallmentCount,
+    overdueInstallmentCount,
     createdAt: sale.createdAt?.toISOString(),
     updatedAt: sale.updatedAt?.toISOString(),
     deletedAt: sale.deletedAt?.toISOString() ?? null,

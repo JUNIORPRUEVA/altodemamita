@@ -164,8 +164,8 @@ class PaymentReminderAdminState {
         allowRealRecipients: false,
         whatsappConfigured: false,
         displayWhatsappConfigured: false,
-        whatsappPhoneNumberId: 'No cargado',
-        whatsappBusinessAccountId: 'No cargado',
+        whatsappPhoneNumberId: '',
+        whatsappBusinessAccountId: '',
         schedule: PaymentReminderSchedule(
           timezone: 'America/Santo_Domingo',
           allowedDays: '1,2,3,4,5,6',

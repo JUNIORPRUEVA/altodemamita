@@ -314,7 +314,9 @@ class _Content extends StatelessWidget {
                     const SizedBox(height: 7),
                     Text(
                       enabled
-                          ? 'Envio segun la configuracion del servicio.'
+                          ? effective
+                              ? 'Los recordatorios automaticos estan habilitados.'
+                              : 'La configuracion esta activada, pero el envio real sigue pausado.'
                           : 'Los recordatorios estan desactivados.',
                       style: const TextStyle(
                         fontSize: 13,
@@ -325,7 +327,7 @@ class _Content extends StatelessWidget {
                     const SizedBox(height: 12),
                     MobileStatusChip(
                       label: effective
-                          ? 'Activo'
+                          ? 'Recordatorios activos'
                           : enabled
                           ? 'Pausado por seguridad'
                           : 'Desactivado',
@@ -375,7 +377,7 @@ class _StatusCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final text = state.config.effectiveEnabled
-        ? 'Todo listo'
+        ? 'Recordatorios activos'
         : state.config.notificationsEnabled && !state.system.whatsappConfigured
         ? 'Falta configurar WhatsApp'
         : state.config.notificationsEnabled
@@ -450,7 +452,7 @@ class _ProviderCard extends StatelessWidget {
             label: 'Estado tecnico',
             value: state.system.whatsappConfigured
                 ? 'Proveedor configurado'
-                : 'Falta ID de numero WhatsApp',
+                : 'Falta configuracion WhatsApp en servidor',
           ),
           const SizedBox(height: 10),
           OutlinedButton.icon(

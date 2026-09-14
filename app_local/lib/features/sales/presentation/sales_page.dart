@@ -1429,7 +1429,7 @@ class _SaleRow extends StatelessWidget {
       syncStatus: sale.syncStatus,
       isFailed: isFailed,
     );
-    final pendingInstallmentsLabel = sale.pendingInstallmentsLabel;
+    final overdueInstallmentsLabel = sale.overdueInstallmentsLabel;
 
     return InkWell(
       onTap: onTap,
@@ -1563,29 +1563,6 @@ class _SaleRow extends StatelessWidget {
                             ),
                           ),
                         ],
-                        if (sale.overdueInstallmentCount > 0) ...[
-                          const SizedBox(width: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: const Color(
-                                0xFFC62828,
-                              ).withValues(alpha: 0.10),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              'En atrasos (${sale.overdueInstallmentCount})',
-                              style: const TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFFC62828),
-                              ),
-                            ),
-                          ),
-                        ],
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
@@ -1610,16 +1587,16 @@ class _SaleRow extends StatelessWidget {
                         ),
                       ],
                     ),
-                    if (pendingInstallmentsLabel != null) ...[
+                    if (overdueInstallmentsLabel != null) ...[
                       const SizedBox(height: 3),
                       Text(
-                        pendingInstallmentsLabel,
+                        overdueInstallmentsLabel,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           fontSize: 11.5,
-                          color: Color(0xFF5F6B82),
-                          fontWeight: FontWeight.w600,
+                          color: Color(0xFFC62828),
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                     ],

@@ -20,7 +20,6 @@ class SaleSummary {
     required this.installmentCount,
     required this.status,
     required this.generatedInstallments,
-    this.pendingInstallmentCount = 0,
     this.overdueInstallmentCount = 0,
     bool isFullyPaid = false,
   }) : _isFullyPaid = isFullyPaid;
@@ -47,7 +46,6 @@ class SaleSummary {
   final int installmentCount;
   final String status;
   final int generatedInstallments;
-  final int pendingInstallmentCount;
   final int overdueInstallmentCount;
   final bool _isFullyPaid;
 
@@ -78,7 +76,6 @@ class SaleSummary {
       installmentCount: map['cantidad_cuotas'] as int? ?? 0,
       status: map['estado'] as String? ?? 'activa',
       generatedInstallments: map['cuotas_generadas'] as int? ?? 0,
-      pendingInstallmentCount: map['cuotas_pendientes'] as int? ?? 0,
       overdueInstallmentCount: map['cuotas_vencidas'] as int? ?? 0,
     );
   }
@@ -100,12 +97,12 @@ class SaleSummary {
   /// Presentacion compacta exigida por operacion.
   String get settlementLabel => 'Saldada · Venta definitiva';
 
-  String? get pendingInstallmentsLabel {
-    if (isFullyPaid || pendingInstallmentCount <= 0) {
+  String? get overdueInstallmentsLabel {
+    if (isFullyPaid || overdueInstallmentCount <= 0) {
       return null;
     }
-    final noun = pendingInstallmentCount == 1 ? 'cuota' : 'cuotas';
-    return '$pendingInstallmentCount $noun pendiente${pendingInstallmentCount == 1 ? '' : 's'}';
+    final noun = overdueInstallmentCount == 1 ? 'cuota' : 'cuotas';
+    return '$overdueInstallmentCount $noun vencida${overdueInstallmentCount == 1 ? '' : 's'}';
   }
 
   bool get isPendingSync =>

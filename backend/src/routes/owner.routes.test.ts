@@ -3,8 +3,8 @@ import test from 'node:test';
 import {
   deriveSettlement,
   installmentQueueWhere,
+  overdueInstallmentCountFromInstallments,
   outstandingFromInstallments,
-  pendingInstallmentCountFromInstallments,
   paymentSalesSearchTerms,
 } from './owner.routes';
 
@@ -74,17 +74,20 @@ test('suma solo el remanente realmente pendiente de cada cuota', () => {
   assert.equal(outstandingFromInstallments([]), 0);
 });
 
-test('cuenta solo cuotas con obligacion pendiente', () => {
+test('cuenta solo cuotas vencidas con obligacion pendiente', () => {
+  const today = new Date('2026-09-14T00:00:00.000Z');
   const installments = [
-    { status: 'pendiente', totalAmount: '1000', paidAmount: '0' },
-    { status: 'parcial', totalAmount: '1000', paidAmount: '250' },
-    { status: 'pagada', totalAmount: '1000', paidAmount: '1000' },
-    { status: 'ajustada', totalAmount: '0', paidAmount: '0' },
-    { status: 'cancelada', totalAmount: '1000', paidAmount: '0' },
-    { status: 'pendiente', totalAmount: '1000', paidAmount: '1000' },
+    { dueDate: new Date('2026-09-13T00:00:00.000Z'), status: 'pendiente', totalAmount: '1000', paidAmount: '0' },
+    { dueDate: new Date('2026-09-12T00:00:00.000Z'), status: 'parcial', totalAmount: '1000', paidAmount: '250' },
+    { dueDate: new Date('2026-09-13T00:00:00.000Z'), status: 'pagada', totalAmount: '1000', paidAmount: '1000' },
+    { dueDate: new Date('2026-09-13T00:00:00.000Z'), status: 'ajustada', totalAmount: '0', paidAmount: '0' },
+    { dueDate: new Date('2026-09-13T00:00:00.000Z'), status: 'cancelada', totalAmount: '1000', paidAmount: '0' },
+    { dueDate: new Date('2026-09-14T00:00:00.000Z'), status: 'pendiente', totalAmount: '1000', paidAmount: '0' },
+    { dueDate: new Date('2026-09-15T00:00:00.000Z'), status: 'pendiente', totalAmount: '1000', paidAmount: '0' },
+    { dueDate: new Date('2026-09-13T00:00:00.000Z'), status: 'pendiente', totalAmount: '1000', paidAmount: '1000' },
   ];
 
-  assert.equal(pendingInstallmentCountFromInstallments(installments), 2);
+  assert.equal(overdueInstallmentCountFromInstallments(installments, today), 2);
 });
 
 test('la busqueda de Pagos encuentra por numero de solar visible', () => {

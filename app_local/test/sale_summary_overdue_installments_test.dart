@@ -3,7 +3,7 @@ import 'package:sistema_solares/features/sales/domain/sale_summary.dart';
 
 void main() {
   SaleSummary summary({
-    int pendingInstallmentCount = 0,
+    int overdueInstallmentCount = 0,
     bool isFullyPaid = false,
   }) {
     return SaleSummary(
@@ -24,33 +24,30 @@ void main() {
       installmentCount: 120,
       status: 'activa',
       generatedInstallments: 120,
-      pendingInstallmentCount: pendingInstallmentCount,
+      overdueInstallmentCount: overdueInstallmentCount,
       isFullyPaid: isFullyPaid,
     );
   }
 
-  test('formatea cuotas pendientes con singular y plural', () {
+  test('formatea cuotas vencidas con singular y plural', () {
     expect(
-      summary(pendingInstallmentCount: 1).pendingInstallmentsLabel,
-      '1 cuota pendiente',
+      summary(overdueInstallmentCount: 1).overdueInstallmentsLabel,
+      '1 cuota vencida',
     );
     expect(
-      summary(pendingInstallmentCount: 117).pendingInstallmentsLabel,
-      '117 cuotas pendientes',
+      summary(overdueInstallmentCount: 2).overdueInstallmentsLabel,
+      '2 cuotas vencidas',
     );
   });
 
-  test(
-    'no muestra conteo pendiente para ventas saldadas o sin obligaciones',
-    () {
-      expect(summary().pendingInstallmentsLabel, isNull);
-      expect(
-        summary(
-          pendingInstallmentCount: 117,
-          isFullyPaid: true,
-        ).pendingInstallmentsLabel,
-        isNull,
-      );
-    },
-  );
+  test('no muestra conteo vencido para ventas saldadas o sin vencidas', () {
+    expect(summary().overdueInstallmentsLabel, isNull);
+    expect(
+      summary(
+        overdueInstallmentCount: 2,
+        isFullyPaid: true,
+      ).overdueInstallmentsLabel,
+      isNull,
+    );
+  });
 }

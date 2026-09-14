@@ -44,6 +44,7 @@ export async function getPaymentReminderAdminState(companyId: string) {
   const senderWhatsappNumber = items.get(PAYMENT_REMINDER_CONFIG_KEYS.senderWhatsappNumber)?.value ?? '';
   const messageFragment = items.get(PAYMENT_REMINDER_CONFIG_KEYS.messageFragment)?.value ?? defaultMessageFragment;
   const stats = statusCounts(statsRows);
+  const whatsappConfigured = isWhatsappProviderConfigured();
 
   return {
     config: {
@@ -63,10 +64,10 @@ export async function getPaymentReminderAdminState(companyId: string) {
       dryRun: config.paymentRemindersDryRun,
       testMode: config.paymentRemindersTestMode,
       allowRealRecipients: config.paymentRemindersAllowRealRecipients,
-      whatsappConfigured: config.whatsappPhoneNumberId.trim().length > 0,
+      whatsappConfigured,
       displayWhatsappConfigured: senderWhatsappNumber.trim().length > 0,
-      whatsappPhoneNumberId: config.whatsappPhoneNumberId,
-      whatsappBusinessAccountId: config.whatsappBusinessAccountId,
+      whatsappPhoneNumberId: maskConfigId(config.whatsappPhoneNumberId),
+      whatsappBusinessAccountId: maskConfigId(config.whatsappBusinessAccountId),
       schedule: paymentReminderWindowDescription(),
       runFrequency: describeRunFrequency(),
       retryPolicy: 'El trabajo automatico corre una vez al dia. Si un envio falla, queda registrado como FAILED; puede reintentarse en una corrida futura o con envio manual forzado, sin duplicar el mismo periodo/cuota ya reservado.',
@@ -139,8 +140,24 @@ export async function isPaymentReminderEnabledForCompany(companyId: string) {
   return boolValue(row?.value, true);
 }
 
-function effectiveReminderEnabled(requestedEnabled: boolean) {
-  return requestedEnabled && config.paymentRemindersEnabled && !config.paymentRemindersEmergencyStop;
+export function effectiveReminderEnabled(requestedEnabled: boolean) {
+  return (
+    requestedEnabled &&
+    config.paymentRemindersEnabled &&
+    !config.paymentRemindersEmergencyStop &&
+    !config.paymentRemindersDryRun &&
+    !config.paymentRemindersTestMode &&
+    config.paymentRemindersAllowRealRecipients &&
+    isWhatsappProviderConfigured()
+  );
+}
+
+export function isWhatsappProviderConfigured() {
+  return Boolean(
+    config.whatsappAccessToken.trim() &&
+      config.whatsappPhoneNumberId.trim() &&
+      config.whatsappBusinessAccountId.trim(),
+  );
 }
 
 async function summarizeReminderCandidates(companyId: string) {
@@ -457,6 +474,17 @@ function maskPhone(value: string) {
     return `+${digits.slice(0, 1)} ${digits.slice(1, 4)} *** ${last}`;
   }
   return `***${last}`;
+}
+
+function maskConfigId(value: string) {
+  const normalized = value.trim();
+  if (!normalized) {
+    return '';
+  }
+  if (normalized.length <= 4) {
+    return '****';
+  }
+  return `****${normalized.slice(-4)}`;
 }
 
 function lotDisplay(lot: { block: string | null; number: string | null }) {
