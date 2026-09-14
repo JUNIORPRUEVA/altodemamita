@@ -114,6 +114,11 @@ class SalesRepository {
         COALESCE(s.manzana_numero, '?') AS manzana_numero,
         COALESCE(s.solar_numero, '?') AS solar_numero,
         COUNT(CASE WHEN q.estado <> 'ajustada' THEN 1 END) AS cuotas_generadas,
+        COUNT(CASE
+          WHEN q.estado NOT IN ('pagada','ajustada','cancelada')
+           AND (q.monto_cuota - COALESCE(q.monto_pagado,0)) > 0.009
+          THEN 1
+        END) AS cuotas_pendientes,
         (SELECT COUNT(*) FROM ${DatabaseSchema.installmentsTable} q2
            WHERE q2.venta_id = v.id AND q2.deleted_at IS NULL
              AND q2.estado NOT IN ('pagada','ajustada','cancelada')
@@ -187,6 +192,11 @@ class SalesRepository {
         COALESCE(s.manzana_numero, '?') AS manzana_numero,
         COALESCE(s.solar_numero, '?') AS solar_numero,
         COUNT(CASE WHEN q.estado <> 'ajustada' THEN 1 END) AS cuotas_generadas,
+        COUNT(CASE
+          WHEN q.estado NOT IN ('pagada','ajustada','cancelada')
+           AND (q.monto_cuota - COALESCE(q.monto_pagado,0)) > 0.009
+          THEN 1
+        END) AS cuotas_pendientes,
         (SELECT COUNT(*) FROM ${DatabaseSchema.installmentsTable} q2
            WHERE q2.venta_id = v.id AND q2.deleted_at IS NULL
              AND q2.estado NOT IN ('pagada','ajustada','cancelada')
@@ -1716,6 +1726,12 @@ class SalesRepository {
       generatedInstallments:
           (item['installments'] as List?)?.length ??
           _toInt(item['installmentCount'] ?? item['termMonths']),
+      pendingInstallmentCount: _toInt(
+        item['pendingInstallmentCount'] ??
+            item['pendingInstallmentsCount'] ??
+            item['outstandingInstallmentCount'] ??
+            item['remainingInstallmentCount'],
+      ),
       isFullyPaid:
           item['isFullyPaid'] == true ||
           (_asMap(item['settlement'])?['isFullyPaid'] == true),

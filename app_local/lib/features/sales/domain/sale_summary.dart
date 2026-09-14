@@ -20,6 +20,7 @@ class SaleSummary {
     required this.installmentCount,
     required this.status,
     required this.generatedInstallments,
+    this.pendingInstallmentCount = 0,
     this.overdueInstallmentCount = 0,
     bool isFullyPaid = false,
   }) : _isFullyPaid = isFullyPaid;
@@ -35,6 +36,7 @@ class SaleSummary {
   final double requiredInitialPayment;
   final double paidInitialPayment;
   final double pendingInitialPayment;
+
   /// Monto entregado como APARTADO (no aplica al inicial requerido).
   final double paidApartadoPayment;
   final double? minimumReserveAmount;
@@ -45,6 +47,7 @@ class SaleSummary {
   final int installmentCount;
   final String status;
   final int generatedInstallments;
+  final int pendingInstallmentCount;
   final int overdueInstallmentCount;
   final bool _isFullyPaid;
 
@@ -59,14 +62,14 @@ class SaleSummary {
       saleDate: DateTime.parse(map['fecha_venta'] as String),
       salePrice: _toDouble(map['precio_venta']),
       downPaymentAmount: _toDouble(map['inicial_monto']),
-        requiredInitialPayment: _toDouble(map['monto_inicial_requerido']),
-        paidInitialPayment: _toDouble(map['monto_inicial_pagado']),
-        pendingInitialPayment: _toDouble(map['monto_inicial_pendiente']),
-        paidApartadoPayment: _toDouble(map['monto_apartado_pagado']),
-        minimumReserveAmount: map['monto_apartado_minimo'] == null
+      requiredInitialPayment: _toDouble(map['monto_inicial_requerido']),
+      paidInitialPayment: _toDouble(map['monto_inicial_pagado']),
+      pendingInitialPayment: _toDouble(map['monto_inicial_pendiente']),
+      paidApartadoPayment: _toDouble(map['monto_apartado_pagado']),
+      minimumReserveAmount: map['monto_apartado_minimo'] == null
           ? null
           : _toDouble(map['monto_apartado_minimo']),
-        initialPaymentDeadline: (map['fecha_limite_inicial'] as String?) == null
+      initialPaymentDeadline: (map['fecha_limite_inicial'] as String?) == null
           ? null
           : DateTime.parse(map['fecha_limite_inicial'] as String),
       financedBalance: _toDouble(map['saldo_financiado']),
@@ -75,6 +78,7 @@ class SaleSummary {
       installmentCount: map['cantidad_cuotas'] as int? ?? 0,
       status: map['estado'] as String? ?? 'activa',
       generatedInstallments: map['cuotas_generadas'] as int? ?? 0,
+      pendingInstallmentCount: map['cuotas_pendientes'] as int? ?? 0,
       overdueInstallmentCount: map['cuotas_vencidas'] as int? ?? 0,
     );
   }
@@ -95,6 +99,14 @@ class SaleSummary {
 
   /// Presentacion compacta exigida por operacion.
   String get settlementLabel => 'Saldada · Venta definitiva';
+
+  String? get pendingInstallmentsLabel {
+    if (isFullyPaid || pendingInstallmentCount <= 0) {
+      return null;
+    }
+    final noun = pendingInstallmentCount == 1 ? 'cuota' : 'cuotas';
+    return '$pendingInstallmentCount $noun pendiente${pendingInstallmentCount == 1 ? '' : 's'}';
+  }
 
   bool get isPendingSync =>
       syncStatus == 'pending' ||

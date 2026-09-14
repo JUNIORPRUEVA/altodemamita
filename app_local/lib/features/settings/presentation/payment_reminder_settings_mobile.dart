@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../../core/network/backend_api_client.dart';
 import '../../../shared/mobile/mobile_ui.dart';
 import '../data/payment_reminder_settings_repository.dart';
 
@@ -26,13 +27,25 @@ class _PaymentReminderSettingsMobilePageState
   String? _error;
   bool _refreshing = false;
   bool _saving = false;
+  static const _cloudLoadTimeout = Duration(seconds: 25);
 
   @override
   void initState() {
     super.initState();
     _state = PaymentReminderAdminState.fallback();
     _repository = widget._repository ?? PaymentReminderSettingsRepository();
+    unawaited(_loadCached());
     unawaited(_load());
+  }
+
+  Future<void> _loadCached() async {
+    final cached = await _repository.loadCached();
+    if (!mounted || cached == null) {
+      return;
+    }
+    setState(() {
+      _state = cached;
+    });
   }
 
   Future<void> _load() async {
@@ -42,7 +55,7 @@ class _PaymentReminderSettingsMobilePageState
     });
     try {
       final state = await _repository.load().timeout(
-        const Duration(seconds: 8),
+        _cloudLoadTimeout,
       );
       if (!mounted) return;
       setState(() {
@@ -52,7 +65,7 @@ class _PaymentReminderSettingsMobilePageState
     } on TimeoutException {
       if (!mounted) return;
       setState(() {
-        _error = 'La carga esta tardando mas de lo esperado.';
+        _error = 'No pudimos conectarnos al servicio de recordatorios.';
         _refreshing = false;
       });
     } catch (error) {
@@ -128,7 +141,47 @@ class _PaymentReminderSettingsMobilePageState
         return;
       }
     }
-    await _save(enabled: nextValue);
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      final state = await _repository
+          .setNotificationsEnabled(nextValue)
+          .timeout(_cloudLoadTimeout);
+      if (!mounted) return;
+      setState(() {
+        _state = state;
+        _saving = false;
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Configuracion guardada')));
+    } on TimeoutException {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = 'No pudimos conectarnos al servicio de recordatorios.';
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No pudimos guardar el cambio. Intenta nuevamente.'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = _friendlyError(error, saving: true);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _error ?? 'No pudimos guardar el cambio. Intenta nuevamente.',
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> _editPhone() async {
@@ -231,7 +284,7 @@ class _Content extends StatelessWidget {
           const SizedBox(height: 12),
         ],
         if (error != null) ...[
-          MobileRefreshFailedBanner(onRetry: onRetry),
+          _ReminderRefreshFailedBanner(message: error!, onRetry: onRetry),
           const SizedBox(height: 12),
         ],
         Text(
@@ -1255,15 +1308,80 @@ class _RefreshStatusCard extends StatelessWidget {
   }
 }
 
-String _friendlyError(Object error) {
+class _ReminderRefreshFailedBanner extends StatelessWidget {
+  const _ReminderRefreshFailedBanner({
+    required this.message,
+    required this.onRetry,
+  });
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      color: const Color(0xFFFFF7E6),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.info_outline_rounded,
+            size: 16,
+            color: Color(0xFF8A5A00),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(fontSize: 12, color: Color(0xFF6B4A00)),
+            ),
+          ),
+          TextButton(
+            onPressed: onRetry,
+            style: TextButton.styleFrom(
+              minimumSize: const Size(0, 30),
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text('Reintentar', style: TextStyle(fontSize: 12)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+String _friendlyError(Object error, {bool saving = false}) {
+  if (saving) {
+    return 'No pudimos guardar el cambio. Intenta nuevamente.';
+  }
+  if (error is BackendApiException) {
+    final statusCode = error.statusCode;
+    if (statusCode == 401) {
+      return 'La sesion expiro. Inicia sesion nuevamente.';
+    }
+    if (statusCode == 403) {
+      return 'No tienes permiso para administrar los recordatorios.';
+    }
+    if (statusCode != null && statusCode >= 500) {
+      return 'No pudimos cargar la configuracion de recordatorios.';
+    }
+  }
   final message = error.toString();
   if (message.contains('No hay una sesion online')) {
-    return 'No hay una sesion cloud activa.';
+    return 'La sesion expiro. Inicia sesion nuevamente.';
   }
   if (message.contains('permiso') || message.contains('autorizado')) {
-    return 'No tienes permiso para administrar recordatorios.';
+    return 'No tienes permiso para administrar los recordatorios.';
   }
-  return 'No pudimos guardar el cambio.';
+  if (message.contains('No se pudo completar la solicitud HTTP') ||
+      message.contains('SocketException') ||
+      message.contains('Failed to fetch') ||
+      message.contains('XMLHttpRequest')) {
+    return 'No pudimos conectarnos al servicio de recordatorios.';
+  }
+  return 'No pudimos cargar la configuracion de recordatorios.';
 }
 
 String _readablePhone(String value) {

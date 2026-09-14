@@ -103,4 +103,146 @@ void main() {
       expect(detail.lotDisplayCode, 'MH-S07');
     },
   );
+
+  test(
+    'fetchAll agrega cuotas pendientes sin contar pagadas, ajustadas ni canceladas',
+    () async {
+      final db = await appDatabase.database;
+      final now = DateTime(2026, 3, 6, 9, 0).toIso8601String();
+
+      final clientId = await db.insert(DatabaseSchema.clientsTable, {
+        'sync_id': 'client-pending-installments-1',
+        'version': 1,
+        'nombre': 'THELEMARQUE WISMIQUE',
+        'cedula': '001-0000117-1',
+        'telefono': '8095550117',
+        'direccion': 'Calle Principal',
+        'fecha_creacion': now,
+        'fecha_actualizacion': now,
+        'deleted_at': null,
+        'sync_status': DatabaseSchema.syncStatusSynced,
+      });
+      final lotId = await db.insert(DatabaseSchema.lotsTable, {
+        'sync_id': 'product-pending-installments-1',
+        'version': 1,
+        'manzana_numero': 'M-B-1',
+        'solar_numero': '446',
+        'metros_cuadrados': 250,
+        'precio_por_metro': 3000,
+        'estado': 'vendido',
+        'fecha_creacion': now,
+        'fecha_actualizacion': now,
+        'deleted_at': null,
+        'sync_status': DatabaseSchema.syncStatusSynced,
+      });
+      final saleId = await db.insert(DatabaseSchema.salesTable, {
+        'sync_id': 'sale-pending-installments-1',
+        'version': 1,
+        'cliente_id': clientId,
+        'solar_id': lotId,
+        'usuario_id': 1,
+        'vendedor_id': null,
+        'fecha_venta': now,
+        'precio_venta': 750000,
+        'inicial_porcentaje': 10,
+        'inicial_monto': 75000,
+        'monto_inicial_requerido': 75000,
+        'monto_inicial_pagado': 75000,
+        'monto_inicial_pendiente': 0,
+        'monto_apartado_minimo': null,
+        'monto_apartado_pagado': 0,
+        'fecha_limite_inicial': null,
+        'fecha_activacion': now,
+        'saldo_financiado': 675000,
+        'saldo_pendiente': 675000,
+        'interes_mensual': 1,
+        'cantidad_cuotas': 120,
+        'estado': 'activa',
+        'fecha_creacion': now,
+        'fecha_actualizacion': now,
+        'deleted_at': null,
+        'sync_status': DatabaseSchema.syncStatusSynced,
+      });
+
+      for (var index = 1; index <= 117; index++) {
+        await _insertInstallment(
+          appDatabase: appDatabase,
+          saleId: saleId,
+          number: index,
+          now: now,
+          status: index.isEven ? 'pendiente' : 'parcial',
+          totalAmount: 1000,
+          paidAmount: index.isEven ? 0 : 250,
+        );
+      }
+      await _insertInstallment(
+        appDatabase: appDatabase,
+        saleId: saleId,
+        number: 118,
+        now: now,
+        status: 'pagada',
+        totalAmount: 1000,
+        paidAmount: 1000,
+      );
+      await _insertInstallment(
+        appDatabase: appDatabase,
+        saleId: saleId,
+        number: 119,
+        now: now,
+        status: 'ajustada',
+        totalAmount: 0,
+        paidAmount: 0,
+      );
+      await _insertInstallment(
+        appDatabase: appDatabase,
+        saleId: saleId,
+        number: 120,
+        now: now,
+        status: 'cancelada',
+        totalAmount: 1000,
+        paidAmount: 0,
+      );
+
+      final summaries = await repository.fetchAll();
+
+      expect(summaries, hasLength(1));
+      expect(summaries.single.pendingInstallmentCount, 117);
+      expect(
+        summaries.single.pendingInstallmentsLabel,
+        '117 cuotas pendientes',
+      );
+    },
+  );
+}
+
+Future<void> _insertInstallment({
+  required AppDatabase appDatabase,
+  required int saleId,
+  required int number,
+  required String now,
+  required String status,
+  required double totalAmount,
+  required double paidAmount,
+}) async {
+  final db = await appDatabase.database;
+  await db.insert(DatabaseSchema.installmentsTable, {
+    'sync_id': 'installment-$saleId-$number',
+    'version': 1,
+    'venta_id': saleId,
+    'numero_cuota': number,
+    'fecha_vencimiento': DateTime(2026, 4, number).toIso8601String(),
+    'saldo_inicial': 0,
+    'capital_cuota': totalAmount,
+    'interes_cuota': 0,
+    'monto_cuota': totalAmount,
+    'monto_pagado': paidAmount,
+    'capital_pagado': paidAmount,
+    'interes_pagado': 0,
+    'saldo_final': 0,
+    'estado': status,
+    'fecha_creacion': now,
+    'fecha_actualizacion': now,
+    'deleted_at': null,
+    'sync_status': DatabaseSchema.syncStatusSynced,
+  });
 }

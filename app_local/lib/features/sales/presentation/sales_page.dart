@@ -1429,6 +1429,7 @@ class _SaleRow extends StatelessWidget {
       syncStatus: sale.syncStatus,
       isFailed: isFailed,
     );
+    final pendingInstallmentsLabel = sale.pendingInstallmentsLabel;
 
     return InkWell(
       onTap: onTap,
@@ -1609,6 +1610,19 @@ class _SaleRow extends StatelessWidget {
                         ),
                       ],
                     ),
+                    if (pendingInstallmentsLabel != null) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        pendingInstallmentsLabel,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 11.5,
+                          color: Color(0xFF5F6B82),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),

@@ -4,6 +4,7 @@ import {
   deriveSettlement,
   installmentQueueWhere,
   outstandingFromInstallments,
+  pendingInstallmentCountFromInstallments,
   paymentSalesSearchTerms,
 } from './owner.routes';
 
@@ -71,6 +72,19 @@ test('suma solo el remanente realmente pendiente de cada cuota', () => {
   );
   assert.equal(outstandingFromInstallments([{ totalAmount: '10000', paidAmount: '12000' }]), 0);
   assert.equal(outstandingFromInstallments([]), 0);
+});
+
+test('cuenta solo cuotas con obligacion pendiente', () => {
+  const installments = [
+    { status: 'pendiente', totalAmount: '1000', paidAmount: '0' },
+    { status: 'parcial', totalAmount: '1000', paidAmount: '250' },
+    { status: 'pagada', totalAmount: '1000', paidAmount: '1000' },
+    { status: 'ajustada', totalAmount: '0', paidAmount: '0' },
+    { status: 'cancelada', totalAmount: '1000', paidAmount: '0' },
+    { status: 'pendiente', totalAmount: '1000', paidAmount: '1000' },
+  ];
+
+  assert.equal(pendingInstallmentCountFromInstallments(installments), 2);
 });
 
 test('la busqueda de Pagos encuentra por numero de solar visible', () => {

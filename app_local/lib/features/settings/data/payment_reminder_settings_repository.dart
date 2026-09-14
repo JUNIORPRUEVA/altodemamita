@@ -1,14 +1,43 @@
+import 'dart:convert';
+
+import 'package:shared_preferences/shared_preferences.dart';
+
 import '../../../core/network/backend_api_client.dart';
 
 class PaymentReminderSettingsRepository {
-  PaymentReminderSettingsRepository({BackendApiClient? apiClient})
-    : _apiClient = apiClient ?? BackendApiClient();
+  PaymentReminderSettingsRepository({
+    BackendApiClient? apiClient,
+    Future<SharedPreferences> Function()? preferencesFactory,
+  }) : _apiClient = apiClient ?? BackendApiClient(),
+       _preferencesFactory =
+           preferencesFactory ?? SharedPreferences.getInstance;
 
   final BackendApiClient _apiClient;
+  final Future<SharedPreferences> Function() _preferencesFactory;
+  static const _cacheKey = 'payment_reminders.admin_state.cache';
 
   Future<PaymentReminderAdminState> load() async {
     final response = await _apiClient.get('/payment-reminders/admin');
-    return PaymentReminderAdminState.fromApi(_unwrapData(response));
+    final data = _unwrapData(response);
+    await _saveCache(data);
+    return PaymentReminderAdminState.fromApi(data);
+  }
+
+  Future<PaymentReminderAdminState?> loadCached() async {
+    try {
+      final preferences = await _preferencesFactory();
+      final cached = preferences.getString(_cacheKey);
+      if (cached == null || cached.trim().isEmpty) {
+        return null;
+      }
+      final decoded = jsonDecode(cached);
+      if (decoded is! Map<String, dynamic>) {
+        return null;
+      }
+      return PaymentReminderAdminState.fromApi(decoded);
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<PaymentReminderAdminState> save({
@@ -30,7 +59,37 @@ class PaymentReminderSettingsRepository {
       '/payment-reminders/admin',
       body: body,
     );
-    return PaymentReminderAdminState.fromApi(_unwrapData(response));
+    final data = _unwrapData(response);
+    await _saveCache(data);
+    return PaymentReminderAdminState.fromApi(data);
+  }
+
+  Future<PaymentReminderAdminState> setNotificationsEnabled(
+    bool requestedEnabled,
+  ) async {
+    final saved = await save(notificationsEnabled: requestedEnabled);
+    if (saved.config.notificationsEnabled != requestedEnabled) {
+      throw const BackendApiException(
+        'No pudimos guardar el cambio. Intenta nuevamente.',
+      );
+    }
+
+    final readBack = await load();
+    if (readBack.config.notificationsEnabled != requestedEnabled) {
+      throw const BackendApiException(
+        'No pudimos guardar el cambio. Intenta nuevamente.',
+      );
+    }
+    return readBack;
+  }
+
+  Future<void> _saveCache(Map<String, dynamic> data) async {
+    try {
+      final preferences = await _preferencesFactory();
+      await preferences.setString(_cacheKey, jsonEncode(data));
+    } catch (_) {
+      // Cache is secondary only; cloud remains authoritative.
+    }
   }
 
   Map<String, dynamic> _unwrapData(dynamic response) {
