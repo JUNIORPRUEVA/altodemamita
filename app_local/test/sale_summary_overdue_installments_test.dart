@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sistema_solares/features/sales/data/sales_repository.dart';
 import 'package:sistema_solares/features/sales/domain/sale_summary.dart';
 
 void main() {
@@ -49,5 +50,53 @@ void main() {
       ).overdueInstallmentsLabel,
       isNull,
     );
+  });
+
+  test('deriva cuotas vencidas desde item backend con cuotas embebidas', () {
+    final count = overdueInstallmentCountFromBackendItem(
+      {
+        'installments': [
+          {
+            'dueDate': '2026-09-11T00:00:00.000Z',
+            'status': 'pendiente',
+            'totalAmount': '1000',
+            'paidAmount': '0',
+          },
+          {
+            'dueDate': '2026-09-12T00:00:00.000Z',
+            'status': 'parcial',
+            'totalAmount': '1000',
+            'paidAmount': '250',
+          },
+          {
+            'dueDate': '2026-09-13T00:00:00.000Z',
+            'status': 'pending',
+            'amount': '1000',
+            'paidAmount': '0',
+          },
+          {
+            'dueDate': '2026-09-10T00:00:00.000Z',
+            'status': 'pagada',
+            'totalAmount': '1000',
+            'paidAmount': '1000',
+          },
+          {
+            'dueDate': '2026-09-10T00:00:00.000Z',
+            'status': 'cancelada',
+            'totalAmount': '1000',
+            'paidAmount': '0',
+          },
+          {
+            'dueDate': '2026-10-13T00:00:00.000Z',
+            'status': 'pendiente',
+            'totalAmount': '1000',
+            'paidAmount': '0',
+          },
+        ],
+      },
+      now: DateTime(2026, 9, 14, 12),
+    );
+
+    expect(count, 3);
   });
 }

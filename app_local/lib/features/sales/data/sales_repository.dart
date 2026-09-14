@@ -1387,9 +1387,53 @@ class SalesRepository {
         (settlementFilter == null || settlementFilter.trim().isEmpty)) {
       await _writeListCache(rawItems);
     }
-    return rawItems
+    final summaries = rawItems
         .map((item) => _saleSummaryFromBackend(item))
         .toList(growable: false);
+    return _enrichMissingBackendOverdueCounts(rawItems, summaries);
+  }
+
+  Future<List<SaleSummary>> _enrichMissingBackendOverdueCounts(
+    List<Map<String, dynamic>> rawItems,
+    List<SaleSummary> summaries,
+  ) async {
+    final missingIndexes = <int>[];
+    for (var index = 0; index < rawItems.length; index++) {
+      if (_backendItemHasOverdueCount(rawItems[index]) ||
+          rawItems[index]['installments'] is List ||
+          summaries[index].isFullyPaid) {
+        continue;
+      }
+      missingIndexes.add(index);
+    }
+    if (missingIndexes.isEmpty) {
+      return summaries;
+    }
+
+    final enriched = List<SaleSummary>.of(summaries);
+    const chunkSize = 8;
+    for (var offset = 0; offset < missingIndexes.length; offset += chunkSize) {
+      final chunk = missingIndexes.skip(offset).take(chunkSize).toList();
+      final details = await Future.wait(
+        chunk.map((index) => _fetchDetailFromBackend(summaries[index].id)),
+      );
+      for (var i = 0; i < chunk.length; i++) {
+        final detail = details[i];
+        if (detail == null) {
+          continue;
+        }
+        final index = chunk[i];
+        enriched[index] = enriched[index].copyWith(
+          overdueInstallmentCount: detail.overdueInstallmentCount,
+        );
+      }
+    }
+    return enriched;
+  }
+
+  bool _backendItemHasOverdueCount(Map<String, dynamic> item) {
+    return item.containsKey('overdueInstallmentCount') ||
+        item.containsKey('overdueInstallmentsCount');
   }
 
   static const String _listCacheKey = 'default';
@@ -1679,6 +1723,8 @@ class SalesRepository {
       item['initialRequiredAmount'] ?? item['downPayment'],
     );
     final paidAmount = _toDouble(item['initialPaid'] ?? item['paidAmount']);
+    final embeddedOverdueInstallmentCount =
+        overdueInstallmentCountFromBackendItem(item);
     return SaleSummary(
       id: localSaleId,
       syncStatus: item['syncStatus']?.toString() ?? 'synced',
@@ -1716,9 +1762,7 @@ class SalesRepository {
       generatedInstallments:
           (item['installments'] as List?)?.length ??
           _toInt(item['installmentCount'] ?? item['termMonths']),
-      overdueInstallmentCount: _toInt(
-        item['overdueInstallmentCount'] ?? item['overdueInstallmentsCount'],
-      ),
+      overdueInstallmentCount: embeddedOverdueInstallmentCount,
       isFullyPaid:
           item['isFullyPaid'] == true ||
           (_asMap(item['settlement'])?['isFullyPaid'] == true),
@@ -2018,4 +2062,85 @@ class SalesRepository {
         return 'efectivo';
     }
   }
+}
+
+int overdueInstallmentCountFromBackendItem(
+  Map<String, dynamic> item, {
+  DateTime? now,
+}) {
+  final directCount =
+      item['overdueInstallmentCount'] ?? item['overdueInstallmentsCount'];
+  if (directCount != null) {
+    return _parseBackendInt(directCount);
+  }
+
+  final installments = item['installments'];
+  if (installments is! List) {
+    return 0;
+  }
+
+  final current = now ?? DateTime.now();
+  final today = DateTime(current.year, current.month, current.day);
+  var count = 0;
+  for (final rawInstallment in installments.whereType<Map>()) {
+    final installment = rawInstallment.map(
+      (key, value) => MapEntry(key.toString(), value),
+    );
+    final status = (installment['status'] ?? '').toString().toLowerCase();
+    if (status == 'pagada' ||
+        status == 'paid' ||
+        status == 'ajustada' ||
+        status == 'adjusted' ||
+        status == 'cancelada' ||
+        status == 'cancelled') {
+      continue;
+    }
+    final totalAmount = _parseBackendDouble(
+      installment['totalAmount'] ??
+          installment['amount'] ??
+          installment['montoCuota'] ??
+          installment['monto_cuota'],
+    );
+    final paidAmount = _parseBackendDouble(
+      installment['paidAmount'] ??
+          installment['paid'] ??
+          installment['montoPagado'] ??
+          installment['monto_pagado'],
+    );
+    if (totalAmount - paidAmount <= 0.009) {
+      continue;
+    }
+    final dueDate = DateTime.tryParse(
+      (installment['dueDate'] ??
+              installment['fechaVencimiento'] ??
+              installment['fecha_vencimiento'] ??
+              '')
+          .toString(),
+    );
+    if (dueDate == null) {
+      continue;
+    }
+    final dueDay = DateTime(dueDate.year, dueDate.month, dueDate.day);
+    if (dueDay.isBefore(today)) {
+      count++;
+    }
+  }
+  return count;
+}
+
+int _parseBackendInt(Object? value) {
+  if (value is int) {
+    return value;
+  }
+  if (value is num) {
+    return value.toInt();
+  }
+  return int.tryParse(value?.toString() ?? '') ?? 0;
+}
+
+double _parseBackendDouble(Object? value) {
+  if (value is num) {
+    return value.toDouble();
+  }
+  return double.tryParse(value?.toString() ?? '') ?? 0;
 }

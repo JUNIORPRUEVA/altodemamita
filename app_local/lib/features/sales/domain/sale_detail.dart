@@ -51,7 +51,9 @@ class SaleDetail {
     final today = DateTime.now();
     final todayDate = DateTime(today.year, today.month, today.day);
     return installments.where((i) {
-      if (i.status == 'pagada' || i.status == 'ajustada') return false;
+      if (i.status == 'pagada' || i.status == 'ajustada' || i.status == 'cancelada') {
+        return false;
+      }
       if (i.remainingAmount <= 0.009) return false;
       final dueDate = DateTime(i.dueDate.year, i.dueDate.month, i.dueDate.day);
       return dueDate.isBefore(todayDate);

@@ -90,6 +90,36 @@ class SaleSummary {
 
   bool get isFinancingActive => status == 'activa' || status == 'pagada';
 
+  SaleSummary copyWith({
+    int? overdueInstallmentCount,
+  }) {
+    return SaleSummary(
+      id: id,
+      syncStatus: syncStatus,
+      clientName: clientName,
+      clientDocumentId: clientDocumentId,
+      lotDisplayCode: lotDisplayCode,
+      saleDate: saleDate,
+      salePrice: salePrice,
+      downPaymentAmount: downPaymentAmount,
+      requiredInitialPayment: requiredInitialPayment,
+      paidInitialPayment: paidInitialPayment,
+      pendingInitialPayment: pendingInitialPayment,
+      paidApartadoPayment: paidApartadoPayment,
+      minimumReserveAmount: minimumReserveAmount,
+      initialPaymentDeadline: initialPaymentDeadline,
+      financedBalance: financedBalance,
+      pendingBalance: pendingBalance,
+      monthlyInterest: monthlyInterest,
+      installmentCount: installmentCount,
+      status: status,
+      generatedInstallments: generatedInstallments,
+      overdueInstallmentCount:
+          overdueInstallmentCount ?? this.overdueInstallmentCount,
+      isFullyPaid: isFullyPaid,
+    );
+  }
+
   /// Clasificacion autoritativa del backend: venta saldada sin obligaciones
   /// pendientes. No debe confundirse con una venta cancelada.
   bool get isFullyPaid => _isFullyPaid;
