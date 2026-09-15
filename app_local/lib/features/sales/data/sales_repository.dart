@@ -1390,50 +1390,7 @@ class SalesRepository {
     final summaries = rawItems
         .map((item) => _saleSummaryFromBackend(item))
         .toList(growable: false);
-    return _enrichMissingBackendOverdueCounts(rawItems, summaries);
-  }
-
-  Future<List<SaleSummary>> _enrichMissingBackendOverdueCounts(
-    List<Map<String, dynamic>> rawItems,
-    List<SaleSummary> summaries,
-  ) async {
-    final missingIndexes = <int>[];
-    for (var index = 0; index < rawItems.length; index++) {
-      if (_backendItemHasOverdueCount(rawItems[index]) ||
-          rawItems[index]['installments'] is List ||
-          summaries[index].isFullyPaid) {
-        continue;
-      }
-      missingIndexes.add(index);
-    }
-    if (missingIndexes.isEmpty) {
-      return summaries;
-    }
-
-    final enriched = List<SaleSummary>.of(summaries);
-    const chunkSize = 8;
-    for (var offset = 0; offset < missingIndexes.length; offset += chunkSize) {
-      final chunk = missingIndexes.skip(offset).take(chunkSize).toList();
-      final details = await Future.wait(
-        chunk.map((index) => _fetchDetailFromBackend(summaries[index].id)),
-      );
-      for (var i = 0; i < chunk.length; i++) {
-        final detail = details[i];
-        if (detail == null) {
-          continue;
-        }
-        final index = chunk[i];
-        enriched[index] = enriched[index].copyWith(
-          overdueInstallmentCount: detail.overdueInstallmentCount,
-        );
-      }
-    }
-    return enriched;
-  }
-
-  bool _backendItemHasOverdueCount(Map<String, dynamic> item) {
-    return item.containsKey('overdueInstallmentCount') ||
-        item.containsKey('overdueInstallmentsCount');
+    return summaries;
   }
 
   static const String _listCacheKey = 'default';
