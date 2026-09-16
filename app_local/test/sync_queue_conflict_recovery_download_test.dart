@@ -45,6 +45,7 @@ void main() {
       conflictService: SyncConflictService(appDatabase: appDatabase),
       connectivityProbe: (_) async => true,
       connectivityChanges: const Stream.empty(),
+      allowCloudPullOverride: true,
     );
 
     service.registerRepository(repository);

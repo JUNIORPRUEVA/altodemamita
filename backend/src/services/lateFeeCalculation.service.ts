@@ -1,7 +1,12 @@
 import { Prisma } from '@prisma/client';
+import {
+  BUSINESS_TIMEZONE,
+  dateKeyInTimeZone,
+  differenceInCalendarDays,
+} from './installmentStatus.service';
 
 export const PAYMENT_REMINDER_TYPE = 'OVERDUE_INSTALLMENTS';
-export const DEFAULT_TIMEZONE = 'America/Santo_Domingo';
+export const DEFAULT_TIMEZONE = BUSINESS_TIMEZONE;
 
 const CURRENCY_SCALE = 2;
 const MAX_LATE_FEE_DAYS_PER_INSTALLMENT = 30;
@@ -239,20 +244,7 @@ function calculateHistoricalLateFee(input: {
   return money(totalFee);
 }
 
-export function dateKeyInTimeZone(date: Date, timezone = DEFAULT_TIMEZONE) {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(date);
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${values.year}-${values.month}-${values.day}`;
-}
-
-export function differenceInCalendarDays(laterDateKey: string, earlierDateKey: string) {
-  return Math.trunc((Date.parse(`${laterDateKey}T00:00:00.000Z`) - Date.parse(`${earlierDateKey}T00:00:00.000Z`)) / 86400000);
-}
+export { dateKeyInTimeZone, differenceInCalendarDays };
 
 export function decimal(value: Prisma.Decimal.Value) {
   return new Prisma.Decimal(value);

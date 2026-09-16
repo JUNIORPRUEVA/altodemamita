@@ -57,7 +57,7 @@ This behavior must not be silently corrected. A future phase must get business a
 Installment states:
 
 - `pendiente`
-- `vencida`
+- `vencida` (derived at read time from the business date; see "Persisted versus effective status")
 - `parcial`
 - `pagada`
 - `ajustada`
@@ -66,6 +66,40 @@ Installment states:
 Installments are generated from financed balance, monthly interest, installment count, and due dates.
 
 An installment is considered paid when paid amount is within tolerance of the total amount.
+
+### Canonical calendar anchor (P0 hardening, 2026-09-16)
+
+`dueDate(n) = Sale.saleDate + n calendar months`, for `n = 1..installmentCount`.
+
+- `Sale.saleDate` is the ONLY calendar anchor.
+- `Sale.activationDate` is the date the sale became active / the initial payment was applied.
+  It has its own meaning and MUST NOT move the schedule. It may legitimately differ from
+  `saleDate` (for example sale 2026-07-15 with the initial paid 2026-08-15) without changing
+  any installment due date.
+- Registering or completing the initial payment later NEVER regenerates, shifts, adds another
+  month to, or recreates existing installments.
+- Month semantics: add the calendar month keeping the original time of day; when the target day
+  does not exist, clamp to the last day of the target month (2026-01-31 + 1 month = 2026-02-28;
+  2028-01-31 + 1 month = 2028-02-29; 2026-03-30 + 1 month = 2026-04-30).
+- The backend is authoritative: it generates the schedule, or it rejects a client-supplied
+  schedule that does not satisfy the rule (`installment_due_date_not_canonical`). It never
+  silently rewrites an ambiguous financial payload.
+- Once created, `dueDate`, `installmentNumber`, `openingBalance`, `principalAmount`,
+  `interestAmount`, `totalAmount`, `endingBalance` and the sale anchor are server-owned: a
+  legacy/offline upload cannot overwrite them (`installment_field_locked`). Changing them
+  requires an explicit authorized operation.
+
+### Persisted versus effective status
+
+- The `status` column stores only what depends on money or a terminal state: `pagada` (fully
+  covered), `parcial` (partial payment), `pendiente` (no payment), plus the terminal
+  `ajustada` / `cancelada`.
+- `vencida` is an EFFECTIVE status: it is derived at read time from `dueDate` and the business
+  date. It is never persisted, so the natural passing of a day does not produce a write and the
+  historical status is not rewritten.
+- The business date is always `America/Santo_Domingo` (UTC-4, no DST). The equipment timezone is
+  never authoritative, and SQLite `date('now')` (UTC) must not be used for business logic:
+  it advances the day at 20:00 Dominican time.
 
 ## Payment Rules
 

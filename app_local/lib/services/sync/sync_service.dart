@@ -21,7 +21,6 @@ import 'sync_logger.dart';
 import 'sync_queue_service.dart';
 
 class SyncService {
-  static bool get _downloadFromCloudEnabled => allowCloudPull;
   static const Set<String> _tombstoneRepairScopes = {
     'products',
     'sales',
@@ -41,13 +40,15 @@ class SyncService {
     SyncApiClient? apiClient,
     SyncQueueService? syncQueueService,
     AppDatabase? appDatabase,
+    bool? allowCloudPullOverride,
   }) : _repositories = repositories,
        _onSyncFinished = onSyncFinished,
        _onCloudSessionExpired = onCloudSessionExpired,
        _configRepository = configRepository ?? SyncConfigRepository(),
        _apiClient = apiClient ?? SyncApiClient(),
        _syncQueueService = syncQueueService ?? SyncQueueService.instance,
-       _appDatabase = appDatabase ?? AppDatabase.instance {
+       _appDatabase = appDatabase ?? AppDatabase.instance,
+       _allowCloudPull = allowCloudPullOverride ?? allowCloudPull {
     for (final repository in repositories) {
       _syncQueueService.registerRepository(repository);
       _repositoriesByScope[repository.scope] = repository;
@@ -62,6 +63,7 @@ class SyncService {
   final SyncApiClient _apiClient;
   final SyncQueueService _syncQueueService;
   final AppDatabase _appDatabase;
+  final bool _allowCloudPull;
   final SyncLogger _syncLogger = SyncLogger.instance;
   List<String> _lastScopeWarnings = const [];
   bool _isSyncing = false;
@@ -150,7 +152,7 @@ class SyncService {
       );
 
       final shouldRunPreUploadFullDownload =
-          _downloadFromCloudEnabled &&
+          _allowCloudPull &&
           (forceFullDownload ||
               await _syncQueueService.hasLegacyDeleteBacklog(
                 scopes: _repositoriesByScope.keys,
@@ -170,7 +172,7 @@ class SyncService {
         if (legacyUploadEnabled) {
           uploadedCount = await uploadPendingData();
         }
-        downloadedCount = _downloadFromCloudEnabled
+        downloadedCount = _allowCloudPull
             ? await downloadUpdates(forceFullDownload: forceFullDownload)
             : 0;
       }
@@ -459,7 +461,7 @@ class SyncService {
   }
 
   Future<int> downloadUpdates({bool forceFullDownload = false}) async {
-    if (!_downloadFromCloudEnabled) {
+    if (!_allowCloudPull) {
       return 0;
     }
     return downloadUpdatesForScopes(
@@ -469,7 +471,7 @@ class SyncService {
   }
 
   Future<int> forceFullDownloadFromCloud() async {
-    if (!_downloadFromCloudEnabled) {
+    if (!_allowCloudPull) {
       throw StateError(
         'Descarga desde la nube deshabilitada (ALLOW_CLOUD_PULL=false).',
       );
@@ -487,7 +489,7 @@ class SyncService {
     bool forceFullDownload = false,
     bool allowRecoveryPass = true,
   }) async {
-    if (!_downloadFromCloudEnabled) {
+    if (!_allowCloudPull) {
       return 0;
     }
     final settings = await _configRepository.loadSettings();

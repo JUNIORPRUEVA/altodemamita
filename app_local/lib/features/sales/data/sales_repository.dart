@@ -5,6 +5,7 @@ import 'dart:math' as math;
 
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import '../../../core/business/installment_status.dart';
 import '../../../core/config/app_flags.dart';
 import '../../../core/network/backend_api_client.dart';
 import '../../../core/network/backend_entity_id_registry.dart';
@@ -118,7 +119,7 @@ class SalesRepository {
            WHERE q2.venta_id = v.id AND q2.deleted_at IS NULL
              AND q2.estado NOT IN ('pagada','ajustada','cancelada')
              AND (q2.monto_cuota - COALESCE(q2.monto_pagado,0)) > 0.009
-             AND q2.fecha_vencimiento < date('now')) AS cuotas_vencidas
+             AND q2.fecha_vencimiento < ?) AS cuotas_vencidas
       FROM ${DatabaseSchema.salesTable} v
       LEFT JOIN ${DatabaseSchema.clientsTable} c ON c.id = v.cliente_id
       LEFT JOIN ${DatabaseSchema.lotsTable} s ON s.id = v.solar_id
@@ -147,7 +148,15 @@ class SalesRepository {
         s.solar_numero
       ORDER BY v.fecha_venta DESC, v.id DESC
       ''',
-      normalizedQuery.isEmpty ? const [] : List.filled(5, '%$normalizedQuery%'),
+      [
+        // FASE 9 — dia de negocio de America/Santo_Domingo resuelto en Dart.
+        // Nunca `date('now')`: SQLite trabaja en UTC y adelantaba el cambio de
+        // dia a partir de las 20:00 hora de Republica Dominicana.
+        InstallmentStatusResolver.currentBusinessDateKey(),
+        ...(normalizedQuery.isEmpty
+            ? const <Object>[]
+            : List.filled(5, '%$normalizedQuery%')),
+      ],
     );
 
     return rows.map(SaleSummary.fromMap).toList();
@@ -191,7 +200,7 @@ class SalesRepository {
            WHERE q2.venta_id = v.id AND q2.deleted_at IS NULL
              AND q2.estado NOT IN ('pagada','ajustada','cancelada')
              AND (q2.monto_cuota - COALESCE(q2.monto_pagado,0)) > 0.009
-             AND q2.fecha_vencimiento < date('now')) AS cuotas_vencidas
+             AND q2.fecha_vencimiento < ?) AS cuotas_vencidas
       FROM ${DatabaseSchema.salesTable} v
       LEFT JOIN ${DatabaseSchema.clientsTable} c ON c.id = v.cliente_id
       LEFT JOIN ${DatabaseSchema.lotsTable} s ON s.id = v.solar_id
@@ -221,7 +230,7 @@ class SalesRepository {
         s.solar_numero
       ORDER BY v.fecha_venta DESC, v.id DESC
       ''',
-      [sellerId],
+      [InstallmentStatusResolver.currentBusinessDateKey(), sellerId],
     );
 
     return rows.map(SaleSummary.fromMap).toList();
@@ -610,7 +619,7 @@ class SalesRepository {
 
         final existingRows = await txn.query(
           DatabaseSchema.salesTable,
-          columns: ['id', 'solar_id', 'estado', 'version'],
+          columns: ['id', 'solar_id', 'estado', 'version', 'fecha_venta'],
           where: 'id = ?',
           whereArgs: [saleId],
           limit: 1,
@@ -647,6 +656,28 @@ class SalesRepository {
         final existingSale = existingRows.first;
         final previousLotId = existingSale['solar_id'] as int? ?? 0;
         final nextSaleVersion = ((existingSale['version'] as int?) ?? 1) + 1;
+        final existingSaleDate = DateTime.tryParse(
+          existingSale['fecha_venta']?.toString() ?? '',
+        );
+        final saleDateChanged =
+            existingSaleDate != null &&
+            !existingSaleDate.isAtSameMomentAs(draft.saleDate);
+
+        if (saleDateChanged) {
+          final activeInstallmentCountRows = await txn.rawQuery(
+            'SELECT COUNT(*) AS cnt FROM ${DatabaseSchema.installmentsTable} '
+            'WHERE venta_id = ? AND deleted_at IS NULL',
+            [saleId],
+          );
+          final activeInstallmentCount =
+              (activeInstallmentCountRows.first['cnt'] as num?)?.toInt() ?? 0;
+          if (activeInstallmentCount > 0) {
+            throw StateError(
+              'No se puede cambiar la fecha de una venta que ya tiene cuotas. '
+              'Requiere una recalendarizacion administrativa explicita.',
+            );
+          }
+        }
 
         final selectedLot = await txn.query(
           DatabaseSchema.lotsTable,
@@ -1390,7 +1421,47 @@ class SalesRepository {
     final summaries = rawItems
         .map((item) => _saleSummaryFromBackend(item))
         .toList(growable: false);
-    return summaries;
+    return _filterSummariesByQuery(summaries, query);
+  }
+
+  List<SaleSummary> _filterSummariesByQuery(
+    List<SaleSummary> summaries,
+    String query,
+  ) {
+    final tokens = _normalizeSearchText(query)
+        .split(RegExp(r'\s+'))
+        .where((token) => token.isNotEmpty)
+        .toList(growable: false);
+    if (tokens.isEmpty) {
+      return summaries;
+    }
+
+    return summaries
+        .where((summary) {
+          final searchableText = _normalizeSearchText(
+            [
+              summary.clientName,
+              summary.clientDocumentId,
+              summary.lotDisplayCode,
+              summary.status,
+            ].join(' '),
+          );
+          return tokens.every(searchableText.contains);
+        })
+        .toList(growable: false);
+  }
+
+  String _normalizeSearchText(String value) {
+    return value
+        .trim()
+        .toLowerCase()
+        .replaceAll('á', 'a')
+        .replaceAll('é', 'e')
+        .replaceAll('í', 'i')
+        .replaceAll('ó', 'o')
+        .replaceAll('ú', 'u')
+        .replaceAll('ü', 'u')
+        .replaceAll('ñ', 'n');
   }
 
   static const String _listCacheKey = 'default';
@@ -1414,8 +1485,23 @@ class SalesRepository {
         return const [];
       }
       final decoded = jsonDecode(rows.first['payload'] as String? ?? '{}');
-      final items = decoded is Map ? decoded['items'] : null;
+      if (decoded is! Map) {
+        return const [];
+      }
+      final items = decoded['items'];
       if (items is! List) {
+        return const [];
+      }
+      // FASE 11 — el conteo de cuotas vencidas NO puede considerarse eterno.
+      // Una cuota puede pasar a vencida solo porque cambio el dia de negocio
+      // (America/Santo_Domingo), sin ningun pago ni escritura. Si el snapshot se
+      // guardo en un dia de negocio distinto al actual, se descarta y la lista se
+      // resuelve contra la fuente viva.
+      final savedAt = decoded['savedAt'];
+      final savedAtDate = savedAt is String ? DateTime.tryParse(savedAt) : null;
+      if (savedAtDate == null ||
+          InstallmentStatusResolver.businessDateKey(savedAtDate) !=
+              InstallmentStatusResolver.currentBusinessDateKey()) {
         return const [];
       }
       return items
@@ -2036,20 +2122,24 @@ int overdueInstallmentCountFromBackendItem(
     return 0;
   }
 
-  final current = now ?? DateTime.now();
-  final today = DateTime(current.year, current.month, current.day);
+  // FASE 10 — el fallback usa EXACTAMENTE el resolver canonico con el dia de
+  // negocio de America/Santo_Domingo. Antes mezclaba `DateTime.now()` (reloj del
+  // equipo) con los componentes UTC del `dueDate` parseado, lo que desviaba el
+  // conteo cerca de la medianoche segun la zona horaria del PC.
+  final businessDate = now ?? DateTime.now();
   var count = 0;
   for (final rawInstallment in installments.whereType<Map>()) {
     final installment = rawInstallment.map(
       (key, value) => MapEntry(key.toString(), value),
     );
-    final status = (installment['status'] ?? '').toString().toLowerCase();
-    if (status == 'pagada' ||
-        status == 'paid' ||
-        status == 'ajustada' ||
-        status == 'adjusted' ||
-        status == 'cancelada' ||
-        status == 'cancelled') {
+    final dueDate = DateTime.tryParse(
+      (installment['dueDate'] ??
+              installment['fechaVencimiento'] ??
+              installment['fecha_vencimiento'] ??
+              '')
+          .toString(),
+    );
+    if (dueDate == null) {
       continue;
     }
     final totalAmount = _parseBackendDouble(
@@ -2064,21 +2154,14 @@ int overdueInstallmentCountFromBackendItem(
           installment['montoPagado'] ??
           installment['monto_pagado'],
     );
-    if (totalAmount - paidAmount <= 0.009) {
-      continue;
-    }
-    final dueDate = DateTime.tryParse(
-      (installment['dueDate'] ??
-              installment['fechaVencimiento'] ??
-              installment['fecha_vencimiento'] ??
-              '')
-          .toString(),
+    final status = InstallmentStatusResolver.effectiveStatus(
+      dueDate: dueDate,
+      totalAmount: totalAmount,
+      paidAmount: paidAmount,
+      storedStatus: (installment['status'] ?? '').toString(),
+      businessDate: businessDate,
     );
-    if (dueDate == null) {
-      continue;
-    }
-    final dueDay = DateTime(dueDate.year, dueDate.month, dueDate.day);
-    if (dueDay.isBefore(today)) {
+    if (status == 'vencida') {
       count++;
     }
   }

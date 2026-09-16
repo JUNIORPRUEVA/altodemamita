@@ -328,7 +328,7 @@ class InstallmentsSyncRepository implements SyncRepository {
           );
           final dueDate =
               _parseDate(installment['fecha_vencimiento']?.toString()) ?? now;
-          final newStatus = _resolveInstallmentStatusForReconcile(
+          final newStatus = _resolveStoredInstallmentStatusForReconcile(
             dueDate: dueDate,
             paidAmount: cappedPaidAmount,
             totalAmount: totalAmount,
@@ -574,7 +574,7 @@ DateTime? _parseDate(String? value) {
   return DateTime.tryParse(normalized);
 }
 
-String _resolveInstallmentStatusForReconcile({
+String _resolveStoredInstallmentStatusForReconcile({
   required DateTime dueDate,
   required double paidAmount,
   required double totalAmount,

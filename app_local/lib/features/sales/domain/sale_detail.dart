@@ -1,3 +1,4 @@
+import '../../../core/business/installment_status.dart';
 import '../../installments/domain/installment.dart';
 import 'sale.dart';
 
@@ -35,9 +36,8 @@ class SaleDetail {
 
   int get activeInstallmentCount => installments.length;
 
-  int get remainingInstallmentCount => installments
-      .where((item) => item.remainingAmount > 0.009)
-      .length;
+  int get remainingInstallmentCount =>
+      installments.where((item) => item.remainingAmount > 0.009).length;
 
   int get paidInstallmentCount =>
       activeInstallmentCount - remainingInstallmentCount;
@@ -48,15 +48,20 @@ class SaleDetail {
   }
 
   int get overdueInstallmentCount {
-    final today = DateTime.now();
-    final todayDate = DateTime(today.year, today.month, today.day);
-    return installments.where((i) {
-      if (i.status == 'pagada' || i.status == 'ajustada' || i.status == 'cancelada') {
-        return false;
-      }
-      if (i.remainingAmount <= 0.009) return false;
-      final dueDate = DateTime(i.dueDate.year, i.dueDate.month, i.dueDate.day);
-      return dueDate.isBefore(todayDate);
-    }).length;
+    return installmentSummary.overdue;
+  }
+
+  InstallmentSummaryCounts get installmentSummary {
+    return InstallmentStatusResolver.summarize(
+      installments.map(
+        (item) => InstallmentStatusInput(
+          dueDate: item.dueDate,
+          totalAmount: item.totalAmount,
+          paidAmount: item.paidAmount,
+          remainingAmount: item.remainingAmount,
+          storedStatus: item.status,
+        ),
+      ),
+    );
   }
 }

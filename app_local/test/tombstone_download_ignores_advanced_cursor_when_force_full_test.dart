@@ -35,31 +35,39 @@ void main() {
     }
   });
 
-  test('tombstone_download_ignores_advanced_cursor_when_force_full_test', () async {
-    final repository = _RecordingRepository('products');
-    final config = _FakeConfigRepository();
-    final api = _EpochAwareApiClient();
-    final service = SyncService(
-      repositories: [repository],
-      configRepository: config,
-      apiClient: api,
-      appDatabase: appDatabase,
-    );
+  test(
+    'tombstone_download_ignores_advanced_cursor_when_force_full_test',
+    () async {
+      final repository = _RecordingRepository('products');
+      final config = _FakeConfigRepository();
+      final api = _EpochAwareApiClient();
+      final service = SyncService(
+        repositories: [repository],
+        configRepository: config,
+        apiClient: api,
+        appDatabase: appDatabase,
+        allowCloudPullOverride: true,
+      );
 
-    final count = await service.downloadUpdatesForScopes(
-      const ['products'],
-      forceFullDownload: true,
-    );
+      final count = await service.downloadUpdatesForScopes(const [
+        'products',
+      ], forceFullDownload: true);
 
-    expect(count, greaterThanOrEqualTo(1));
-    expect(repository.mergedRecords, isNotEmpty);
-    final hasDelete = repository.mergedRecords.any((r) =>
-        (r['sync_id']?.toString() == 'product-old-delete') &&
-        (r['deleted_at']?.toString().isNotEmpty ?? false));
-    expect(hasDelete, isTrue);
-    expect(api.repairCallSeen, isTrue,
-        reason: 'Force full must trigger epoch-based tombstone repair pass');
-  });
+      expect(count, greaterThanOrEqualTo(1));
+      expect(repository.mergedRecords, isNotEmpty);
+      final hasDelete = repository.mergedRecords.any(
+        (r) =>
+            (r['sync_id']?.toString() == 'product-old-delete') &&
+            (r['deleted_at']?.toString().isNotEmpty ?? false),
+      );
+      expect(hasDelete, isTrue);
+      expect(
+        api.repairCallSeen,
+        isTrue,
+        reason: 'Force full must trigger epoch-based tombstone repair pass',
+      );
+    },
+  );
 }
 
 class _RecordingRepository implements SyncRepository {
@@ -94,9 +102,7 @@ class _RecordingRepository implements SyncRepository {
 class _FakeConfigRepository extends SyncConfigRepository {
   _FakeConfigRepository();
 
-  final Map<String, DateTime?> _cursors = {
-    'products': DateTime.now().toUtc(),
-  };
+  final Map<String, DateTime?> _cursors = {'products': DateTime.now().toUtc()};
 
   final SyncSettings _settings = const SyncSettings(
     baseUrl: 'https://example.com',
@@ -175,9 +181,7 @@ class _EpochAwareApiClient extends SyncApiClient {
     }
 
     return SyncDownloadResponse(
-      recordsByScope: {
-        'products': const <Map<String, dynamic>>[],
-      },
+      recordsByScope: {'products': const <Map<String, dynamic>>[]},
       serverTime: DateTime.now().toUtc(),
       scopeCursors: {'products': DateTime.now().toUtc()},
     );

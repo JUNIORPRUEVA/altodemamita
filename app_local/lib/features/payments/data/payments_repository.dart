@@ -767,7 +767,7 @@ class PaymentsRepository {
             ),
           );
           final updatedStatus = updatedPaidAmount <= 0.009
-              ? SaleCalculator.resolveInstallmentStatus(
+              ? SaleCalculator.resolveStoredInstallmentStatus(
                   dueDate: installment.dueDate,
                   paidAmount: updatedPaidAmount,
                   totalAmount: installment.totalAmount,
@@ -930,9 +930,16 @@ class PaymentsRepository {
     final requiredInitial = _toDouble(saleRow['monto_inicial_requerido']);
     final paidInitial = _toDouble(saleRow['monto_inicial_pagado']);
     final pendingInitial = _toDouble(saleRow['monto_inicial_pendiente']);
-    final saleDate =
-        DateTime.tryParse(saleRow['fecha_venta'] as String? ?? '') ??
-        draft.paymentDate;
+    // FASE 3 — el calendario se ancla SIEMPRE en `fecha_venta` (saleDate).
+    // Antes existia un fallback a `draft.paymentDate`: registrar la inicial en
+    // otro mes desplazaba TODO el calendario (incidente P0). La fecha de pago no
+    // es un ancla valida para un contrato, asi que se falla de forma explicita.
+    final saleDate = DateTime.tryParse(saleRow['fecha_venta'] as String? ?? '');
+    if (saleDate == null) {
+      throw StateError(
+        'La venta no tiene fecha de venta valida: no se puede generar ni recalcular el calendario de cuotas.',
+      );
+    }
     final installmentCount = _toInt(saleRow['cantidad_cuotas']);
     final fixedInstallmentAmount = _resolveContractFixedInstallmentAmount(
       financedBalance: _toDouble(saleRow['saldo_financiado']),
@@ -1758,7 +1765,7 @@ class PaymentsRepository {
           (paidAmount - interestPaid).clamp(0, principalAmount),
         );
         final dueDate = DateTime.parse(row['fecha_vencimiento'] as String);
-        final repairedStatus = SaleCalculator.resolveInstallmentStatus(
+        final repairedStatus = SaleCalculator.resolveStoredInstallmentStatus(
           totalAmount: totalAmount,
           paidAmount: paidAmount,
           dueDate: dueDate,
@@ -1849,7 +1856,7 @@ class PaymentsRepository {
           final repairedPrincipalPaid = _roundCurrency(
             (paidAmount - repairedInterestPaid).clamp(0, principalAmount),
           );
-          final repairedStatus = SaleCalculator.resolveInstallmentStatus(
+          final repairedStatus = SaleCalculator.resolveStoredInstallmentStatus(
             totalAmount: totalAmount,
             paidAmount: paidAmount,
             dueDate: dueDate,

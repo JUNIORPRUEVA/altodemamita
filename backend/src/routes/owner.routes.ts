@@ -3,6 +3,13 @@ import { authGuard } from '../auth';
 import { config } from '../config';
 import { resolveCompanyForRequest } from '../companyIdentity';
 import { prisma } from '../prisma';
+import {
+  BUSINESS_TIMEZONE,
+  dateKeyInTimeZone,
+  isOpenInstallment,
+  isOverdueInstallment,
+  resolveEffectiveInstallmentStatus,
+} from '../services/installmentStatus.service';
 
 export const ownerRouter = Router();
 
@@ -121,10 +128,17 @@ async function list(
     delegate.count({ where }),
   ]);
 
+  const responseItems =
+    model === 'installment'
+      ? (items as Array<any>).map((item) =>
+          serializeInstallmentRow(item, businessDayRange(new Date()).businessDate),
+        )
+      : items;
+
   return res.json({
     data: {
       company: { id: company.id, tenantKey: company.tenantKey, name: company.name },
-      items,
+      items: responseItems,
       page,
       pageSize,
       total,
@@ -140,7 +154,7 @@ async function listSales(req: any, res: any) {
   const onlyFullyPaid = settlementFilter === 'fully_paid';
   const skip = (page - 1) * pageSize;
   const company = await resolveCompanyForRequest(req);
-  const today = startOfUtcDay(new Date());
+  const today = businessDayRange(new Date());
   const lotIdFilter = String(req.query.lotId ?? '').trim();
   const baseWhere = lotIdFilter
     ? {
@@ -208,7 +222,7 @@ async function listSales(req: any, res: any) {
         saleId,
         roundMoney((outstandingBySaleId.get(saleId) ?? 0) + remaining),
       );
-      if (isOverdueInstallmentObligation(installment, today)) {
+      if (isOverdueInstallmentObligation(installment, today.businessDate)) {
         overdueInstallmentCountBySaleId.set(
           saleId,
           (overdueInstallmentCountBySaleId.get(saleId) ?? 0) + 1,
@@ -320,6 +334,7 @@ async function saleDetail(req: any, res: any) {
   const clientsBySyncId = new Map<string, any>(client ? [[client.syncId, client]] : []);
   const lotsBySyncId = new Map<string, any>(lot ? [[lot.syncId, lot]] : []);
   const sellersBySyncId = new Map<string, any>(seller ? [[seller.syncId, seller]] : []);
+  const businessDate = businessDayRange(new Date()).businessDate;
 
   return res.json({
     data: {
@@ -331,7 +346,9 @@ async function saleDetail(req: any, res: any) {
           sellersBySyncId,
           deriveSettlement(sale, outstandingFromInstallments(installments)),
         ),
-        installments: installments.map(serializeInstallmentRow),
+        installments: installments.map((installment) =>
+          serializeInstallmentRow(installment, businessDate),
+        ),
         payments: payments.map((payment) => ({
           id: payment.id,
           syncId: payment.syncId,
@@ -405,6 +422,7 @@ async function salePaymentsContext(req: any, res: any) {
   const clientsBySyncId = new Map<string, any>(client ? [[client.syncId, client]] : []);
   const lotsBySyncId = new Map<string, any>(lot ? [[lot.syncId, lot]] : []);
   const sellersBySyncId = new Map<string, any>(seller ? [[seller.syncId, seller]] : []);
+  const businessDate = businessDayRange(new Date()).businessDate;
 
   return res.json({
     data: {
@@ -415,7 +433,9 @@ async function salePaymentsContext(req: any, res: any) {
         sellersBySyncId,
         deriveSettlement(sale, outstandingFromInstallments(installments)),
       ),
-      installments: installments.map(serializeInstallmentRow),
+      installments: installments.map((installment) =>
+        serializeInstallmentRow(installment, businessDate),
+      ),
       payments: payments.map(serializePaymentRow),
       annulledPayments: annulledPayments.map(serializePaymentRow),
     },
@@ -430,7 +450,7 @@ async function paymentsWorkQueue(req: any, res: any) {
   const state = String(req.query.state ?? 'collectible').trim().toLowerCase();
   const search = String(req.query.search ?? '').trim();
   const skip = (page - 1) * pageSize;
-  const today = startOfUtcDay(new Date());
+  const today = businessDayRange(new Date());
 
   const saleSearchWhere = await buildPaymentSaleSearchWhere(company.id, search);
   // Una venta saldada ("venta definitiva") deja de ser cobrable: no debe aparecer
@@ -543,7 +563,7 @@ async function paymentsWorkQueue(req: any, res: any) {
               queueOutstandingBySaleId.get(String(installment.sale?.id ?? '')) ?? 0,
             ),
           ),
-          installment: serializeInstallmentRow(installment),
+          installment: serializeInstallmentRow(installment, today.businessDate),
         })),
       page,
       pageSize,
@@ -759,30 +779,27 @@ export function overdueInstallmentCountFromInstallments(installments: Array<any>
 }
 
 function isOpenInstallmentObligation(installment: any) {
-  const closedStatuses = [
-    'pagada',
-    'paid',
-    'ajustada',
-    'adjusted',
-    'cancelada',
-    'cancelled',
-  ];
-  const status = String(installment.status ?? '').trim().toLowerCase();
   const remaining = roundMoney(
     Math.max(toNumber(installment.totalAmount) - toNumber(installment.paidAmount), 0),
   );
-  return remaining > 0.009 && !closedStatuses.includes(status);
+  return isOpenInstallment({
+    storedStatus: installment.status,
+    dueDate: installment.dueDate,
+    totalAmount: installment.totalAmount,
+    paidAmount: installment.paidAmount,
+    remainingAmount: remaining,
+  });
 }
 
 function isOverdueInstallmentObligation(installment: any, today: Date) {
-  const dueDate = installment.dueDate instanceof Date
-    ? installment.dueDate
-    : new Date(installment.dueDate);
-  return (
-    isOpenInstallmentObligation(installment) &&
-    !Number.isNaN(dueDate.getTime()) &&
-    dueDate < today
-  );
+  return isOverdueInstallment({
+    storedStatus: installment.status,
+    dueDate: installment.dueDate,
+    totalAmount: installment.totalAmount,
+    paidAmount: installment.paidAmount,
+    businessDate: today,
+    timezone: BUSINESS_TIMEZONE,
+  });
 }
 
 function roundMoney(value: number) {
@@ -859,7 +876,19 @@ export function serializeSaleRow(
   };
 }
 
-export function serializeInstallmentRow(installment: any) {
+export function serializeInstallmentRow(installment: any, businessDate = new Date()) {
+  const remainingAmount = roundMoney(
+    Math.max(toNumber(installment.totalAmount) - toNumber(installment.paidAmount), 0),
+  );
+  const effectiveStatus = resolveEffectiveInstallmentStatus({
+    storedStatus: installment.status,
+    dueDate: installment.dueDate,
+    totalAmount: installment.totalAmount,
+    paidAmount: installment.paidAmount,
+    remainingAmount,
+    businessDate,
+    timezone: BUSINESS_TIMEZONE,
+  });
   return {
     id: installment.id,
     syncId: installment.syncId,
@@ -875,8 +904,14 @@ export function serializeInstallmentRow(installment: any) {
     paidAmount: installment.paidAmount?.toString() ?? '0',
     paidPrincipalAmount: installment.paidPrincipalAmount?.toString() ?? '0',
     paidInterestAmount: installment.paidInterestAmount?.toString() ?? '0',
+    remainingAmount: remainingAmount.toFixed(2),
     endingBalance: installment.endingBalance?.toString() ?? '0',
     status: installment.status,
+    storedStatus: installment.status,
+    effectiveStatus,
+    displayStatus: effectiveStatus,
+    isOverdue: effectiveStatus === 'vencida',
+    businessDate: dateKeyInTimeZone(businessDate, BUSINESS_TIMEZONE),
     createdAt: installment.createdAt?.toISOString() ?? null,
     updatedAt: installment.updatedAt?.toISOString() ?? null,
   };
@@ -899,10 +934,14 @@ function lotDisplay(lot: { block: string | null; number: string | null }) {
   return null;
 }
 
-export function installmentQueueWhere(companyId: string, state: string, today: Date) {
+export function installmentQueueWhere(
+  companyId: string,
+  state: string,
+  today: Date | { start: Date; tomorrow: Date; businessDate: Date },
+) {
   const normalizedState = String(state ?? '').trim().toLowerCase();
   const closedStatuses = ['pagada', 'paid', 'ajustada', 'adjusted', 'cancelada', 'cancelled'];
-  const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+  const range = today instanceof Date ? { start: today, tomorrow: new Date(today.getTime() + 24 * 60 * 60 * 1000) } : today;
   const base: any = {
     companyId,
     deletedAt: null,
@@ -912,7 +951,7 @@ export function installmentQueueWhere(companyId: string, state: string, today: D
     case 'overdue':
       return {
         ...base,
-        dueDate: { lt: today },
+        dueDate: { lt: range.start },
         totalAmount: { gt: 0 },
         NOT: { status: { in: closedStatuses } },
       };
@@ -921,7 +960,7 @@ export function installmentQueueWhere(companyId: string, state: string, today: D
     case 'due-today':
       return {
         ...base,
-        dueDate: { gte: today, lt: tomorrow },
+        dueDate: { gte: range.start, lt: range.tomorrow },
         totalAmount: { gt: 0 },
         NOT: { status: { in: closedStatuses } },
       };
@@ -929,7 +968,7 @@ export function installmentQueueWhere(companyId: string, state: string, today: D
     case 'future':
       return {
         ...base,
-        dueDate: { gte: tomorrow },
+        dueDate: { gte: range.tomorrow },
         totalAmount: { gt: 0 },
         NOT: { status: { in: closedStatuses } },
       };
@@ -1003,8 +1042,14 @@ async function buildPaymentSaleSearchWhere(companyId: string, search: string) {
   };
 }
 
-function startOfUtcDay(value: Date) {
-  return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
+function businessDayRange(value: Date, timezone = BUSINESS_TIMEZONE) {
+  const key = dateKeyInTimeZone(value, timezone);
+  const start = new Date(`${key}T00:00:00.000-04:00`);
+  return {
+    businessDate: start,
+    start,
+    tomorrow: new Date(start.getTime() + 24 * 60 * 60 * 1000),
+  };
 }
 
 const CANCELLED_SALE_STATUSES = [
@@ -1153,7 +1198,9 @@ async function clientDetail(req: any, res: any) {
         : null,
       sellerName: seller?.name ?? null,
       operatorUserName: user?.name ?? null,
-      installments: forSale(installments, sale).map(serializeInstallmentRow),
+      installments: forSale(installments, sale).map((installment) =>
+        serializeInstallmentRow(installment, businessDayRange(new Date()).businessDate),
+      ),
       payments: forSale(payments, sale).map(serializePaymentRow),
     };
   });

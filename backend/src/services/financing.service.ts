@@ -1,3 +1,9 @@
+import {
+  BUSINESS_TIMEZONE,
+  isPastDueBusinessDay,
+  resolveEffectiveInstallmentStatus,
+} from './installmentStatus.service';
+
 export type InstallmentDraft = {
   installmentNumber: number;
   dueDate: Date;
@@ -86,18 +92,59 @@ export function addMonths(date: Date, monthsToAdd: number) {
   );
 }
 
+/**
+ * CANONICAL CALENDAR ANCHOR — single source of truth for installment due dates.
+ *
+ * REGLA OFICIAL DEL PRODUCTO:
+ *   dueDate(n) = saleDate + n meses calendario      (n = 1..installmentCount)
+ *
+ * `saleDate` es SIEMPRE el ancla. `activationDate` (fecha en que la venta quedo
+ * activa / se aplico la inicial) NO mueve el calendario: puede ser igual o
+ * posterior a `saleDate` sin alterar ninguna cuota.
+ *
+ * Semantica de mes exacta (congelada, no inventar una nueva):
+ *   - se suma el mes calendario conservando la hora/minuto/segundo originales;
+ *   - si el dia no existe en el mes destino se ajusta al ultimo dia del mes
+ *     (2026-01-31 + 1 mes => 2026-02-28; 2028-01-31 + 1 mes => 2028-02-29;
+ *      2026-03-30 + 1 mes => 2026-04-30).
+ */
+export function canonicalInstallmentDueDate(saleDate: Date, installmentNumber: number) {
+  return addMonths(saleDate, installmentNumber);
+}
+
+export function canonicalInstallmentDueDates(saleDate: Date, installmentCount: number) {
+  return Array.from({ length: Math.max(installmentCount, 0) }, (_, index) =>
+    canonicalInstallmentDueDate(saleDate, index + 1),
+  );
+}
+
+/**
+ * Compara la dueDate recibida contra la regla canonica.
+ * Devuelve `true` cuando la fecha es la esperada (comparacion al milisegundo:
+ * la fecha contractual se persiste como instante, no como dia suelto).
+ */
+export function isCanonicalInstallmentDueDate(input: {
+  saleDate: Date | null | undefined;
+  installmentNumber: number | null | undefined;
+  dueDate: Date | null | undefined;
+}) {
+  if (!input.saleDate || !input.dueDate) return false;
+  if (!Number.isInteger(input.installmentNumber) || (input.installmentNumber ?? 0) <= 0) {
+    return false;
+  }
+  const expected = canonicalInstallmentDueDate(
+    input.saleDate,
+    Number(input.installmentNumber),
+  );
+  return expected.getTime() === input.dueDate.getTime();
+}
+
 export function isPastDue(input: { dueDate: Date; asOf: Date }) {
-  const dueDay = new Date(
-    input.dueDate.getFullYear(),
-    input.dueDate.getMonth(),
-    input.dueDate.getDate(),
-  );
-  const today = new Date(
-    input.asOf.getFullYear(),
-    input.asOf.getMonth(),
-    input.asOf.getDate(),
-  );
-  return dueDay.getTime() < today.getTime();
+  return isPastDueBusinessDay({
+    dueDate: input.dueDate,
+    businessDate: input.asOf,
+    timezone: BUSINESS_TIMEZONE,
+  });
 }
 
 export function resolveInstallmentStatus(input: {
@@ -112,9 +159,14 @@ export function resolveInstallmentStatus(input: {
   if (input.paidAmount > 0.009) {
     return 'parcial';
   }
-  return isPastDue({ dueDate: input.dueDate, asOf: input.asOf })
-    ? 'vencida'
-    : 'pendiente';
+  const effectiveStatus = resolveEffectiveInstallmentStatus({
+    dueDate: input.dueDate,
+    paidAmount: input.paidAmount,
+    totalAmount: input.totalAmount,
+    businessDate: input.asOf,
+    timezone: BUSINESS_TIMEZONE,
+  });
+  return effectiveStatus === 'vencida' ? 'vencida' : 'pendiente';
 }
 
 export function buildInstallmentSchedule(input: {
@@ -128,10 +180,7 @@ export function buildInstallmentSchedule(input: {
   fixedPaymentAmount?: number;
 }) {
   const dueDates =
-    input.dueDates ??
-    Array.from({ length: input.installmentCount }, (_, index) =>
-      addMonths(input.saleDate, index + 1),
-    );
+    input.dueDates ?? canonicalInstallmentDueDates(input.saleDate, input.installmentCount);
   if (dueDates.length <= 0 || input.financedBalance <= 0) {
     return [];
   }

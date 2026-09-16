@@ -4,6 +4,14 @@ import { authenticateRequest } from '../auth';
 import { config } from '../config';
 import { resolveCompanyForRequest } from '../companyIdentity';
 import { prisma } from '../prisma';
+import {
+  canonicalInstallmentDueDate,
+  isCanonicalInstallmentDueDate,
+} from '../services/financing.service';
+import {
+  isTimeDerivedOverdueStatus,
+  resolvePersistedInstallmentStatus,
+} from '../services/installmentStatus.service';
 
 const rowSchema = z.record(z.unknown()).and(
   z
@@ -280,6 +288,144 @@ export function isBlockingActiveSaleForLotDelete(
   return Boolean(sale && !sale.deletedAt && sale.status !== 'cancelada');
 }
 
+export function shouldRejectLegacySaleDateChange(input: {
+  existingSaleDate?: Date | null;
+  incomingSaleDate?: Date | null;
+  hasActiveInstallments: boolean;
+}) {
+  if (!input.hasActiveInstallments) {
+    return false;
+  }
+  if (!input.existingSaleDate || !input.incomingSaleDate) {
+    return false;
+  }
+  return input.existingSaleDate.getTime() !== input.incomingSaleDate.getTime();
+}
+
+/**
+ * Campos de una cuota que, una vez creada por el servidor, pasan a ser de
+ * PROPIEDAD DEL SERVIDOR. Un cliente Windows/PWA antiguo o un flujo offline NO
+ * puede reescribirlos mediante `POST /sync/upload`.
+ *
+ * Cambiarlos requiere una operacion autoritativa explicita (recalendarizacion
+ * aprobada), no un upload generico.
+ */
+export const LOCKED_INSTALLMENT_FIELDS = [
+  'dueDate',
+  'installmentNumber',
+  'openingBalance',
+  'principalAmount',
+  'interestAmount',
+  'totalAmount',
+  'endingBalance',
+  'saleSyncId',
+] as const;
+
+function numericLike(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  const text = value.toString().trim();
+  if (text === '' || !/^-?\d+(\.\d+)?$/.test(text)) return null;
+  const parsed = Number(text);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function sameFinancialValue(before: unknown, after: unknown) {
+  const dateBefore = before instanceof Date ? before.getTime() : null;
+  const dateAfter = after instanceof Date ? after.getTime() : null;
+  if (dateBefore !== null || dateAfter !== null) return dateBefore === dateAfter;
+
+  const numBefore = numericLike(before);
+  const numAfter = numericLike(after);
+  if (numBefore !== null && numAfter !== null) {
+    return Math.abs(numBefore - numAfter) <= 0.009;
+  }
+  if (before === null || before === undefined || after === null || after === undefined) {
+    return (before ?? null) === (after ?? null);
+  }
+  return before.toString() === after.toString();
+}
+
+/** Devuelve los campos protegidos que el cliente intenta cambiar (vacio = OK). */
+export function findLockedInstallmentFieldChanges(
+  existing: Record<string, unknown> | null | undefined,
+  incoming: Record<string, unknown>,
+) {
+  if (!existing) return [] as string[];
+  const changed: string[] = [];
+  for (const field of LOCKED_INSTALLMENT_FIELDS) {
+    const after = incoming[field];
+    if (after === undefined || after === null) continue;
+    if (!sameFinancialValue(existing[field], after)) changed.push(field);
+  }
+  return changed;
+}
+
+/**
+ * FASE 4 — INVARIANTE DEL SERVIDOR.
+ *
+ * Una cuota NUEVA enviada por un cliente debe cumplir la regla canonica
+ * `dueDate(n) = saleDate + n meses`. Si no la cumple se RECHAZA con error
+ * explicito: no se autocorrige en silencio un payload financiero ambiguo.
+ *
+ * Devuelve `null` cuando no hay violacion demostrable (p. ej. falta el ancla
+ * `saleDate`, caso legado) o el motivo del rechazo cuando la hay.
+ */
+export function canonicalScheduleViolation(input: {
+  saleDate?: Date | null;
+  installmentNumber?: number | null;
+  dueDate?: Date | null;
+}) {
+  if (!input.saleDate || !input.dueDate) return null;
+  const number = input.installmentNumber;
+  if (typeof number !== 'number' || !Number.isInteger(number) || number <= 0) return null;
+  if (
+    isCanonicalInstallmentDueDate({
+      saleDate: input.saleDate,
+      installmentNumber: number,
+      dueDate: input.dueDate,
+    })
+  ) {
+    return null;
+  }
+  return 'installment_due_date_not_canonical';
+}
+
+/**
+ * FASE 7 — el atraso derivado (`vencida`) no se persiste.
+ *
+ * Si un cliente envia `vencida`/`overdue`/`atrasada`, el servidor persiste el
+ * estado que depende de dinero (pagada / parcial / pendiente). Un cambio natural
+ * de dia no debe convertirse en una escritura de sync.
+ */
+export function resolveIncomingInstallmentStatus(input: {
+  incomingStatus?: string | null;
+  paidAmount: unknown;
+  totalAmount: unknown;
+}) {
+  if (!isTimeDerivedOverdueStatus(input.incomingStatus)) return input.incomingStatus ?? null;
+  const total = numericLike(input.totalAmount);
+  const paid = numericLike(input.paidAmount) ?? 0;
+  if (total === null || total <= 0.009) {
+    // Sin monto no se puede derivar un estado financiero: se conserva el enviado
+    // (no se inventa `pagada` para una cuota sin importe).
+    return input.incomingStatus ?? null;
+  }
+  return resolvePersistedInstallmentStatus({
+    storedStatus: input.incomingStatus,
+    paidAmount: paid,
+    totalAmount: total,
+  });
+}
+
+export function describeCanonicalDueDate(input: {
+  saleDate?: Date | null;
+  installmentNumber?: number | null;
+}) {
+  if (!input.saleDate || !input.installmentNumber) return null;
+  return canonicalInstallmentDueDate(input.saleDate, input.installmentNumber).toISOString();
+}
+
 async function upsertClients(companyId: string, rows: Row[], rejected: any[]) {
   const ack: Row[] = [];
   for (const row of rows) {
@@ -547,6 +693,36 @@ async function upsertSales(companyId: string, rows: Row[], rejected: any[]) {
       }
     }
 
+    const existingSale = await prisma.sale.findUnique({
+      where: { companyId_syncId: { companyId, syncId: id } },
+      select: {
+        id: true,
+        saleDate: true,
+        installments: {
+          where: { deletedAt: null },
+          select: { id: true },
+          take: 1,
+        },
+      },
+    });
+
+    if (
+      shouldRejectLegacySaleDateChange({
+        existingSaleDate: existingSale?.saleDate ?? null,
+        incomingSaleDate: data.saleDate,
+        hasActiveInstallments:
+          (existingSale?.installments.length ?? 0) > 0,
+      })
+    ) {
+      rejected.push({
+        sync_id: id,
+        reason: 'sale_date_edit_requires_admin_recalendarization',
+        message:
+          'No se puede sincronizar un cambio de fecha de venta con cuotas activas. Requiere recalendarizacion administrativa explicita.',
+      });
+      continue;
+    }
+
     const saved = await prisma.sale.upsert({
       where: { companyId_syncId: { companyId, syncId: id } },
       create: { companyId, syncId: id, ...data, ...relationIds },
@@ -580,11 +756,13 @@ async function upsertInstallments(companyId: string, rows: Row[], rejected: any[
       deletedAt: deletedAt(row),
     };
     let saleId: string | null = null;
+    let saleRecord: any = null;
 
     // Validar dependencia saleSyncId solo si no es soft delete
     if (!data.deletedAt && data.saleSyncId) {
       const sale = await findBySyncId(prisma.sale, companyId, data.saleSyncId);
       saleId = sale?.id ?? null;
+      saleRecord = sale ?? null;
       if (!sale) {
         console.log(
           `[DependencyCheck][Installment] companyId=${companyId} syncId=${id} missing=saleSyncId -> rejected`,
@@ -599,10 +777,81 @@ async function upsertInstallments(companyId: string, rows: Row[], rejected: any[
       }
     }
 
+    const existing = await prisma.installment.findUnique({
+      where: { companyId_syncId: { companyId, syncId: id } },
+      select: {
+        id: true,
+        dueDate: true,
+        installmentNumber: true,
+        openingBalance: true,
+        principalAmount: true,
+        interestAmount: true,
+        totalAmount: true,
+        paidAmount: true,
+        endingBalance: true,
+        saleSyncId: true,
+        status: true,
+      },
+    });
+
+    // FASE 6 — una cuota ya propiedad del servidor no puede ser reescrita por un
+    // cliente legacy/offline (calendario, numeración o importes).
+    const lockedChanges = findLockedInstallmentFieldChanges(
+      existing as unknown as Record<string, unknown> | null,
+      data as unknown as Record<string, unknown>,
+    );
+    if (lockedChanges.length > 0) {
+      console.log(
+        `[Ownership][Installment] companyId=${companyId} syncId=${id} lockedFields=${lockedChanges.join(',')} -> rejected`,
+      );
+      rejected.push({
+        sync_id: id,
+        reason: 'installment_field_locked',
+        message:
+          'La cuota ya existe en la nube: dueDate, numero, importes y ancla de venta no pueden modificarse por sync genérico.',
+        lockedFields: lockedChanges,
+      });
+      continue;
+    }
+
+    // FASE 4 — cuota nueva: el calendario enviado debe cumplir la regla canónica
+    // dueDate(n) = saleDate + n meses. No se autocorrige en silencio.
+    if (!existing) {
+      const violation = canonicalScheduleViolation({
+        saleDate: saleRecord?.saleDate ?? null,
+        installmentNumber: data.installmentNumber,
+        dueDate: data.dueDate,
+      });
+      if (violation) {
+        const expected = describeCanonicalDueDate({
+          saleDate: saleRecord?.saleDate ?? null,
+          installmentNumber: data.installmentNumber,
+        });
+        console.log(
+          `[CanonicalSchedule][Installment] companyId=${companyId} syncId=${id} expected=${expected} -> rejected`,
+        );
+        rejected.push({
+          sync_id: id,
+          reason: violation,
+          message:
+            'La fecha de vencimiento enviada no cumple la regla del producto: dueDate(n) = saleDate + n meses.',
+          expectedDueDate: expected,
+        });
+        continue;
+      }
+    }
+
+    // FASE 7 — el atraso derivado no se persiste.
+    const normalizedStatus = resolveIncomingInstallmentStatus({
+      incomingStatus: data.status,
+      paidAmount: data.paidAmount ?? existing?.paidAmount ?? 0,
+      totalAmount: data.totalAmount ?? existing?.totalAmount ?? 0,
+    });
+
     const saved = await prisma.installment.upsert({
       where: { companyId_syncId: { companyId, syncId: id } },
-      create: { companyId, syncId: id, ...data, saleId },
-      update: { ...data, saleId },
+      create: { companyId, syncId: id, ...data, status: normalizedStatus, saleId },
+      update: { ...data, status: normalizedStatus, saleId },
     });
     ack.push(installmentRecord(saved));
   }

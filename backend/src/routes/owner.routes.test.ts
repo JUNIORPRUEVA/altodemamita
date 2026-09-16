@@ -75,16 +75,16 @@ test('suma solo el remanente realmente pendiente de cada cuota', () => {
 });
 
 test('cuenta solo cuotas vencidas con obligacion pendiente', () => {
-  const today = new Date('2026-09-14T00:00:00.000Z');
+  const today = new Date('2026-09-14T00:00:00.000-04:00');
   const installments = [
-    { dueDate: new Date('2026-09-13T00:00:00.000Z'), status: 'pendiente', totalAmount: '1000', paidAmount: '0' },
-    { dueDate: new Date('2026-09-12T00:00:00.000Z'), status: 'parcial', totalAmount: '1000', paidAmount: '250' },
-    { dueDate: new Date('2026-09-13T00:00:00.000Z'), status: 'pagada', totalAmount: '1000', paidAmount: '1000' },
-    { dueDate: new Date('2026-09-13T00:00:00.000Z'), status: 'ajustada', totalAmount: '0', paidAmount: '0' },
-    { dueDate: new Date('2026-09-13T00:00:00.000Z'), status: 'cancelada', totalAmount: '1000', paidAmount: '0' },
-    { dueDate: new Date('2026-09-14T00:00:00.000Z'), status: 'pendiente', totalAmount: '1000', paidAmount: '0' },
-    { dueDate: new Date('2026-09-15T00:00:00.000Z'), status: 'pendiente', totalAmount: '1000', paidAmount: '0' },
-    { dueDate: new Date('2026-09-13T00:00:00.000Z'), status: 'pendiente', totalAmount: '1000', paidAmount: '1000' },
+    { dueDate: new Date('2026-09-13T00:00:00.000-04:00'), status: 'pendiente', totalAmount: '1000', paidAmount: '0' },
+    { dueDate: new Date('2026-09-12T00:00:00.000-04:00'), status: 'parcial', totalAmount: '1000', paidAmount: '250' },
+    { dueDate: new Date('2026-09-13T00:00:00.000-04:00'), status: 'pagada', totalAmount: '1000', paidAmount: '1000' },
+    { dueDate: new Date('2026-09-13T00:00:00.000-04:00'), status: 'ajustada', totalAmount: '0', paidAmount: '0' },
+    { dueDate: new Date('2026-09-13T00:00:00.000-04:00'), status: 'cancelada', totalAmount: '1000', paidAmount: '0' },
+    { dueDate: new Date('2026-09-14T00:00:00.000-04:00'), status: 'pendiente', totalAmount: '1000', paidAmount: '0' },
+    { dueDate: new Date('2026-09-15T00:00:00.000-04:00'), status: 'pendiente', totalAmount: '1000', paidAmount: '0' },
+    { dueDate: new Date('2026-09-13T00:00:00.000-04:00'), status: 'pendiente', totalAmount: '1000', paidAmount: '1000' },
   ];
 
   assert.equal(overdueInstallmentCountFromInstallments(installments, today), 2);

@@ -43,6 +43,7 @@ class SyncQueueService {
     SystemConfigService? systemConfigService,
     Future<bool> Function(SyncSettings settings)? connectivityProbe,
     Stream<List<ConnectivityResult>>? connectivityChanges,
+    bool? allowCloudPullOverride,
   }) {
     return SyncQueueService._(
       appDatabase: appDatabase,
@@ -52,6 +53,7 @@ class SyncQueueService {
       systemConfigService: systemConfigService,
       connectivityProbe: connectivityProbe ?? ((_) async => true),
       connectivityChanges: connectivityChanges,
+      allowCloudPullOverride: allowCloudPullOverride,
     );
   }
 
@@ -63,6 +65,7 @@ class SyncQueueService {
     SystemConfigService? systemConfigService,
     Future<bool> Function(SyncSettings settings)? connectivityProbe,
     Stream<List<ConnectivityResult>>? connectivityChanges,
+    bool? allowCloudPullOverride,
   }) : _appDatabase = appDatabase ?? AppDatabase.instance,
        _configRepository = configRepository ?? SyncConfigRepository(),
        _apiClient = apiClient ?? SyncApiClient(),
@@ -76,7 +79,8 @@ class SyncQueueService {
                  )),
        _connectivityProbe = connectivityProbe ?? _defaultConnectivityProbe,
        _connectivityChanges =
-           connectivityChanges ?? Connectivity().onConnectivityChanged;
+           connectivityChanges ?? Connectivity().onConnectivityChanged,
+       _allowCloudPull = allowCloudPullOverride ?? allowCloudPull;
 
   static final SyncQueueService instance = SyncQueueService._();
 
@@ -87,6 +91,7 @@ class SyncQueueService {
   final SystemConfigService _systemConfigService;
   final Future<bool> Function(SyncSettings settings) _connectivityProbe;
   final Stream<List<ConnectivityResult>> _connectivityChanges;
+  final bool _allowCloudPull;
   final SyncLogger _syncLogger = SyncLogger.instance;
   final Map<String, SyncRepository> _repositoriesByScope = {};
   final StreamController<SyncQueueState> _stateController =
@@ -852,7 +857,7 @@ class SyncQueueService {
             );
 
             final returnedRecords = response.recordsForScope(scope);
-            if (allowCloudPull && returnedRecords.isNotEmpty) {
+            if (_allowCloudPull && returnedRecords.isNotEmpty) {
               await repository.mergeRemoteRecords(returnedRecords);
             }
 
@@ -952,7 +957,7 @@ class SyncQueueService {
               extra: {'type': 'conflict'},
             );
             if (!isManualProductConflict &&
-                allowCloudPull &&
+                _allowCloudPull &&
                 error.returnedRecords.isNotEmpty) {
               await repository.mergeRemoteRecords(error.returnedRecords);
             }
@@ -1000,7 +1005,7 @@ class SyncQueueService {
             // FASE 0 containment: never auto-download cloud state during
             // conflict handling while cloud pull is blocked.
             if (!isManualProductConflict &&
-                allowCloudPull &&
+                _allowCloudPull &&
                 stillConflictedIds.isNotEmpty &&
                 error.returnedRecords.isEmpty) {
               await _attemptConflictRecoveryDownload(
@@ -2331,7 +2336,7 @@ class SyncQueueService {
     required SyncRepository repository,
     required List<String> conflictedIds,
   }) async {
-    if (!allowCloudPull) {
+    if (!_allowCloudPull) {
       _log(
         'CONFLICT RECOVERY SKIPPED -> scope=$scope motivo=ALLOW_CLOUD_PULL=false',
       );

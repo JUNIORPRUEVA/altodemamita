@@ -386,7 +386,7 @@ class SalesSyncRepository implements SyncRepository {
           );
           final dueDate =
               _parseDate(installment['fecha_vencimiento']?.toString()) ?? now;
-          final newStatus = _resolveInstallmentStatusForReconcile(
+          final newStatus = _resolveStoredInstallmentStatusForReconcile(
             dueDate: dueDate,
             paidAmount: paidAmount,
             totalAmount: totalAmount,
@@ -733,7 +733,7 @@ bool _isDeleted(Object? value) {
   return normalized != null && normalized.isNotEmpty;
 }
 
-String _resolveInstallmentStatusForReconcile({
+String _resolveStoredInstallmentStatusForReconcile({
   required DateTime dueDate,
   required double paidAmount,
   required double totalAmount,

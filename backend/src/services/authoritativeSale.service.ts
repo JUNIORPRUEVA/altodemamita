@@ -627,6 +627,19 @@ async function updateSaleInTransaction(
   }
 
   const saleDate = parseDate(input.saleDate, existing.saleDate ?? now);
+  if (
+    shouldBlockSaleDateEditWithExistingInstallments({
+      requestedSaleDate: input.saleDate,
+      existingSaleDate: existing.saleDate,
+      activeInstallmentCount: existing.installments.length,
+    })
+  ) {
+    throw new AuthoritativeError(
+      'SALE_DATE_EDIT_REQUIRES_ADMIN_RECALCULATION',
+      'No puedes cambiar la fecha de venta de una venta financiada con cuotas generadas desde la edicion normal. Requiere una operacion administrativa explicita para recalcular la agenda y preservar el historial.',
+      409,
+    );
+  }
   const downPaymentPercentage =
     input.downPaymentPercentage ??
     input.initialPercentage ??
@@ -883,6 +896,20 @@ export function saleHasActiveFinancialHistory(sale: {
       toNumber(installment.paidPrincipalAmount) > 0.009 ||
       toNumber(installment.paidInterestAmount) > 0.009,
   );
+}
+
+export function shouldBlockSaleDateEditWithExistingInstallments(input: {
+  requestedSaleDate?: string | Date;
+  existingSaleDate?: Date | null;
+  activeInstallmentCount: number;
+}) {
+  if (input.requestedSaleDate === undefined || input.activeInstallmentCount <= 0) {
+    return false;
+  }
+  const requested = parseDate(input.requestedSaleDate, input.existingSaleDate ?? new Date());
+  const existing = input.existingSaleDate;
+  if (!existing) return false;
+  return requested.getTime() !== existing.getTime();
 }
 
 function resolveSellerEditReference(

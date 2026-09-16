@@ -44,12 +44,15 @@ void main() {
       configRepository: configRepository,
       apiClient: apiClient,
       conflictService: SyncConflictService(appDatabase: appDatabase),
+      allowCloudPullOverride: true,
     );
 
     service.registerRepository(
       ClientRepository(appDatabase: appDatabase, syncQueueService: service),
     );
-    service.registerRepository(ProductsSyncRepository(appDatabase: appDatabase));
+    service.registerRepository(
+      ProductsSyncRepository(appDatabase: appDatabase),
+    );
     service.registerRepository(SalesSyncRepository(appDatabase: appDatabase));
     service.registerRepository(
       InstallmentsSyncRepository(appDatabase: appDatabase),
@@ -308,11 +311,13 @@ class _SalesConflictApiClient extends SyncApiClient {
       );
     }
 
-    return SyncUploadResponse(returnedRecordsByScope: {
-      scope: recordsByScope[scope]!
-          .map((record) => record.map((key, value) => MapEntry(key, value)))
-          .toList(growable: false),
-    });
+    return SyncUploadResponse(
+      returnedRecordsByScope: {
+        scope: recordsByScope[scope]!
+            .map((record) => record.map((key, value) => MapEntry(key, value)))
+            .toList(growable: false),
+      },
+    );
   }
 
   @override

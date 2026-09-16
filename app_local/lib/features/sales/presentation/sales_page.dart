@@ -54,6 +54,7 @@ class SalesPage extends StatefulWidget {
 class _SalesPageState extends State<SalesPage> {
   late final SalesController _controller;
   late final TextEditingController _searchController;
+  Timer? _searchDebounce;
   bool _hasInternet = true;
   int _internetProbeFailures = 0;
   StreamSubscription<List<ConnectivityResult>>? _internetSubscription;
@@ -111,6 +112,7 @@ class _SalesPageState extends State<SalesPage> {
   void dispose() {
     unawaited(_internetSubscription?.cancel());
     _internetSubscription = null;
+    _searchDebounce?.cancel();
     _controller.dispose();
     _searchController.dispose();
     super.dispose();
@@ -197,6 +199,7 @@ class _SalesPageState extends State<SalesPage> {
               isSaving: _controller.isSaving,
               canCreateSales: canCreateSales,
               onSearch: _runSearch,
+              onChanged: _handleSearchChanged,
               onClear: _clearSearch,
               onToggleSettled: _controller.toggleFullyPaidFilter,
               onCreate: _createSale,
@@ -233,6 +236,7 @@ class _SalesPageState extends State<SalesPage> {
           _SalesMobileSearchBar(
             controller: _searchController,
             onSearch: _runSearch,
+            onChanged: _handleSearchChanged,
             onClear: _clearSearch,
           ),
           Expanded(
@@ -698,10 +702,30 @@ class _SalesPageState extends State<SalesPage> {
   }
 
   void _runSearch() {
+    _searchDebounce?.cancel();
     _controller.load(query: _searchController.text.trim());
   }
 
+  void _handleSearchChanged(String value) {
+    final normalized = value.trim();
+    _searchDebounce?.cancel();
+    if (normalized.isEmpty) {
+      _controller.load(query: '');
+      return;
+    }
+    if (normalized.length < 2) {
+      return;
+    }
+    _searchDebounce = Timer(const Duration(milliseconds: 280), () {
+      if (!mounted) {
+        return;
+      }
+      _controller.load(query: normalized);
+    });
+  }
+
   void _clearSearch() {
+    _searchDebounce?.cancel();
     _searchController.clear();
     _controller.load(query: '');
   }
@@ -896,11 +920,13 @@ class _SalesMobileSearchBar extends StatelessWidget {
   const _SalesMobileSearchBar({
     required this.controller,
     required this.onSearch,
+    required this.onChanged,
     required this.onClear,
   });
 
   final TextEditingController controller;
   final VoidCallback onSearch;
+  final ValueChanged<String> onChanged;
   final VoidCallback onClear;
 
   @override
@@ -912,6 +938,7 @@ class _SalesMobileSearchBar extends StatelessWidget {
         controller: controller,
         hintText: 'Buscar ventas…',
         onSubmitted: (_) => onSearch(),
+        onChanged: onChanged,
         onClear: onClear,
         onOpenFilter: () => Scaffold.of(context).openEndDrawer(),
       ),
@@ -992,6 +1019,7 @@ class _SalesToolbar extends StatelessWidget {
     required this.isSaving,
     required this.canCreateSales,
     required this.onSearch,
+    required this.onChanged,
     required this.onClear,
     required this.onToggleSettled,
     required this.onCreate,
@@ -1002,6 +1030,7 @@ class _SalesToolbar extends StatelessWidget {
   final bool isSaving;
   final bool canCreateSales;
   final VoidCallback onSearch;
+  final ValueChanged<String> onChanged;
   final VoidCallback onClear;
   final VoidCallback onToggleSettled;
   final VoidCallback onCreate;
@@ -1093,6 +1122,7 @@ class _SalesToolbar extends StatelessWidget {
         ),
       ),
       onSubmitted: (_) => onSearch(),
+      onChanged: onChanged,
     );
   }
 }

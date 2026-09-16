@@ -156,11 +156,10 @@ void main() {
   test('sales_update_soft_deletes_previous_installments_test', () async {
     final saleId = await _createSampleSale(salesRepository, appDatabase);
     final db = await appDatabase.database;
-    final now = DateTime(2026, 5, 2, 10, 0);
 
     final saleRow = (await db.query(
       DatabaseSchema.salesTable,
-      columns: ['cliente_id', 'solar_id', 'usuario_id'],
+      columns: ['cliente_id', 'solar_id', 'usuario_id', 'fecha_venta'],
       where: 'id = ?',
       whereArgs: [saleId],
       limit: 1,
@@ -179,7 +178,10 @@ void main() {
         clientId: saleRow['cliente_id'] as int,
         lotId: saleRow['solar_id'] as int,
         userId: saleRow['usuario_id'] as int,
-        saleDate: now,
+        // La fecha de venta se mantiene: cambiarla con cuotas activas esta
+        // bloqueado por el guard de recalendarizacion. El objetivo de esta
+        // prueba es el soft-delete de las cuotas previas al actualizar.
+        saleDate: DateTime.parse(saleRow['fecha_venta'] as String),
         salePrice: 400000,
         downPaymentPercentage: 10,
         requiredInitialPayment: 40000,

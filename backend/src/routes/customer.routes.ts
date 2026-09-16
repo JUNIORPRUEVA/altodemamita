@@ -2,6 +2,7 @@ import { Router } from "express";
 import { authGuard } from "../auth";
 import { resolveCompanyForRequest } from "../companyIdentity";
 import { prisma } from "../prisma";
+import { isOverdueInstallment } from "../services/installmentStatus.service";
 import { serializeInstallmentRow, serializeSaleRow } from "./owner.routes";
 
 export const customerRouter = Router();
@@ -317,7 +318,9 @@ async function buildCustomerSnapshot(context: CustomerContext) {
   const serializedSales = sales.map((sale) =>
     serializeSaleRow(sale, clientMap, lotMap, sellerMap),
   );
-  const serializedInstallments = installments.map(serializeInstallmentRow);
+  const serializedInstallments = installments.map((installment) =>
+    serializeInstallmentRow(installment),
+  );
   const serializedPayments = payments.map((payment) =>
     serializeCustomerPayment(payment),
   );
@@ -408,10 +411,12 @@ function customerTotals(sales: any[], installments: any[], payments: any[]) {
     0,
   );
   const overdue = installments.filter((installment) => {
-    const status = String(installment.status ?? "").toLowerCase();
-    if (status.includes("venc") || status.includes("overdue")) return true;
-    if (status.includes("pag") || status.includes("paid")) return false;
-    return installment.dueDate ? installment.dueDate < startOfToday() : false;
+    return isOverdueInstallment({
+      storedStatus: installment.status,
+      dueDate: installment.dueDate,
+      totalAmount: installment.totalAmount,
+      paidAmount: installment.paidAmount,
+    });
   }).length;
   return {
     sold: sold.toFixed(2),
@@ -483,9 +488,4 @@ function lotDisplay(lot: { block: string | null; number: string | null }) {
   if (number) return `Solar ${number}`;
   if (block) return `Manzana ${block}`;
   return null;
-}
-
-function startOfToday() {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
 }

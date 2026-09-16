@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { isBlockingActiveSaleForLotDelete } from './sync.routes';
+import {
+  isBlockingActiveSaleForLotDelete,
+  shouldRejectLegacySaleDateChange,
+} from './sync.routes';
 
 test('lot delete sync guard blocks active sale references', () => {
   assert.equal(
@@ -23,4 +26,34 @@ test('lot delete sync guard allows cancelled, deleted, or missing sale reference
     false,
   );
   assert.equal(isBlockingActiveSaleForLotDelete(null), false);
+});
+
+test('legacy sync rejects saleDate changes when active installments exist', () => {
+  assert.equal(
+    shouldRejectLegacySaleDateChange({
+      existingSaleDate: new Date('2026-07-15T15:11:00.000Z'),
+      incomingSaleDate: new Date('2026-08-15T15:11:00.000Z'),
+      hasActiveInstallments: true,
+    }),
+    true,
+  );
+});
+
+test('legacy sync allows unchanged saleDate or sales without active installments', () => {
+  assert.equal(
+    shouldRejectLegacySaleDateChange({
+      existingSaleDate: new Date('2026-07-15T15:11:00.000Z'),
+      incomingSaleDate: new Date('2026-07-15T15:11:00.000Z'),
+      hasActiveInstallments: true,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldRejectLegacySaleDateChange({
+      existingSaleDate: new Date('2026-07-15T15:11:00.000Z'),
+      incomingSaleDate: new Date('2026-08-15T15:11:00.000Z'),
+      hasActiveInstallments: false,
+    }),
+    false,
+  );
 });

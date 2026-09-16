@@ -963,7 +963,7 @@ void main() {
           clientId: client.id!,
           lotId: secondLot.id!,
           userId: 1,
-          saleDate: now.add(const Duration(days: 1)),
+          saleDate: now,
           salePrice: 975000,
           downPaymentPercentage: 8,
           requiredInitialPayment: 78000,
@@ -1457,10 +1457,7 @@ void main() {
         closeTo(firstInstallment.totalAmount, 0.01),
       );
       expect(detail.installments[1].totalAmount, firstInstallment.totalAmount);
-      expect(
-        detail.sale.pendingBalance,
-        closeTo(830192.77, 0.01),
-      );
+      expect(detail.sale.pendingBalance, closeTo(830192.77, 0.01));
 
       final db = await appDatabase.database;
       final paymentRows = await db.query(

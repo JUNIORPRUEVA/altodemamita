@@ -1,16 +1,17 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/business/installment_status.dart';
 import '../../../../core/responsive/app_breakpoints.dart';
 import '../../../installments/domain/installment.dart';
 
 String _effectiveStatus(Installment item) {
-  if (item.status == 'pagada' || item.status == 'ajustada') return item.status;
-  if (item.remainingAmount <= 0.009) return item.status;
-  final today = DateTime.now();
-  final todayDate = DateTime(today.year, today.month, today.day);
-  final dueDate = DateTime(item.dueDate.year, item.dueDate.month, item.dueDate.day);
-  if (dueDate.isBefore(todayDate)) return 'vencida';
-  return item.status;
+  return InstallmentStatusResolver.effectiveStatus(
+    dueDate: item.dueDate,
+    totalAmount: item.totalAmount,
+    paidAmount: item.paidAmount,
+    remainingAmount: item.remainingAmount,
+    storedStatus: item.status,
+  );
 }
 
 /// Tabla plana de cuotas amortizadas.

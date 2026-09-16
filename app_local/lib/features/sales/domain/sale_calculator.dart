@@ -1,5 +1,6 @@
 import 'dart:math';
 
+import '../../../core/business/installment_status.dart';
 import '../../installments/domain/installment.dart';
 
 class SaleScheduleEntry {
@@ -328,6 +329,20 @@ class SaleCalculator {
     required double totalAmount,
     required DateTime asOf,
   }) {
+    return InstallmentStatusResolver.persistedStatus(
+      dueDate: dueDate,
+      totalAmount: totalAmount,
+      paidAmount: paidAmount,
+      businessDate: asOf,
+    );
+  }
+
+  static String resolveStoredInstallmentStatus({
+    required DateTime dueDate,
+    required double paidAmount,
+    required double totalAmount,
+    required DateTime asOf,
+  }) {
     if (paidAmount >= totalAmount - 0.009) {
       return 'pagada';
     }
@@ -338,9 +353,10 @@ class SaleCalculator {
   }
 
   static bool isPastDue({required DateTime dueDate, required DateTime asOf}) {
-    final dueDay = DateTime(dueDate.year, dueDate.month, dueDate.day);
-    final today = DateTime(asOf.year, asOf.month, asOf.day);
-    return dueDay.isBefore(today);
+    return InstallmentStatusResolver.isPastDue(
+      dueDate: dueDate,
+      businessDate: asOf,
+    );
   }
 
   static double _roundCurrency(double value) {

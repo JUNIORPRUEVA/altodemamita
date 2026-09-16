@@ -314,7 +314,22 @@ async function registerPaymentInTransaction(
   const requiredInitial = toNumber(sale.initialRequiredAmount);
   const monthlyInterest = toNumber(sale.monthlyInterestRate);
   const installmentCount = sale.installmentCount ?? 0;
-  const saleDate = sale.saleDate ?? paymentDate;
+  /**
+   * FASE 3 — el calendario se ancla SIEMPRE en `saleDate`.
+   *
+   * Antes: `sale.saleDate ?? paymentDate`. Ese fallback permitia que anclar el
+   * calendario a la FECHA DEL PAGO cuando la venta no tenia saleDate, que es
+   * exactamente el defecto del incidente P0 (aplicar la inicial movia las cuotas
+   * un mes). La fecha de pago NO es un ancla valida para un contrato.
+   */
+  const saleDate = sale.saleDate;
+  if (!saleDate) {
+    throw new AuthoritativeError(
+      'SALE_DATE_REQUIRED_FOR_SCHEDULE',
+      'La venta no tiene fecha de venta: no se puede generar ni recalcular el calendario de cuotas.',
+      409,
+    );
+  }
   const paymentIds: string[] = [];
 
   if (pendingInitial <= 0.009 && pendingBalance <= 0.009) {

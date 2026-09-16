@@ -166,8 +166,14 @@ class GlobalSearchService {
         installment['dueDate']?.toString() ?? '',
       );
       final status = installment['status']?.toString().toLowerCase() ?? '';
+      final effectiveStatus =
+          installment['effectiveStatus']?.toString().toLowerCase() ?? '';
+      final backendOverdue = installment['isOverdue'];
       final isPaid = status.contains('pag') || status.contains('paid');
       final isOverdue =
+          backendOverdue == true ||
+          effectiveStatus == 'vencida' ||
+          effectiveStatus == 'overdue' ||
           status.contains('venc') ||
           status.contains('overdue') ||
           (dueDate != null &&

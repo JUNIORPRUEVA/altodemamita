@@ -52,6 +52,7 @@ void main() {
       apiClient: apiClient,
       syncQueueService: queueService,
       appDatabase: appDatabase,
+      allowCloudPullOverride: true,
     );
     await configRepository.saveBaseUrl('http://127.0.0.1:9999/api');
     await configRepository.saveJwtToken('jwt-test');

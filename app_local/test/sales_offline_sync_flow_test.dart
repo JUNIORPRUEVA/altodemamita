@@ -1,3 +1,9 @@
+// Esta suite espera el drenaje real de la cola de sync (con reintentos de
+// 10 s) mientras la suite completa corre en paralelo: se declara un limite
+// explicito y acotado en lugar de depender del default de 30 s de flutter test.
+@Timeout(Duration(seconds: 90))
+library;
+
 import 'dart:async';
 import 'dart:io';
 
@@ -281,7 +287,10 @@ void main() {
           clientId: clientId,
           lotId: lotId,
           userId: 1,
-          saleDate: now.add(const Duration(days: 1)),
+          // La fecha de venta NO cambia: cambiarla con cuotas activas esta
+          // bloqueado (ver pruebas de guard al final del archivo). La edicion
+          // offline sigue subiendo version nueva con deletes de cuotas.
+          saleDate: now,
           salePrice: 500000,
           downPaymentPercentage: 10,
           requiredInitialPayment: 50000,
@@ -310,7 +319,8 @@ void main() {
       await _waitUntil(() async => await syncQueueService.pendingCount() == 0);
 
       final saleUploads =
-          apiClient.uploadedRecordsByScope['sales'] ?? const <Map<String, dynamic>>[];
+          apiClient.uploadedRecordsByScope['sales'] ??
+          const <Map<String, dynamic>>[];
       final updatedSaleUpload = saleUploads.lastWhere(
         (record) =>
             record['sync_id'] == saleSyncId &&
@@ -318,6 +328,33 @@ void main() {
       );
       expect(updatedSaleUpload['version'], 2);
       expect(updatedSaleUpload['installment_count'], 60);
+      // La sincronizacion no puede introducir una fecha de venta distinta a la
+      // almacenada localmente: se sube exactamente `sale_date` (fecha_venta).
+      expect(updatedSaleUpload['sale_date'], now.toIso8601String());
+
+      final editedSaleDate = (await db.query(
+        DatabaseSchema.salesTable,
+        columns: ['fecha_venta'],
+        where: 'id = ?',
+        whereArgs: [saleId],
+        limit: 1,
+      )).single['fecha_venta'];
+      expect(editedSaleDate, now.toIso8601String());
+
+      // La agenda nueva se deriva de la fecha de venta almacenada: la primera
+      // cuota vence un mes despues y la fecha no se movio.
+      final regeneratedInstallments = await db.query(
+        DatabaseSchema.installmentsTable,
+        columns: ['fecha_vencimiento'],
+        where: 'venta_id = ? AND deleted_at IS NULL',
+        whereArgs: [saleId],
+        orderBy: 'numero_cuota ASC',
+      );
+      expect(regeneratedInstallments, hasLength(60));
+      expect(
+        regeneratedInstallments.first['fecha_vencimiento'],
+        DateTime(2026, 5, 25, 9, 0).toIso8601String(),
+      );
 
       final installmentUploads =
           apiClient.uploadedRecordsByScope['installments'] ??
@@ -418,7 +455,8 @@ void main() {
       await _waitUntil(() async => await syncQueueService.pendingCount() == 0);
 
       final saleUploads =
-          apiClient.uploadedRecordsByScope['sales'] ?? const <Map<String, dynamic>>[];
+          apiClient.uploadedRecordsByScope['sales'] ??
+          const <Map<String, dynamic>>[];
       final deleteUpload = saleUploads.lastWhere(
         (record) =>
             record['sync_id'] == saleSyncId && record['deleted_at'] != null,
@@ -436,6 +474,345 @@ void main() {
       expect(syncedRow['deleted_at'], isNotNull);
       expect(syncedRow['sync_status'], DatabaseSchema.syncStatusSynced);
       expect(await salesRepository.fetchDetail(saleId), isNull);
+    },
+  );
+
+  test(
+    'bloquea el cambio de fecha de venta con cuotas activas sin tocar datos ni encolar cambios',
+    () async {
+      final db = await appDatabase.database;
+      final now = DateTime(2026, 4, 26, 10, 0);
+
+      final clientId = await db.insert(DatabaseSchema.clientsTable, {
+        'sync_id': 'client-date-guard-1',
+        'version': 1,
+        'nombre': 'Cliente Guard Fecha',
+        'cedula': '001-0000301-7',
+        'telefono': '8095550301',
+        'direccion': 'Calle Guard 1',
+        'fecha_creacion': now.toIso8601String(),
+        'fecha_actualizacion': now.toIso8601String(),
+        'deleted_at': null,
+        'sync_status': DatabaseSchema.syncStatusSynced,
+      });
+      final lotId = await db.insert(DatabaseSchema.lotsTable, {
+        'sync_id': 'product-date-guard-1',
+        'version': 1,
+        'manzana_numero': 'C',
+        'solar_numero': '07',
+        'metros_cuadrados': 150.0,
+        'precio_por_metro': 2000.0,
+        'estado': 'disponible',
+        'fecha_creacion': now.toIso8601String(),
+        'fecha_actualizacion': now.toIso8601String(),
+        'deleted_at': null,
+        'sync_status': DatabaseSchema.syncStatusSynced,
+      });
+
+      final saleId = await salesRepository.createSale(
+        SaleDraft(
+          clientId: clientId,
+          lotId: lotId,
+          userId: 1,
+          saleDate: now,
+          salePrice: 300000,
+          downPaymentPercentage: 10,
+          requiredInitialPayment: 30000,
+          initialPaymentPaid: 30000,
+          monthlyInterest: 1,
+          installmentCount: 6,
+        ),
+      );
+
+      final beforeSale = (await db.query(
+        DatabaseSchema.salesTable,
+        columns: ['fecha_venta', 'version', 'sync_status'],
+        where: 'id = ?',
+        whereArgs: [saleId],
+        limit: 1,
+      )).single;
+      expect(beforeSale['sync_status'], DatabaseSchema.syncStatusPendingCreate);
+      final beforeInstallments = await db.query(
+        DatabaseSchema.installmentsTable,
+        columns: [
+          'id',
+          'fecha_vencimiento',
+          'version',
+          'deleted_at',
+          'sync_status',
+        ],
+        where: 'venta_id = ? AND deleted_at IS NULL',
+        whereArgs: [saleId],
+        orderBy: 'numero_cuota ASC',
+      );
+      expect(beforeInstallments, hasLength(6));
+
+      // Ruta offline local: el guard no se puede saltar por no tener conexion.
+      online = false;
+      await expectLater(
+        salesRepository.updateSale(
+          saleId,
+          SaleDraft(
+            clientId: clientId,
+            lotId: lotId,
+            userId: 1,
+            saleDate: now.add(const Duration(days: 3)),
+            salePrice: 300000,
+            downPaymentPercentage: 10,
+            requiredInitialPayment: 30000,
+            initialPaymentPaid: 30000,
+            monthlyInterest: 1,
+            installmentCount: 6,
+          ),
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('cambiar la fecha'),
+          ),
+        ),
+      );
+
+      final afterSale = (await db.query(
+        DatabaseSchema.salesTable,
+        columns: ['fecha_venta', 'version', 'sync_status'],
+        where: 'id = ?',
+        whereArgs: [saleId],
+        limit: 1,
+      )).single;
+      expect(afterSale['fecha_venta'], beforeSale['fecha_venta']);
+      expect(afterSale['version'], beforeSale['version']);
+      expect(afterSale['sync_status'], beforeSale['sync_status']);
+
+      // Ninguna cuota se borra ni se mueve por accidente.
+      final afterInstallments = await db.query(
+        DatabaseSchema.installmentsTable,
+        columns: [
+          'id',
+          'fecha_vencimiento',
+          'version',
+          'deleted_at',
+          'sync_status',
+        ],
+        where: 'venta_id = ? AND deleted_at IS NULL',
+        whereArgs: [saleId],
+        orderBy: 'numero_cuota ASC',
+      );
+      expect(
+        afterInstallments.map((row) => row['id']).toList(),
+        beforeInstallments.map((row) => row['id']).toList(),
+      );
+      expect(
+        afterInstallments.map((row) => row['fecha_vencimiento']).toList(),
+        beforeInstallments.map((row) => row['fecha_vencimiento']).toList(),
+      );
+
+      // La operacion fallida no deja trabajo nuevo: la venta conserva su
+      // sync_status y sus cuotas no fueron versionadas ni borradas.
+    },
+  );
+
+  test(
+    'permite editar la fecha de una venta que todavia no tiene cuotas',
+    () async {
+      final db = await appDatabase.database;
+      final now = DateTime(2026, 4, 27, 11, 0);
+
+      final clientId = await db.insert(DatabaseSchema.clientsTable, {
+        'sync_id': 'client-date-ok-1',
+        'version': 1,
+        'nombre': 'Cliente Sin Cuotas',
+        'cedula': '001-0000302-5',
+        'telefono': '8095550302',
+        'direccion': 'Calle Guard 2',
+        'fecha_creacion': now.toIso8601String(),
+        'fecha_actualizacion': now.toIso8601String(),
+        'deleted_at': null,
+        'sync_status': DatabaseSchema.syncStatusSynced,
+      });
+      final lotId = await db.insert(DatabaseSchema.lotsTable, {
+        'sync_id': 'product-date-ok-1',
+        'version': 1,
+        'manzana_numero': 'C',
+        'solar_numero': '08',
+        'metros_cuadrados': 160.0,
+        'precio_por_metro': 2000.0,
+        'estado': 'disponible',
+        'fecha_creacion': now.toIso8601String(),
+        'fecha_actualizacion': now.toIso8601String(),
+        'deleted_at': null,
+        'sync_status': DatabaseSchema.syncStatusSynced,
+      });
+
+      // Apartado sin inicial completo: la agenda aun no existe.
+      final saleId = await salesRepository.createSale(
+        SaleDraft(
+          clientId: clientId,
+          lotId: lotId,
+          userId: 1,
+          saleDate: now,
+          salePrice: 200000,
+          downPaymentPercentage: 10,
+          requiredInitialPayment: 20000,
+          initialPaymentPaid: 0,
+          initialPaymentDeadline: now.add(const Duration(days: 30)),
+          monthlyInterest: 1,
+          installmentCount: 12,
+        ),
+      );
+
+      final installmentsBefore = await db.query(
+        DatabaseSchema.installmentsTable,
+        where: 'venta_id = ? AND deleted_at IS NULL',
+        whereArgs: [saleId],
+      );
+      expect(installmentsBefore, isEmpty);
+
+      final newSaleDate = now.add(const Duration(days: 5));
+      await salesRepository.updateSale(
+        saleId,
+        SaleDraft(
+          clientId: clientId,
+          lotId: lotId,
+          userId: 1,
+          saleDate: newSaleDate,
+          salePrice: 200000,
+          downPaymentPercentage: 10,
+          requiredInitialPayment: 20000,
+          initialPaymentPaid: 0,
+          initialPaymentDeadline: now.add(const Duration(days: 30)),
+          monthlyInterest: 1,
+          installmentCount: 12,
+        ),
+      );
+
+      final editedSale = (await db.query(
+        DatabaseSchema.salesTable,
+        columns: ['fecha_venta', 'version'],
+        where: 'id = ?',
+        whereArgs: [saleId],
+        limit: 1,
+      )).single;
+      expect(editedSale['fecha_venta'], newSaleDate.toIso8601String());
+      expect(editedSale['version'], 2);
+      expect(
+        await db.query(
+          DatabaseSchema.installmentsTable,
+          where: 'venta_id = ? AND deleted_at IS NULL',
+          whereArgs: [saleId],
+        ),
+        isEmpty,
+      );
+    },
+  );
+
+  test(
+    'bloquea la edicion de una venta con cuotas y pagos registrados',
+    () async {
+      final db = await appDatabase.database;
+      final now = DateTime(2026, 4, 28, 12, 0);
+
+      final clientId = await db.insert(DatabaseSchema.clientsTable, {
+        'sync_id': 'client-paid-guard-1',
+        'version': 1,
+        'nombre': 'Cliente Con Pagos',
+        'cedula': '001-0000303-3',
+        'telefono': '8095550303',
+        'direccion': 'Calle Guard 3',
+        'fecha_creacion': now.toIso8601String(),
+        'fecha_actualizacion': now.toIso8601String(),
+        'deleted_at': null,
+        'sync_status': DatabaseSchema.syncStatusSynced,
+      });
+      final lotId = await db.insert(DatabaseSchema.lotsTable, {
+        'sync_id': 'product-paid-guard-1',
+        'version': 1,
+        'manzana_numero': 'C',
+        'solar_numero': '09',
+        'metros_cuadrados': 170.0,
+        'precio_por_metro': 2000.0,
+        'estado': 'disponible',
+        'fecha_creacion': now.toIso8601String(),
+        'fecha_actualizacion': now.toIso8601String(),
+        'deleted_at': null,
+        'sync_status': DatabaseSchema.syncStatusSynced,
+      });
+
+      final saleId = await salesRepository.createSale(
+        SaleDraft(
+          clientId: clientId,
+          lotId: lotId,
+          userId: 1,
+          saleDate: now,
+          salePrice: 300000,
+          downPaymentPercentage: 10,
+          requiredInitialPayment: 30000,
+          initialPaymentPaid: 30000,
+          monthlyInterest: 1,
+          installmentCount: 6,
+        ),
+      );
+
+      final installment = (await db.query(
+        DatabaseSchema.installmentsTable,
+        where: 'venta_id = ? AND deleted_at IS NULL',
+        whereArgs: [saleId],
+        orderBy: 'numero_cuota ASC',
+        limit: 1,
+      )).first;
+      await db.insert(DatabaseSchema.paymentsTable, {
+        'sync_id': 'payment-paid-guard-1',
+        'venta_id': saleId,
+        'cliente_id': clientId,
+        'usuario_id': 1,
+        'cuota_id': installment['id'],
+        'fecha_pago': now.toIso8601String(),
+        'monto_pagado': 1000.0,
+        'metodo_pago': 'efectivo',
+        'tipo_pago': 'cuota',
+        'referencia': 'GUARD-1',
+        'fecha_creacion': now.toIso8601String(),
+        'fecha_actualizacion': now.toIso8601String(),
+        'deleted_at': null,
+        'sync_status': DatabaseSchema.syncStatusPending,
+      });
+
+      online = false;
+      await expectLater(
+        salesRepository.updateSale(
+          saleId,
+          SaleDraft(
+            clientId: clientId,
+            lotId: lotId,
+            userId: 1,
+            saleDate: now.add(const Duration(days: 1)),
+            salePrice: 300000,
+            downPaymentPercentage: 10,
+            requiredInitialPayment: 30000,
+            initialPaymentPaid: 30000,
+            monthlyInterest: 1,
+            installmentCount: 6,
+          ),
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('pagos registrados'),
+          ),
+        ),
+      );
+
+      final untouchedSale = (await db.query(
+        DatabaseSchema.salesTable,
+        columns: ['fecha_venta', 'version'],
+        where: 'id = ?',
+        whereArgs: [saleId],
+        limit: 1,
+      )).single;
+      expect(untouchedSale['fecha_venta'], now.toIso8601String());
+      expect(untouchedSale['version'], 1);
     },
   );
 }
@@ -461,7 +838,11 @@ Future<int> _countByStatus(
 
 Future<void> _waitUntil(
   Future<bool> Function() predicate, {
-  Duration timeout = const Duration(seconds: 10),
+  // La espera es por sondeo de estado (no un sleep). El presupuesto debe
+  // cubrir el intervalo de reintento configurado (10 s) y la contencion de
+  // CPU cuando la suite completa corre en paralelo, sin exceder el limite
+  // por defecto de 30 s de `flutter test`.
+  Duration timeout = const Duration(seconds: 20),
 }) async {
   final deadline = DateTime.now().add(timeout);
   while (DateTime.now().isBefore(deadline)) {

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../core/business/installment_status.dart';
 import '../../../core/responsive/app_breakpoints.dart';
 import '../../payments/data/payments_repository.dart';
 import '../../payments/presentation/payment_history_fullscreen.dart';
@@ -644,11 +645,7 @@ class _InstallmentsSection extends StatelessWidget {
         ? 'Esta venta no tiene cuotas generadas.'
         : 'Las cuotas se generarán cuando el inicial quede completado.';
     final hasInstallments = detail.installments.isNotEmpty;
-    final totalCount = detail.installments.length;
-    final paidCount = detail.installments
-        .where((item) => item.remainingAmount <= 0.009)
-        .length;
-    final pendingCount = totalCount - paidCount;
+    final installmentSummary = detail.installmentSummary;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -683,7 +680,7 @@ class _InstallmentsSection extends StatelessWidget {
                     const SizedBox(height: 5),
                     Text(
                       hasInstallments
-                          ? '$totalCount cuotas generadas · $paidCount pagadas · $pendingCount pendientes'
+                          ? _installmentSummaryText(installmentSummary)
                           : emptyMessage,
                       style: const TextStyle(
                         fontSize: 12.5,
@@ -885,8 +882,7 @@ class _FullscreenTotalsFooter extends StatelessWidget {
   Widget build(BuildContext context) {
     // En compacto (PWA/mobile) los totales se recorren con scroll horizontal
     // para que ningun monto quede cortado. En escritorio no cambia nada.
-    final compact =
-        MediaQuery.sizeOf(context).width < AppBreakpoints.tabletMax;
+    final compact = MediaQuery.sizeOf(context).width < AppBreakpoints.tabletMax;
     final metrics = <Widget>[
       _FooterMetric(
         label: 'Capital',
@@ -994,10 +990,7 @@ class _BottomBar extends StatelessWidget {
       0,
       (sum, installment) => sum + installment.remainingAmount,
     );
-    final paidCount = detail.installments
-        .where((item) => item.remainingAmount <= 0.009)
-        .length;
-    final pendingCount = detail.installments.length - paidCount;
+    final installmentSummary = detail.installmentSummary;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 14, 24, 16),
@@ -1038,7 +1031,7 @@ class _BottomBar extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  '${detail.installments.length} cuotas · $paidCount pagadas · $pendingCount pendientes',
+                  _installmentSummaryText(installmentSummary),
                   style: const TextStyle(
                     fontSize: 11,
                     color: Color(0xFF8893AA),
@@ -1319,6 +1312,19 @@ double _resolveFixedInstallmentAmount(SaleDetail detail) {
 }
 
 String _money(double value) => 'RD\$${_formatAmount(value)}';
+
+String _installmentSummaryText(InstallmentSummaryCounts summary) {
+  final parts = <String>[
+    '${summary.total} cuotas',
+    '${summary.paid} pagadas',
+    '${summary.overdue} atrasadas',
+  ];
+  if (summary.partial > 0) {
+    parts.add('${summary.partial} parciales');
+  }
+  parts.add('${summary.pending} pendientes');
+  return parts.join(' · ');
+}
 
 String _formatAmount(double value) {
   return value

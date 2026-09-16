@@ -240,14 +240,13 @@ void main() {
     },
   );
 
-  test(
-    'editing_retroactive_sale_does_not_duplicate_installments_test',
-    () async {
-      final today = DateTime.now();
-      final saleDate = DateTime(today.year, today.month - 5, today.day);
-      final saleId = await createSale(saleDate: saleDate);
+  test('editing_sale_date_with_installments_is_blocked_test', () async {
+    final today = DateTime.now();
+    final saleDate = DateTime(today.year, today.month - 5, today.day);
+    final saleId = await createSale(saleDate: saleDate);
 
-      await salesRepository.updateSale(
+    expect(
+      () async => salesRepository.updateSale(
         saleId,
         SaleDraft(
           clientId: (await clientRepository.fetchAll()).last.id!,
@@ -261,14 +260,15 @@ void main() {
           monthlyInterest: 1,
           installmentCount: 12,
         ),
-      );
+      ),
+      throwsStateError,
+    );
 
-      final rows = await installmentRows(saleId);
-      final numbers = rows.map((row) => row['numero_cuota']).toSet();
-      expect(rows, hasLength(12));
-      expect(numbers, hasLength(12));
-    },
-  );
+    final rows = await installmentRows(saleId);
+    final numbers = rows.map((row) => row['numero_cuota']).toSet();
+    expect(rows, hasLength(12));
+    expect(numbers, hasLength(12));
+  });
 
   test('changing_sale_date_with_payments_is_blocked_or_warned_test', () async {
     final today = DateTime.now();

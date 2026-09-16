@@ -159,6 +159,13 @@ String _installmentStatusLabel(Object? status) {
 }
 
 bool _isOverdueInstallment(Map<String, dynamic> installment) {
+  final backendFlag = installment['isOverdue'];
+  if (backendFlag is bool) return backendFlag;
+  final effectiveStatus =
+      installment['effectiveStatus']?.toString().toLowerCase() ?? '';
+  if (effectiveStatus.isNotEmpty) {
+    return effectiveStatus == 'vencida' || effectiveStatus == 'overdue';
+  }
   final status = installment['status']?.toString().toLowerCase() ?? '';
   final isPaid = status.contains('pag') || status.contains('paid');
   if (status.contains('venc') || status.contains('overdue')) return true;
