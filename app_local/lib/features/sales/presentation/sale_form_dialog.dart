@@ -2249,12 +2249,16 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
   }
 
   DateTime _buildAutomaticInitialDeadline() {
-    final automaticDeadline = _saleDate.add(const Duration(days: 25));
-    return DateTime(
-      automaticDeadline.year,
-      automaticDeadline.month,
-      automaticDeadline.day,
-    );
+    // La fecha limite del completivo es una fecha de CALENDARIO (dia de venta +
+    // 25 dias), no una duracion absoluta.
+    //
+    // `_saleDate.add(Duration(days: 25))` sumaba 25 x 24 h y despues truncaba a
+    // fecha: si dentro del rango habia un cambio de horario (DST) de otono, el
+    // instante caia en el dia ANTERIOR a las 23:00 y la fecha limite quedaba un
+    // dia antes (venta 26/03/2026 -> 19/04 en una maquina con DST activo, en vez
+    // del canonico 20/04). El constructor `DateTime` normaliza el desborde de
+    // dia y devuelve una fecha pura, independiente del huso y del DST.
+    return DateTime(_saleDate.year, _saleDate.month, _saleDate.day + 25);
   }
 
   void _syncInitialDeadline() {

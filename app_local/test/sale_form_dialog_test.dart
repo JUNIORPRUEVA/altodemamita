@@ -479,7 +479,12 @@ void main() {
       final deadlineField = tester.widget<TextFormField>(
         find.widgetWithText(TextFormField, 'Fecha límite'),
       );
-      expect(deadlineField.controller?.text, '19/04/2026');
+      // Regla canonica: fecha de venta + 25 dias de CALENDARIO.
+      // 26/03/2026 + 25 dias = 20/04/2026 (marzo tiene 31 dias).
+      // El valor anterior ('19/04/2026') era un artefacto de DST: la
+      // implementacion sumaba 25 x 24 h y, en una maquina con cambio de horario
+      // dentro del rango, la fecha caia el dia anterior a las 23:00.
+      expect(deadlineField.controller?.text, '20/04/2026');
 
       await tester.enterText(
         find.widgetWithText(TextFormField, 'Inicial real pagado'),
