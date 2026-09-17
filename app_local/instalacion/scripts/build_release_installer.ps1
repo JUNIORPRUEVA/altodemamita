@@ -15,6 +15,9 @@ param(
   [switch]$IncludeWebView2Runtime = $false,
   [string]$SyncApiBaseUrl = "",
   [string]$CloudCutoverMode = "CLOUD_AUTHORITATIVE",
+  [ValidateSet('PROD', 'UAT')]
+  [string]$Environment = 'PROD',
+  [string]$StorageNamespace = "",
   [switch]$DisableCloudPull = $false,
   [switch]$EnableLegacyMigration = $false,
   [switch]$EnableAuthBootstrap = $false
@@ -119,6 +122,30 @@ $ResolvedCloudCutoverMode = $CloudCutoverMode.Trim().ToUpperInvariant()
 if ($allowedCutoverModes -notcontains $ResolvedCloudCutoverMode) {
   throw "Invalid CloudCutoverMode '$CloudCutoverMode'. Allowed values: $($allowedCutoverModes -join ', ')."
 }
+# Ambiente y namespace de almacenamiento local.
+# PROD conserva la carpeta histórica `SistemaSolares` (no mueve ni migra datos
+# del cliente). UAT usa `SistemaSolares_UAT` para quedar 100% aislado.
+$DefaultStorageNamespace = 'SistemaSolares'
+$ResolvedEnvironment = $Environment.Trim().ToUpperInvariant()
+$ResolvedStorageNamespace = if ($StorageNamespace.Trim()) {
+  $StorageNamespace.Trim()
+} elseif ($ResolvedEnvironment -eq 'UAT') {
+  'SistemaSolares_UAT'
+} else {
+  $DefaultStorageNamespace
+}
+if ($ResolvedStorageNamespace -notmatch '^[A-Za-z0-9_-]{1,64}$') {
+  throw "Invalid StorageNamespace. Only letters, digits, hyphen and underscore are allowed."
+}
+if ($ResolvedEnvironment -eq 'UAT' -and $ResolvedStorageNamespace -eq $DefaultStorageNamespace) {
+  throw "Environment UAT cannot reuse the production storage namespace '$DefaultStorageNamespace'."
+}
+$IsUatInstall = $ResolvedStorageNamespace -ne $DefaultStorageNamespace
+$ResolvedLocalStorageRoot = "%LOCALAPPDATA%\$ResolvedStorageNamespace"
+# Variante de instalación: permite coexistir con producción sin pisarla
+# (AppId, carpeta, menú y nombre de salida distintos).
+$InstallerVariant = if ($IsUatInstall) { "_$ResolvedEnvironment" } else { "" }
+
 $AllowCloudPull = -not $DisableCloudPull
 
 $AppVersion = if ($Version.Trim()) { $Version.Trim() } else { Get-PubspecVersion -Path $PubspecPath }
@@ -142,6 +169,8 @@ Write-Host "Version:      $AppVersion"
 Write-Host "VersionInfo:  $ResolvedVersionInfo"
 Write-Host "Sync API URL: $SyncApiBaseUrl"
 Write-Host "Cutover mode: $ResolvedCloudCutoverMode"
+Write-Host "Environment:  $ResolvedEnvironment"
+Write-Host "Storage ns:   $ResolvedStorageNamespace"
 Write-Host "Cloud pull:   $AllowCloudPull"
 Write-Host "Legacy mig.:  $EnableLegacyMigration"
 Write-Host "Auth boot.:   $EnableAuthBootstrap"
@@ -164,7 +193,8 @@ if (-not $SkipFlutterBuild) {
     $dartDefines = @(
       "--dart-define=SYNC_API_BASE_URL=$SyncApiBaseUrl",
       "--dart-define=ALLOW_CLOUD_PULL=$AllowCloudPull",
-      "--dart-define=CLOUD_CUTOVER_MODE=$ResolvedCloudCutoverMode"
+      "--dart-define=CLOUD_CUTOVER_MODE=$ResolvedCloudCutoverMode",
+      "--dart-define=STORAGE_NAMESPACE=$ResolvedStorageNamespace"
     )
     if ($EnableLegacyMigration) {
       $dartDefines += '--dart-define=ALLOW_LEGACY_MIGRATION=true'
@@ -210,7 +240,8 @@ $isccArgs = @(
   $SetupFile,
   "/DMyAppVersion=$AppVersion",
   "/DMyAppVersionInfo=$ResolvedVersionInfo",
-  "/DMyAppSourceDir=$ReleaseDir"
+  "/DMyAppSourceDir=$ReleaseDir",
+  "/DMyAppVariant=$InstallerVariant"
 )
 
 if ($PerUserInstaller) {
@@ -233,9 +264,20 @@ if (-not $generatedInstaller) {
   throw "No installer executable was produced in $OutputDir."
 }
 
-$manifestPath = Join-Path $OutputDir 'BUILD_MANIFEST.txt'
+if ($IsUatInstall) {
+  # El nombre de salida ya incluye la variante (setup.iss /DMyAppVariant), así
+  # que el artefacto de producción nunca se sobrescribe.
+  Write-Host "UAT installer variant: $InstallerVariant"
+}
+
+$manifestFileName = if ($IsUatInstall) {
+  'BUILD_MANIFEST_UAT.txt'
+} else {
+  'BUILD_MANIFEST.txt'
+}
+$manifestPath = Join-Path $OutputDir $manifestFileName
 $installerSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $generatedInstaller.FullName).Hash
-$diagnosticsLogPath = '%LOCALAPPDATA%\SistemaSolares\logs\sync_diagnostics.log'
+$diagnosticsLogPath = "$ResolvedLocalStorageRoot\logs\sync_diagnostics.log"
 $bundleFiles = Get-ChildItem $ReleaseDir -Recurse -File |
   ForEach-Object { $_.FullName.Substring($ReleaseDir.Length + 1) } |
   Sort-Object
@@ -254,6 +296,9 @@ $manifest = @(
   "SyncApiBaseUrl: $SyncApiBaseUrl",
   "AllowCloudPull: $AllowCloudPull",
   "CloudCutoverMode: $ResolvedCloudCutoverMode",
+  "Environment: $ResolvedEnvironment",
+  "StorageNamespace: $ResolvedStorageNamespace",
+  "LocalStorageRoot: $ResolvedLocalStorageRoot",
   "AllowLegacyMigration: $EnableLegacyMigration",
   "AllowAuthBootstrap: $EnableAuthBootstrap",
   "DiagnosticsLogPath: $diagnosticsLogPath",

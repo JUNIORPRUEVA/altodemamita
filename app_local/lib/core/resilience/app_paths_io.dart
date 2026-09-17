@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as path;
 
+import 'app_storage_namespace.dart';
+
 class AppPaths {
   AppPaths({String? supportDirectory}) : _supportDirectory = supportDirectory;
 
@@ -30,7 +32,7 @@ class AppPaths {
         Platform.environment['LOCALAPPDATA'] ??
             Platform.environment['APPDATA'] ??
             _fallbackAppData(),
-        'SistemaSolares',
+        AppStorageNamespace.folderName,
       );
 
   String get legacySupportDirectory => path.join(
@@ -39,7 +41,7 @@ class AppPaths {
         _flutterTestSupportDirectory() ??
         Platform.environment['APPDATA'] ??
         _fallbackAppData(),
-    'SistemaSolares',
+    AppStorageNamespace.folderName,
   );
 
   String get dataDirectory => path.join(supportDirectory, 'data');
@@ -62,10 +64,16 @@ class AppPaths {
     if (Platform.isWindows) {
       const preferredDrive = 'D:\\';
       if (Directory(preferredDrive).existsSync()) {
-        return path.join(preferredDrive, 'FULLPOS_BACKUPS');
+        return path.join(
+          preferredDrive,
+          AppStorageNamespace.backupFolderName,
+        );
       }
 
-      return path.join(defaultBackupDirectory, 'FULLPOS_BACKUPS');
+      return path.join(
+        defaultBackupDirectory,
+        AppStorageNamespace.backupFolderName,
+      );
     }
 
     if (Platform.isAndroid) {
@@ -103,14 +111,19 @@ class AppPaths {
       return path.join(
         supportDirectory,
         'Documents',
-        'SistemaSolares',
+        AppStorageNamespace.folderName,
         'Backups',
       );
     }
 
     final userProfile = Platform.environment['USERPROFILE'];
     if (userProfile != null && userProfile.isNotEmpty) {
-      return path.join(userProfile, 'Documents', 'SistemaSolares', 'Backups');
+      return path.join(
+        userProfile,
+        'Documents',
+        AppStorageNamespace.folderName,
+        'Backups',
+      );
     }
     return backupsDirectory;
   }
@@ -186,10 +199,13 @@ class AppPaths {
       return null;
     }
 
-    return path.join(
-      Directory.systemTemp.path,
-      'SistemaSolaresFlutterTests',
-      'pid_$pid',
-    );
+    // PROD conserva la carpeta histórica de pruebas; los builds alternos (UAT)
+    // usan una carpeta separada para que las pruebas de aislamiento reflejen
+    // el comportamiento real de cada ambiente.
+    final namespaceSegment = AppStorageNamespace.isDefault
+        ? 'SistemaSolaresFlutterTests'
+        : 'SistemaSolaresFlutterTests${AppStorageNamespace.suffix}';
+
+    return path.join(Directory.systemTemp.path, namespaceSegment, 'pid_$pid');
   }
 }

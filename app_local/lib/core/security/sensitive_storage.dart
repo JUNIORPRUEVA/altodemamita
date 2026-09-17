@@ -2,6 +2,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../resilience/app_storage_namespace.dart';
+
 class SensitiveStorage {
   SensitiveStorage({
     FlutterSecureStorage? secureStorage,
@@ -23,7 +25,7 @@ class SensitiveStorage {
 
   Future<String?> read(String key) async {
     try {
-      final value = await _secureStorage.read(key: key);
+      final value = await _secureStorage.read(key: _scoped(key));
       if (value != null && value.trim().isNotEmpty) {
         return value;
       }
@@ -45,7 +47,7 @@ class SensitiveStorage {
     }
 
     try {
-      await _secureStorage.write(key: key, value: normalized);
+      await _secureStorage.write(key: _scoped(key), value: normalized);
       final prefs = await _tryPreferences();
       await prefs?.remove(_fallbackKey(key));
       return;
@@ -61,7 +63,7 @@ class SensitiveStorage {
 
   Future<void> delete(String key) async {
     try {
-      await _secureStorage.delete(key: key);
+      await _secureStorage.delete(key: _scoped(key));
     } on MissingPluginException {
       // Falls back to SharedPreferences in unit tests or unsupported targets.
     } on PlatformException {
@@ -72,5 +74,8 @@ class SensitiveStorage {
     await prefs?.remove(_fallbackKey(key));
   }
 
-  String _fallbackKey(String key) => 'secure.$key';
+  /// Aísla la clave por ambiente: la sesión de UAT no comparte con producción.
+  String _scoped(String key) => AppStorageNamespace.scopedKey(key);
+
+  String _fallbackKey(String key) => 'secure.${_scoped(key)}';
 }

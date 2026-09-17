@@ -1,5 +1,7 @@
 import 'package:path/path.dart' as p;
 
+import 'app_storage_namespace.dart';
+
 /// Implementación WEB de [AppPaths].
 ///
 /// En el navegador NO existe sistema de archivos, `LOCALAPPDATA`, `D:\` ni
@@ -23,7 +25,8 @@ class AppPaths {
   bool get supportsFileSystem => false;
 
   late final String supportDirectory =
-      _supportDirectory ?? p.posix.join('/', 'SistemaSolares');
+      _supportDirectory ??
+      p.posix.join('/', AppStorageNamespace.folderName);
 
   /// En web no existe el directorio heredado de versiones antiguas.
   String get legacySupportDirectory => supportDirectory;

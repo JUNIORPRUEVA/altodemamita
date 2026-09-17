@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app/app.dart';
 import 'core/config/app_flags.dart';
@@ -10,6 +11,7 @@ import 'devtools/pwa_runtime_diagnostic_app.dart';
 import 'core/resilience/app_incident.dart';
 import 'core/resilience/app_incident_reporter.dart';
 import 'core/resilience/app_paths.dart';
+import 'core/resilience/app_storage_namespace.dart';
 import 'core/resilience/friendly_error_messages.dart';
 import 'core/resilience/global_error_controller.dart';
 import 'core/resilience/incident_logger.dart';
@@ -28,6 +30,26 @@ Future<void> main() async {
   await runZonedGuarded(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
+
+      // Aislamiento por ambiente: en builds alternos (UAT) TODAS las claves de
+      // SharedPreferences se prefijan para no compartir config de backend ni
+      // estado de sesión con la instalación de producción. Debe ejecutarse
+      // ANTES del primer `SharedPreferences.getInstance()`.
+      if (AppStorageNamespace.isAlternate) {
+        final prefix = AppStorageNamespace.suffix.replaceFirst('_', '');
+        if (prefix.isNotEmpty) {
+          try {
+            SharedPreferences.setPrefix('${prefix.toLowerCase()}.');
+          } catch (error) {
+            // Un entorno sin soporte de prefijos no debe impedir el arranque:
+            // SQLite, caché, outbox y sesión ya están aislados por rutas; sólo
+            // se pierde el aislamiento de preferencias.
+            debugPrint(
+              'storage-namespace: setPrefix no soportado ($error)',
+            );
+          }
+        }
+      }
 
       if (kIsWeb && pwaRuntimeDiagnostic) {
         runApp(const PwaRuntimeDiagnosticApp());

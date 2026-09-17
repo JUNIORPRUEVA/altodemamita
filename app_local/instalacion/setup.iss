@@ -64,12 +64,20 @@
   #define IncludeWebView2Runtime 0
 #endif
 
+; Variante de instalación para ambientes alternos (p. ej. UAT):
+;   ISCC setup.iss /DMyAppVariant=_UAT
+; Permite que la instalación de UAT coexista con la de producción (AppId,
+; carpeta, menú y nombre de salida distintos) sin pisar al cliente.
+#ifndef MyAppVariant
+  #define MyAppVariant ""
+#endif
+
 [Setup]
 ; Identidad y metadatos del producto.
-AppId={{E2F4C8D5-7A16-4D68-9A88-1B5FBCC51F6E}}
-AppName={#MyAppName}
+AppId={{E2F4C8D5-7A16-4D68-9A88-1B5FBCC51F6E}{#MyAppVariant}}
+AppName={#MyAppName}{#MyAppVariant}
 AppVersion={#MyAppVersion}
-AppVerName={#MyAppName} {#MyAppVersion}
+AppVerName={#MyAppName}{#MyAppVariant} {#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 #if MyAppPublisherURL != ""
 AppPublisherURL={#MyAppPublisherURL}
@@ -78,16 +86,16 @@ AppPublisherURL={#MyAppPublisherURL}
 AppSupportURL={#MyAppSupportURL}
 #endif
 #if InstallPerUser
-DefaultDirName={localappdata}\Programs\{#MyAppName}
+DefaultDirName={localappdata}\Programs\{#MyAppName}{#MyAppVariant}
 #else
-DefaultDirName={autopf64}\{#MyAppName}
+DefaultDirName={autopf64}\{#MyAppName}{#MyAppVariant}
 #endif
-DefaultGroupName={#MyAppName}
+DefaultGroupName={#MyAppName}{#MyAppVariant}
 OutputDir=output
 #if InstallPerUser
-OutputBaseFilename={#MyAppSlug}_Setup_{#MyAppVersionFile}_User
+OutputBaseFilename={#MyAppSlug}_Setup_{#MyAppVersionFile}{#MyAppVariant}_User
 #else
-OutputBaseFilename={#MyAppSlug}_Setup_{#MyAppVersionFile}
+OutputBaseFilename={#MyAppSlug}_Setup_{#MyAppVersionFile}{#MyAppVariant}
 #endif
 SetupIconFile={#BrandSetupIcon}
 #if BrandWizardImage != ""

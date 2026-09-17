@@ -7,6 +7,7 @@ import '../../installments/data/installments_repository.dart';
 import '../../lots/data/lot_repository.dart';
 import '../../sales/data/sales_repository.dart';
 import '../../sales/domain/sale_summary.dart';
+import 'widgets/money_metric_text.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({
@@ -578,18 +579,21 @@ class _MetricsPanel extends StatelessWidget {
         value: _formatCurrency(stats.collectedAmount),
         icon: Icons.account_balance_wallet_outlined,
         accentColor: const Color(0xFF2E7D5B),
+        valueFontSize: _summaryMoneyFontSize,
       ),
       _StatCard(
         label: 'Pendiente',
         value: _formatCurrency(stats.portfolioPendingAmount),
         icon: Icons.receipt_long_outlined,
         accentColor: const Color(0xFFB66A12),
+        valueFontSize: _summaryMoneyFontSize,
       ),
       _StatCard(
         label: 'Vendido',
         value: _formatCurrency(stats.soldAmount),
         icon: Icons.trending_up,
         accentColor: const Color(0xFF204A71),
+        valueFontSize: _summaryMoneyFontSize,
       ),
       _StatCard(
         label: 'Clientes',
@@ -734,10 +738,12 @@ class _ExecutiveOverview extends StatelessWidget {
                 _HeroMetric(
                   label: 'Cobro pendiente total',
                   value: _formatCurrency(stats.portfolioPendingAmount),
+                  valueFontSize: _heroMoneyFontSize,
                 ),
                 _HeroMetric(
                   label: 'Cobrado registrado',
                   value: _formatCurrency(stats.collectedAmount),
+                  valueFontSize: _heroMoneyFontSize,
                 ),
                 _HeroMetric(
                   label: 'Financiamientos activos',
@@ -938,11 +944,17 @@ class _ReportMetricTile extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 4),
-            Text(
-              segment.value.toString(),
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: const Color(0xFF1D3550),
-                fontWeight: FontWeight.w700,
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                segment.value.toString(),
+                maxLines: 1,
+                softWrap: false,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: const Color(0xFF1D3550),
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
           ],
@@ -958,12 +970,14 @@ class _StatCard extends StatelessWidget {
     required this.value,
     required this.icon,
     required this.accentColor,
+    this.valueFontSize,
   });
 
   final String label;
   final String value;
   final IconData icon;
   final Color accentColor;
+  final double? valueFontSize;
 
   @override
   Widget build(BuildContext context) {
@@ -1000,11 +1014,18 @@ class _StatCard extends StatelessWidget {
               ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 4),
-            Text(
-              value,
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.w800,
-                color: accentColor,
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                value,
+                maxLines: 1,
+                softWrap: false,
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontSize: valueFontSize,
+                  fontWeight: FontWeight.w800,
+                  color: accentColor,
+                ),
               ),
             ),
           ],
@@ -1167,15 +1188,20 @@ class _PriorityBarView extends StatelessWidget {
 }
 
 class _HeroMetric extends StatelessWidget {
-  const _HeroMetric({required this.label, required this.value});
+  const _HeroMetric({
+    required this.label,
+    required this.value,
+    this.valueFontSize,
+  });
 
   final String label;
   final String value;
+  final double? valueFontSize;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      constraints: const BoxConstraints(minWidth: 150),
+      constraints: const BoxConstraints(minWidth: 150, maxWidth: 240),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.08),
@@ -1194,12 +1220,18 @@ class _HeroMetric extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 4),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w800,
-              color: Colors.white,
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              value,
+              maxLines: 1,
+              softWrap: false,
+              style: TextStyle(
+                fontSize: valueFontSize ?? 18,
+                fontWeight: FontWeight.w800,
+                color: Colors.white,
+              ),
             ),
           ),
         ],
@@ -1268,6 +1300,15 @@ class _PriorityBar {
   final Color color;
 }
 
-String _formatCurrency(double value) {
-  return 'RD\$ ${value.toStringAsFixed(2)}';
-}
+/// Tamaño ligeramente reducido para los montos de las tarjetas del resumen
+/// (`headlineSmall` = 24). Mantiene jerarquía y legibilidad.
+const double _summaryMoneyFontSize = 21;
+
+/// Tamaño ligeramente reducido para los montos del panel ejecutivo (18 -> 16).
+const double _heroMoneyFontSize = 16;
+
+/// Monto monetario del resumen.
+///
+/// Delega en el helper central para no repetir `toStringAsFixed(2)` y
+/// garantizar separador de miles + dos decimales: `RD$ 1,000.00`.
+String _formatCurrency(double value) => MoneyMetricText.format(value);
