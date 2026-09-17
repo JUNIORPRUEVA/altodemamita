@@ -120,7 +120,18 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
           _searchFocusNode.unfocus();
         },
       },
-      child: Focus(
+      // `FocusScope` (NO `Focus`) es REQUERIDO por los atajos de arriba.
+      //
+      // `CallbackShortcuts` es internamente `Focus(canRequestFocus:false,
+      // skipTraversal:true, onKeyEvent:...)`: solo entrega teclas mientras el
+      // foco primario sea DESCENDIENTE de su nodo. `FocusNode.unfocus()` (cuya
+      // disposicion por defecto es `UnfocusDisposition.scope`) manda el foco al
+      // `enclosingScope` mas cercano: con un `Focus` simple ese scope es el de
+      // la RUTA, que es ANCESTRO de `CallbackShortcuts`, y TODOS los atajos
+      // dejan de entregarse hasta que el usuario hace clic. Con `FocusScope` el
+      // foco cae dentro del subarbol de `CallbackShortcuts` y la entrega
+      // sobrevive (Esc, cambio de pantalla, etc.).
+      child: FocusScope(
         autofocus: true,
         child: Container(
           width: double.infinity,

@@ -4,6 +4,7 @@ import 'dart:developer' as developer;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../../../core/cloud_foundation/list_snapshot_store.dart';
+import '../../../core/cloud_foundation/sales_cache_invalidation.dart';
 import '../../../core/config/app_flags.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_schema.dart';
@@ -47,6 +48,15 @@ class PaymentsRepository {
     _appDatabase,
     entity: 'payments-work-queue',
   );
+
+  /// Invalida lo derivado de una operacion financiera (lista de ventas +
+  /// work queue de pagos) usando el mecanismo COMPARTIDO. Sin esto, la lista de
+  /// ventas seguia mostrando el `overdueInstallmentCount` anterior despues de
+  /// registrar o anular un pago.
+  Future<void> _invalidateFinancialCaches() async {
+    final db = await _appDatabase.database;
+    await SalesCacheInvalidation.invalidateFinancialDerivedCaches(db);
+  }
 
   bool get _shouldRunBackgroundSync =>
       identical(_appDatabase, AppDatabase.instance);
@@ -405,7 +415,7 @@ class PaymentsRepository {
     _systemConfigService.ensureWritable();
     if (_useBackendMode) {
       await _registerPaymentInBackend(draft);
-      await _queueSnapshot.clear();
+      await _invalidateFinancialCaches();
       return;
     }
 
@@ -456,6 +466,8 @@ class PaymentsRepository {
       'installments',
       'payments',
     ]);
+    // La lista de ventas debe reflejar el nuevo conteo de vencidas YA.
+    await _invalidateFinancialCaches();
   }
 
   Future<SettlementQuote> fetchSettlementQuote(int saleId) async {
@@ -500,7 +512,8 @@ class PaymentsRepository {
         'operationId': operationId,
       },
     );
-    await _queueSnapshot.clear();
+    // Liquidacion: cambia saldos y vencidas derivadas -> invalidar lista de ventas.
+    await _invalidateFinancialCaches();
   }
 
   Future<void> deletePayment(
@@ -515,7 +528,7 @@ class PaymentsRepository {
         reason: reason,
         adminAuthorizationId: adminAuthorizationId,
       );
-      await _queueSnapshot.clear();
+      await _invalidateFinancialCaches();
       return;
     }
     final deleteQueue =
@@ -900,6 +913,8 @@ class PaymentsRepository {
       'installments',
       'payments',
     ]);
+    // Anular un pago puede volver a dejar una cuota como vencida: invalidar ya.
+    await _invalidateFinancialCaches();
   }
 
   Future<void> _registerPaymentInTransaction(
@@ -1521,6 +1536,16 @@ class PaymentsRepository {
     }).toList();
 
     if (futureInstallments.isEmpty) {
+      // INVARIANTE FINANCIERO: si habia dinero asignado a capital y no existe
+      // ninguna cuota futura donde reflejarlo, el pago quedaria registrado SIN
+      // efecto financiero (dinero huerfano). Se aborta la operacion completa:
+      // `registerPayment` corre dentro de db.transaction, asi que el pago se
+      // revierte y no queda ni cobro sin efecto ni calendario inconsistente.
+      if (remainingPrincipalBalance > 0) {
+        throw StateError(
+          'No se puede aplicar el abono a capital: el calendario no tiene cuotas futuras donde reflejarlo. La operacion se cancelo completa.',
+        );
+      }
       return;
     }
 

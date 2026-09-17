@@ -345,6 +345,7 @@ class SalesSyncRepository implements SyncRepository {
             'interes_pagado',
             'fecha_vencimiento',
             'estado',
+            'sync_status',
           ],
           where: 'venta_id = ? AND deleted_at IS NULL AND estado <> ?',
           whereArgs: [saleId, 'ajustada'],
@@ -372,10 +373,25 @@ class SalesSyncRepository implements SyncRepository {
           final rawPaid = _roundCurrency(
             _readDouble(paidRows.first['paid_total']),
           );
+          // AUTORIDAD CLOUD (P0): `monto_pagado` de esta fila es el valor que
+          // PostgreSQL acaba de enviar en el snapshot autoritativo. La tabla local
+          // `pagos` es SOLO evidencia de intenciones locales (incluidas las aun no
+          // sincronizadas). El valor efectivo es el MAXIMO de ambos: la
+          // reconciliacion puede SUMAR intenciones locales, pero es IMPOSIBLE que
+          // degrade un estado autoritativo (p. ej. `pagada`) por el hecho de que la
+          // fila Payment todavia no se haya hidratado (hidratacion parcial).
+          final authoritativePaid =
+              (installment['sync_status'] as String?) ==
+                  DatabaseSchema.syncStatusSynced
+              ? _roundCurrency(_readDouble(installment['monto_pagado']))
+              : 0.0;
+          final effectivePaid = rawPaid > authoritativePaid
+              ? rawPaid
+              : authoritativePaid;
           // Cap at totalAmount to avoid over-payment display from duplicate pagos.
-          final paidAmount = rawPaid > totalAmount
+          final paidAmount = effectivePaid > totalAmount
               ? _roundCurrency(totalAmount)
-              : rawPaid;
+              : effectivePaid;
           final interestAmount = _readDouble(installment['interes_cuota']);
           final principalAmount = _readDouble(installment['capital_cuota']);
           final interestPaid = _roundCurrency(

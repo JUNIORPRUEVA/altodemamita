@@ -12,6 +12,8 @@ import {
   isTimeDerivedOverdueStatus,
   resolvePersistedInstallmentStatus,
 } from '../services/installmentStatus.service';
+import { authoritativeErrorResponse } from '../services/authoritativeErrors.service';
+import { AuthoritativePaymentService } from '../services/authoritativePayment.service';
 
 const rowSchema = z.record(z.unknown()).and(
   z
@@ -34,6 +36,7 @@ const uploadSchema = z.object({
 type Row = Record<string, unknown>;
 
 export const syncRouter = Router();
+const authoritativePayments = new AuthoritativePaymentService(prisma);
 
 syncRouter.post('/upload', async (req, res) => {
   const authUser = await authenticateRequest(req);
@@ -94,7 +97,7 @@ syncRouter.post('/upload', async (req, res) => {
     products: await upsertLots(company.id, uploaded.products, rejected.products),
     sales: await upsertSales(company.id, uploaded.sales, rejected.sales),
     installments: await upsertInstallments(company.id, uploaded.installments, rejected.installments),
-    payments: await upsertPayments(company.id, uploaded.payments, rejected.payments),
+    payments: await upsertPayments(company.id, uploaded.payments, rejected.payments, authUser?.id),
   };
   await recalculateSaleBalances(company.id, [
     ...uploaded.installments.map((row) => stringValue(row.sale_sync_id, row.venta_sync_id)),
@@ -328,6 +331,114 @@ function numericLike(value: unknown): number | null {
   if (text === '' || !/^-?\d+(\.\d+)?$/.test(text)) return null;
   const parsed = Number(text);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * P0 PROPIEDAD DEL SERVIDOR — ESTADO FINANCIERO DE LA CUOTA.
+ *
+ * `paidAmount`, `paidPrincipalAmount`, `paidInterestAmount` y `status` NO son
+ * datos del cliente: son la CONSECUENCIA de una operacion financiera. En el
+ * camino autoritativo los produce `AuthoritativePaymentService` (que ademas
+ * genera el calendario con `paidAmount = 0`) y en el legacy los deriva el
+ * servidor.
+ *
+ * Por eso un snapshot generico (`POST /sync/upload`, scope `installments`) no
+ * puede:
+ *   - CREAR `paidAmount` (cuota nueva: arranque canonico en 0);
+ *   - AUMENTAR `paidAmount` (evita un "cobrado" inventado por el cliente);
+ *   - REDUCIR `paidAmount` (evita degradar dinero ya cobrado);
+ *   - forzar `pagada` / `parcial` sin un `Payment` que lo respalde.
+ *
+ * Contrato: los valores del SERVIDOR siempre ganan; el snapshot solo aporta la
+ * ESTRUCTURA (calendario/importes), que tiene sus propios guards
+ * (`findLockedInstallmentFieldChanges`, `canonicalScheduleViolation`).
+ *
+ * La proteccion es INDEPENDIENTE de `version`: el cliente no puede
+ * autoproclamarse autoridad enviando una version mayor o igual.
+ *
+ * El snapshot no se RECHAZA por esto: se IGNORA el campo financiero y se
+ * responde ACK con el valor autoritativo, para que el cliente converja en vez
+ * de quedar reintentando una fila que nunca puede "corregir".
+ */
+export const SERVER_OWNED_INSTALLMENT_FIELDS = [
+  'paidAmount',
+  'paidPrincipalAmount',
+  'paidInterestAmount',
+  'status',
+] as const;
+
+export type InstallmentFinancialSnapshot = {
+  paidAmount?: unknown;
+  paidPrincipalAmount?: unknown;
+  paidInterestAmount?: unknown;
+  status?: string | null;
+  totalAmount?: unknown;
+};
+
+export type ServerOwnedInstallmentFinancials = {
+  paidAmount: number;
+  paidPrincipalAmount: number;
+  paidInterestAmount: number;
+  status: string | null;
+  ignoredFields: string[];
+};
+
+/**
+ * Estados terminales que NO afirman un estado de dinero (`ajustada`,
+ * `cancelada`). Son la unica `status` que un snapshot puede aportar al CREAR
+ * una cuota: no representan cobro y no inventan importes.
+ */
+function nonMoneyTerminalStatus(status?: string | null) {
+  const resolved = resolvePersistedInstallmentStatus({
+    storedStatus: status ?? null,
+    paidAmount: 0,
+    // `totalAmount: 1` evita la rama "sin saldo pendiente" de
+    // `resolvePersistedInstallmentStatus`, que devolveria `pagada`; aqui solo
+    // interesa saber si el estado es un terminal que no afirma dinero.
+    totalAmount: 1,
+  });
+  return resolved === 'ajustada' || resolved === 'cancelada' ? resolved : null;
+}
+
+/**
+ * Resuelve el estado financiero efectivo de una cuota y reporta que campos del
+ * snapshot fueron ignorados por ser propiedad del servidor.
+ */
+export function resolveServerOwnedInstallmentFinancials(input: {
+  existing?: InstallmentFinancialSnapshot | null;
+  incoming: InstallmentFinancialSnapshot;
+}): ServerOwnedInstallmentFinancials {
+  const existing = input.existing ?? null;
+  const financials = existing
+    ? {
+        paidAmount: numericLike(existing.paidAmount) ?? 0,
+        paidPrincipalAmount: numericLike(existing.paidPrincipalAmount) ?? 0,
+        paidInterestAmount: numericLike(existing.paidInterestAmount) ?? 0,
+        // El estado del servidor se conserva; `resolveIncomingInstallmentStatus`
+        // solo normaliza el atraso derivado (`vencida`), que nunca se persiste.
+        status: resolveIncomingInstallmentStatus({
+          incomingStatus: existing.status ?? null,
+          paidAmount: existing.paidAmount ?? 0,
+          totalAmount: existing.totalAmount ?? input.incoming.totalAmount,
+        }),
+      }
+    : {
+        // Cuota nueva: arranque canonico. El dinero entra como `Payment` y lo
+        // aplica `AuthoritativePaymentService`.
+        paidAmount: 0,
+        paidPrincipalAmount: 0,
+        paidInterestAmount: 0,
+        status: nonMoneyTerminalStatus(input.incoming.status) ?? 'pendiente',
+      };
+
+  const ignoredFields: string[] = [];
+  for (const field of SERVER_OWNED_INSTALLMENT_FIELDS) {
+    const after = input.incoming[field];
+    if (after === undefined || after === null) continue;
+    if (!sameFinancialValue(financials[field], after)) ignoredFields.push(field);
+  }
+
+  return { ...financials, ignoredFields };
 }
 
 export function sameFinancialValue(before: unknown, after: unknown) {
@@ -788,6 +899,8 @@ async function upsertInstallments(companyId: string, rows: Row[], rejected: any[
         interestAmount: true,
         totalAmount: true,
         paidAmount: true,
+        paidPrincipalAmount: true,
+        paidInterestAmount: true,
         endingBalance: true,
         saleSyncId: true,
         status: true,
@@ -812,6 +925,20 @@ async function upsertInstallments(companyId: string, rows: Row[], rejected: any[
         lockedFields: lockedChanges,
       });
       continue;
+    }
+
+    // P0 PROPIEDAD DEL SERVIDOR — el estado financiero de la cuota no viaja en
+    // el snapshot generico. Ver `resolveServerOwnedInstallmentFinancials`.
+    // Si el cliente manda importes/estado financieros distintos, se IGNORAN
+    // (no se rechaza la fila) y el ACK devuelve el valor autoritativo.
+    const serverFinancials = resolveServerOwnedInstallmentFinancials({
+      existing,
+      incoming: data,
+    });
+    if (serverFinancials.ignoredFields.length > 0) {
+      console.log(
+        `[Ownership][Installment] companyId=${companyId} syncId=${id} serverOwnedIgnored=${serverFinancials.ignoredFields.join(',')} -> acked with server values`,
+      );
     }
 
     // FASE 4 — cuota nueva: el calendario enviado debe cumplir la regla canónica
@@ -841,24 +968,38 @@ async function upsertInstallments(companyId: string, rows: Row[], rejected: any[
       }
     }
 
-    // FASE 7 — el atraso derivado no se persiste.
-    const normalizedStatus = resolveIncomingInstallmentStatus({
-      incomingStatus: data.status,
-      paidAmount: data.paidAmount ?? existing?.paidAmount ?? 0,
-      totalAmount: data.totalAmount ?? existing?.totalAmount ?? 0,
-    });
-
     const saved = await prisma.installment.upsert({
       where: { companyId_syncId: { companyId, syncId: id } },
-      create: { companyId, syncId: id, ...data, status: normalizedStatus, saleId },
-      update: { ...data, status: normalizedStatus, saleId },
+      create: {
+        companyId,
+        syncId: id,
+        ...data,
+        paidAmount: serverFinancials.paidAmount,
+        paidPrincipalAmount: serverFinancials.paidPrincipalAmount,
+        paidInterestAmount: serverFinancials.paidInterestAmount,
+        status: serverFinancials.status,
+        saleId,
+      },
+      update: {
+        ...data,
+        paidAmount: serverFinancials.paidAmount,
+        paidPrincipalAmount: serverFinancials.paidPrincipalAmount,
+        paidInterestAmount: serverFinancials.paidInterestAmount,
+        status: serverFinancials.status,
+        saleId,
+      },
     });
     ack.push(installmentRecord(saved));
   }
   return ack;
 }
 
-async function upsertPayments(companyId: string, rows: Row[], rejected: any[]) {
+async function upsertPayments(
+  companyId: string,
+  rows: Row[],
+  rejected: any[],
+  authenticatedUserId?: string,
+) {
   const ack: Row[] = [];
   for (const row of rows) {
     const id = syncId(row);
@@ -916,15 +1057,76 @@ async function upsertPayments(companyId: string, rows: Row[], rejected: any[]) {
         relationIds.receivedByUserId = user?.id ?? null;
       }
 
-      if (missingDeps.length > 0) {
+      // El fallback de usuario solo se consulta cuando las referencias estan
+      // completas (mismo orden de trabajo que antes de extraer la decision).
+      let receivedByUserId = relationIds.receivedByUserId ?? authenticatedUserId ?? null;
+      if (missingDeps.length === 0 && !receivedByUserId) {
+        receivedByUserId = await resolveFallbackUserId(companyId);
+      }
+
+      const decision = resolvePaymentUploadRoute({
+        syncId: id,
+        deletedAt: null,
+        missingDependencies: missingDeps,
+        hasReceivedByUser: receivedByUserId !== null,
+      });
+      if (decision.route === 'reject') {
         console.log(
-          `[DependencyCheck][Payment] companyId=${companyId} syncId=${id} missing=${missingDeps.join(',')} -> rejected`,
+          `[DependencyCheck][Payment] companyId=${companyId} syncId=${id} missing=${decision.missingFields.join(',')} -> rejected`,
         );
         rejected.push({
           sync_id: id,
-          reason: 'missing_dependency',
-          message: `Dependencias faltantes: ${missingDeps.join(', ')}`,
-          missingFields: missingDeps,
+          reason: decision.reason,
+          message: decision.message,
+          missingFields: decision.missingFields,
+        });
+        continue;
+      }
+
+      // El contrato de `resolvePaymentUploadRoute` garantiza que aqui hay usuario
+      // receptor: solo la ruta `authoritative` llega a este punto.
+      const resolvedReceivedByUserId = receivedByUserId as string;
+
+      try {
+        const result = await authoritativePayments.registerPayment({
+          companyId,
+          receivedByUserId: resolvedReceivedByUserId,
+          idempotencyKey: offlinePaymentIdempotencyKey(companyId, id),
+          saleSyncId: data.saleSyncId ?? undefined,
+          paymentDate: data.paidAt ?? undefined,
+          amountPaid: data.amount,
+          paymentMethod: data.method,
+          paymentType: data.paymentType,
+          paymentTypeOverride: data.paymentType,
+          yearToPay: data.yearToPay,
+          reference: data.reference,
+          sourceSyncId: id,
+        });
+
+        const paymentIds = Array.isArray(result.response.paymentIds)
+          ? result.response.paymentIds.map((value) => String(value))
+          : [];
+        if (paymentIds.length === 0) {
+          rejected.push({
+            sync_id: id,
+            reason: 'authoritative_payment_without_rows',
+            message: 'La operacion autoritativa no devolvio filas de pago.',
+          });
+          continue;
+        }
+
+        const saved = await prisma.payment.findMany({
+          where: { companyId, id: { in: paymentIds } },
+          orderBy: { paidAt: 'asc' },
+        });
+        ack.push(...saved.map(paymentRecord));
+        continue;
+      } catch (error) {
+        const response = authoritativeErrorResponse(error);
+        rejected.push({
+          sync_id: id,
+          reason: response.body.error.code,
+          message: response.body.error.message,
         });
         continue;
       }
@@ -938,6 +1140,74 @@ async function upsertPayments(companyId: string, rows: Row[], rejected: any[]) {
     ack.push(paymentRecord(saved));
   }
   return ack;
+}
+
+export function offlinePaymentIdempotencyKey(companyId: string, sourceSyncId: string) {
+  return `offline-payment:${companyId}:${sourceSyncId}`;
+}
+
+/**
+ * P0 BRIDGE FINANCIERO — ruta de aplicacion de un `payments` del upload.
+ *
+ * Un pago VALIDO nunca entra como snapshot: entra por
+ * `AuthoritativePaymentService.registerPayment`, que aplica las reglas
+ * financieras, actualiza cuota/venta y es idempotente. El upsert crudo queda
+ * solo para tombstones (soft delete), que no mueven dinero.
+ *
+ * Contrato:
+ *  - `skip`: fila sin `sync_id` (no hay identidad que confirmar).
+ *  - `legacy_tombstone`: soft delete (no aplica reglas financieras).
+ *  - `reject`: referencias faltantes => NO se escribe nada y NO se hace ACK
+ *    (el cliente lo ve como no confirmado y aplica su retry acotado).
+ *  - `authoritative`: pago financiero valido.
+ */
+export type PaymentUploadRoute =
+  | { route: 'skip' }
+  | { route: 'legacy_tombstone' }
+  | {
+      route: 'reject';
+      reason: 'missing_dependency';
+      message: string;
+      missingFields: string[];
+    }
+  | { route: 'authoritative' };
+
+export function resolvePaymentUploadRoute(input: {
+  syncId?: string | null;
+  deletedAt?: Date | null;
+  missingDependencies?: string[];
+  hasReceivedByUser?: boolean;
+}): PaymentUploadRoute {
+  if (!input.syncId || !input.syncId.trim()) return { route: 'skip' };
+  if (input.deletedAt) return { route: 'legacy_tombstone' };
+
+  const missingFields = input.missingDependencies ?? [];
+  if (missingFields.length > 0) {
+    return {
+      route: 'reject',
+      reason: 'missing_dependency',
+      message: `Dependencias faltantes: ${missingFields.join(', ')}`,
+      missingFields: [...missingFields],
+    };
+  }
+  if (!input.hasReceivedByUser) {
+    return {
+      route: 'reject',
+      reason: 'missing_dependency',
+      message: 'No se pudo resolver el usuario receptor del pago.',
+      missingFields: ['receivedByUserId'],
+    };
+  }
+  return { route: 'authoritative' };
+}
+
+async function resolveFallbackUserId(companyId: string) {
+  const user = await prisma.user.findFirst({
+    where: { companyId, deletedAt: null, active: true },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true },
+  });
+  return user?.id ?? null;
 }
 
 async function recalculateSaleBalances(companyId: string, saleSyncIds: Array<string | null>) {
@@ -1106,6 +1376,19 @@ function installmentRecord(row: any): Row {
   };
 }
 
+/**
+ * Extrae la INTENCION de origen de un Payment autoritativo
+ * (`raw.sourceSyncId`). Devuelve `null` para pagos creados online directo.
+ * Solo transforma datos: no aplica ninguna regla financiera.
+ */
+export function readRawSourceSyncId(raw: unknown): string | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const value = (raw as Record<string, unknown>).sourceSyncId;
+  if (value === null || value === undefined) return null;
+  const text = value.toString().trim();
+  return text === '' ? null : text;
+}
+
 function paymentRecord(row: any): Row {
   return {
     id: row.id,
@@ -1114,6 +1397,8 @@ function paymentRecord(row: any): Row {
     sale_sync_id: row.saleSyncId,
     client_sync_id: row.clientSyncId,
     installment_sync_id: row.installmentSyncId,
+    // P0 IDENTIDAD: correlacion intencion offline -> fila autoritativa.
+    source_payment_sync_id: readRawSourceSyncId(row.raw),
     user_sync_id: row.receivedByUserSyncId,
     payment_date: row.paidAt?.toISOString() ?? null,
     amount_paid: row.amount?.toString() ?? '0',

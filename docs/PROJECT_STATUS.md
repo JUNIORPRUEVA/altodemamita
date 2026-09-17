@@ -219,3 +219,57 @@ The EasyPanel UI was visually verified to open the normal app overview instead o
 PgWeb was corrected to connect explicitly to database `altomamita`; this stopped the recurring PostgreSQL error for missing database `altomamita_user`.
 
 No customer financial/business rows were modified during this infrastructure normalization.
+
+## 2026-09-17 Financial sync hardening + keyboard shortcut fix
+
+Status: IMPLEMENTED AND VALIDATED LOCALLY - pending UAT (no deploy).
+
+### Keyboard shortcuts (app_local, Windows/PWA desktop layout)
+
+Root cause of "after using a shortcut everything stops responding":
+`global_search_page.dart` registered its shortcuts in a `CallbackShortcuts`
+(internally `Focus(canRequestFocus:false, skipTraversal:true, onKeyEvent:...)`,
+which only receives keys while the primary focus is a DESCENDANT) but wrapped the
+page in a plain `Focus(autofocus:true)`, while Escape called
+`_searchFocusNode.unfocus()`. The default `UnfocusDisposition.scope` moves focus
+to the nearest enclosing scope, which was the ROUTE scope - an ancestor of the
+shortcut layer - so every shortcut stopped being delivered until the user
+clicked. Fix: the page-level layer is now `FocusScope(autofocus: true)`.
+Regression lock: `app_local/test/global_search_keyboard_shortcuts_test.dart`
+(10 cases; 5 of them fail on the previous code).
+
+### Financial identity bridge (backend)
+
+`Payment.syncId` (authoritative ROW) and the client `payments.sync_id` (INTENT)
+are now explicitly correlated through `Payment.raw.sourceSyncId`, exposed on
+download as `source_payment_sync_id` (no migration, additive JSON key). One
+offline intent may produce N authoritative rows and all of them carry the same
+source id, so the client resolves its provisional row without double counting
+history or reports. Uploaded payments no longer enter as a raw snapshot: a valid
+financial payment goes through `AuthoritativePaymentService.registerPayment`
+(PARTE 3) with idempotency key `offline-payment:<companyId>:<sourceSyncId>`, so
+retries - including a lost ACK - replay the same operation.
+
+### Server-owned installment financial state (backend)
+
+`paidAmount`, `paidPrincipalAmount`, `paidInterestAmount` and `status` of an
+installment are now explicitly server-owned
+(`resolveServerOwnedInstallmentFinancials`): an existing installment keeps the
+server values (the snapshot cannot create, increase or decrease them, nor force
+`pagada`/`parcial`, independently of the client `version`), and a NEW installment
+starts canonically at `paidAmount = 0` / `pendiente` (terminal `ajustada` /
+`cancelada` still allowed). The snapshot is ignored rather than rejected so the
+ACK returns the authoritative value and the client converges. This also removes
+the double-application risk introduced by routing payments through the
+authoritative service (the snapshot could pre-pay the installment before the
+payment was applied).
+
+### Known open issue (P1, documented, NOT fixed here)
+
+A terminally rejected offline payment is not distinguishable from a transient
+retry: `SyncQueueService._scheduleRetry` marks the source row
+`sync_status = 'failed'` on every retry and not only when
+`_maxRetryAttempts = 12` is exhausted, so the local `pagos` row keeps
+contributing to the derived local paid amount until cloud state supersedes it.
+Recommended fix: a distinct terminal-rejection marker excluded from the local
+intent sums and surfaced in the conflicts UI. Tracked for the next phase.

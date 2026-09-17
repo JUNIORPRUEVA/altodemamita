@@ -865,11 +865,8 @@ class SyncQueueService {
                 .map((item) => item.recordSyncId)
                 .toSet();
             final acknowledgedSyncIds = returnedRecords
-                .map(_readReturnedRecordSyncId)
-                .where(
-                  (value) => value != null && uploadedSyncIds.contains(value),
-                )
-                .cast<String>()
+                .expand(_readReturnedRecordSyncIds)
+                .where(uploadedSyncIds.contains)
                 .toSet()
                 .toList(growable: false);
 
@@ -975,8 +972,7 @@ class SyncQueueService {
             }.toList(growable: false);
 
             final returnedSyncIds = error.returnedRecords
-                .map(_readReturnedRecordSyncId)
-                .whereType<String>()
+                .expand(_readReturnedRecordSyncIds)
                 .toSet();
             final backendAcknowledgedIds = affectedIds
                 .where((id) => returnedSyncIds.contains(id))
@@ -1447,6 +1443,21 @@ class SyncQueueService {
         record['record_sync_id']?.toString().trim() ??
         '';
     return syncId.isEmpty ? null : syncId;
+  }
+
+  Iterable<String> _readReturnedRecordSyncIds(Map<String, dynamic> record) {
+    final ids = <String>{};
+    final syncId = _readReturnedRecordSyncId(record);
+    if (syncId != null) {
+      ids.add(syncId);
+    }
+    final sourcePaymentSyncId = record['source_payment_sync_id']
+        ?.toString()
+        .trim();
+    if (sourcePaymentSyncId != null && sourcePaymentSyncId.isNotEmpty) {
+      ids.add(sourcePaymentSyncId);
+    }
+    return ids;
   }
 
   Future<List<SyncQueueItem>> _filterBlockedClientQueueItems(

@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../core/config/app_flags.dart';
 import '../../core/config/backend_config.dart';
+import '../../core/cloud_foundation/sales_cache_invalidation.dart';
 import '../../core/database/app_database.dart';
 import '../../core/database/database_schema.dart';
 import '../../core/network/backend_http_client.dart';
@@ -643,6 +644,17 @@ class SyncService {
         debugPrint(
           '[sync-download] LOCAL_APPLY scope=${repository.scope} inserted_or_updated=${scopeRecords.length}',
         );
+
+        // CACHE HARDENING — una descarga que modifica cuotas, ventas o pagos
+        // cambia el conteo de vencidas y los saldos derivados de la lista: se
+        // invalida en el acto, sin esperar al proximo arranque ni a un refresco
+        // manual. Solo cuando hubo registros aplicados: en el caso comun
+        // (records=0) no se escribe nada extra.
+        if (scopeRecords.isNotEmpty &&
+            SalesCacheInvalidation.financialScopes.contains(repository.scope)) {
+          final cacheDb = await _appDatabase.database;
+          await SalesCacheInvalidation.invalidateFinancialDerivedCaches(cacheDb);
+        }
 
         final nextCursor =
             response.cursorForScope(repository.scope) ??

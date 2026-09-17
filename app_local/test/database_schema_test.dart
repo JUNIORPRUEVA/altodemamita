@@ -1337,12 +1337,29 @@ void main() {
 
       final detail = await salesRepository.fetchDetail(saleId);
       expect(detail, isNotNull);
-      expect(detail!.sale.pendingBalance, 906341.25);
+      // CANONICO (paridad con el backend authoritative): el saldo pendiente de la
+      // venta es la suma del CAPITAL insoluto del calendario. Antes reflejaba
+      // capital fantasma (906341.25 para un financiado de 850000) porque el
+      // recalculo amortizaba mas capital del que quedaba en la ultima cuota.
+      expect(
+        detail!.sale.pendingBalance,
+        closeTo(
+          detail.installments.fold<double>(
+            0,
+            (sum, item) =>
+                sum + (item.principalAmount - item.paidPrincipalAmount),
+          ),
+          0.02,
+        ),
+      );
+      expect(detail.sale.pendingBalance, lessThanOrEqualTo(850000.02));
       expect(detail.installments.first.paidAmount, 0);
       expect(detail.installments.first.openingBalance, closeTo(850000, 0.02));
+      // El recalculo canonico redondea el dinero a centavos, por eso la
+      // comparacion es con tolerancia (el calendario de creacion conserva floats).
       expect(
         detail.installments.first.totalAmount,
-        originalFirstInstallment.totalAmount,
+        closeTo(originalFirstInstallment.totalAmount, 0.01),
       );
 
       final recalculatedFixedAmount = detail.installments.first.totalAmount;
@@ -1456,8 +1473,22 @@ void main() {
         detail.installments.first.paidAmount,
         closeTo(firstInstallment.totalAmount, 0.01),
       );
-      expect(detail.installments[1].totalAmount, firstInstallment.totalAmount);
-      expect(detail.sale.pendingBalance, closeTo(830192.77, 0.01));
+      // La cuota fija se mantiene; el recalculo canonico redondea a centavos.
+      expect(
+        detail.installments[1].totalAmount,
+        closeTo(firstInstallment.totalAmount, 0.01),
+      );
+      expect(
+        detail.sale.pendingBalance,
+        closeTo(
+          detail.installments.fold<double>(
+            0,
+            (sum, item) =>
+                sum + (item.principalAmount - item.paidPrincipalAmount),
+          ),
+          0.02,
+        ),
+      );
 
       final db = await appDatabase.database;
       final paymentRows = await db.query(
@@ -1536,9 +1567,22 @@ void main() {
       final detail = await salesRepository.fetchDetail(saleId);
       expect(detail, isNotNull);
       expect(detail!.installments.length, lessThan(12));
-      expect(detail.installments.first.totalAmount, originalFixedAmount);
+      expect(
+        detail.installments.first.totalAmount,
+        closeTo(originalFixedAmount, 0.01),
+      );
       expect(detail.installments.first.openingBalance, closeTo(800000, 0.02));
-      expect(detail.sale.pendingBalance, closeTo(832394.64, 0.01));
+      expect(
+        detail.sale.pendingBalance,
+        closeTo(
+          detail.installments.fold<double>(
+            0,
+            (sum, item) =>
+                sum + (item.principalAmount - item.paidPrincipalAmount),
+          ),
+          0.02,
+        ),
+      );
       expect(detail.installments.last.endingBalance, 0);
     },
   );
@@ -1604,7 +1648,10 @@ void main() {
       expect(detail, isNotNull);
       expect(detail!.installments.length, lessThan(12));
       expect(detail.installments.first.status, 'pagada');
-      expect(detail.installments[1].totalAmount, firstInstallment.totalAmount);
+      expect(
+        detail.installments[1].totalAmount,
+        closeTo(firstInstallment.totalAmount, 0.01),
+      );
       expect(detail.installments.last.endingBalance, 0);
     },
   );
@@ -1868,8 +1915,13 @@ void main() {
     expect(receipt.company.telefono, '809-555-0202');
     expect(receipt.company.direccion, 'Autopista Duarte Km 10');
     expect(receipt.company.logoBytesBase64, isNotEmpty);
-    expect(receipt.currentOutstandingBalance, closeTo(450126.83, 0.001));
-    expect(receipt.remainingFinancedBalance, closeTo(450126.83, 0.001));
+    // CANONICO: el saldo del recibo es el capital insoluto, sin el capital
+    // fantasma que producia el recalculo (450126.83 para un financiado de 450000).
+    expect(receipt.currentOutstandingBalance, lessThan(450000));
+    expect(
+      receipt.remainingFinancedBalance,
+      closeTo(receipt.currentOutstandingBalance, 0.001),
+    );
     expect(receipt.remainingInitialBalance, 0);
     expect(receipt.totalPaidAccumulated, closeTo(51000, 0.001));
     expect(receipt.installmentsPaid, 0);

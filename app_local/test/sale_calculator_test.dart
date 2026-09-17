@@ -116,12 +116,31 @@ void main() {
       lessThan(schedule.first.interestAmount),
     );
     expect(schedule.last.endingBalance, 0);
+    // CANONICO (paridad con backend/src/services/financing.service.ts ->
+    // buildInstallmentSchedule): todas las cuotas mantienen el pago fijo EXCEPTO
+    // la ULTIMA, que es el remanente (capital + interes del saldo insoluto) y no
+    // puede amortizar mas capital del que queda. Antes la ultima cuota conservaba
+    // el pago fijo y generaba capital fantasma (suma de capital > principal).
     for (final installment in schedule) {
+      expect(
+        installment.totalAmount,
+        closeTo(installment.principalAmount + installment.interestAmount, 0.01),
+      );
+      expect(
+        installment.principalAmount,
+        lessThanOrEqualTo(installment.openingBalance + 0.009),
+      );
+    }
+    for (final installment in schedule.take(schedule.length - 1)) {
       expect(
         installment.totalAmount,
         closeTo(schedule.first.totalAmount, 0.000001),
       );
     }
+    expect(
+      schedule.last.totalAmount,
+      lessThanOrEqualTo(schedule.first.totalAmount + 0.01),
+    );
   });
 
   test('calcula resumen contractual con PMT (sin interes fijo simple)', () {

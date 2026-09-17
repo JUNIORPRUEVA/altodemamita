@@ -110,6 +110,9 @@ class PaymentsSyncRepository implements SyncRepository {
         if (syncId == null) {
           continue;
         }
+        final sourceSyncId = _readRequiredString(
+          record['source_payment_sync_id'],
+        );
 
         final existingRows = await txn.query(
           DatabaseSchema.paymentsTable,
@@ -117,6 +120,41 @@ class PaymentsSyncRepository implements SyncRepository {
           whereArgs: [syncId],
           limit: 1,
         );
+        if (sourceSyncId != null && sourceSyncId != syncId) {
+          final sourceRows = await txn.query(
+            DatabaseSchema.paymentsTable,
+            columns: ['id', 'venta_id', 'sync_status', 'deleted_at'],
+            where: 'sync_id = ?',
+            whereArgs: [sourceSyncId],
+            limit: 1,
+          );
+          if (sourceRows.isNotEmpty &&
+              !_isDeleted(sourceRows.first['deleted_at'])) {
+            final sourceSaleId = _readInt(sourceRows.first['venta_id']);
+            if (sourceSaleId > 0) {
+              affectedSaleIds.add(sourceSaleId);
+            }
+            await txn.update(
+              DatabaseSchema.paymentsTable,
+              {
+                'deleted_at':
+                    _readNullableDate(record['updated_at']) ??
+                    DateTime.now().toIso8601String(),
+                'fecha_actualizacion':
+                    _readDate(record['updated_at'] ?? record['created_at']),
+                'last_modified_remote': _readDate(record['updated_at']),
+                'sync_status': DatabaseSchema.syncStatusSynced,
+              },
+              where: 'sync_id = ?',
+              whereArgs: [sourceSyncId],
+            );
+            if (logDetailedRecords) {
+              _log(
+                'RESOLVE PROVISIONAL PAYMENT: source=$sourceSyncId authoritative=$syncId',
+              );
+            }
+          }
+        }
         if (_isDeleted(record['deleted_at'])) {
           if (_hasConflictProtectedPendingLocal(existingRows)) {
             _log(
@@ -300,6 +338,7 @@ class PaymentsSyncRepository implements SyncRepository {
             'interes_pagado',
             'fecha_vencimiento',
             'estado',
+            'sync_status',
           ],
           where: 'venta_id = ? AND deleted_at IS NULL AND estado <> ?',
           whereArgs: [saleId, 'ajustada'],
@@ -322,14 +361,29 @@ class PaymentsSyncRepository implements SyncRepository {
             [installmentId],
           );
 
-          final paidAmount = _roundCurrency(
+          final localPaidTotal = _roundCurrency(
             _readDouble(paidRows.first['paid_total']),
           );
           final totalAmount = _readDouble(installment['monto_cuota']);
+          // AUTORIDAD CLOUD (P0): `monto_pagado` de esta fila es el valor que
+          // PostgreSQL acaba de enviar en el snapshot autoritativo. La tabla local
+          // `pagos` es SOLO evidencia de intenciones locales (incluidas las aun no
+          // sincronizadas). El valor efectivo es el MAXIMO de ambos: la
+          // reconciliacion puede SUMAR intenciones locales, pero es IMPOSIBLE que
+          // degrade un estado autoritativo (p. ej. `pagada`) por el hecho de que la
+          // fila Payment todavia no se haya hidratado (hidratacion parcial).
+          final authoritativePaid =
+              (installment['sync_status'] as String?) ==
+                  DatabaseSchema.syncStatusSynced
+              ? _roundCurrency(_readDouble(installment['monto_pagado']))
+              : 0.0;
+          final effectivePaid = localPaidTotal > authoritativePaid
+              ? localPaidTotal
+              : authoritativePaid;
           // Cap paid amount at total to handle duplicate pagos without breaking display.
-          final cappedPaidAmount = paidAmount > totalAmount
+          final cappedPaidAmount = effectivePaid > totalAmount
               ? _roundCurrency(totalAmount)
-              : paidAmount;
+              : effectivePaid;
           final interestAmount = _readDouble(installment['interes_cuota']);
           final principalAmount = _readDouble(installment['capital_cuota']);
           final interestPaid = _roundCurrency(

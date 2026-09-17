@@ -268,8 +268,25 @@ class SaleCalculator {
       }
 
       final interestAmount = _roundCurrency(openingBalance * rateDecimal);
-      final principalAmount = fixedPayment - interestAmount;
-      final rawEndingBalance = openingBalance - principalAmount;
+      // PARIDAD OBLIGATORIA CON EL BACKEND
+      // (backend/src/services/financing.service.ts -> buildInstallmentSchedule):
+      //   scheduledPrincipal = (ultima cuota) ? saldo de apertura
+      //                                        : pago fijo - interes
+      //   principalAmount    = clamp(scheduledPrincipal, 0, openingBalance)
+      //   totalAmount        = principalAmount + interestAmount
+      // Sin este tope, al recalcular tras un ABONO A CAPITAL la ultima cuota
+      // amortizaba mas capital del que quedaba y el exceso se perdia de vista
+      // (`endingBalance` se forzaba a 0): suma de capital > principal. Como el
+      // saldo pendiente de la venta se deriva de SUM(capital_cuota), el operador
+      // veia MAS deuda despues de abonar (capital fantasma).
+      final scheduledPrincipal = index == dueDates.length - 1
+          ? openingBalance
+          : _roundCurrency(fixedPayment - interestAmount);
+      final principalAmount = _roundCurrency(
+        scheduledPrincipal.clamp(0, openingBalance),
+      );
+      final totalAmount = _roundCurrency(principalAmount + interestAmount);
+      final rawEndingBalance = _roundCurrency(openingBalance - principalAmount);
       final endingBalance = rawEndingBalance < 0.01 ? 0.0 : rawEndingBalance;
 
       installments.add(
@@ -283,7 +300,7 @@ class SaleCalculator {
           openingBalance: openingBalance,
           principalAmount: principalAmount,
           interestAmount: interestAmount,
-          totalAmount: fixedPayment,
+          totalAmount: totalAmount,
           paidAmount: 0,
           paidPrincipalAmount: 0,
           paidInterestAmount: 0,

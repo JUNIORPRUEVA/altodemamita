@@ -25,6 +25,25 @@ import {
 type TransactionClient = Prisma.TransactionClient;
 type LoadedInstallment = Awaited<ReturnType<typeof loadActiveInstallments>>[number];
 
+/**
+ * P0 IDENTIDAD FINANCIERA — metadata de correlacion.
+ *
+ * `Payment.syncId` identifica la FILA autoritativa (el servicio genera uno nuevo
+ * por cada fila creada). `sourceSyncId` identifica la INTENCION del cliente que
+ * la origino, porque una sola intencion offline puede producir N filas
+ * autoritativas (una por aplicacion a cuota + una por capital).
+ *
+ * Se persiste dentro del JSON `raw` existente: no requiere migracion y no
+ * reemplaza `Payment.syncId`.
+ */
+export function authoritativePaymentRaw(sourceSyncId?: string | null) {
+  const normalized = sourceSyncId?.toString().trim();
+  return {
+    authoritativeSource: 'phase_1d' as const,
+    ...(normalized ? { sourceSyncId: normalized } : {}),
+  };
+}
+
 export type RegisterAuthoritativePaymentInput = {
   companyId: string;
   receivedByUserId: string;
@@ -42,6 +61,11 @@ export type RegisterAuthoritativePaymentInput = {
   yearToPay?: number | null;
   reference?: string | null;
   quoteVersion?: string | null;
+  /**
+   * `sync_id` de la INTENCION offline original (correlacion, no identidad de
+   * fila). Opcional: los pagos creados online directo no lo llevan.
+   */
+  sourceSyncId?: string | null;
 };
 
 export type AnnulAuthoritativePaymentInput = {
@@ -383,7 +407,7 @@ async function registerPaymentInTransaction(
         yearToPay: input.yearToPay,
         principalApplied: decimal(0),
         interestApplied: decimal(0),
-        raw: { authoritativeSource: 'phase_1d' },
+        raw: authoritativePaymentRaw(input.sourceSyncId),
       },
       select: { id: true },
     });
@@ -523,7 +547,7 @@ async function registerPaymentInTransaction(
         yearToPay: input.yearToPay,
         principalApplied: decimal(outcome.principalPaidNow),
         interestApplied: decimal(outcome.interestPaidNow),
-        raw: { authoritativeSource: 'phase_1d' },
+        raw: authoritativePaymentRaw(input.sourceSyncId),
       },
       select: { id: true },
     });
@@ -570,7 +594,7 @@ async function registerPaymentInTransaction(
         yearToPay: input.yearToPay,
         principalApplied: decimal(capitalPrepayment),
         interestApplied: decimal(0),
-        raw: { authoritativeSource: 'phase_1d' },
+        raw: authoritativePaymentRaw(input.sourceSyncId),
       },
       select: { id: true },
     });

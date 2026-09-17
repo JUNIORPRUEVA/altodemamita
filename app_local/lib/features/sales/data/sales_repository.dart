@@ -6,6 +6,7 @@ import 'dart:math' as math;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../../../core/business/installment_status.dart';
+import '../../../core/cloud_foundation/sales_cache_invalidation.dart';
 import '../../../core/config/app_flags.dart';
 import '../../../core/network/backend_api_client.dart';
 import '../../../core/network/backend_entity_id_registry.dart';
@@ -1543,16 +1544,10 @@ class SalesRepository {
     if (!_useBackendMode) {
       return;
     }
-    try {
-      final db = await _appDatabase.database;
-      await db.delete(
-        DatabaseSchema.salesListCacheTable,
-        where: 'cache_key = ?',
-        whereArgs: const [_listCacheKey],
-      );
-    } catch (_) {
-      // Best-effort.
-    }
+    // Invalidacion COMPARTIDA: la misma implementacion que usan Pagos y la sync,
+    // para que no existan caminos distintos de invalidacion del conteo de vencidas.
+    final db = await _appDatabase.database;
+    await SalesCacheInvalidation.invalidateSalesList(db);
   }
 
   Future<SaleDetail?> _fetchDetailFromBackend(int saleId) async {

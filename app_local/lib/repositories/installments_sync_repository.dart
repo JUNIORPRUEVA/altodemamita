@@ -286,6 +286,7 @@ class InstallmentsSyncRepository implements SyncRepository {
             'interes_pagado',
             'fecha_vencimiento',
             'estado',
+            'sync_status',
           ],
           where: 'venta_id = ? AND deleted_at IS NULL AND estado <> ?',
           whereArgs: [saleId, 'ajustada'],
@@ -308,14 +309,29 @@ class InstallmentsSyncRepository implements SyncRepository {
             [installmentId],
           );
 
-          final paidAmount = _roundCurrency(
+          final localPaidTotal = _roundCurrency(
             _readDouble(paidRows.first['paid_total']),
           );
           final totalAmount = _readDouble(installment['monto_cuota']);
+          // AUTORIDAD CLOUD (P0): `monto_pagado` de esta fila es el valor que
+          // PostgreSQL acaba de enviar en el snapshot autoritativo. La tabla local
+          // `pagos` es SOLO evidencia de intenciones locales (incluidas las aun no
+          // sincronizadas). El valor efectivo es el MAXIMO de ambos: la
+          // reconciliacion puede SUMAR intenciones locales, pero es IMPOSIBLE que
+          // degrade un estado autoritativo (p. ej. `pagada`) por el hecho de que la
+          // fila Payment todavia no se haya hidratado (hidratacion parcial).
+          final authoritativePaid =
+              (installment['sync_status'] as String?) ==
+                  DatabaseSchema.syncStatusSynced
+              ? _roundCurrency(_readDouble(installment['monto_pagado']))
+              : 0.0;
+          final effectivePaid = localPaidTotal > authoritativePaid
+              ? localPaidTotal
+              : authoritativePaid;
           // Cap paid amount at total to handle duplicate pagos without breaking display.
-          final cappedPaidAmount = paidAmount > totalAmount
+          final cappedPaidAmount = effectivePaid > totalAmount
               ? _roundCurrency(totalAmount)
-              : paidAmount;
+              : effectivePaid;
           final interestAmount = _readDouble(installment['interes_cuota']);
           final principalAmount = _readDouble(installment['capital_cuota']);
           final interestPaid = _roundCurrency(
