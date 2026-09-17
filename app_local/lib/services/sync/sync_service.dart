@@ -648,13 +648,15 @@ class SyncService {
         // CACHE HARDENING — una descarga que modifica cuotas, ventas o pagos
         // cambia el conteo de vencidas y los saldos derivados de la lista: se
         // invalida en el acto, sin esperar al proximo arranque ni a un refresco
-        // manual. Solo cuando hubo registros aplicados: en el caso comun
-        // (records=0) no se escribe nada extra.
-        if (scopeRecords.isNotEmpty &&
-            SalesCacheInvalidation.financialScopes.contains(repository.scope)) {
-          final cacheDb = await _appDatabase.database;
-          await SalesCacheInvalidation.invalidateFinancialDerivedCaches(cacheDb);
-        }
+        // manual. Los scopes sin cache propia (clientes, solares) tambien
+        // alimentan los KPIs del Resumen: marcan el snapshot como vencido. El
+        // caso comun (records=0) no toca nada.
+        final cacheDb = await _appDatabase.database;
+        await SalesCacheInvalidation.onCloudRecordsApplied(
+          cacheDb,
+          scope: repository.scope,
+          records: scopeRecords.length,
+        );
 
         final nextCursor =
             response.cursorForScope(repository.scope) ??

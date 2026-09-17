@@ -1204,30 +1204,64 @@ class _SalesListPane extends StatelessWidget {
   }
 }
 
-/// Indicador discreto de refresh en segundo plano con datos visibles.
-class _SalesRefreshingBar extends StatelessWidget {
+/// Indicador DISCRETO de refresh en segundo plano con datos visibles.
+///
+/// REGLA P0: nunca debe parecer que la pantalla todavía está cargando ni quedar
+/// permanente. Con el writer del sync ocupado, un refresh puede tardar minutos:
+/// por eso el aviso se muestra sólo tras [appearAfter] y se retira solo tras
+/// [maxVisible] aunque el refresh siga corriendo en background.
+class _SalesRefreshingBar extends StatefulWidget {
   const _SalesRefreshingBar();
+
+  static const Duration appearAfter = Duration(milliseconds: 600);
+  static const Duration maxVisible = Duration(seconds: 4);
+
+  @override
+  State<_SalesRefreshingBar> createState() => _SalesRefreshingBarState();
+}
+
+class _SalesRefreshingBarState extends State<_SalesRefreshingBar> {
+  bool _visible = false;
+  Timer? _appearTimer;
+  Timer? _hideTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _appearTimer = Timer(_SalesRefreshingBar.appearAfter, () {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _visible = true);
+      _hideTimer = Timer(_SalesRefreshingBar.maxVisible, () {
+        if (mounted) {
+          setState(() => _visible = false);
+        }
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _appearTimer?.cancel();
+    _hideTimer?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
+    // Sin datos ocultos, sin spinner y sin texto permanente: sólo un aviso
+    // breve y discreto.
+    if (!_visible) {
+      return const SizedBox.shrink();
+    }
     return Container(
       width: double.infinity,
-      color: const Color(0xFFF2F6FB),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: const [
-          SizedBox(
-            width: 12,
-            height: 12,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          ),
-          SizedBox(width: 8),
-          Text(
-            'Actualizando…',
-            style: TextStyle(fontSize: 12, color: Color(0xFF4A5A72)),
-          ),
-        ],
+      color: const Color(0xFFF7F9FC),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: const Text(
+        'Actualizando datos en segundo plano…',
+        style: TextStyle(fontSize: 11, color: Color(0xFF7A879E)),
       ),
     );
   }

@@ -19,6 +19,11 @@ import 'package:sistema_solares/features/settings/domain/app_setting.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  // El cache en memoria vive FUERA de la pantalla (sobrevive a que el shell
+  // destruya y recree la pagina). Se aisla entre tests.
+  setUp(SalesListMemoryCache.debugReset);
+  tearDown(SalesListMemoryCache.debugReset);
+
   test(
     'cache-first: muestra la ultima lista guardada de inmediato y refresca en segundo plano sin vaciar',
     () async {
@@ -211,6 +216,135 @@ void main() {
       controller.dispose();
     },
   );
+
+  group('Ventas abre de inmediato (lista visible, sin "Actualizando" eterno)', () {
+    test(
+      'lista existente => visible inmediatamente, sin isLoading',
+      () async {
+        // Primera entrada: se carga y queda memorizado.
+        final first = _FakeSalesRepository()
+          ..onFetchAll = (_) => [_summary(1, 'Cliente A')];
+        final firstController = _buildController(sales: first);
+        await firstController.load();
+        expect(firstController.sales.map((s) => s.id), [1]);
+        firstController.dispose();
+
+        // Segunda entrada con SQLite tomado: cache y fetch bloqueados.
+        final blocked = _FakeSalesRepository();
+        final cacheGate = Completer<void>();
+        final fetchGate = Completer<void>();
+        blocked.cacheGate = cacheGate;
+        blocked.fetchGate = fetchGate;
+
+        final controller = _buildController(sales: blocked);
+        controller.load();
+        await pumpEventQueue();
+
+        expect(
+          controller.sales.map((s) => s.id),
+          [1],
+          reason: 'la lista anterior debe estar ANTES de que responda SQLite',
+        );
+        expect(
+          controller.isLoading,
+          isFalse,
+          reason: 'NO puede quedar en skeleton si hay lista previa',
+        );
+        expect(controller.loadError, isNull);
+
+        cacheGate.complete();
+        fetchGate.complete();
+        await pumpEventQueue();
+        controller.dispose();
+      },
+    );
+
+    test('Ventas -> Dashboard -> Ventas => lista inmediata', () async {
+      final first = _FakeSalesRepository()
+        ..onFetchAll = (_) => [_summary(1, 'Cliente A'), _summary(2, 'B')];
+      final firstController = _buildController(sales: first);
+      await firstController.load();
+      firstController.dispose(); // el shell destruye la página al navegar
+
+      // Segundo controlador (pantalla recreada) con SQLite TOMADO: ni la cache
+      // ni el fetch autoritativo responden todavía.
+      final blocked = _FakeSalesRepository();
+      final cacheGate = Completer<void>();
+      final fetchGate = Completer<void>();
+      blocked.cacheGate = cacheGate;
+      blocked.fetchGate = fetchGate;
+      final controller = _buildController(sales: blocked);
+      controller.load();
+      await pumpEventQueue();
+
+      expect(controller.sales.map((s) => s.id), [1, 2]);
+      expect(controller.isLoading, isFalse);
+
+      cacheGate.complete();
+      fetchGate.complete();
+      await pumpEventQueue();
+      controller.dispose();
+    });
+
+    test(
+      'sync lento (fetch que nunca responde) => la lista permanece visible',
+      () async {
+        final sales = _FakeSalesRepository()
+          ..onFetchAll = (_) => [_summary(1, 'Cliente A')];
+        final controller = _buildController(sales: sales);
+        await controller.load();
+        expect(controller.sales.map((s) => s.id), [1]);
+
+        // El sync general deja el fetch colgado: la lista NO se puede vaciar.
+        final gate = Completer<void>();
+        sales.fetchGate = gate;
+        controller.load();
+        await pumpEventQueue();
+
+        expect(controller.sales.map((s) => s.id), [1]);
+        expect(controller.isLoading, isFalse);
+        expect(controller.isRefreshing, isTrue);
+
+        gate.complete();
+        await pumpEventQueue();
+        controller.dispose();
+      },
+    );
+
+    test(
+      'error de refresh => conserva la última lista (no la borra)',
+      () async {
+        final sales = _FakeSalesRepository()
+          ..onFetchAll = (_) => [_summary(1, 'Cliente A')];
+        final controller = _buildController(sales: sales);
+        await controller.load();
+
+        sales.failFetch = true;
+        await controller.load();
+
+        expect(controller.sales.map((s) => s.id), [1]);
+        expect(controller.refreshFailed, isTrue);
+        expect(controller.loadError, isNull);
+
+        // Y al reentrar sigue habiendo lista válida (aunque la base esté tomada).
+        final blocked = _FakeSalesRepository();
+        final cacheGate = Completer<void>();
+        final fetchGate = Completer<void>();
+        blocked.cacheGate = cacheGate;
+        blocked.fetchGate = fetchGate;
+        final again = _buildController(sales: blocked);
+        again.load();
+        await pumpEventQueue();
+        expect(again.sales.map((s) => s.id), [1]);
+
+        cacheGate.complete();
+        fetchGate.complete();
+        await pumpEventQueue();
+        controller.dispose();
+        again.dispose();
+      },
+    );
+  });
 }
 
 SalesController _buildController({required _FakeSalesRepository sales}) {
@@ -252,6 +386,8 @@ class _FakeSalesRepository extends SalesRepository {
   bool failFetch = false;
   Object? fetchError;
   Completer<void>? fetchGate;
+  /// Simula la lectura de cache/lista local con SQLite tomado por el writer.
+  Completer<void>? cacheGate;
   List<SaleSummary> cached = const [];
 
   @override
@@ -270,7 +406,13 @@ class _FakeSalesRepository extends SalesRepository {
   }
 
   @override
-  Future<List<SaleSummary>> fetchCachedList() async => cached;
+  Future<List<SaleSummary>> fetchCachedList() async {
+    final gate = cacheGate;
+    if (gate != null) {
+      await gate.future;
+    }
+    return cached;
+  }
 
   @override
   Future<int> createSale(SaleDraft draft, {String? operationId}) async => 501;

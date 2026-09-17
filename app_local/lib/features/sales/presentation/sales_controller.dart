@@ -16,6 +16,43 @@ import '../domain/sale_draft.dart';
 import '../domain/sale_summary.dart';
 import '../domain/seller.dart';
 
+/// Última lista de ventas VÁLIDA del proceso, fuera de la pantalla.
+///
+/// POR QUÉ EXISTE
+/// `app_shell` reconstruye la página al navegar, así que `SalesPage` crea un
+/// `SalesController` nuevo cada vez: sin esto, volver a Ventas resetea la lista
+/// a vacío y la pantalla queda en skeleton esperando a SQLite (que puede estar
+/// tomado por el writer del sync durante 1-2 minutos).
+///
+/// Sólo guarda la lista COMPLETA sin filtros, que es la que se pinta al entrar.
+class SalesListMemoryCache {
+  SalesListMemoryCache._();
+
+  static List<SaleSummary> _items = const [];
+  static String _scope = '';
+
+  /// Lista memorizada para ese alcance (`''` = lista completa sin filtros).
+  static List<SaleSummary> forScope(String scope) =>
+      _scope == scope ? _items : const [];
+
+  static bool hasForScope(String scope) =>
+      _scope == scope && _items.isNotEmpty;
+
+  static void store(String scope, List<SaleSummary> items) {
+    _scope = scope;
+    _items = List<SaleSummary>.unmodifiable(items);
+  }
+
+  /// Se usa al cerrar sesión: la lista de un usuario no debe verse en otro.
+  static void clear() {
+    _items = const [];
+    _scope = '';
+  }
+
+  @visibleForTesting
+  static void debugReset() => clear();
+}
+
 /// Controlador del modulo Ventas con UX cache-first / stale-while-revalidate.
 ///
 /// Reglas P0:
@@ -127,6 +164,18 @@ class SalesController extends ChangeNotifier {
     // ── Arranque visual ────────────────────────────────────────────────
     loadError = null;
     searchFailed = false;
+
+    // Seed SÍNCRONO desde la última lista válida del proceso: al volver a
+    // Ventas la lista aparece YA, sin `isLoading` y sin esperar a SQLite.
+    // PROHIBIDO el patrón clear-list + loading=true al reentrar.
+    if (isUnfilteredScope && !(_loadedQuery == scope && sales.isNotEmpty)) {
+      final memo = SalesListMemoryCache.forScope(scope);
+      if (memo.isNotEmpty) {
+        sales = memo;
+        _loadedQuery = scope;
+      }
+    }
+
     final hadVisible = _loadedQuery == scope && sales.isNotEmpty;
     if (hadVisible) {
       // REFRESHING_WITH_DATA: conservar lista y refrescar en segundo plano.
@@ -150,6 +199,7 @@ class SalesController extends ChangeNotifier {
       if (cached.isNotEmpty) {
         sales = cached;
         _loadedQuery = scope;
+        SalesListMemoryCache.store(scope, cached);
         isLoading = false;
         isRefreshing = true;
         _notifyIfActive();
@@ -175,6 +225,9 @@ class SalesController extends ChangeNotifier {
     if (listResult != null) {
       sales = listResult;
       _loadedQuery = scope;
+      if (isUnfilteredScope) {
+        SalesListMemoryCache.store(scope, listResult);
+      }
       searchFailed = false;
       refreshFailed = false;
       isLoading = false;

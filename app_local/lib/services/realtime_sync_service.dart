@@ -25,6 +25,16 @@ class RealtimeSyncService {
 
   io.Socket? _socket;
   Timer? _pollingTimer;
+
+  /// Última vez que se registró un poll exitoso SIN cambios.
+  ///
+  /// Evita el spam de `sync.log` (un evento cada ~2 s aunque no pasara nada) sin
+  /// perder trazabilidad: se conserva un latido periódico.
+  DateTime? _lastIdlePollLoggedAt;
+
+  /// Cada cuánto se deja un latido de polling inactivo.
+  static const Duration _idlePollLogInterval = Duration(minutes: 10);
+
   Future<void> _eventQueue = Future<void>.value();
   final Map<String, _RecentRealtimeEvent> _recentEvents = {};
   final SyncLogger _syncLogger = SyncLogger.instance;
@@ -400,16 +410,42 @@ class RealtimeSyncService {
   Future<void> _pollServer(Duration interval) async {
     try {
       final downloadedCount = await _syncFromServer();
-      await _syncLogger.log(
-        action: 'realtime-poll',
-        entity: 'sync',
-        result: downloadedCount > 0 ? 'ok' : 'idle',
-        extra: {
-          'intervalSeconds': interval.inSeconds,
-          'downloadedRecords': downloadedCount,
-        },
-      );
+      if (downloadedCount > 0) {
+        // Cambio real: siempre se registra.
+        _lastIdlePollLoggedAt = null;
+        await _syncLogger.log(
+          action: 'realtime-poll',
+          entity: 'sync',
+          result: 'ok',
+          extra: {
+            'intervalSeconds': interval.inSeconds,
+            'downloadedRecords': downloadedCount,
+          },
+        );
+        return;
+      }
+
+      // Poll exitoso SIN cambios: no se registra en cada ciclo (antes generaba
+      // ~282 MB de sync.log). Se conserva un latido cada 10 minutos para seguir
+      // teniendo trazabilidad de que el polling está vivo.
+      final now = DateTime.now();
+      final lastIdle = _lastIdlePollLoggedAt;
+      if (lastIdle == null ||
+          now.difference(lastIdle) >= _idlePollLogInterval) {
+        _lastIdlePollLoggedAt = now;
+        await _syncLogger.log(
+          action: 'realtime-poll',
+          entity: 'sync',
+          result: 'idle',
+          extra: {
+            'intervalSeconds': interval.inSeconds,
+            'downloadedRecords': 0,
+            'heartbeat': true,
+          },
+        );
+      }
     } catch (error) {
+      // Los errores siempre se registran.
       await _syncLogger.log(
         action: 'realtime-poll',
         entity: 'sync',

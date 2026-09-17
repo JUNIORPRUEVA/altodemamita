@@ -20,6 +20,7 @@ import '../../features/auth/presentation/profile_screen.dart';
 import '../../features/clients/data/client_repository.dart';
 import '../../features/clients/presentation/clients_page.dart';
 import '../../features/dashboard/presentation/dashboard_page.dart';
+import '../../features/dashboard/data/dashboard_stats_store.dart';
 import '../../features/global_search/presentation/global_search_page.dart';
 import '../../features/installments/data/installments_repository.dart';
 import '../../features/installments/presentation/installments_page.dart';
@@ -30,6 +31,7 @@ import '../../features/payments/presentation/payments_page.dart';
 import '../../features/sales/data/sales_repository.dart';
 import '../../features/sales/data/seller_repository.dart';
 import '../../features/sales/presentation/sales_page.dart';
+import '../../features/sales/presentation/sales_controller.dart';
 import '../../features/sales/presentation/sellers_page.dart';
 import '../../features/settings/data/company_repository.dart';
 import '../../features/settings/data/settings_repository.dart';
@@ -722,6 +724,10 @@ class _AppShellState extends State<AppShell> {
   Future<void> _signOut() async {
     final authProvider = context.read<AuthProvider>();
     await _syncManager.stop(reason: 'Sesion cerrada.');
+    // Los snapshots en memoria/son del usuario que cierra sesión: no deben
+    // sobrevivir a un cambio de usuario en la misma PC.
+    DashboardStatsStore.instance.clear();
+    SalesListMemoryCache.clear();
     await authProvider.signOut();
   }
 

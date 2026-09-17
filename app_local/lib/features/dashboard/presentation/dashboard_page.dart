@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'dart:math' as math;
 
 import '../../../shared/widgets/base_layout.dart';
@@ -6,7 +8,7 @@ import '../../clients/data/client_repository.dart';
 import '../../installments/data/installments_repository.dart';
 import '../../lots/data/lot_repository.dart';
 import '../../sales/data/sales_repository.dart';
-import '../../sales/domain/sale_summary.dart';
+import '../data/dashboard_stats_store.dart';
 import 'widgets/money_metric_text.dart';
 
 class DashboardPage extends StatefulWidget {
@@ -28,14 +30,105 @@ class DashboardPage extends StatefulWidget {
 }
 
 class _DashboardPageState extends State<DashboardPage> {
-  late Future<_DashboardStats> _statsFuture;
-  _DashboardStats? _lastGoodStats;
+  late Future<DashboardStats> _statsFuture;
+  DashboardStats? _lastGoodStats;
   bool _lastLoadFailed = false;
+  final DashboardStatsStore _store = DashboardStatsStore.instance;
 
   @override
   void initState() {
     super.initState();
-    _statsFuture = _loadStats();
+    _store.addListener(_handleStoreChanged);
+
+    // CACHE-FIRST EN TRES NIVELES:
+    // A. snapshot en memoria -> se pinta YA.
+    // B. snapshot persistido (SharedPreferences) -> se pinta sin tocar SQLite.
+    // C. primera ejecución absoluta -> skeleton corto + lectura local.
+    // En ningún caso se espera al sync general para dibujar la pantalla.
+    final snapshot = _store.stats;
+    if (snapshot != null) {
+      _lastGoodStats = snapshot;
+      _statsFuture = Future<DashboardStats>.value(snapshot);
+      _refreshInBackground();
+    } else {
+      _statsFuture = _hydrateThenLoad();
+    }
+  }
+
+  /// Primer pintado SIN depender de SQLite.
+  ///
+  /// El snapshot persistido vive en SharedPreferences: se lee en milisegundos y
+  /// no compite con el writer del sync, que es lo que bloqueaba la pantalla
+  /// durante 1-2 minutos.
+  Future<DashboardStats> _hydrateThenLoad() async {
+    await _store.hydrateFromDisk();
+    if (!mounted) {
+      return _store.stats ?? const DashboardStats.empty();
+    }
+    final hydrated = _store.stats;
+    if (hydrated != null) {
+      setState(() {
+        _lastGoodStats = hydrated;
+        _lastLoadFailed = false;
+        _statsFuture = Future<DashboardStats>.value(hydrated);
+      });
+      _refreshInBackground();
+      return hydrated;
+    }
+    return _loadStats();
+  }
+
+  @override
+  void dispose() {
+    _store.removeListener(_handleStoreChanged);
+    super.dispose();
+  }
+
+  void _handleStoreChanged() {
+    if (!mounted) {
+      return;
+    }
+    // Una invalidación puede llegar desde la sync en medio de un frame
+    // (descarga de pagos/cuotas). En ese caso se difiere al final del frame
+    // para no llamar setState durante el build.
+    if (SchedulerBinding.instance.schedulerPhase != SchedulerPhase.idle) {
+      SchedulerBinding.instance.addPostFrameCallback((_) => _handleStoreChanged());
+      return;
+    }
+    final stats = _store.stats;
+    if (stats != null && !identical(stats, _lastGoodStats)) {
+      setState(() {
+        _lastGoodStats = stats;
+        _lastLoadFailed = false;
+        _statsFuture = Future<DashboardStats>.value(stats);
+      });
+    }
+    // Si la invalidación se originó en una operación financiera o en una
+    // descarga de nube, el snapshot queda marcado como vencido: se recalcula
+    // en background sin quitar de la pantalla lo que ya se está mostrando.
+    _refreshInBackground();
+  }
+
+  /// Refresco silencioso: nunca bloquea la pantalla ni lanza errores.
+  ///
+  /// El guardado evita que tres entradas seguidas disparen tres cálculos a la
+  /// vez, y `needsRefresh` respeta el intervalo mínimo y el cambio de día.
+  void _refreshInBackground() {
+    if (!_store.needsRefresh) {
+      return;
+    }
+    unawaited(
+      DashboardRefreshGuard.run(() async {
+        _store.markRefreshing(true);
+        try {
+          await _loadStats();
+        } catch (_) {
+          // El refresco silencioso no puede romper la pantalla.
+        } finally {
+          _store.markRefreshing(false);
+        }
+      }),
+    );
   }
 
   @override
@@ -49,71 +142,27 @@ class _DashboardPageState extends State<DashboardPage> {
     }
   }
 
-  Future<_DashboardStats> _loadStats() async {
+  Future<DashboardStats> _loadStats() async {
     try {
-      final results = await Future.wait<dynamic>([
-        widget.clientRepository.countAll(),
-        widget.lotRepository.countAll(),
-        widget.lotRepository.countByStatus('disponible'),
-        widget.lotRepository.countByStatus('vendido'),
-        widget.salesRepository.fetchAll(),
-        widget.installmentsRepository.getAll(),
-      ]);
-
-      final sales = results[4] as List<SaleSummary>;
-      final installments = results[5] as List<dynamic>;
-
-      final pendingPayments = installments
-          .where((item) => item.calculatedStatus != 'pagada')
-          .length;
-      final overduePayments = installments
-          .where((item) => item.calculatedStatus == 'vencida')
-          .length;
-      final incompleteInitialPayments = sales
-          .where((sale) => sale.pendingInitialPayment > 0.009)
-          .length;
-      final activeFinancing = sales
-          .where(
-            (sale) => sale.status == 'activa' && sale.pendingBalance > 0.009,
-          )
-          .length;
-      final portfolioPendingAmount = sales.fold<double>(
-        0,
-        (total, sale) =>
-            total + sale.pendingInitialPayment + sale.pendingBalance,
-      );
-      final collectedAmount = sales.fold<double>(
-        0,
-        (total, sale) =>
-            total +
-            sale.paidInitialPayment +
-            (sale.salePrice - sale.pendingBalance - sale.downPaymentAmount),
-      );
-      final soldAmount = sales.fold<double>(
-        0,
-        (total, sale) => total + sale.salePrice,
+      final stats = await computeDashboardStats(
+        clientRepository: widget.clientRepository,
+        lotRepository: widget.lotRepository,
+        salesRepository: widget.salesRepository,
+        installmentsRepository: widget.installmentsRepository,
       );
 
-      final stats = _DashboardStats(
-        totalClients: results[0],
-        totalLots: results[1],
-        availableLots: results[2],
-        soldLots: results[3],
-        pendingPayments: pendingPayments,
-        incompleteInitialPayments: incompleteInitialPayments,
-        overduePayments: overduePayments,
-        activeFinancing: activeFinancing,
-        portfolioPendingAmount: portfolioPendingAmount,
-        collectedAmount: collectedAmount,
-        soldAmount: soldAmount,
-      );
       _lastGoodStats = stats;
       _lastLoadFailed = false;
+      if (mounted) {
+        // Publicar el snapshot: sobrevive a la navegación y alimenta el
+        // cache-first de la próxima entrada.
+        _store.save(stats);
+      }
       return stats;
     } catch (_) {
       // Nunca mostrar ceros silenciosos: conservar el ultimo estado valido.
       _lastLoadFailed = true;
-      return _lastGoodStats ?? const _DashboardStats.empty();
+      return _lastGoodStats ?? _store.stats ?? const DashboardStats.empty();
     }
   }
 
@@ -121,15 +170,21 @@ class _DashboardPageState extends State<DashboardPage> {
   Widget build(BuildContext context) {
     return BaseLayout(
       title: 'Panel Principal',
-      child: FutureBuilder<_DashboardStats>(
+      child: FutureBuilder<DashboardStats>(
         future: _statsFuture,
         builder: (context, snapshot) {
-          if (snapshot.connectionState != ConnectionState.done) {
-            return const Center(child: CircularProgressIndicator());
+          final fallback = _lastGoodStats ?? _store.stats;
+          // NO bloquear con spinner si ya hay snapshot (memoria o disco): se
+          // pinta lo que tenemos y el refresco sigue en background.
+          // Sólo la primera ejecución absoluta muestra skeleton, y es un
+          // skeleton corto con la ESTRUCTURA del panel, nunca pantalla vacía.
+          if (snapshot.connectionState != ConnectionState.done &&
+              fallback == null) {
+            return const _DashboardSkeleton();
           }
 
           final stats =
-              snapshot.data ?? _lastGoodStats ?? const _DashboardStats.empty();
+              snapshot.data ?? fallback ?? const DashboardStats.empty();
           final dataAlerts = _buildDataAlerts(stats);
           if (_lastLoadFailed) {
             dataAlerts.insert(
@@ -275,7 +330,7 @@ class _DashboardPageState extends State<DashboardPage> {
 class _MobileFinancialSummary extends StatelessWidget {
   const _MobileFinancialSummary({required this.stats});
 
-  final _DashboardStats stats;
+  final DashboardStats stats;
 
   @override
   Widget build(BuildContext context) {
@@ -332,7 +387,7 @@ class _MobileFinancialSummary extends StatelessWidget {
 class _MobileOperationsSummary extends StatelessWidget {
   const _MobileOperationsSummary({required this.stats});
 
-  final _DashboardStats stats;
+  final DashboardStats stats;
 
   @override
   Widget build(BuildContext context) {
@@ -491,7 +546,7 @@ class _CompactKpiCard extends StatelessWidget {
   }
 }
 
-List<String> _buildDataAlerts(_DashboardStats stats) {
+List<String> _buildDataAlerts(DashboardStats stats) {
   final alerts = <String>[];
 
   if (stats.totalClients > 0 && stats.totalLots == 0) {
@@ -501,6 +556,80 @@ List<String> _buildDataAlerts(_DashboardStats stats) {
   }
 
   return alerts;
+}
+
+/// Skeleton del Resumen: muestra la ESTRUCTURA del panel mientras se calcula la
+/// primera vez (sólo cuando no hay snapshot en memoria ni en disco).
+///
+/// Nunca es pantalla blanca ni spinner a pantalla completa: el operador ve de
+/// inmediato la forma del panel y las tarjetas se rellenan solas.
+class _DashboardSkeleton extends StatelessWidget {
+  const _DashboardSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final isDesktop = width >= 1200;
+        final columns = isDesktop ? 3 : (width >= 860 ? 2 : 1);
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const _SkeletonBox(height: 18, widthFactor: 0.35),
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 16,
+                runSpacing: 16,
+                children: List<Widget>.generate(
+                  columns * 2,
+                  (_) => SizedBox(
+                    width: (width - 16 * (columns - 1) - 8) / columns,
+                    child: const _SkeletonBox(height: 104),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              const _SkeletonBox(height: 150),
+              const SizedBox(height: 16),
+              const _SkeletonBox(height: 150),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Bloque gris del skeleton. Estático a propósito: nada de animaciones ni
+/// timers que puedan quedar corriendo.
+class _SkeletonBox extends StatelessWidget {
+  const _SkeletonBox({required this.height, this.widthFactor});
+
+  final double height;
+  final double? widthFactor;
+
+  @override
+  Widget build(BuildContext context) {
+    final box = Container(
+      height: height,
+      decoration: BoxDecoration(
+        color: const Color(0xFFEDF1F7),
+        borderRadius: BorderRadius.circular(12),
+      ),
+    );
+    final factor = widthFactor;
+    if (factor == null) {
+      return box;
+    }
+    return FractionallySizedBox(
+      alignment: Alignment.centerLeft,
+      widthFactor: factor,
+      child: box,
+    );
+  }
 }
 
 class _DashboardDataAlert extends StatelessWidget {
@@ -568,7 +697,7 @@ class _DashboardDataAlert extends StatelessWidget {
 class _MetricsPanel extends StatelessWidget {
   const _MetricsPanel({required this.stats, required this.columns});
 
-  final _DashboardStats stats;
+  final DashboardStats stats;
   final int columns;
 
   @override
@@ -657,7 +786,7 @@ class _MetricsPanel extends StatelessWidget {
 class _ExecutiveOverview extends StatelessWidget {
   const _ExecutiveOverview({required this.stats, this.compact = false});
 
-  final _DashboardStats stats;
+  final DashboardStats stats;
   final bool compact;
 
   @override
@@ -765,7 +894,7 @@ class _InsightPanels extends StatelessWidget {
     this.compact = false,
   });
 
-  final _DashboardStats stats;
+  final DashboardStats stats;
   final bool stacked;
   final bool compact;
 
@@ -808,7 +937,7 @@ class _InsightPanels extends StatelessWidget {
 class _InventoryCard extends StatelessWidget {
   const _InventoryCard({required this.stats, this.compact = false});
 
-  final _DashboardStats stats;
+  final DashboardStats stats;
   final bool compact;
 
   @override
@@ -829,7 +958,7 @@ class _InventoryCard extends StatelessWidget {
 class _CollectionsCard extends StatelessWidget {
   const _CollectionsCard({required this.stats, this.compact = false});
 
-  final _DashboardStats stats;
+  final DashboardStats stats;
   final bool compact;
 
   @override
@@ -1038,7 +1167,7 @@ class _StatCard extends StatelessWidget {
 class _CollectionPriorityCard extends StatelessWidget {
   const _CollectionPriorityCard({required this.stats});
 
-  final _DashboardStats stats;
+  final DashboardStats stats;
 
   @override
   Widget build(BuildContext context) {
@@ -1245,47 +1374,6 @@ class _ReportSegment {
 
   final String label;
   final Object value;
-}
-
-class _DashboardStats {
-  const _DashboardStats({
-    required this.totalClients,
-    required this.totalLots,
-    required this.availableLots,
-    required this.soldLots,
-    required this.pendingPayments,
-    required this.incompleteInitialPayments,
-    required this.overduePayments,
-    required this.activeFinancing,
-    required this.portfolioPendingAmount,
-    required this.collectedAmount,
-    required this.soldAmount,
-  });
-
-  const _DashboardStats.empty()
-    : totalClients = 0,
-      totalLots = 0,
-      availableLots = 0,
-      soldLots = 0,
-      pendingPayments = 0,
-      incompleteInitialPayments = 0,
-      overduePayments = 0,
-      activeFinancing = 0,
-      portfolioPendingAmount = 0,
-      collectedAmount = 0,
-      soldAmount = 0;
-
-  final int totalClients;
-  final int totalLots;
-  final int availableLots;
-  final int soldLots;
-  final int pendingPayments;
-  final int incompleteInitialPayments;
-  final int overduePayments;
-  final int activeFinancing;
-  final double portfolioPendingAmount;
-  final double collectedAmount;
-  final double soldAmount;
 }
 
 class _PriorityBar {
