@@ -156,6 +156,8 @@ async function listSales(req: any, res: any) {
   const company = await resolveCompanyForRequest(req);
   const today = businessDayRange(new Date());
   const lotIdFilter = String(req.query.lotId ?? '').trim();
+  const search = String(req.query.search ?? '').trim();
+  const searchWhere = await buildPaymentSaleSearchWhere(company.id, search);
   const baseWhere = lotIdFilter
     ? {
         companyId: company.id,
@@ -169,15 +171,17 @@ async function listSales(req: any, res: any) {
   // La clasificacion "venta definitiva" es derivada: se pre-filtra en SQL por lo
   // que es verificable en la fila (saldo, inicial, no cancelada) y se confirma
   // despues contra las obligaciones pendientes reales de cada venta.
+  const baseAndSearchWhere = combineSaleFilters(baseWhere, searchWhere) ?? baseWhere;
+
   const where = onlyFullyPaid
     ? {
-        ...baseWhere,
+        ...baseAndSearchWhere,
         deletedAt: null,
         NOT: { status: 'cancelada' },
         balance: { lte: SETTLEMENT_TOLERANCE },
         initialPendingAmount: { lte: SETTLEMENT_TOLERANCE },
       }
-    : baseWhere;
+    : baseAndSearchWhere;
 
   const FULLY_PAID_FETCH_CAP = 500;
 
@@ -619,6 +623,7 @@ async function paymentsSalesSearch(req: any, res: any) {
 
   const termList = paymentSalesSearchTerms(rawQuery);
   const digits = rawQuery.replace(/\D+/g, '');
+  const normalizedClientSyncIds = await normalizedClientSearchSyncIds(company.id, rawQuery);
 
   const containsTerms = termList.map((value) => ({
     contains: value,
@@ -652,6 +657,9 @@ async function paymentsSalesSearch(req: any, res: any) {
   if (clients.length > 0) {
     saleConditions.push({ clientId: { in: clients.map((item) => item.id) } });
     saleConditions.push({ clientSyncId: { in: clients.map((item) => item.syncId) } });
+  }
+  if (normalizedClientSyncIds.length > 0) {
+    saleConditions.push({ clientSyncId: { in: normalizedClientSyncIds } });
   }
   if (lots.length > 0) {
     saleConditions.push({ lotId: { in: lots.map((item) => item.id) } });
@@ -1008,13 +1016,23 @@ async function buildPaymentSaleSearchWhere(companyId: string, search: string) {
     return null;
   }
 
-  const contains = { contains: search, mode: 'insensitive' as const };
+  const termList = paymentSalesSearchTerms(search);
+  const effectiveTerms = termList.length > 0 ? termList : [search];
+  const containsTerms = effectiveTerms.map((value) => ({
+    contains: value,
+    mode: 'insensitive' as const,
+  }));
+  const normalizedClientSyncIds = await normalizedClientSearchSyncIds(companyId, search);
   const [clients, lots] = await Promise.all([
     prisma.client.findMany({
       where: {
         companyId,
         deletedAt: null,
-        OR: [{ name: contains }, { document: contains }, { phone: contains }],
+        OR: containsTerms.flatMap((filter) => [
+          { name: filter },
+          { document: filter },
+          { phone: filter },
+        ]),
       },
       select: { syncId: true },
       take: 100,
@@ -1023,23 +1041,49 @@ async function buildPaymentSaleSearchWhere(companyId: string, search: string) {
       where: {
         companyId,
         deletedAt: null,
-        OR: [{ block: contains }, { number: contains }],
+        OR: containsTerms.flatMap((filter) => [{ block: filter }, { number: filter }]),
       },
       select: { syncId: true },
       take: 100,
     }),
   ]);
 
+  const contains = { contains: search, mode: 'insensitive' as const };
   return {
     companyId,
     deletedAt: null,
     OR: [
       { id: contains },
       { syncId: contains },
-      { clientSyncId: { in: uniqueSyncIds(clients.map((client) => client.syncId)) } },
+      {
+        clientSyncId: {
+          in: uniqueSyncIds([
+            ...clients.map((client) => client.syncId),
+            ...normalizedClientSyncIds,
+          ]),
+        },
+      },
       { lotSyncId: { in: uniqueSyncIds(lots.map((lot) => lot.syncId)) } },
     ],
   };
+}
+
+async function normalizedClientSearchSyncIds(companyId: string, search: string) {
+  const digits = search.replace(/\D+/g, '');
+  if (digits.length < 2) return [];
+  const pattern = `%${digits}%`;
+  const rows = await prisma.$queryRaw<Array<{ syncId: string }>>`
+    SELECT "syncId"
+    FROM "Client"
+    WHERE "companyId" = ${companyId}
+      AND "deletedAt" IS NULL
+      AND (
+        regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE ${pattern}
+        OR regexp_replace(COALESCE(document, ''), '[^0-9]', '', 'g') LIKE ${pattern}
+      )
+    LIMIT 500
+  `;
+  return rows.map((row) => row.syncId);
 }
 
 function businessDayRange(value: Date, timezone = BUSINESS_TIMEZONE) {

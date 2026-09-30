@@ -262,7 +262,7 @@ class _DialogHeader extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    fontSize: 18,
+                    fontSize: 21,
                     fontWeight: FontWeight.w800,
                     color: Color(0xFF1A2235),
                   ),
@@ -271,7 +271,7 @@ class _DialogHeader extends StatelessWidget {
                 Text(
                   detail.lotDisplayCode,
                   style: const TextStyle(
-                    fontSize: 13.5,
+                    fontSize: 16,
                     fontWeight: FontWeight.w600,
                     color: Color(0xFF6B7494),
                   ),
@@ -290,7 +290,7 @@ class _DialogHeader extends StatelessWidget {
             child: Text(
               detail.sale.status,
               style: TextStyle(
-                fontSize: 12,
+                fontSize: 13.5,
                 fontWeight: FontWeight.w600,
                 color: statusColor,
               ),
@@ -307,7 +307,7 @@ class _DialogHeader extends StatelessWidget {
               child: Text(
                 'En atrasos (${detail.overdueInstallmentCount})',
                 style: const TextStyle(
-                  fontSize: 11,
+                  fontSize: 13,
                   fontWeight: FontWeight.w700,
                   color: Color(0xFFC62828),
                 ),
@@ -375,7 +375,7 @@ class _PrintOptionRow extends StatelessWidget {
             child: Text(
               title,
               style: const TextStyle(
-                fontSize: 12.5,
+                fontSize: 14,
                 fontWeight: FontWeight.w600,
                 color: Color(0xFF1A2235),
               ),
@@ -386,7 +386,7 @@ class _PrintOptionRow extends StatelessWidget {
             style: FilledButton.styleFrom(
               visualDensity: VisualDensity.compact,
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              textStyle: const TextStyle(fontSize: 11.5),
+              textStyle: const TextStyle(fontSize: 13),
             ),
             child: const Text('Imprimir'),
           ),
@@ -399,7 +399,7 @@ class _PrintOptionRow extends StatelessWidget {
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
               padding: const EdgeInsets.symmetric(horizontal: 4),
             ),
-            child: const Text('Ver PDF', style: TextStyle(fontSize: 10.5)),
+            child: const Text('Ver PDF', style: TextStyle(fontSize: 13)),
           ),
         ],
       ),
@@ -418,7 +418,7 @@ class _TopDetailsBand extends StatelessWidget {
     final syncId = sale.syncId?.trim();
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 17),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 19),
       decoration: BoxDecoration(
         color: const Color(0xFFFAFCFF),
         borderRadius: BorderRadius.circular(14),
@@ -605,9 +605,9 @@ class _SummaryCard extends StatelessWidget {
                   Text(
                     label,
                     style: const TextStyle(
-                      fontSize: 10,
+                      fontSize: 13,
                       fontWeight: FontWeight.w700,
-                      letterSpacing: 0.15,
+                      letterSpacing: 0.05,
                       color: Color(0xFF8893AA),
                     ),
                   ),
@@ -615,7 +615,7 @@ class _SummaryCard extends StatelessWidget {
                   Text(
                     value,
                     style: const TextStyle(
-                      fontSize: 13.5,
+                      fontSize: 17,
                       fontWeight: FontWeight.w800,
                       color: Color(0xFF1A2235),
                     ),
@@ -672,7 +672,7 @@ class _InstallmentsSection extends StatelessWidget {
                           ? 'Seguimiento de pagos programados'
                           : 'Sin cuotas programadas',
                       style: const TextStyle(
-                        fontSize: 14.5,
+                        fontSize: 17,
                         fontWeight: FontWeight.w800,
                         color: Color(0xFF1A2235),
                       ),
@@ -683,9 +683,9 @@ class _InstallmentsSection extends StatelessWidget {
                           ? _installmentSummaryText(installmentSummary)
                           : emptyMessage,
                       style: const TextStyle(
-                        fontSize: 12.5,
+                        fontSize: 14.5,
                         color: Color(0xFF6B7494),
-                        height: 1.35,
+                        height: 1.45,
                       ),
                     ),
                   ],
@@ -751,7 +751,7 @@ class _CompactFloatingActionButton extends StatelessWidget {
       label: Text(
         label,
         style: const TextStyle(
-          fontSize: 12.5,
+          fontSize: 14,
           fontWeight: FontWeight.w700,
           letterSpacing: 0.1,
         ),
@@ -945,7 +945,7 @@ class _FooterMetric extends StatelessWidget {
         Text(
           '$label: ',
           style: const TextStyle(
-            fontSize: 11,
+            fontSize: 13,
             fontWeight: FontWeight.w600,
             color: Color(0xFF6B7494),
           ),
@@ -953,7 +953,7 @@ class _FooterMetric extends StatelessWidget {
         Text(
           value,
           style: TextStyle(
-            fontSize: emphasize ? 12.5 : 11.5,
+            fontSize: emphasize ? 15 : 14,
             fontWeight: FontWeight.w800,
             color: color,
           ),
@@ -1024,7 +1024,7 @@ class _BottomBar extends StatelessWidget {
                 Text(
                   'Resumen financiero del plan',
                   style: const TextStyle(
-                    fontSize: 12.5,
+                    fontSize: 15,
                     fontWeight: FontWeight.w800,
                     color: Color(0xFF1A2235),
                   ),
@@ -1033,7 +1033,7 @@ class _BottomBar extends StatelessWidget {
                 Text(
                   _installmentSummaryText(installmentSummary),
                   style: const TextStyle(
-                    fontSize: 11,
+                    fontSize: 13.5,
                     color: Color(0xFF8893AA),
                   ),
                 ),
@@ -1125,7 +1125,7 @@ class _FlatMetric extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              fontSize: 9.5,
+              fontSize: 13,
               fontWeight: FontWeight.w700,
               color: color.withValues(alpha: 0.75),
             ),
@@ -1136,7 +1136,7 @@ class _FlatMetric extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              fontSize: 13,
+              fontSize: 16,
               fontWeight: FontWeight.w800,
               color: color,
             ),
@@ -1170,9 +1170,9 @@ class _TopInfoColumn extends StatelessWidget {
         Text(
           title.toUpperCase(),
           style: const TextStyle(
-            fontSize: 10,
+            fontSize: 13,
             fontWeight: FontWeight.w700,
-            letterSpacing: 0.65,
+            letterSpacing: 0.35,
             color: Color(0xFF8893AA),
           ),
         ),
@@ -1234,7 +1234,7 @@ class _CompactInfoRow extends StatelessWidget {
           child: Text(
             label,
             style: const TextStyle(
-              fontSize: 12.2,
+              fontSize: 14,
               fontWeight: FontWeight.w700,
               color: Color(0xFF7F8AA3),
             ),
@@ -1247,9 +1247,9 @@ class _CompactInfoRow extends StatelessWidget {
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
-              fontSize: 12.8,
+              fontSize: 15,
               fontWeight: FontWeight.w800,
-              height: 1.25,
+              height: 1.35,
               color: Color(0xFF1A2235),
             ),
           ),
@@ -1286,9 +1286,9 @@ class _SectionTitle extends StatelessWidget {
         Text(
           title.toUpperCase(),
           style: const TextStyle(
-            fontSize: 11,
+            fontSize: 13,
             fontWeight: FontWeight.w700,
-            letterSpacing: 0.8,
+            letterSpacing: 0.45,
             color: Color(0xFF8893AA),
           ),
         ),

@@ -34,7 +34,7 @@ class InstallmentsFlatTable extends StatefulWidget {
   final ScrollController scrollController;
 
   /// Ancho natural de la tabla: suma de columnas + padding horizontal.
-  static const double tableWidth = 936;
+  static const double tableWidth = 1088;
 
   @override
   State<InstallmentsFlatTable> createState() => _InstallmentsFlatTableState();
@@ -116,26 +116,26 @@ class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const style = TextStyle(
-      fontSize: 10.5,
+      fontSize: 13,
       fontWeight: FontWeight.w800,
       color: Color(0xFF7A859D),
-      letterSpacing: 0.3,
+      letterSpacing: 0.2,
     );
 
     return Container(
       color: const Color(0xFFF8FAFD),
-      height: 40,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
+      height: 48,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
       child: Row(
         children: const [
-          SizedBox(width: 76, child: Text('CUOTA', style: style)),
-          SizedBox(width: 96, child: Text('ESTADO', style: style)),
-          SizedBox(width: 92, child: Text('VENCE', style: style)),
-          SizedBox(width: 112, child: Text('CUOTA FIJA', style: style)),
-          SizedBox(width: 112, child: Text('PENDIENTE', style: style)),
-          SizedBox(width: 104, child: Text('CAPITAL', style: style)),
-          SizedBox(width: 96, child: Text('INTERES', style: style)),
-          SizedBox(width: 104, child: Text('PAGADO', style: style)),
+          SizedBox(width: 90, child: Text('CUOTA', style: style)),
+          SizedBox(width: 116, child: Text('ESTADO', style: style)),
+          SizedBox(width: 106, child: Text('VENCE', style: style)),
+          SizedBox(width: 130, child: Text('CUOTA FIJA', style: style)),
+          SizedBox(width: 130, child: Text('PENDIENTE', style: style)),
+          SizedBox(width: 120, child: Text('CAPITAL', style: style)),
+          SizedBox(width: 112, child: Text('INTERES', style: style)),
+          SizedBox(width: 120, child: Text('PAGADO', style: style)),
           Expanded(child: Text('SALDO FINAL', style: style)),
         ],
       ),
@@ -156,29 +156,32 @@ class _Row extends StatelessWidget {
 
     return Container(
       color: Colors.white,
-      height: 44,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
+      height: 54,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
       child: Row(
         children: [
           SizedBox(
-            width: 76,
+            width: 90,
             child: Text(
               'Cuota ${item.installmentNumber}',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
-                fontSize: 12,
+                fontSize: 14,
                 fontWeight: FontWeight.w800,
                 color: Color(0xFF1A2235),
               ),
             ),
           ),
           SizedBox(
-            width: 96,
+            width: 116,
             child: Align(
               alignment: Alignment.centerLeft,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
                 decoration: BoxDecoration(
                   color: statusColor.withValues(alpha: 0.10),
                   borderRadius: BorderRadius.circular(999),
@@ -188,7 +191,7 @@ class _Row extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontSize: 10.5,
+                    fontSize: 13,
                     fontWeight: FontWeight.w800,
                     color: statusColor,
                   ),
@@ -197,39 +200,39 @@ class _Row extends StatelessWidget {
             ),
           ),
           SizedBox(
-            width: 92,
+            width: 106,
             child: Text(
               _formatDate(item.dueDate),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
-                fontSize: 11.5,
+                fontSize: 14,
                 fontWeight: FontWeight.w700,
                 color: Color(0xFF54627B),
               ),
             ),
           ),
           SizedBox(
-            width: 112,
+            width: 130,
             child: Text(
               _money(item.totalAmount),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
-                fontSize: 11.5,
+                fontSize: 14,
                 fontWeight: FontWeight.w800,
                 color: Color(0xFF1A2235),
               ),
             ),
           ),
           SizedBox(
-            width: 112,
+            width: 130,
             child: Text(
               _money(item.remainingAmount),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                fontSize: 11.5,
+                fontSize: 14,
                 fontWeight: FontWeight.w800,
                 color: settled
                     ? const Color(0xFF2E7D32)
@@ -238,39 +241,39 @@ class _Row extends StatelessWidget {
             ),
           ),
           SizedBox(
-            width: 104,
+            width: 120,
             child: Text(
               _money(item.principalAmount),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
-                fontSize: 11.5,
+                fontSize: 14,
                 fontWeight: FontWeight.w700,
                 color: Color(0xFF2D3A55),
               ),
             ),
           ),
           SizedBox(
-            width: 96,
+            width: 112,
             child: Text(
               _money(item.interestAmount),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
-                fontSize: 11.5,
+                fontSize: 14,
                 fontWeight: FontWeight.w700,
                 color: Color(0xFF2D3A55),
               ),
             ),
           ),
           SizedBox(
-            width: 104,
+            width: 120,
             child: Text(
               _money(item.paidAmount),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
-                fontSize: 11.5,
+                fontSize: 14,
                 fontWeight: FontWeight.w700,
                 color: Color(0xFF54627B),
               ),
@@ -282,7 +285,7 @@ class _Row extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
-                fontSize: 11.5,
+                fontSize: 14,
                 fontWeight: FontWeight.w700,
                 color: Color(0xFF54627B),
               ),

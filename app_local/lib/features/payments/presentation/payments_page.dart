@@ -389,7 +389,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
-                                fontSize: 12,
+                                fontSize: 13.5,
                                 color: Color(0xFF6B7494),
                               ),
                             ),
@@ -424,7 +424,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
                     child: Text(
                       'Hay $remainingMatches coincidencias mas. Sigue escribiendo para acotar la lista.',
                       style: const TextStyle(
-                        fontSize: 12,
+                        fontSize: 13.5,
                         color: Color(0xFF6B7494),
                       ),
                     ),
@@ -865,7 +865,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
                         ? 'Cargando...'
                         : 'Mostrando ${visibleInstallments.length} de $totalInstallments',
                     style: const TextStyle(
-                      fontSize: 12,
+                      fontSize: 13.5,
                       fontWeight: FontWeight.w600,
                       color: Color(0xFF6B7494),
                     ),
@@ -885,7 +885,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
 
   Widget _buildInstallmentsTableHeader() {
     const labelStyle = TextStyle(
-      fontSize: 11,
+      fontSize: 13,
       fontWeight: FontWeight.w700,
       color: Color(0xFF8893AA),
       letterSpacing: 0.4,
@@ -1099,7 +1099,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
         : 'El proximo pago cubrira primero la cuota #${actionableInstallment.installmentNumber} con restante de ${_money(actionableInstallment.remainingAmount)}.';
 
     final content = Padding(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -1111,8 +1111,9 @@ class _PaymentsPageState extends State<PaymentsPage> {
                 Text(
                   sale.clientName,
                   style: const TextStyle(
-                    fontSize: 18,
+                    fontSize: 21,
                     fontWeight: FontWeight.w700,
+                    height: 1.2,
                     color: Color(0xFF1A2235),
                   ),
                 ),
@@ -1187,7 +1188,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
                     icon: const Icon(Icons.done_all_outlined, size: 16),
                     label: const Text(
                       'Saldar deuda total',
-                      style: TextStyle(fontSize: 13),
+                      style: TextStyle(fontSize: 14.5),
                     ),
                   ),
                 _SummaryBadge(
@@ -1244,8 +1245,8 @@ class _PaymentsPageState extends State<PaymentsPage> {
                   child: Text(
                     nextActionText,
                     style: const TextStyle(
-                      fontSize: 13,
-                      height: 1.4,
+                      fontSize: 15,
+                      height: 1.45,
                       color: Color(0xFF556079),
                     ),
                   ),
@@ -1271,7 +1272,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
                   icon: const Icon(Icons.open_in_full_rounded, size: 16),
                   label: const Text(
                     'Ver pagos',
-                    style: TextStyle(fontSize: 13),
+                    style: TextStyle(fontSize: 14.5),
                   ),
                 ),
                 FilledButton.icon(
@@ -1283,14 +1284,17 @@ class _PaymentsPageState extends State<PaymentsPage> {
                       ? null
                       : () => _printFromHistory(contextData, visibleHistory),
                   icon: const Icon(Icons.print_outlined, size: 16),
-                  label: const Text('Imprimir', style: TextStyle(fontSize: 13)),
+                  label: const Text(
+                    'Imprimir',
+                    style: TextStyle(fontSize: 14.5),
+                  ),
                 ),
               ],
             ),
             child: visibleHistory.isEmpty
                 ? const Text(
                     'Todavia no hay pagos registrados para esta venta.',
-                    style: TextStyle(fontSize: 13, color: Color(0xFF8893AA)),
+                    style: TextStyle(fontSize: 14.5, color: Color(0xFF8893AA)),
                   )
                 : SizedBox(
                     height: scrollable ? 304 : 280,
@@ -2558,7 +2562,7 @@ class _CompactInstallmentRow extends StatelessWidget {
         onTap: onTap,
         hoverColor: const Color(0xFFF7F9FC),
         child: SizedBox(
-          height: 60,
+          height: 68,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(
@@ -2568,7 +2572,7 @@ class _CompactInstallmentRow extends StatelessWidget {
                   child: Text(
                     'Cuota #${installment.installmentNumber}',
                     style: const TextStyle(
-                      fontSize: 13,
+                      fontSize: 14.5,
                       fontWeight: FontWeight.w600,
                       color: Color(0xFF1A2235),
                     ),
@@ -2579,7 +2583,7 @@ class _CompactInstallmentRow extends StatelessWidget {
                   child: Text(
                     formattedDate,
                     style: const TextStyle(
-                      fontSize: 13,
+                      fontSize: 14,
                       color: Color(0xFF556079),
                     ),
                   ),
@@ -2588,7 +2592,7 @@ class _CompactInstallmentRow extends StatelessWidget {
                   child: Text(
                     formattedAmount,
                     style: const TextStyle(
-                      fontSize: 13,
+                      fontSize: 14.5,
                       fontWeight: FontWeight.w600,
                       color: Color(0xFF1A2235),
                     ),
@@ -2598,7 +2602,7 @@ class _CompactInstallmentRow extends StatelessWidget {
                   child: Text(
                     formattedPaid,
                     style: const TextStyle(
-                      fontSize: 13,
+                      fontSize: 14,
                       color: Color(0xFF556079),
                     ),
                   ),
@@ -2607,7 +2611,7 @@ class _CompactInstallmentRow extends StatelessWidget {
                   child: Text(
                     formattedRemaining,
                     style: TextStyle(
-                      fontSize: 13,
+                      fontSize: 14.5,
                       fontWeight: FontWeight.w600,
                       color: installment.remainingAmount <= 0.009
                           ? const Color(0xFF2E7D32)
@@ -2631,7 +2635,7 @@ class _CompactInstallmentRow extends StatelessWidget {
                       child: Text(
                         statusLabel,
                         style: TextStyle(
-                          fontSize: 11,
+                          fontSize: 13,
                           fontWeight: FontWeight.w700,
                           color: statusColor,
                         ),
@@ -2680,7 +2684,7 @@ class _DetailSection extends StatelessWidget {
               child: Text(
                 title,
                 style: const TextStyle(
-                  fontSize: 12,
+                  fontSize: 15,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 0.6,
                   color: Color(0xFF8893AA),
@@ -2743,13 +2747,18 @@ class _DetailValue extends StatelessWidget {
       children: [
         Text(
           item.label,
-          style: const TextStyle(fontSize: 11, color: Color(0xFF8893AA)),
+          style: const TextStyle(
+            fontSize: 13.5,
+            height: 1.25,
+            color: Color(0xFF8893AA),
+          ),
         ),
         const SizedBox(height: 4),
         Text(
           item.value,
           style: TextStyle(
-            fontSize: 14,
+            fontSize: item.emphasized ? 17 : 15.5,
+            height: 1.25,
             fontWeight: item.emphasized ? FontWeight.w700 : FontWeight.w600,
             color: item.emphasized
                 ? const Color(0xFF3B5BDB)
@@ -2807,7 +2816,7 @@ class _HistoryRow extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 120),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
           decoration: BoxDecoration(
             color: backgroundColor,
             borderRadius: BorderRadius.circular(12),
@@ -2833,7 +2842,7 @@ class _HistoryRow extends StatelessWidget {
                     Text(
                       title,
                       style: TextStyle(
-                        fontSize: 13,
+                        fontSize: 15,
                         fontWeight: FontWeight.w600,
                         color: isAnnulled
                             ? const Color(0xFF8A94A6)
@@ -2858,7 +2867,7 @@ class _HistoryRow extends StatelessWidget {
                         child: const Text(
                           'ANULADO',
                           style: TextStyle(
-                            fontSize: 10,
+                            fontSize: 13,
                             fontWeight: FontWeight.w800,
                             letterSpacing: 0.6,
                             color: Color(0xFFB3261E),
@@ -2870,7 +2879,7 @@ class _HistoryRow extends StatelessWidget {
                     Text(
                       subtitle,
                       style: const TextStyle(
-                        fontSize: 12,
+                        fontSize: 14,
                         color: Color(0xFF8893AA),
                       ),
                     ),
@@ -2881,7 +2890,7 @@ class _HistoryRow extends StatelessWidget {
               Text(
                 amount,
                 style: const TextStyle(
-                  fontSize: 13,
+                  fontSize: 15,
                   fontWeight: FontWeight.w700,
                   color: Color(0xFF1A2235),
                 ),
@@ -2928,7 +2937,7 @@ class _SummaryBadge extends StatelessWidget {
       child: Text(
         label,
         style: TextStyle(
-          fontSize: 11,
+          fontSize: 13,
           fontWeight: FontWeight.w700,
           color: color,
         ),

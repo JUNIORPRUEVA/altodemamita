@@ -117,12 +117,19 @@ businessRouter.post('/users', requirePermission('users', 'create'), async (req, 
 businessRouter.get('/clients', requirePermission('clients', 'read'), async (req, res) => {
   const company = await resolveCompanyForRequest(req);
   const { page, pageSize, skip, search } = listQuery(req.query);
+  const normalizedSearchClientIds = await normalizedClientSearchIds(company.id, search);
   const where: Prisma.ClientWhereInput = {
     companyId: company.id,
     deletedAt: null,
     ...(search
       ? {
-          OR: [{ name: { contains: search, mode: 'insensitive' } }, { document: { contains: search, mode: 'insensitive' } }, { phone: { contains: search, mode: 'insensitive' } }, { address: { contains: search, mode: 'insensitive' } }],
+          OR: [
+            { name: { contains: search, mode: 'insensitive' } },
+            { document: { contains: search, mode: 'insensitive' } },
+            { phone: { contains: search, mode: 'insensitive' } },
+            { address: { contains: search, mode: 'insensitive' } },
+            ...(normalizedSearchClientIds.length > 0 ? [{ id: { in: normalizedSearchClientIds } }] : []),
+          ],
         }
       : {}),
   };
@@ -251,12 +258,18 @@ businessRouter.delete('/clients/:clientId', requirePermission('clients', 'delete
 businessRouter.get('/sellers', requirePermission('sellers', 'read'), async (req, res) => {
   const company = await resolveCompanyForRequest(req);
   const { page, pageSize, skip, search } = listQuery(req.query);
+  const normalizedSearchSellerIds = await normalizedSellerSearchIds(company.id, search);
   const where: Prisma.SellerWhereInput = {
     companyId: company.id,
     deletedAt: null,
     ...(search
       ? {
-          OR: [{ name: { contains: search, mode: 'insensitive' } }, { document: { contains: search, mode: 'insensitive' } }, { phone: { contains: search, mode: 'insensitive' } }],
+          OR: [
+            { name: { contains: search, mode: 'insensitive' } },
+            { document: { contains: search, mode: 'insensitive' } },
+            { phone: { contains: search, mode: 'insensitive' } },
+            ...(normalizedSearchSellerIds.length > 0 ? [{ id: { in: normalizedSearchSellerIds } }] : []),
+          ],
         }
       : {}),
   };
@@ -1260,6 +1273,46 @@ function listQuery(query: Record<string, unknown>) {
     skip: (page - 1) * pageSize,
     search: stringQuery(query.search),
   };
+}
+
+async function normalizedClientSearchIds(companyId: string, search: string | undefined) {
+  const digits = normalizedSearchDigits(search);
+  if (digits.length < 2) return [];
+  const pattern = `%${digits}%`;
+  const rows = await prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT id
+    FROM "Client"
+    WHERE "companyId" = ${companyId}
+      AND "deletedAt" IS NULL
+      AND (
+        regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE ${pattern}
+        OR regexp_replace(COALESCE(document, ''), '[^0-9]', '', 'g') LIKE ${pattern}
+      )
+    LIMIT 500
+  `;
+  return rows.map((row) => row.id);
+}
+
+async function normalizedSellerSearchIds(companyId: string, search: string | undefined) {
+  const digits = normalizedSearchDigits(search);
+  if (digits.length < 2) return [];
+  const pattern = `%${digits}%`;
+  const rows = await prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT id
+    FROM "Seller"
+    WHERE "companyId" = ${companyId}
+      AND "deletedAt" IS NULL
+      AND (
+        regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE ${pattern}
+        OR regexp_replace(COALESCE(document, ''), '[^0-9]', '', 'g') LIKE ${pattern}
+      )
+    LIMIT 500
+  `;
+  return rows.map((row) => row.id);
+}
+
+function normalizedSearchDigits(search: string | undefined) {
+  return search?.replace(/\D+/g, '') ?? '';
 }
 
 function stringQuery(value: unknown) {

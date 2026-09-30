@@ -35,8 +35,7 @@ class SalesListMemoryCache {
   static List<SaleSummary> forScope(String scope) =>
       _scope == scope ? _items : const [];
 
-  static bool hasForScope(String scope) =>
-      _scope == scope && _items.isNotEmpty;
+  static bool hasForScope(String scope) => _scope == scope && _items.isNotEmpty;
 
   static void store(String scope, List<SaleSummary> items) {
     _scope = scope;
@@ -125,6 +124,7 @@ class SalesController extends ChangeNotifier {
 
   /// Filtro de clasificacion autoritativa. `null` = sin filtro.
   static const String fullyPaidFilter = 'fully_paid';
+  static const Object _unchangedSettlementFilter = Object();
 
   String? _settlementFilter;
   String? get settlementFilter => _settlementFilter;
@@ -147,7 +147,10 @@ class SalesController extends ChangeNotifier {
     );
   }
 
-  Future<void> _performLoad({String? query, String? settlementFilter}) async {
+  Future<void> _performLoad({
+    String? query,
+    Object? settlementFilter = _unchangedSettlementFilter,
+  }) async {
     if (_isDisposed) {
       return;
     }
@@ -155,8 +158,8 @@ class SalesController extends ChangeNotifier {
     if (query != null) {
       currentQuery = query;
     }
-    if (settlementFilter != null || query != null) {
-      _settlementFilter = settlementFilter;
+    if (!identical(settlementFilter, _unchangedSettlementFilter)) {
+      _settlementFilter = settlementFilter as String?;
     }
     final scope = _scopeKey;
     final isUnfilteredScope = currentQuery.isEmpty && _settlementFilter == null;

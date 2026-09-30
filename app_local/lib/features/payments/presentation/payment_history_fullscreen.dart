@@ -513,7 +513,7 @@ class _HistoryHeader extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    fontSize: 15,
+                    fontSize: 18,
                     fontWeight: FontWeight.w800,
                     color: Color(0xFF172433),
                   ),
@@ -532,7 +532,7 @@ class _HistoryHeader extends StatelessWidget {
                 child: Text(
                   '${report.items.length} pago(s)',
                   style: const TextStyle(
-                    fontSize: 11,
+                    fontSize: 13,
                     fontWeight: FontWeight.w700,
                     color: Color(0xFF6B7494),
                   ),
@@ -580,7 +580,11 @@ class _HeaderMetric extends StatelessWidget {
   Widget build(BuildContext context) {
     return RichText(
       text: TextSpan(
-        style: const TextStyle(fontSize: 11.5, color: Color(0xFF6B7494)),
+        style: const TextStyle(
+          fontSize: 14,
+          color: Color(0xFF6B7494),
+          height: 1.35,
+        ),
         children: [
           TextSpan(
             text: '$label: ',
@@ -641,7 +645,7 @@ class _SaleHistoryHeader extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    fontSize: 15,
+                    fontSize: 18,
                     fontWeight: FontWeight.w800,
                     color: Color(0xFF172433),
                   ),
@@ -660,7 +664,7 @@ class _SaleHistoryHeader extends StatelessWidget {
                 child: Text(
                   '$historyCount pago(s)',
                   style: const TextStyle(
-                    fontSize: 11,
+                    fontSize: 13,
                     fontWeight: FontWeight.w700,
                     color: Color(0xFF6B7494),
                   ),
@@ -742,7 +746,7 @@ class _HistoryTableViewportState extends State<_HistoryTableViewport> {
             controller: _horizontalController,
             scrollDirection: Axis.horizontal,
             child: SizedBox(
-              width: 980,
+              width: 1120,
               child: Column(
                 children: [
                   const _HistoryTableHeader(),
@@ -846,7 +850,7 @@ class _SaleHistoryTableViewportState extends State<_SaleHistoryTableViewport> {
             controller: _horizontalController,
             scrollDirection: Axis.horizontal,
             child: SizedBox(
-              width: 980,
+              width: 1120,
               child: Column(
                 children: [
                   const _HistoryTableHeader(),
@@ -904,16 +908,16 @@ class _HistoryTableHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       color: const Color(0xFFF4F7FB),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       child: const Row(
         children: [
-          _HeaderCell('Fecha', width: 92),
-          _HeaderCell('Concepto', width: 210),
-          _HeaderCell('Metodo', width: 120),
-          _HeaderCell('Referencia', width: 150),
-          _HeaderCell('Solar', width: 100),
-          _HeaderCell('Venta', width: 88),
-          _HeaderCell('Monto', width: 128, alignEnd: true),
+          _HeaderCell('Fecha', width: 106),
+          _HeaderCell('Concepto', width: 240),
+          _HeaderCell('Metodo', width: 136),
+          _HeaderCell('Referencia', width: 174),
+          _HeaderCell('Solar', width: 116),
+          _HeaderCell('Venta', width: 96),
+          _HeaderCell('Monto', width: 150, alignEnd: true),
         ],
       ),
     );
@@ -935,7 +939,7 @@ class _HeaderCell extends StatelessWidget {
         label,
         textAlign: alignEnd ? TextAlign.right : TextAlign.left,
         style: const TextStyle(
-          fontSize: 10.5,
+          fontSize: 13,
           fontWeight: FontWeight.w700,
           color: Color(0xFF7C89A3),
         ),
@@ -982,7 +986,7 @@ class _HistoryTableRow extends StatelessWidget {
           onTap: onTap,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 120),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
               color: backgroundColor,
               border: Border(left: BorderSide(color: borderColor, width: 3)),
@@ -990,43 +994,43 @@ class _HistoryTableRow extends StatelessWidget {
             child: Row(
               children: [
                 SizedBox(
-                  width: 92,
+                  width: 106,
                   child: Text(
                     _formatDate(item.paymentDate),
                     style: const TextStyle(
-                      fontSize: 11.5,
+                      fontSize: 14,
                       fontWeight: FontWeight.w600,
                       color: Color(0xFF54627B),
                     ),
                   ),
                 ),
                 SizedBox(
-                  width: 210,
+                  width: 240,
                   child: Text(
                     _paymentTypeLabel(item.paymentType, item.installmentNumber),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      fontSize: 11.5,
+                      fontSize: 14,
                       fontWeight: FontWeight.w700,
                       color: Color(0xFF1A2235),
                     ),
                   ),
                 ),
                 SizedBox(
-                  width: 120,
+                  width: 136,
                   child: Text(
                     _capitalize(item.paymentMethod),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      fontSize: 11.5,
+                      fontSize: 14,
                       color: Color(0xFF54627B),
                     ),
                   ),
                 ),
                 SizedBox(
-                  width: 150,
+                  width: 174,
                   child: Text(
                     (item.reference ?? '').trim().isEmpty
                         ? '-'
@@ -1034,38 +1038,38 @@ class _HistoryTableRow extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      fontSize: 11.5,
+                      fontSize: 14,
                       color: Color(0xFF54627B),
                     ),
                   ),
                 ),
                 SizedBox(
-                  width: 100,
+                  width: 116,
                   child: Text(
                     item.lotDisplayCode,
                     style: const TextStyle(
-                      fontSize: 11.5,
+                      fontSize: 14,
                       color: Color(0xFF1A2235),
                     ),
                   ),
                 ),
                 SizedBox(
-                  width: 88,
+                  width: 96,
                   child: Text(
                     '#${item.saleId}',
                     style: const TextStyle(
-                      fontSize: 11.5,
+                      fontSize: 14,
                       color: Color(0xFF1A2235),
                     ),
                   ),
                 ),
                 SizedBox(
-                  width: 128,
+                  width: 150,
                   child: Text(
                     _money(item.amountPaid),
                     textAlign: TextAlign.right,
                     style: const TextStyle(
-                      fontSize: 12,
+                      fontSize: 15,
                       fontWeight: FontWeight.w800,
                       color: Color(0xFF1A2235),
                     ),
@@ -1120,7 +1124,7 @@ class _SaleHistoryTableRow extends StatelessWidget {
           onTap: onTap,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 120),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
               color: backgroundColor,
               border: Border(left: BorderSide(color: borderColor, width: 3)),
@@ -1128,43 +1132,43 @@ class _SaleHistoryTableRow extends StatelessWidget {
             child: Row(
               children: [
                 SizedBox(
-                  width: 92,
+                  width: 106,
                   child: Text(
                     _formatDate(item.paymentDate),
                     style: const TextStyle(
-                      fontSize: 11.5,
+                      fontSize: 14,
                       fontWeight: FontWeight.w600,
                       color: Color(0xFF54627B),
                     ),
                   ),
                 ),
                 SizedBox(
-                  width: 210,
+                  width: 240,
                   child: Text(
                     _paymentTypeLabel(item.paymentType, item.installmentNumber),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      fontSize: 11.5,
+                      fontSize: 14,
                       fontWeight: FontWeight.w700,
                       color: Color(0xFF1A2235),
                     ),
                   ),
                 ),
                 SizedBox(
-                  width: 120,
+                  width: 136,
                   child: Text(
                     _capitalize(item.paymentMethod),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      fontSize: 11.5,
+                      fontSize: 14,
                       color: Color(0xFF54627B),
                     ),
                   ),
                 ),
                 SizedBox(
-                  width: 150,
+                  width: 174,
                   child: Text(
                     (item.reference ?? '').trim().isEmpty
                         ? '-'
@@ -1172,38 +1176,38 @@ class _SaleHistoryTableRow extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      fontSize: 11.5,
+                      fontSize: 14,
                       color: Color(0xFF54627B),
                     ),
                   ),
                 ),
                 SizedBox(
-                  width: 100,
+                  width: 116,
                   child: Text(
                     lotDisplayCode,
                     style: const TextStyle(
-                      fontSize: 11.5,
+                      fontSize: 14,
                       color: Color(0xFF1A2235),
                     ),
                   ),
                 ),
                 SizedBox(
-                  width: 88,
+                  width: 96,
                   child: Text(
                     '#${item.saleId}',
                     style: const TextStyle(
-                      fontSize: 11.5,
+                      fontSize: 14,
                       color: Color(0xFF1A2235),
                     ),
                   ),
                 ),
                 SizedBox(
-                  width: 128,
+                  width: 150,
                   child: Text(
                     _money(item.amountPaid),
                     textAlign: TextAlign.right,
                     style: const TextStyle(
-                      fontSize: 12,
+                      fontSize: 15,
                       fontWeight: FontWeight.w800,
                       color: Color(0xFF1A2235),
                     ),
@@ -1248,7 +1252,7 @@ class _HistoryTotalsFooter extends StatelessWidget {
     ];
 
     return Container(
-      height: 42,
+      height: 48,
       padding: const EdgeInsets.symmetric(horizontal: 14),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -1288,7 +1292,7 @@ class _FooterMetric extends StatelessWidget {
         Text(
           '$label: ',
           style: const TextStyle(
-            fontSize: 11,
+            fontSize: 14,
             fontWeight: FontWeight.w600,
             color: Color(0xFF6B7494),
           ),
@@ -1296,7 +1300,7 @@ class _FooterMetric extends StatelessWidget {
         Text(
           value,
           style: TextStyle(
-            fontSize: emphasize ? 12.5 : 11.5,
+            fontSize: emphasize ? 16 : 15,
             fontWeight: FontWeight.w800,
             color: color,
           ),

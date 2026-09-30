@@ -98,13 +98,11 @@ class _SaleDetailPageState extends State<SaleDetailPage> {
         elevation: 0,
         scrolledUnderElevation: 0,
         surfaceTintColor: Colors.transparent,
-        shape: const Border(
-          bottom: BorderSide(color: Color(0xFFECEEF2)),
-        ),
+        shape: const Border(bottom: BorderSide(color: Color(0xFFECEEF2))),
         title: const Text(
           SaleDetailPage.title,
           style: TextStyle(
-            fontSize: 19,
+            fontSize: 21,
             fontWeight: FontWeight.w700,
             color: Color(0xFF16202E),
           ),
@@ -240,10 +238,7 @@ class _DetailContent extends StatelessWidget {
               _RowData('Documento', detail.clientDocumentId),
             _RowData('Solar', detail.lotDisplayCode),
             _RowData('Área', '${detail.lotArea.toStringAsFixed(2)} m²'),
-            _RowData(
-              'Precio por m²',
-              _money(detail.lotPricePerSquareMeter),
-            ),
+            _RowData('Precio por m²', _money(detail.lotPricePerSquareMeter)),
           ],
         ),
         const SizedBox(height: 18),
@@ -315,7 +310,7 @@ class _IdentityCard extends StatelessWidget {
         ? 'Cliente sin nombre'
         : detail.clientName.trim();
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(18),
       decoration: _cardDecoration,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -325,7 +320,7 @@ class _IdentityCard extends StatelessWidget {
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
-              fontSize: 20,
+              fontSize: 23,
               fontWeight: FontWeight.w700,
               color: Color(0xFF16202E),
               height: 1.2,
@@ -340,7 +335,7 @@ class _IdentityCard extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    fontSize: 14,
+                    fontSize: 16,
                     fontWeight: FontWeight.w500,
                     color: Color(0xFF667085),
                   ),
@@ -418,7 +413,7 @@ class _FinancialSection extends StatelessWidget {
     return SizedBox(
       width: width,
       child: Container(
-        padding: const EdgeInsets.fromLTRB(13, 12, 13, 13),
+        padding: const EdgeInsets.fromLTRB(15, 14, 15, 15),
         decoration: _cardDecoration,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -429,7 +424,7 @@ class _FinancialSection extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
-                fontSize: 11.5,
+                fontSize: 13.5,
                 fontWeight: FontWeight.w600,
                 color: Color(0xFF667085),
               ),
@@ -443,7 +438,7 @@ class _FinancialSection extends StatelessWidget {
                 _money(value),
                 maxLines: 1,
                 style: TextStyle(
-                  fontSize: 17,
+                  fontSize: 18.5,
                   fontWeight: FontWeight.w700,
                   color: tone ?? const Color(0xFF16202E),
                 ),
@@ -482,7 +477,7 @@ class _PaymentPlanSection extends StatelessWidget {
               Text(
                 '$total cuotas',
                 style: const TextStyle(
-                  fontSize: 16,
+                  fontSize: 18,
                   fontWeight: FontWeight.w700,
                   color: Color(0xFF16202E),
                 ),
@@ -491,7 +486,7 @@ class _PaymentPlanSection extends StatelessWidget {
               Text(
                 '$paid pagadas · $pending pendientes',
                 style: const TextStyle(
-                  fontSize: 13,
+                  fontSize: 15,
                   fontWeight: FontWeight.w500,
                   color: Color(0xFF667085),
                 ),
@@ -564,9 +559,9 @@ class _SectionTitle extends StatelessWidget {
       child: Text(
         title.toUpperCase(),
         style: const TextStyle(
-          fontSize: 11.5,
+          fontSize: 13,
           fontWeight: FontWeight.w700,
-          letterSpacing: 0.7,
+          letterSpacing: 0.4,
           color: Color(0xFF98A2B3),
         ),
       ),
@@ -582,11 +577,7 @@ class _RowData {
 }
 
 class _Section extends StatelessWidget {
-  const _Section({
-    required this.title,
-    required this.rows,
-    this.footer,
-  });
+  const _Section({required this.title, required this.rows, this.footer});
 
   final String title;
   final List<_RowData> rows;
@@ -636,7 +627,7 @@ class _InfoRow extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -645,7 +636,7 @@ class _InfoRow extends StatelessWidget {
                 child: Text(
                   label,
                   style: const TextStyle(
-                    fontSize: 13.5,
+                    fontSize: 15,
                     fontWeight: FontWeight.w500,
                     color: Color(0xFF667085),
                   ),
@@ -658,7 +649,7 @@ class _InfoRow extends StatelessWidget {
                   value,
                   textAlign: TextAlign.right,
                   style: const TextStyle(
-                    fontSize: 14,
+                    fontSize: 16,
                     fontWeight: FontWeight.w600,
                     color: Color(0xFF16202E),
                   ),
@@ -707,7 +698,7 @@ class _ActionTile extends StatelessWidget {
               child: Text(
                 label,
                 style: TextStyle(
-                  fontSize: 14.5,
+                  fontSize: 15.5,
                   fontWeight: FontWeight.w600,
                   color: color,
                 ),
@@ -753,9 +744,7 @@ class _PlanButton extends StatelessWidget {
         minimumSize: const Size.fromHeight(46),
         foregroundColor: const Color(0xFF123A5E),
         side: const BorderSide(color: Color(0xFFD6DEE8)),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
   }
@@ -781,7 +770,7 @@ class _StatusChip extends StatelessWidget {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
-            fontSize: 11.5,
+            fontSize: 13,
             fontWeight: FontWeight.w600,
             color: color,
           ),
@@ -885,10 +874,7 @@ class _LoadFailedState extends StatelessWidget {
             const Text(
               'Revisa tu conexión e inténtalo nuevamente.',
               textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 13.5,
-                color: Color(0xFF667085),
-              ),
+              style: TextStyle(fontSize: 13.5, color: Color(0xFF667085)),
             ),
             const SizedBox(height: 20),
             if (onRetry != null)
