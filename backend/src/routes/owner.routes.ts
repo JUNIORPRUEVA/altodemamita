@@ -1,10 +1,12 @@
 import { Router } from 'express';
+import { Prisma } from '@prisma/client';
 import { authGuard } from '../auth';
 import { config } from '../config';
 import { resolveCompanyForRequest } from '../companyIdentity';
 import { prisma } from '../prisma';
 import {
   BUSINESS_TIMEZONE,
+  MONEY_TOLERANCE,
   dateKeyInTimeZone,
   isOpenInstallment,
   isOverdueInstallment,
@@ -303,41 +305,16 @@ async function listSales(req: any, res: any) {
   const overdueInstallmentCountBySaleId = new Map<string, number>();
   if (candidateIds.length > 0) {
     timedAt = Date.now();
-    const installmentsForCandidates = await prisma.installment.findMany({
-      where: {
-        companyId: company.id,
-        deletedAt: null,
-        saleId: { in: candidateIds },
-      },
-      select: {
-        saleId: true,
-        dueDate: true,
-        status: true,
-        totalAmount: true,
-        paidAmount: true,
-      },
-    });
+    const installmentSummaries = await saleInstallmentListSummaries(
+      company.id,
+      candidateIds,
+      today.businessDate,
+    );
     metrics.dbMs += Date.now() - timedAt;
     timedAt = Date.now();
-    for (const installment of installmentsForCandidates as Array<any>) {
-      const saleId = installment.saleId;
-      if (!saleId) continue;
-      const remaining = roundMoney(
-        Math.max(
-          toNumber(installment.totalAmount) - toNumber(installment.paidAmount),
-          0,
-        ),
-      );
-      outstandingBySaleId.set(
-        saleId,
-        roundMoney((outstandingBySaleId.get(saleId) ?? 0) + remaining),
-      );
-      if (isOverdueInstallmentObligation(installment, today.businessDate)) {
-        overdueInstallmentCountBySaleId.set(
-          saleId,
-          (overdueInstallmentCountBySaleId.get(saleId) ?? 0) + 1,
-        );
-      }
+    for (const summary of installmentSummaries) {
+      outstandingBySaleId.set(summary.saleId, roundMoney(toNumber(summary.outstanding)));
+      overdueInstallmentCountBySaleId.set(summary.saleId, Number(summary.overdueCount ?? 0));
     }
     metrics.calculationsMs += Date.now() - timedAt;
   }
@@ -946,6 +923,42 @@ export function outstandingFromInstallments(installments: Array<any>) {
       0,
     ),
   );
+}
+
+async function saleInstallmentListSummaries(
+  companyId: string,
+  saleIds: string[],
+  businessDate: Date,
+) {
+  if (saleIds.length === 0) {
+    return [];
+  }
+  return prisma.$queryRaw<
+    Array<{ saleId: string; outstanding: Prisma.Decimal | number | string; overdueCount: bigint }>
+  >`
+    SELECT
+      "saleId",
+      SUM(GREATEST(("totalAmount" - "paidAmount")::numeric, 0)) AS "outstanding",
+      COUNT(*) FILTER (
+        WHERE LOWER(COALESCE("status", '')) NOT IN (
+          'pagada',
+          'pagado',
+          'paid',
+          'ajustada',
+          'adjusted',
+          'cancelada',
+          'cancelled',
+          'canceled'
+        )
+        AND GREATEST(("totalAmount" - "paidAmount")::numeric, 0) > ${MONEY_TOLERANCE}
+        AND "dueDate" < ${businessDate}
+      ) AS "overdueCount"
+    FROM "Installment"
+    WHERE "companyId" = ${companyId}
+      AND "deletedAt" IS NULL
+      AND "saleId" IN (${Prisma.join(saleIds)})
+    GROUP BY "saleId"
+  `;
 }
 
 export function overdueInstallmentCountFromInstallments(installments: Array<any>, today: Date) {
