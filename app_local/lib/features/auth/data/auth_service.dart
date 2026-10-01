@@ -11,6 +11,7 @@ import '../../../core/config/backend_config.dart';
 import '../../../core/config/app_flags.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_schema.dart';
+import '../../../core/diagnostics/sync_diagnostics_logger.dart';
 import '../../../core/network/backend_api_client.dart';
 import '../../../core/network/backend_entity_id_registry.dart';
 import '../../../core/network/backend_http_client.dart';
@@ -323,6 +324,18 @@ class AuthService {
           throw const AuthException(cloudServiceUnavailableMessage);
         }
         debugPrint('[SignIn] Error de red, intentando login local: $error');
+      } on AuthException catch (error) {
+        if (!_isNetworkAuthFailure(error.message)) {
+          rethrow;
+        }
+        if (_requiresCloudBackedLocalAuth) {
+          debugPrint('[SignIn] Error de red en modo cloud: ${error.message}');
+          rethrow;
+        }
+        debugPrint(
+          '[SignIn] Error de red autenticando online, intentando login local: '
+          '${error.message}',
+        );
       }
     }
 
@@ -1847,26 +1860,72 @@ class AuthService {
     Map<String, Object?>? payload,
     Map<String, String>? headers,
   }) async {
-    debugPrint(
-      '[auth-http] request method=${method.toUpperCase()} uri=$uri payload=${_redactPayloadForLog(payload)}',
+    final startedAt = DateTime.now();
+    final normalizedMethod = method.toUpperCase();
+    final safePayload = _redactPayloadForLog(payload);
+    _logAuthHttp(
+      'request method=$normalizedMethod uri=$uri payload=$safePayload',
     );
 
-    final request = await _openRequest(method, uri);
-    request.headers.contentType = ContentType.json;
-    request.headers.set(HttpHeaders.acceptHeader, ContentType.json.mimeType);
-    if (headers != null) {
-      for (final entry in headers.entries) {
-        request.headers.set(entry.key, entry.value);
+    late HttpClientResponse response;
+    late String body;
+    try {
+      final request = await _openRequest(method, uri).timeout(
+        const Duration(seconds: 30),
+      );
+      request.headers.contentType = ContentType.json;
+      request.headers.set(HttpHeaders.acceptHeader, ContentType.json.mimeType);
+      if (headers != null) {
+        for (final entry in headers.entries) {
+          request.headers.set(entry.key, entry.value);
+        }
       }
-    }
-    if (payload != null) {
-      request.write(jsonEncode(payload));
+      if (payload != null) {
+        request.write(jsonEncode(payload));
+      }
+
+      response = await request.close().timeout(const Duration(seconds: 30));
+      body = await utf8.decoder
+          .bind(response)
+          .join()
+          .timeout(const Duration(seconds: 30));
+    } on TimeoutException catch (error) {
+      final elapsedMs = DateTime.now().difference(startedAt).inMilliseconds;
+      _logAuthHttp(
+        'error method=$normalizedMethod uri=$uri elapsedMs=$elapsedMs '
+        'type=TimeoutException detail=${_truncateForLog(error.toString())}',
+      );
+      throw const AuthException(
+        'Tiempo de espera agotado conectando con el servicio cloud.',
+      );
+    } on SocketException catch (error) {
+      final elapsedMs = DateTime.now().difference(startedAt).inMilliseconds;
+      _logAuthHttp(
+        'error method=$normalizedMethod uri=$uri elapsedMs=$elapsedMs '
+        'type=SocketException osError=${error.osError?.message ?? ''} '
+        'address=${error.address?.address ?? ''} port=${error.port ?? ''} '
+        'detail=${_truncateForLog(error.message)}',
+      );
+      throw AuthException(
+        'No se pudo conectar con el servicio cloud. '
+        'Error de red: ${error.message}',
+      );
+    } on IOException catch (error) {
+      final elapsedMs = DateTime.now().difference(startedAt).inMilliseconds;
+      _logAuthHttp(
+        'error method=$normalizedMethod uri=$uri elapsedMs=$elapsedMs '
+        'type=${error.runtimeType} detail=${_truncateForLog(error.toString())}',
+      );
+      throw AuthException(
+        'No se pudo conectar con el servicio cloud. '
+        'Error ${error.runtimeType}: ${error.toString()}',
+      );
     }
 
-    final response = await request.close();
-    final body = await utf8.decoder.bind(response).join();
-    debugPrint(
-      '[auth-http] response status=${response.statusCode} uri=$uri body=${_truncateForLog(body)}',
+    final elapsedMs = DateTime.now().difference(startedAt).inMilliseconds;
+    _logAuthHttp(
+      'response method=$normalizedMethod uri=$uri status=${response.statusCode} '
+      'elapsedMs=$elapsedMs body=${_truncateForLog(body)}',
     );
     final decoded = _decodeBackendJsonBody(body);
     final responsePayload = decoded is Map<String, dynamic>
@@ -1902,6 +1961,23 @@ class AuthService {
       throw const AuthException('La respuesta del backend no es valida.');
     }
     return responsePayload;
+  }
+
+  void _logAuthHttp(String message) {
+    final line = '[auth-http] $message';
+    debugPrint(line);
+    SyncDiagnosticsLogger.instance.logUnawaited(line);
+  }
+
+  bool _isNetworkAuthFailure(String message) {
+    final normalized = message.trim().toLowerCase();
+    return normalized.contains('servicio cloud') ||
+        normalized.contains('tiempo de espera') ||
+        normalized.contains('socketexception') ||
+        normalized.contains('handshake') ||
+        normalized.contains('connection') ||
+        normalized.contains('dns') ||
+        normalized.contains('red:');
   }
 
   dynamic _decodeBackendJsonBody(String body) {
