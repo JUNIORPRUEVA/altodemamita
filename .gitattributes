@@ -1,0 +1,2 @@
+app_local/Dockerfile.pwa text eol=lf
+app_local/docker-entrypoint-pwa.sh text eol=lf
