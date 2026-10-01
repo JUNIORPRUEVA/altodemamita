@@ -77,7 +77,7 @@ class _InstallmentsMobileViewState extends State<InstallmentsMobileView> {
 
   Widget _buildBody() {
     if (widget.isLoading && widget.installments.isEmpty) {
-      return const MobileLoadingView(label: 'Cargando cuotas…');
+      return const Center(child: CircularProgressIndicator());
     }
     if (widget.installments.isEmpty) {
       return MobileEmptyState(

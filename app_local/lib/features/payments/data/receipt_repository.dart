@@ -99,10 +99,10 @@ class ReceiptRepository {
             FROM ${DatabaseSchema.paymentsTable} p
             LEFT JOIN ${DatabaseSchema.usersTable} pu ON pu.id = p.usuario_id
             LEFT JOIN ${DatabaseSchema.installmentsTable} q ON q.id = p.cuota_id
-            WHERE p.referencia = ?
+            WHERE p.venta_id = ? AND p.referencia = ?
             ORDER BY p.id ASC
           ''',
-            [paymentReference],
+            [saleId, paymentReference],
           );
     final operationPayments = operationRows
         .map(PaymentHistoryItem.fromMap)
@@ -140,10 +140,12 @@ class ReceiptRepository {
     final installmentId = paidInstallmentPayment?.installmentId;
     Installment? paidInstallment;
     if (installmentId != null) {
-      paidInstallment = saleContext.installments.firstWhere(
-        (i) => i.id == installmentId,
-        orElse: () => throw StateError('Cuota no encontrada'),
-      );
+      for (final installment in saleContext.installments) {
+        if (installment.id == installmentId) {
+          paidInstallment = installment;
+          break;
+        }
+      }
     }
 
     final paidCapital = operationPayments
@@ -202,10 +204,10 @@ class ReceiptRepository {
         ? 'Pago aplicado al inicial requerido de la venta. El financiamiento solo inicia cuando el inicial queda completado.'
         : installmentCount <= 0
         ? 'Pago registrado sin plan de cuotas asociado.'
-      : '$installmentCount cuotas mensuales fijas con interes simple de ${monthlyInterest.toStringAsFixed(2)}% sobre el capital financiado original.';
+        : '$installmentCount cuotas mensuales fijas con interes simple de ${monthlyInterest.toStringAsFixed(2)}% sobre el capital financiado original.';
     final note = hasInitialStagePayments
         ? 'Este recibo corresponde a un pago previo a la activación del financiamiento. El saldo del inicial y el estado de la venta fueron actualizados en el sistema.'
-      : 'Conserve este recibo. Cada pago reduce el saldo pendiente del plan sin recalcular el interes pactado ni cambiar la cuota mensual fija.';
+        : 'Conserve este recibo. Cada pago reduce el saldo pendiente del plan sin recalcular el interes pactado ni cambiar la cuota mensual fija.';
 
     return Receipt(
       paymentId: paymentId,

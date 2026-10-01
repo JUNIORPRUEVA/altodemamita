@@ -77,10 +77,12 @@ class _InstallmentsPageState extends State<InstallmentsPage> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _buildToolbar(),
-            if (_controller.isLoading)
+            if (_controller.isLoading && !_controller.hasVisibleData)
               const Expanded(
                   child: Center(child: CircularProgressIndicator()))
             else ...[
+                if (_controller.isRefreshing)
+                  const LinearProgressIndicator(minHeight: 1),
                 if (_controller.selectedSaleSummary != null)
                   _buildSaleSummaryStrip(
                       _controller.selectedSaleSummary!)

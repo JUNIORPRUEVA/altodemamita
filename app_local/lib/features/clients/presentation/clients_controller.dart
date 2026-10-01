@@ -14,11 +14,36 @@ class ClientsController extends ResilientListController<Client> {
         moduleLabel: 'Clientes',
         fetch: (query) => repository.fetchAll(query: query),
         fetchCache: repository.fetchCachedList,
+        filterCache: _filterClients,
       );
 
   final ClientRepository _repository;
 
   List<Client> get clients => items;
+
+  static List<Client> _filterClients(List<Client> clients, String query) {
+    final tokens = query
+        .trim()
+        .toLowerCase()
+        .split(RegExp(r'\s+'))
+        .where((token) => token.isNotEmpty)
+        .toList(growable: false);
+    if (tokens.isEmpty) return clients;
+    final digits = query.replaceAll(RegExp(r'\D+'), '');
+    return clients.where((client) {
+      final haystack = [
+        client.fullName,
+        client.documentId,
+        client.phone ?? '',
+      ].join(' ').toLowerCase();
+      final normalizedDigits = [
+        client.documentId,
+        client.phone ?? '',
+      ].join(' ').replaceAll(RegExp(r'\D+'), '');
+      return tokens.every(haystack.contains) ||
+          (digits.length >= 2 && normalizedDigits.contains(digits));
+    }).toList(growable: false);
+  }
 
   Future<String?> save(Client client) async {
     try {

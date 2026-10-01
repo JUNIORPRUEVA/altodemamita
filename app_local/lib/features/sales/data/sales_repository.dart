@@ -86,6 +86,7 @@ class SalesRepository {
         AND (
           COALESCE(c.nombre, '') LIKE ?
         OR COALESCE(c.cedula, '') LIKE ?
+        OR COALESCE(c.telefono, '') LIKE ?
         OR COALESCE(s.manzana_numero, '') LIKE ?
         OR COALESCE(s.solar_numero, '') LIKE ?
         OR v.estado LIKE ?
@@ -113,6 +114,7 @@ class SalesRepository {
         v.estado,
         COALESCE(c.nombre, '[Cliente no disponible]') AS cliente_nombre,
         COALESCE(c.cedula, '') AS cliente_cedula,
+        COALESCE(c.telefono, '') AS cliente_telefono,
         COALESCE(s.manzana_numero, '?') AS manzana_numero,
         COALESCE(s.solar_numero, '?') AS solar_numero,
         COUNT(CASE WHEN q.estado <> 'ajustada' THEN 1 END) AS cuotas_generadas,
@@ -145,6 +147,7 @@ class SalesRepository {
         v.estado,
         c.nombre,
         c.cedula,
+        c.telefono,
         s.manzana_numero,
         s.solar_numero
       ORDER BY v.fecha_venta DESC, v.id DESC
@@ -156,7 +159,7 @@ class SalesRepository {
         InstallmentStatusResolver.currentBusinessDateKey(),
         ...(normalizedQuery.isEmpty
             ? const <Object>[]
-            : List.filled(5, '%$normalizedQuery%')),
+            : List.filled(6, '%$normalizedQuery%')),
       ],
     );
 
@@ -1425,6 +1428,29 @@ class SalesRepository {
     return _filterSummariesByQuery(summaries, query);
   }
 
+  Future<List<SaleSummary>> searchCachedList({
+    String query = '',
+    String? settlementFilter,
+  }) async {
+    final cached = await fetchCachedList();
+    return filterSummaries(
+      cached,
+      query: query,
+      settlementFilter: settlementFilter,
+    );
+  }
+
+  List<SaleSummary> filterSummaries(
+    List<SaleSummary> summaries, {
+    String query = '',
+    String? settlementFilter,
+  }) {
+    final filteredBySettlement = settlementFilter == 'fully_paid'
+        ? summaries.where((summary) => summary.isFullyPaid).toList()
+        : summaries;
+    return _filterSummariesByQuery(filteredBySettlement, query);
+  }
+
   List<SaleSummary> _filterSummariesByQuery(
     List<SaleSummary> summaries,
     String query,
@@ -1443,6 +1469,7 @@ class SalesRepository {
             [
               summary.clientName,
               summary.clientDocumentId,
+              summary.clientPhone,
               summary.lotDisplayCode,
               summary.status,
             ].join(' '),
@@ -1772,6 +1799,8 @@ class SalesRepository {
           client['documentId']?.toString() ??
           client['document']?.toString() ??
           '',
+      clientPhone:
+          item['clientPhone']?.toString() ?? client['phone']?.toString() ?? '',
       lotDisplayCode: _lotDisplayCode(product),
       saleDate:
           DateTime.tryParse(item['saleDate']?.toString() ?? '') ??

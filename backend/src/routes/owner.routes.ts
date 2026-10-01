@@ -103,6 +103,81 @@ ownerRouter.get('/sync-status', async (req, res) => {
   });
 });
 
+const saleListSelect = {
+  id: true,
+  syncId: true,
+  clientSyncId: true,
+  lotSyncId: true,
+  sellerSyncId: true,
+  saleDate: true,
+  status: true,
+  total: true,
+  initialRequiredAmount: true,
+  initialPaid: true,
+  initialPendingAmount: true,
+  reservationMinimumAmount: true,
+  reservationPaidAmount: true,
+  initialPaymentDeadline: true,
+  activationDate: true,
+  financedBalance: true,
+  monthlyInterestRate: true,
+  installmentCount: true,
+  balance: true,
+  createdAt: true,
+  updatedAt: true,
+  deletedAt: true,
+} as const;
+
+const installmentQueueSelect = {
+  id: true,
+  syncId: true,
+  saleId: true,
+  saleSyncId: true,
+  installmentNumber: true,
+  dueDate: true,
+  openingBalance: true,
+  principalAmount: true,
+  interestAmount: true,
+  totalAmount: true,
+  paidAmount: true,
+  paidPrincipalAmount: true,
+  paidInterestAmount: true,
+  endingBalance: true,
+  status: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
+const clientListSelect = {
+  id: true,
+  syncId: true,
+  name: true,
+  document: true,
+  phone: true,
+  address: true,
+  createdAt: true,
+  updatedAt: true,
+  deletedAt: true,
+} as const;
+
+const lotListSelect = {
+  id: true,
+  syncId: true,
+  block: true,
+  number: true,
+  area: true,
+  price: true,
+  status: true,
+} as const;
+
+const sellerListSelect = {
+  id: true,
+  syncId: true,
+  name: true,
+  document: true,
+  phone: true,
+} as const;
+
 async function list(
   req: any,
   res: any,
@@ -111,16 +186,29 @@ async function list(
   const page = Math.max(Number(req.query.page ?? 1), 1);
   const pageSize = Math.min(Math.max(Number(req.query.pageSize ?? 50), 1), 200);
   const includeDeleted = String(req.query.includeDeleted ?? 'false') === 'true';
+  const search = String(req.query.search ?? '').trim();
   const skip = (page - 1) * pageSize;
   const delegate = prisma[model] as any;
   const company = await resolveCompanyForRequest(req);
-  const where = includeDeleted
+  const baseWhere = includeDeleted
     ? { companyId: company.id }
     : { companyId: company.id, deletedAt: null };
+  const searchWhere =
+    model === 'client' ? await buildClientListSearchWhere(company.id, search) : null;
+  const where = combineSaleFilters(baseWhere, searchWhere) ?? baseWhere;
+  const select =
+    model === 'client'
+      ? clientListSelect
+      : model === 'lot'
+        ? lotListSelect
+        : model === 'seller'
+          ? sellerListSelect
+          : undefined;
 
   const [items, total] = await Promise.all([
     delegate.findMany({
       where,
+      ...(select ? { select } : {}),
       orderBy: { updatedAt: 'desc' },
       skip,
       take: pageSize,
@@ -147,6 +235,16 @@ async function list(
 }
 
 async function listSales(req: any, res: any) {
+  const startedAt = Date.now();
+  const metrics = {
+    dbMs: 0,
+    relationLoadMs: 0,
+    calculationsMs: 0,
+    transformMs: 0,
+    serializationMs: 0,
+    payloadBytes: 0,
+    totalMs: 0,
+  };
   const page = Math.max(Number(req.query.page ?? 1), 1);
   const pageSize = Math.min(Math.max(Number(req.query.pageSize ?? 50), 1), 200);
   const includeDeleted = String(req.query.includeDeleted ?? 'false') === 'true';
@@ -157,7 +255,9 @@ async function listSales(req: any, res: any) {
   const today = businessDayRange(new Date());
   const lotIdFilter = String(req.query.lotId ?? '').trim();
   const search = String(req.query.search ?? '').trim();
+  let timedAt = Date.now();
   const searchWhere = await buildPaymentSaleSearchWhere(company.id, search);
+  metrics.dbMs += Date.now() - timedAt;
   const baseWhere = lotIdFilter
     ? {
         companyId: company.id,
@@ -185,20 +285,24 @@ async function listSales(req: any, res: any) {
 
   const FULLY_PAID_FETCH_CAP = 500;
 
+  timedAt = Date.now();
   const [candidateSales, unfilteredTotal] = await Promise.all([
     prisma.sale.findMany({
       where,
+      select: saleListSelect,
       orderBy: { updatedAt: 'desc' },
       skip: onlyFullyPaid ? 0 : skip,
       take: onlyFullyPaid ? FULLY_PAID_FETCH_CAP : pageSize,
     }),
     onlyFullyPaid ? Promise.resolve(0) : prisma.sale.count({ where }),
   ]);
+  metrics.dbMs += Date.now() - timedAt;
 
   const candidateIds = candidateSales.map((sale: any) => sale.id);
   const outstandingBySaleId = new Map<string, number>();
   const overdueInstallmentCountBySaleId = new Map<string, number>();
   if (candidateIds.length > 0) {
+    timedAt = Date.now();
     const installmentsForCandidates = await prisma.installment.findMany({
       where: {
         companyId: company.id,
@@ -213,6 +317,8 @@ async function listSales(req: any, res: any) {
         paidAmount: true,
       },
     });
+    metrics.dbMs += Date.now() - timedAt;
+    timedAt = Date.now();
     for (const installment of installmentsForCandidates as Array<any>) {
       const saleId = installment.saleId;
       if (!saleId) continue;
@@ -233,8 +339,10 @@ async function listSales(req: any, res: any) {
         );
       }
     }
+    metrics.calculationsMs += Date.now() - timedAt;
   }
 
+  timedAt = Date.now();
   const settlementBySaleId = new Map<string, SaleSettlement>();
   for (const sale of candidateSales as Array<any>) {
     settlementBySaleId.set(
@@ -242,6 +350,7 @@ async function listSales(req: any, res: any) {
       deriveSettlement(sale, outstandingBySaleId.get(sale.id) ?? 0),
     );
   }
+  metrics.calculationsMs += Date.now() - timedAt;
 
   const salesPage = onlyFullyPaid
     ? (candidateSales as Array<any>).filter(
@@ -255,35 +364,44 @@ async function listSales(req: any, res: any) {
   const lotSyncIds = uniqueSyncIds(pageSales.map((sale) => sale.lotSyncId));
   const sellerSyncIds = uniqueSyncIds(pageSales.map((sale) => sale.sellerSyncId));
 
+  timedAt = Date.now();
   const [clients, lots, sellers] = await Promise.all([
     prisma.client.findMany({
+      select: clientListSelect,
       where: { companyId: company.id, syncId: { in: clientSyncIds } },
     }),
     prisma.lot.findMany({
+      select: lotListSelect,
       where: { companyId: company.id, syncId: { in: lotSyncIds } },
     }),
     prisma.seller.findMany({
+      select: sellerListSelect,
       where: { companyId: company.id, syncId: { in: sellerSyncIds } },
     }),
   ]);
+  metrics.relationLoadMs += Date.now() - timedAt;
 
   const clientsBySyncId = bySyncId(clients);
   const lotsBySyncId = bySyncId(lots);
   const sellersBySyncId = bySyncId(sellers);
 
-  return res.json({
+  timedAt = Date.now();
+  const items = pageSales.map((sale) =>
+    serializeSaleListRow(
+      sale,
+      clientsBySyncId,
+      lotsBySyncId,
+      sellersBySyncId,
+      settlementBySaleId.get(sale.id),
+      overdueInstallmentCountBySaleId.get(sale.id) ?? 0,
+    ),
+  );
+  metrics.transformMs += Date.now() - timedAt;
+
+  return sendMeasuredJson(req, res, 'owner/sales', startedAt, metrics, {
     data: {
       company: { id: company.id, tenantKey: company.tenantKey, name: company.name },
-      items: pageSales.map((sale) =>
-        serializeSaleRow(
-          sale,
-          clientsBySyncId,
-          lotsBySyncId,
-          sellersBySyncId,
-          settlementBySaleId.get(sale.id),
-          overdueInstallmentCountBySaleId.get(sale.id) ?? 0,
-        ),
-      ),
+      items,
       page,
       pageSize,
       total,
@@ -293,27 +411,50 @@ async function listSales(req: any, res: any) {
 }
 
 async function saleDetail(req: any, res: any) {
+  const startedAt = Date.now();
+  const metrics = {
+    dbMs: 0,
+    relationLoadMs: 0,
+    calculationsMs: 0,
+    transformMs: 0,
+    serializationMs: 0,
+    payloadBytes: 0,
+    totalMs: 0,
+  };
   const company = await resolveCompanyForRequest(req);
   const saleId = String(req.params.saleId ?? '').trim();
 
+  let timedAt = Date.now();
   const sale = await prisma.sale.findFirst({
     where: { id: saleId, companyId: company.id, deletedAt: null },
+    select: saleListSelect,
   });
+  metrics.dbMs += Date.now() - timedAt;
   if (!sale) {
     return res.status(404).json({
       error: { code: 'SALE_NOT_FOUND', message: 'Venta no encontrada.' },
     });
   }
 
+  timedAt = Date.now();
   const [client, lot, seller, installments, payments] = await Promise.all([
     sale.clientSyncId
-      ? prisma.client.findFirst({ where: { companyId: company.id, syncId: sale.clientSyncId } })
+      ? prisma.client.findFirst({
+          select: clientListSelect,
+          where: { companyId: company.id, syncId: sale.clientSyncId },
+        })
       : null,
     sale.lotSyncId
-      ? prisma.lot.findFirst({ where: { companyId: company.id, syncId: sale.lotSyncId } })
+      ? prisma.lot.findFirst({
+          select: lotListSelect,
+          where: { companyId: company.id, syncId: sale.lotSyncId },
+        })
       : null,
     sale.sellerSyncId
-      ? prisma.seller.findFirst({ where: { companyId: company.id, syncId: sale.sellerSyncId } })
+      ? prisma.seller.findFirst({
+          select: sellerListSelect,
+          where: { companyId: company.id, syncId: sale.sellerSyncId },
+        })
       : null,
     prisma.installment.findMany({
       where: {
@@ -334,13 +475,15 @@ async function saleDetail(req: any, res: any) {
       orderBy: { paidAt: 'asc' },
     }),
   ]);
+  metrics.relationLoadMs += Date.now() - timedAt;
 
   const clientsBySyncId = new Map<string, any>(client ? [[client.syncId, client]] : []);
   const lotsBySyncId = new Map<string, any>(lot ? [[lot.syncId, lot]] : []);
   const sellersBySyncId = new Map<string, any>(seller ? [[seller.syncId, seller]] : []);
   const businessDate = businessDayRange(new Date()).businessDate;
 
-  return res.json({
+  timedAt = Date.now();
+  const payload = {
     data: {
       sale: {
         ...serializeSaleRow(
@@ -363,7 +506,10 @@ async function saleDetail(req: any, res: any) {
         })),
       },
     },
-  });
+  };
+  metrics.transformMs += Date.now() - timedAt;
+
+  return sendMeasuredJson(req, res, 'owner/sales/detail', startedAt, metrics, payload);
 }
 
 async function salePaymentsContext(req: any, res: any) {
@@ -481,7 +627,10 @@ async function paymentsWorkQueue(req: any, res: any) {
   const [installments, total, overdue, dueToday, pending, partial] = await Promise.all([
     prisma.installment.findMany({
       where,
-      include: { sale: true },
+      select: {
+        ...installmentQueueSelect,
+        sale: { select: saleListSelect },
+      },
       orderBy,
       skip,
       take: pageSize,
@@ -537,13 +686,22 @@ async function paymentsWorkQueue(req: any, res: any) {
   const sellerSyncIds = uniqueSyncIds(sales.map((sale: any) => sale.sellerSyncId));
   const [clients, lots, sellers] = await Promise.all([
     clientSyncIds.length
-      ? prisma.client.findMany({ where: { companyId: company.id, syncId: { in: clientSyncIds } } })
+      ? prisma.client.findMany({
+          select: clientListSelect,
+          where: { companyId: company.id, syncId: { in: clientSyncIds } },
+        })
       : [],
     lotSyncIds.length
-      ? prisma.lot.findMany({ where: { companyId: company.id, syncId: { in: lotSyncIds } } })
+      ? prisma.lot.findMany({
+          select: lotListSelect,
+          where: { companyId: company.id, syncId: { in: lotSyncIds } },
+        })
       : [],
     sellerSyncIds.length
-      ? prisma.seller.findMany({ where: { companyId: company.id, syncId: { in: sellerSyncIds } } })
+      ? prisma.seller.findMany({
+          select: sellerListSelect,
+          where: { companyId: company.id, syncId: { in: sellerSyncIds } },
+        })
       : [],
   ]);
 
@@ -557,7 +715,7 @@ async function paymentsWorkQueue(req: any, res: any) {
       items: installments
         .filter((installment) => installment.sale)
         .map((installment) => ({
-          sale: serializeSaleRow(
+          sale: serializeSaleListRow(
             installment.sale,
             clientsBySyncId,
             lotsBySyncId,
@@ -676,6 +834,7 @@ async function paymentsSalesSearch(req: any, res: any) {
       deletedAt: null,
       OR: saleConditions,
     },
+    select: saleListSelect,
     orderBy: { updatedAt: 'desc' },
     take: limit,
   });
@@ -704,13 +863,22 @@ async function paymentsSalesSearch(req: any, res: any) {
   const sellerSyncIds = uniqueSyncIds(sales.map((sale: any) => sale.sellerSyncId));
   const [saleClients, saleLots, saleSellers] = await Promise.all([
     clientSyncIds.length
-      ? prisma.client.findMany({ where: { companyId: company.id, syncId: { in: clientSyncIds } } })
+      ? prisma.client.findMany({
+          select: clientListSelect,
+          where: { companyId: company.id, syncId: { in: clientSyncIds } },
+        })
       : [],
     lotSyncIds.length
-      ? prisma.lot.findMany({ where: { companyId: company.id, syncId: { in: lotSyncIds } } })
+      ? prisma.lot.findMany({
+          select: lotListSelect,
+          where: { companyId: company.id, syncId: { in: lotSyncIds } },
+        })
       : [],
     sellerSyncIds.length
-      ? prisma.seller.findMany({ where: { companyId: company.id, syncId: { in: sellerSyncIds } } })
+      ? prisma.seller.findMany({
+          select: sellerListSelect,
+          where: { companyId: company.id, syncId: { in: sellerSyncIds } },
+        })
       : [],
   ]);
 
@@ -719,7 +887,7 @@ async function paymentsSalesSearch(req: any, res: any) {
   const sellersBySyncId = bySyncId(saleSellers);
 
   const items = sales.map((sale: any) =>
-    serializeSaleRow(
+    serializeSaleListRow(
       sale,
       clientsBySyncId,
       lotsBySyncId,
@@ -812,6 +980,139 @@ function isOverdueInstallmentObligation(installment: any, today: Date) {
 
 function roundMoney(value: number) {
   return Math.round(value * 100) / 100;
+}
+
+function sendMeasuredJson(
+  req: any,
+  res: any,
+  label: string,
+  startedAt: number,
+  metrics: {
+    dbMs: number;
+    relationLoadMs: number;
+    calculationsMs: number;
+    transformMs: number;
+    serializationMs: number;
+    payloadBytes: number;
+    totalMs: number;
+  },
+  payload: unknown,
+) {
+  const serializeStart = Date.now();
+  const json = JSON.stringify(payload);
+  metrics.serializationMs = Date.now() - serializeStart;
+  metrics.payloadBytes = Buffer.byteLength(json);
+  metrics.totalMs = Date.now() - startedAt;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('X-Perf-Total-Ms', String(metrics.totalMs));
+  res.setHeader('X-Perf-Db-Ms', String(metrics.dbMs));
+  res.setHeader('X-Perf-Relations-Ms', String(metrics.relationLoadMs));
+  res.setHeader('X-Perf-Calculations-Ms', String(metrics.calculationsMs));
+  res.setHeader('X-Perf-Transform-Ms', String(metrics.transformMs));
+  res.setHeader('X-Perf-Serialize-Ms', String(metrics.serializationMs));
+  res.setHeader('X-Payload-Bytes', String(metrics.payloadBytes));
+  res.setHeader(
+    'Server-Timing',
+    [
+      `db;dur=${metrics.dbMs}`,
+      `relations;dur=${metrics.relationLoadMs}`,
+      `calculations;dur=${metrics.calculationsMs}`,
+      `transform;dur=${metrics.transformMs}`,
+      `serialize;dur=${metrics.serializationMs}`,
+      `total;dur=${metrics.totalMs}`,
+    ].join(', '),
+  );
+  if (req.query?.perf === '1' || process.env.PERF_LOG_OWNER_SALES === 'true') {
+    console.info(
+      `${label}: dbMs=${metrics.dbMs} relationsMs=${metrics.relationLoadMs} ` +
+        `calculationsMs=${metrics.calculationsMs} transformMs=${metrics.transformMs} ` +
+        `serializeMs=${metrics.serializationMs} payloadBytes=${metrics.payloadBytes} ` +
+        `totalMs=${metrics.totalMs}`,
+    );
+  }
+  return res.status(200).send(json);
+}
+
+export function serializeSaleListRow(
+  sale: any,
+  clientsBySyncId: Map<string, any>,
+  lotsBySyncId: Map<string, any>,
+  sellersBySyncId: Map<string, any>,
+  settlement?: SaleSettlement,
+  overdueInstallmentCount = 0,
+) {
+  const client = sale.clientSyncId ? clientsBySyncId.get(sale.clientSyncId) : null;
+  const lot = sale.lotSyncId ? lotsBySyncId.get(sale.lotSyncId) : null;
+  const seller = sale.sellerSyncId ? sellersBySyncId.get(sale.sellerSyncId) : null;
+  return {
+    id: sale.id,
+    saleId: sale.id,
+    syncId: sale.syncId,
+    clientSyncId: sale.clientSyncId,
+    lotSyncId: sale.lotSyncId,
+    sellerSyncId: sale.sellerSyncId,
+    client: client?.name ?? null,
+    clientEntity: client
+      ? {
+          id: client.id,
+          syncId: client.syncId,
+          name: client.name,
+          document: client.document,
+          phone: client.phone,
+          address: client.address,
+        }
+      : null,
+    cedula: client?.document ?? null,
+    clientPhone: client?.phone ?? null,
+    clientAddress: client?.address ?? null,
+    lot: lot ? lotDisplay(lot) : null,
+    lotEntity: lot
+      ? {
+          id: lot.id,
+          syncId: lot.syncId,
+          block: lot.block,
+          number: lot.number,
+          area: lot.area?.toString() ?? null,
+          price: lot.price?.toString() ?? null,
+          pricePerSquareMeter: lot.price?.toString() ?? null,
+          status: lot.status,
+          code: lotDisplay(lot),
+        }
+      : null,
+    lotBlock: lot?.block ?? null,
+    lotNumber: lot?.number ?? null,
+    seller: seller?.name ?? null,
+    sellerEntity: seller
+      ? {
+          id: seller.id,
+          syncId: seller.syncId,
+          name: seller.name,
+          document: seller.document,
+          phone: seller.phone,
+        }
+      : null,
+    sellerDocument: seller?.document ?? null,
+    saleDate: sale.saleDate?.toISOString() ?? null,
+    status: sale.status,
+    total: sale.total?.toString() ?? '0',
+    initialRequiredAmount: sale.initialRequiredAmount?.toString() ?? '0',
+    initialPaid: sale.initialPaid?.toString() ?? '0',
+    initialPendingAmount: sale.initialPendingAmount?.toString() ?? '0',
+    reservationMinimumAmount: sale.reservationMinimumAmount?.toString() ?? '0',
+    reservationPaidAmount: sale.reservationPaidAmount?.toString() ?? '0',
+    initialPaymentDeadline: sale.initialPaymentDeadline?.toISOString() ?? null,
+    financedBalance: sale.financedBalance?.toString() ?? '0',
+    monthlyInterestRate: sale.monthlyInterestRate?.toString() ?? '0',
+    installmentCount: sale.installmentCount,
+    balance: sale.balance?.toString() ?? '0',
+    settlement: settlement ?? null,
+    isFullyPaid: settlement?.isFullyPaid ?? false,
+    settlementLabel: settlement?.label ?? null,
+    overdueInstallmentCount,
+    createdAt: sale.createdAt?.toISOString(),
+    updatedAt: sale.updatedAt?.toISOString(),
+    deletedAt: sale.deletedAt?.toISOString() ?? null,
+  };
 }
 
 export function serializeSaleRow(
@@ -1066,6 +1367,33 @@ async function buildPaymentSaleSearchWhere(companyId: string, search: string) {
       { lotSyncId: { in: uniqueSyncIds(lots.map((lot) => lot.syncId)) } },
     ],
   };
+}
+
+async function buildClientListSearchWhere(companyId: string, search: string) {
+  const trimmed = search.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const termList = paymentSalesSearchTerms(trimmed);
+  const effectiveTerms = termList.length > 0 ? termList : [trimmed];
+  const containsTerms = effectiveTerms.map((value) => ({
+    contains: value,
+    mode: 'insensitive' as const,
+  }));
+  const normalizedSyncIds = await normalizedClientSearchSyncIds(companyId, trimmed);
+  const conditions: any[] = containsTerms.flatMap((filter) => [
+    { name: filter },
+    { document: filter },
+    { phone: filter },
+  ]);
+  if (normalizedSyncIds.length > 0) {
+    conditions.push({ syncId: { in: normalizedSyncIds } });
+  }
+  if (conditions.length === 0) {
+    return null;
+  }
+  return { OR: conditions };
 }
 
 async function normalizedClientSearchSyncIds(companyId: string, search: string) {

@@ -29,7 +29,10 @@ void main() {
     () async {
       final fakeSales = _FakeSalesRepository()
         ..cached = [_summary(1, 'Cliente A')]
-        ..onFetchAll = (_) => [_summary(1, 'Cliente A'), _summary(2, 'Cliente B')];
+        ..onFetchAll = (_) => [
+          _summary(1, 'Cliente A'),
+          _summary(2, 'Cliente B'),
+        ];
       final gate = Completer<void>();
       fakeSales.fetchGate = gate;
 
@@ -120,32 +123,32 @@ void main() {
     },
   );
 
-  test(
-    'una respuesta tardia (carrera) no pisa una carga mas nueva',
-    () async {
-      final fakeSales = _FakeSalesRepository()
-        ..cached = const []
-        ..onFetchAll = (_) => [_summary(99, 'Respuesta vieja')];
-      final gate = Completer<void>();
-      fakeSales.fetchGate = gate;
+  test('una respuesta tardia (carrera) no pisa una carga mas nueva', () async {
+    final fakeSales = _FakeSalesRepository()
+      ..cached = const []
+      ..onFetchAll = (_) => [_summary(99, 'Respuesta vieja')];
+    final gate = Completer<void>();
+    fakeSales.fetchGate = gate;
 
-      final controller = _buildController(sales: fakeSales);
-      final firstLoad = controller.load();
-      await pumpEventQueue();
+    final controller = _buildController(sales: fakeSales);
+    final firstLoad = controller.load();
+    await pumpEventQueue();
 
-      fakeSales.fetchGate = null;
-      fakeSales.onFetchAll = (_) => [_summary(1, 'Nuevo'), _summary(2, 'Nuevo 2')];
-      final secondLoad = controller.load();
-      await secondLoad;
-      expect(controller.sales.map((s) => s.id), [1, 2]);
+    fakeSales.fetchGate = null;
+    fakeSales.onFetchAll = (_) => [
+      _summary(1, 'Nuevo'),
+      _summary(2, 'Nuevo 2'),
+    ];
+    final secondLoad = controller.load();
+    await secondLoad;
+    expect(controller.sales.map((s) => s.id), [1, 2]);
 
-      gate.complete();
-      await firstLoad;
-      // La respuesta vieja NO debe sobrescribir la nueva.
-      expect(controller.sales.map((s) => s.id), [1, 2]);
-      controller.dispose();
-    },
-  );
+    gate.complete();
+    await firstLoad;
+    // La respuesta vieja NO debe sobrescribir la nueva.
+    expect(controller.sales.map((s) => s.id), [1, 2]);
+    controller.dispose();
+  });
 
   test(
     'busqueda fallida: error recuperable (searchFailed), nunca fatal de modulo',
@@ -159,6 +162,63 @@ void main() {
       await controller.load(query: 'maria');
       expect(controller.searchFailed, isTrue);
       expect(controller.loadError, isNull);
+      controller.dispose();
+    },
+  );
+
+  test(
+    'busqueda cache-first: filtra cache inmediatamente y refresca backend sin pantalla completa',
+    () async {
+      final fakeSales = _FakeSalesRepository()
+        ..onFetchAll = (query) => query.isEmpty
+            ? [
+                _summary(1, 'Lucas Gomez', phone: '8095551000'),
+                _summary(2, 'Maria Perez'),
+              ]
+            : [_summary(1, 'Lucas Gomez', phone: '8095551000')];
+      final controller = _buildController(sales: fakeSales);
+      await controller.load();
+
+      final gate = Completer<void>();
+      fakeSales.fetchGate = gate;
+      final searchFuture = controller.load(query: '809555');
+      await pumpEventQueue();
+
+      expect(controller.sales.map((s) => s.id), [1]);
+      expect(controller.isLoading, isFalse);
+      expect(controller.isRefreshing, isTrue);
+      expect(controller.searchFailed, isFalse);
+
+      gate.complete();
+      await searchFuture;
+      expect(controller.sales.map((s) => s.id), [1]);
+      expect(controller.isRefreshing, isFalse);
+      controller.dispose();
+    },
+  );
+
+  test(
+    'busqueda rapida: respuesta vieja luc no pisa resultado nuevo lucas',
+    () async {
+      final fakeSales = _FakeSalesRepository()
+        ..onFetchAll = (query) => query == 'luc'
+            ? [_summary(1, 'Luc Viejo')]
+            : [_summary(2, 'Lucas Nuevo')];
+      final controller = _buildController(sales: fakeSales);
+      await controller.load();
+
+      final lucGate = Completer<void>();
+      fakeSales.fetchGatesByQuery['luc'] = lucGate;
+      final oldSearch = controller.load(query: 'luc');
+      await pumpEventQueue();
+
+      final newSearch = controller.load(query: 'lucas');
+      await newSearch;
+      expect(controller.sales.map((s) => s.id), [2]);
+
+      lucGate.complete();
+      await oldSearch;
+      expect(controller.sales.map((s) => s.id), [2]);
       controller.dispose();
     },
   );
@@ -218,46 +278,43 @@ void main() {
   );
 
   group('Ventas abre de inmediato (lista visible, sin "Actualizando" eterno)', () {
-    test(
-      'lista existente => visible inmediatamente, sin isLoading',
-      () async {
-        // Primera entrada: se carga y queda memorizado.
-        final first = _FakeSalesRepository()
-          ..onFetchAll = (_) => [_summary(1, 'Cliente A')];
-        final firstController = _buildController(sales: first);
-        await firstController.load();
-        expect(firstController.sales.map((s) => s.id), [1]);
-        firstController.dispose();
+    test('lista existente => visible inmediatamente, sin isLoading', () async {
+      // Primera entrada: se carga y queda memorizado.
+      final first = _FakeSalesRepository()
+        ..onFetchAll = (_) => [_summary(1, 'Cliente A')];
+      final firstController = _buildController(sales: first);
+      await firstController.load();
+      expect(firstController.sales.map((s) => s.id), [1]);
+      firstController.dispose();
 
-        // Segunda entrada con SQLite tomado: cache y fetch bloqueados.
-        final blocked = _FakeSalesRepository();
-        final cacheGate = Completer<void>();
-        final fetchGate = Completer<void>();
-        blocked.cacheGate = cacheGate;
-        blocked.fetchGate = fetchGate;
+      // Segunda entrada con SQLite tomado: cache y fetch bloqueados.
+      final blocked = _FakeSalesRepository();
+      final cacheGate = Completer<void>();
+      final fetchGate = Completer<void>();
+      blocked.cacheGate = cacheGate;
+      blocked.fetchGate = fetchGate;
 
-        final controller = _buildController(sales: blocked);
-        controller.load();
-        await pumpEventQueue();
+      final controller = _buildController(sales: blocked);
+      controller.load();
+      await pumpEventQueue();
 
-        expect(
-          controller.sales.map((s) => s.id),
-          [1],
-          reason: 'la lista anterior debe estar ANTES de que responda SQLite',
-        );
-        expect(
-          controller.isLoading,
-          isFalse,
-          reason: 'NO puede quedar en skeleton si hay lista previa',
-        );
-        expect(controller.loadError, isNull);
+      expect(
+        controller.sales.map((s) => s.id),
+        [1],
+        reason: 'la lista anterior debe estar ANTES de que responda SQLite',
+      );
+      expect(
+        controller.isLoading,
+        isFalse,
+        reason: 'NO puede quedar en skeleton si hay lista previa',
+      );
+      expect(controller.loadError, isNull);
 
-        cacheGate.complete();
-        fetchGate.complete();
-        await pumpEventQueue();
-        controller.dispose();
-      },
-    );
+      cacheGate.complete();
+      fetchGate.complete();
+      await pumpEventQueue();
+      controller.dispose();
+    });
 
     test('Ventas -> Dashboard -> Ventas => lista inmediata', () async {
       final first = _FakeSalesRepository()
@@ -311,39 +368,36 @@ void main() {
       },
     );
 
-    test(
-      'error de refresh => conserva la última lista (no la borra)',
-      () async {
-        final sales = _FakeSalesRepository()
-          ..onFetchAll = (_) => [_summary(1, 'Cliente A')];
-        final controller = _buildController(sales: sales);
-        await controller.load();
+    test('error de refresh => conserva la última lista (no la borra)', () async {
+      final sales = _FakeSalesRepository()
+        ..onFetchAll = (_) => [_summary(1, 'Cliente A')];
+      final controller = _buildController(sales: sales);
+      await controller.load();
 
-        sales.failFetch = true;
-        await controller.load();
+      sales.failFetch = true;
+      await controller.load();
 
-        expect(controller.sales.map((s) => s.id), [1]);
-        expect(controller.refreshFailed, isTrue);
-        expect(controller.loadError, isNull);
+      expect(controller.sales.map((s) => s.id), [1]);
+      expect(controller.refreshFailed, isTrue);
+      expect(controller.loadError, isNull);
 
-        // Y al reentrar sigue habiendo lista válida (aunque la base esté tomada).
-        final blocked = _FakeSalesRepository();
-        final cacheGate = Completer<void>();
-        final fetchGate = Completer<void>();
-        blocked.cacheGate = cacheGate;
-        blocked.fetchGate = fetchGate;
-        final again = _buildController(sales: blocked);
-        again.load();
-        await pumpEventQueue();
-        expect(again.sales.map((s) => s.id), [1]);
+      // Y al reentrar sigue habiendo lista válida (aunque la base esté tomada).
+      final blocked = _FakeSalesRepository();
+      final cacheGate = Completer<void>();
+      final fetchGate = Completer<void>();
+      blocked.cacheGate = cacheGate;
+      blocked.fetchGate = fetchGate;
+      final again = _buildController(sales: blocked);
+      again.load();
+      await pumpEventQueue();
+      expect(again.sales.map((s) => s.id), [1]);
 
-        cacheGate.complete();
-        fetchGate.complete();
-        await pumpEventQueue();
-        controller.dispose();
-        again.dispose();
-      },
-    );
+      cacheGate.complete();
+      fetchGate.complete();
+      await pumpEventQueue();
+      controller.dispose();
+      again.dispose();
+    });
   });
 }
 
@@ -357,12 +411,13 @@ SalesController _buildController({required _FakeSalesRepository sales}) {
   );
 }
 
-SaleSummary _summary(int id, String clientName) {
+SaleSummary _summary(int id, String clientName, {String phone = ''}) {
   return SaleSummary(
     id: id,
     syncStatus: 'synced',
     clientName: clientName,
     clientDocumentId: '001-0000000-$id',
+    clientPhone: phone,
     lotDisplayCode: 'M1-S$id',
     saleDate: DateTime(2026, 9, 9),
     salePrice: 1000,
@@ -386,6 +441,8 @@ class _FakeSalesRepository extends SalesRepository {
   bool failFetch = false;
   Object? fetchError;
   Completer<void>? fetchGate;
+  final Map<String, Completer<void>> fetchGatesByQuery = {};
+
   /// Simula la lectura de cache/lista local con SQLite tomado por el writer.
   Completer<void>? cacheGate;
   List<SaleSummary> cached = const [];
@@ -395,6 +452,10 @@ class _FakeSalesRepository extends SalesRepository {
     String query = '',
     String? settlementFilter,
   }) async {
+    final queryGate = fetchGatesByQuery[query];
+    if (queryGate != null) {
+      await queryGate.future;
+    }
     final gate = fetchGate;
     if (gate != null) {
       await gate.future;

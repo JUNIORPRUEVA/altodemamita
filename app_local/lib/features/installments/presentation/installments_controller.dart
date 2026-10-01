@@ -12,14 +12,20 @@ class InstallmentsController extends ChangeNotifier {
   List<InstallmentDetail> _installments = const [];
   List<InstallmentDetail> _filteredInstallments = const [];
   SaleInstallmentsSummary? _selectedSaleSummary;
-  bool _isLoading = true;
+  bool _isLoading = false;
+  bool _isRefreshing = false;
+  bool _refreshFailed = false;
   String _searchQuery = '';
   String? _selectedStatus;
+  int _generation = 0;
 
   // Getters
   List<InstallmentDetail> get installments => _filteredInstallments;
   SaleInstallmentsSummary? get selectedSaleSummary => _selectedSaleSummary;
   bool get isLoading => _isLoading;
+  bool get isRefreshing => _isRefreshing;
+  bool get refreshFailed => _refreshFailed;
+  bool get hasVisibleData => _filteredInstallments.isNotEmpty;
   String get searchQuery => _searchQuery;
   String? get selectedStatus => _selectedStatus;
 
@@ -42,39 +48,66 @@ class InstallmentsController extends ChangeNotifier {
 
   // Load all installments
   Future<void> load() async {
-    _isLoading = true;
+    final generation = ++_generation;
+    final hadVisible = _installments.isNotEmpty;
+    _isLoading = !hadVisible;
+    _isRefreshing = hadVisible;
+    _refreshFailed = false;
     notifyListeners();
 
     try {
-      _installments = await _installmentsRepository.getAll();
+      final next = await _installmentsRepository.getAll();
+      if (generation != _generation) {
+        return;
+      }
+      _installments = next;
       _applyFilters();
     } catch (e) {
+      _refreshFailed = hadVisible;
       if (kDebugMode) {
         print('Error loading installments: $e');
       }
+    } finally {
+      if (generation == _generation) {
+        _isLoading = false;
+        _isRefreshing = false;
+        notifyListeners();
+      }
     }
-
-    _isLoading = false;
-    notifyListeners();
   }
 
   // Load installments for a specific sale
   Future<void> loadBySaleId(int saleId) async {
-    _isLoading = true;
+    final generation = ++_generation;
+    final hadVisible = _installments.isNotEmpty;
+    _isLoading = !hadVisible;
+    _isRefreshing = hadVisible;
+    _refreshFailed = false;
     notifyListeners();
 
     try {
-      _installments = await _installmentsRepository.getBySaleId(saleId);
-      _selectedSaleSummary = await _installmentsRepository.getSaleSummary(saleId);
+      final results = await Future.wait<Object?>([
+        _installmentsRepository.getBySaleId(saleId),
+        _installmentsRepository.getSaleSummary(saleId),
+      ]);
+      if (generation != _generation) {
+        return;
+      }
+      _installments = results[0] as List<InstallmentDetail>;
+      _selectedSaleSummary = results[1] as SaleInstallmentsSummary?;
       _applyFilters();
     } catch (e) {
+      _refreshFailed = hadVisible;
       if (kDebugMode) {
         print('Error loading sale installments: $e');
       }
+    } finally {
+      if (generation == _generation) {
+        _isLoading = false;
+        _isRefreshing = false;
+        notifyListeners();
+      }
     }
-
-    _isLoading = false;
-    notifyListeners();
   }
 
   // Search installments

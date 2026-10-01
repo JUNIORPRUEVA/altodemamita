@@ -64,25 +64,7 @@ class ModuleStatusBanner extends StatelessWidget {
     }
 
     if (isRefreshing) {
-      return Container(
-        color: const Color(0xFFF4F7FB),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: const [
-            SizedBox(
-              width: 12,
-              height: 12,
-              child: CircularProgressIndicator(strokeWidth: 1.6),
-            ),
-            SizedBox(width: 8),
-            Text(
-              'Actualizando…',
-              style: TextStyle(fontSize: 12, color: Color(0xFF5E6B87)),
-            ),
-          ],
-        ),
-      );
+      return const LinearProgressIndicator(minHeight: 1);
     }
 
     return const SizedBox.shrink();

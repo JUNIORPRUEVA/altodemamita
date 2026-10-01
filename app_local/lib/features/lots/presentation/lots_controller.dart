@@ -13,11 +13,28 @@ class LotsController extends ResilientListController<Lot> {
         moduleLabel: 'Solares',
         fetch: (query) => repository.fetchAll(query: query),
         fetchCache: repository.fetchCachedList,
+        filterCache: _filterLots,
       );
 
   final LotRepository _repository;
 
   List<Lot> get lots => items;
+
+  static List<Lot> _filterLots(List<Lot> lots, String query) {
+    final normalized = query.trim().toLowerCase();
+    if (normalized.isEmpty) return lots;
+    return lots.where((lot) {
+      final haystack = [
+        lot.displayCode,
+        lot.blockNumber,
+        lot.lotNumber,
+        lot.status,
+        lot.area.toString(),
+        lot.totalPrice.toString(),
+      ].join(' ').toLowerCase();
+      return haystack.contains(normalized);
+    }).toList(growable: false);
+  }
 
   Future<String?> save(Lot lot) async {
     try {

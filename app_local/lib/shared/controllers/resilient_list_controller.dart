@@ -17,13 +17,16 @@ class ResilientListController<T> extends ChangeNotifier {
     required String moduleLabel,
     required Future<List<T>> Function(String query) fetch,
     Future<List<T>> Function()? fetchCache,
+    List<T> Function(List<T> items, String query)? filterCache,
   }) : _moduleLabel = moduleLabel,
        _fetch = fetch,
-       _fetchCache = fetchCache;
+       _fetchCache = fetchCache,
+       _filterCache = filterCache;
 
   final String _moduleLabel;
   final Future<List<T>> Function(String query) _fetch;
   final Future<List<T>> Function()? _fetchCache;
+  final List<T> Function(List<T> items, String query)? _filterCache;
 
   /// Carga inicial en curso SIN datos visibles (skeleton, jamas vacio).
   bool isLoading = false;
@@ -79,11 +82,15 @@ class ResilientListController<T> extends ChangeNotifier {
     }
     _notifyIfActive();
 
-    // Cache-first bootstrap (solo lista completa).
-    if (!hadVisible && scope.isEmpty && _fetchCache != null) {
+    // Cache-first bootstrap. Si el repositorio sabe filtrar el snapshot,
+    // tambien se usa para busquedas: primer resultado local, red en background.
+    if (!hadVisible && _fetchCache != null) {
       List<T>? cached;
       try {
-        cached = await _fetchCache();
+        final rawCached = await _fetchCache();
+        cached = scope.isEmpty || _filterCache == null
+            ? rawCached
+            : _filterCache(rawCached, scope);
       } catch (_) {
         cached = null;
       }
@@ -92,6 +99,12 @@ class ResilientListController<T> extends ChangeNotifier {
       }
       if (cached != null && cached.isNotEmpty) {
         items = cached;
+        _loadedQuery = scope;
+        isLoading = false;
+        isRefreshing = true;
+        _notifyIfActive();
+      } else if (scope.isNotEmpty && _filterCache != null) {
+        items = const [];
         _loadedQuery = scope;
         isLoading = false;
         isRefreshing = true;

@@ -118,7 +118,7 @@ class SalesController extends ChangeNotifier {
   int _generation = 0;
 
   /// Consulta a la que corresponden realmente los datos de [sales].
-  String _loadedQuery = '';
+  String _loadedQuery = '__none__';
 
   bool get isDisposed => _isDisposed;
 
@@ -163,25 +163,32 @@ class SalesController extends ChangeNotifier {
     }
     final scope = _scopeKey;
     final isUnfilteredScope = currentQuery.isEmpty && _settlementFilter == null;
+    var hasLocalPreview = false;
 
     // ── Arranque visual ────────────────────────────────────────────────
     loadError = null;
     searchFailed = false;
 
-    // Seed SÍNCRONO desde la última lista válida del proceso: al volver a
-    // Ventas la lista aparece YA, sin `isLoading` y sin esperar a SQLite.
+    // Seed SINCRONO desde la última lista válida del proceso: al volver a
+    // Ventas o al buscar, la pantalla pinta YA y el backend confirma despues.
     // PROHIBIDO el patrón clear-list + loading=true al reentrar.
-    if (isUnfilteredScope && !(_loadedQuery == scope && sales.isNotEmpty)) {
-      final memo = SalesListMemoryCache.forScope(scope);
+    if (_loadedQuery != scope) {
+      final memo = SalesListMemoryCache.forScope('');
       if (memo.isNotEmpty) {
-        sales = memo;
+        sales = _salesRepository.filterSummaries(
+          memo,
+          query: currentQuery,
+          settlementFilter: _settlementFilter,
+        );
         _loadedQuery = scope;
+        hasLocalPreview = true;
       }
     }
 
-    final hadVisible = _loadedQuery == scope && sales.isNotEmpty;
-    if (hadVisible) {
-      // REFRESHING_WITH_DATA: conservar lista y refrescar en segundo plano.
+    final hasCurrentScope = _loadedQuery == scope;
+    if (hasCurrentScope || hasLocalPreview) {
+      // REFRESHING_WITH_DATA/PREVIEW: conservar lo visible (incluido vacio
+      // local de busqueda) y refrescar en segundo plano.
       isLoading = false;
       isRefreshing = true;
       refreshFailed = false;
@@ -193,16 +200,23 @@ class SalesController extends ChangeNotifier {
     }
     _notifyIfActive();
 
-    // ── Cache-first bootstrap (solo lista completa sin filtros) ────────
-    if (!hadVisible && isUnfilteredScope) {
-      final cached = await _salesRepository.fetchCachedList();
+    // ── Cache-first bootstrap desde SQLite ─────────────────────────────
+    if (!hasCurrentScope && !hasLocalPreview) {
+      final cached = await _salesRepository.searchCachedList(
+        query: currentQuery,
+        settlementFilter: _settlementFilter,
+      );
       if (_isDisposed || generation != _generation) {
         return;
       }
-      if (cached.isNotEmpty) {
+      if (cached.isNotEmpty ||
+          currentQuery.isNotEmpty ||
+          _settlementFilter != null) {
         sales = cached;
         _loadedQuery = scope;
-        SalesListMemoryCache.store(scope, cached);
+        if (isUnfilteredScope && cached.isNotEmpty) {
+          SalesListMemoryCache.store('', cached);
+        }
         isLoading = false;
         isRefreshing = true;
         _notifyIfActive();
@@ -226,10 +240,12 @@ class SalesController extends ChangeNotifier {
     }
 
     if (listResult != null) {
-      sales = listResult;
+      sales = currentQuery.trim().isEmpty
+          ? listResult
+          : _mergeBackendWithLocalPending(listResult, sales);
       _loadedQuery = scope;
       if (isUnfilteredScope) {
-        SalesListMemoryCache.store(scope, listResult);
+        SalesListMemoryCache.store('', listResult);
       }
       searchFailed = false;
       refreshFailed = false;
@@ -258,6 +274,25 @@ class SalesController extends ChangeNotifier {
       return;
     }
     _notifyIfActive();
+  }
+
+  List<SaleSummary> _mergeBackendWithLocalPending(
+    List<SaleSummary> backend,
+    List<SaleSummary> localPreview,
+  ) {
+    if (localPreview.isEmpty) {
+      return backend;
+    }
+    final byId = <int>{for (final sale in backend) sale.id};
+    final merged = [...backend];
+    for (final sale in localPreview) {
+      if (!sale.isPendingSync || byId.contains(sale.id)) {
+        continue;
+      }
+      byId.add(sale.id);
+      merged.add(sale);
+    }
+    return List<SaleSummary>.unmodifiable(merged);
   }
 
   Future<void> _refreshSupportData(int generation) async {

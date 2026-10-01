@@ -40,7 +40,6 @@ class PaymentsController extends ChangeNotifier {
   bool isSearching = false;
   FriendlyErrorMessage? searchError;
   int _searchGeneration = 0;
-  String _lastSearchQuery = '';
 
   /// Busca ventas en el backend (autoridad) por nombre, cedula, telefono,
   /// solar o referencia. Protegida con generation token contra respuestas
@@ -50,7 +49,6 @@ class PaymentsController extends ChangeNotifier {
     final generation = ++_searchGeneration;
 
     if (trimmed.length < 2) {
-      _lastSearchQuery = '';
       searchResults = const [];
       isSearching = false;
       searchError = null;
@@ -58,12 +56,6 @@ class PaymentsController extends ChangeNotifier {
       return;
     }
 
-    if (trimmed != _lastSearchQuery) {
-      // Evita mostrar resultados de una consulta anterior (no debe
-      // "heredarse" el cliente previo como si fuera coincidencia).
-      _lastSearchQuery = trimmed;
-      searchResults = const [];
-    }
     isSearching = true;
     searchError = null;
     notifyListeners();
@@ -94,7 +86,6 @@ class PaymentsController extends ChangeNotifier {
 
   void clearSearch() {
     _searchGeneration++;
-    _lastSearchQuery = '';
     searchResults = const [];
     isSearching = false;
     searchError = null;

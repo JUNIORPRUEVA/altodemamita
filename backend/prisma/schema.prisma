@@ -95,6 +95,9 @@ model Client {
 
   @@unique([companyId, syncId])
   @@index([companyId, updatedAt])
+  @@index([companyId, deletedAt, name])
+  @@index([companyId, deletedAt, document])
+  @@index([companyId, deletedAt, phone])
 }
 
 model Seller {
@@ -138,6 +141,8 @@ model Lot {
 
   @@unique([companyId, syncId])
   @@index([companyId, updatedAt])
+  @@index([companyId, deletedAt, block])
+  @@index([companyId, deletedAt, number])
 }
 
 model Sale {
@@ -183,6 +188,10 @@ model Sale {
 
   @@unique([companyId, syncId])
   @@index([companyId, updatedAt])
+  @@index([companyId, deletedAt, updatedAt])
+  @@index([companyId, deletedAt, status])
+  @@index([companyId, deletedAt, clientSyncId])
+  @@index([companyId, deletedAt, lotSyncId])
   @@index([companyId, lotId])
   @@index([companyId, clientId])
   @@index([companyId, operatorUserId])

@@ -24,6 +24,7 @@ import '../data/sales_repository.dart';
 import '../data/seller_repository.dart';
 import '../domain/sale_detail.dart';
 import '../domain/sale_draft.dart';
+import '../domain/sale.dart';
 import '../domain/sale_summary.dart';
 import 'sale_detail_dialog.dart';
 import 'sale_detail_page.dart';
@@ -612,6 +613,7 @@ class _SalesPageState extends State<SalesPage> {
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => SaleDetailPage(
+            initialDetail: _previewDetailFromSummary(summary),
             loadDetail: () => _controller.fetchDetail(summary.id),
             previewClientName: summary.clientName,
             previewLotCode: summary.lotDisplayCode,
@@ -701,6 +703,47 @@ class _SalesPageState extends State<SalesPage> {
     );
   }
 
+  /// Detalle preliminar desde la fila de listado: permite navegar de inmediato
+  /// y luego reemplazar con el detalle completo autoritativo en background.
+  SaleDetail _previewDetailFromSummary(SaleSummary summary) {
+    final now = DateTime.now();
+    return SaleDetail(
+      sale: Sale(
+        id: summary.id,
+        clientId: 0,
+        lotId: 0,
+        userId: 0,
+        saleDate: summary.saleDate,
+        salePrice: summary.salePrice,
+        downPaymentPercentage: summary.salePrice <= 0
+            ? 0
+            : (summary.requiredInitialPayment / summary.salePrice) * 100,
+        downPaymentAmount: summary.downPaymentAmount,
+        requiredInitialPayment: summary.requiredInitialPayment,
+        paidInitialPayment: summary.paidInitialPayment,
+        pendingInitialPayment: summary.pendingInitialPayment,
+        minimumReserveAmount: summary.minimumReserveAmount,
+        initialPaymentDeadline: summary.initialPaymentDeadline,
+        financedBalance: summary.financedBalance,
+        pendingBalance: summary.pendingBalance,
+        monthlyInterest: summary.monthlyInterest,
+        installmentCount: summary.installmentCount,
+        status: summary.status,
+        createdAt: now,
+        updatedAt: now,
+        isFullyPaid: summary.isFullyPaid,
+      ),
+      clientName: summary.clientName,
+      clientDocumentId: summary.clientDocumentId,
+      lotDisplayCode: summary.lotDisplayCode,
+      lotArea: 0,
+      lotPricePerSquareMeter: 0,
+      userName: '',
+      initialPaymentMethod: '',
+      installments: const [],
+    );
+  }
+
   void _runSearch() {
     _searchDebounce?.cancel();
     _controller.load(query: _searchController.text.trim());
@@ -716,7 +759,7 @@ class _SalesPageState extends State<SalesPage> {
     if (normalized.length < 2) {
       return;
     }
-    _searchDebounce = Timer(const Duration(milliseconds: 280), () {
+    _searchDebounce = Timer(const Duration(milliseconds: 200), () {
       if (!mounted) {
         return;
       }
@@ -754,8 +797,6 @@ class _SalesLoadingView extends StatelessWidget {
             height: 28,
             child: CircularProgressIndicator(strokeWidth: 3),
           ),
-          SizedBox(height: 16),
-          Text('Cargando ventas…'),
         ],
       ),
     );
@@ -1255,15 +1296,7 @@ class _SalesRefreshingBarState extends State<_SalesRefreshingBar> {
     if (!_visible) {
       return const SizedBox.shrink();
     }
-    return Container(
-      width: double.infinity,
-      color: const Color(0xFFF7F9FC),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: const Text(
-        'Actualizando datos en segundo plano…',
-        style: TextStyle(fontSize: 11, color: Color(0xFF7A879E)),
-      ),
-    );
+    return const LinearProgressIndicator(minHeight: 1);
   }
 }
 

@@ -60,7 +60,7 @@ class _SaleDetailPageState extends State<SaleDetailPage> {
   void initState() {
     super.initState();
     _detail = widget.initialDetail;
-    if (_detail == null) {
+    if (widget.loadDetail != null) {
       _load();
     }
   }
@@ -84,7 +84,9 @@ class _SaleDetailPageState extends State<SaleDetailPage> {
     }
     setState(() {
       _isLoading = false;
-      _detail = detail;
+      if (detail != null) {
+        _detail = detail;
+      }
     });
   }
 
@@ -167,6 +169,7 @@ class _SaleDetailPageState extends State<SaleDetailPage> {
     if (detail != null) {
       return _DetailContent(
         detail: detail,
+        isRefreshing: _isLoading,
         canUpdate: widget.canUpdate,
         canDelete: widget.canDelete,
         onEdit: widget.onEdit == null
@@ -206,6 +209,7 @@ enum _DetailAction { print, edit, delete }
 class _DetailContent extends StatelessWidget {
   const _DetailContent({
     required this.detail,
+    required this.isRefreshing,
     required this.canUpdate,
     required this.canDelete,
     required this.onEdit,
@@ -213,6 +217,7 @@ class _DetailContent extends StatelessWidget {
   });
 
   final SaleDetail detail;
+  final bool isRefreshing;
   final bool canUpdate;
   final bool canDelete;
   final Future<void> Function()? onEdit;
@@ -228,8 +233,10 @@ class _DetailContent extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
       children: [
+        if (isRefreshing) const LinearProgressIndicator(minHeight: 1),
+        if (isRefreshing) const SizedBox(height: 8),
         _IdentityCard(detail: detail),
-        const SizedBox(height: 18),
+        const SizedBox(height: 8),
         _Section(
           title: 'Cliente y solar',
           rows: [
@@ -241,7 +248,7 @@ class _DetailContent extends StatelessWidget {
             _RowData('Precio por m²', _money(detail.lotPricePerSquareMeter)),
           ],
         ),
-        const SizedBox(height: 18),
+        const SizedBox(height: 8),
         _Section(
           title: 'Condiciones de venta',
           rows: [
@@ -266,12 +273,12 @@ class _DetailContent extends StatelessWidget {
               _RowData('Método de inicial', detail.initialPaymentMethod),
           ],
         ),
-        const SizedBox(height: 18),
+        const SizedBox(height: 8),
         _FinancialSection(detail: detail),
-        const SizedBox(height: 18),
+        const SizedBox(height: 8),
         _PaymentPlanSection(detail: detail),
         if (canUpdate || canDelete) ...[
-          const SizedBox(height: 18),
+          const SizedBox(height: 8),
           _Section(
             title: 'Acciones',
             rows: const [],
@@ -310,7 +317,7 @@ class _IdentityCard extends StatelessWidget {
         ? 'Cliente sin nombre'
         : detail.clientName.trim();
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(16),
       decoration: _cardDecoration,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -413,7 +420,7 @@ class _FinancialSection extends StatelessWidget {
     return SizedBox(
       width: width,
       child: Container(
-        padding: const EdgeInsets.fromLTRB(15, 14, 15, 15),
+        padding: const EdgeInsets.fromLTRB(13, 11, 13, 12),
         decoration: _cardDecoration,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -627,7 +634,7 @@ class _InfoRow extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -689,7 +696,7 @@ class _ActionTile extends StatelessWidget {
     return InkWell(
       onTap: () => onTap(),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
           children: [
             Icon(icon, size: 20, color: color),
@@ -800,15 +807,6 @@ class _LoadingState extends StatelessWidget {
               width: 30,
               height: 30,
               child: CircularProgressIndicator(strokeWidth: 3),
-            ),
-            const SizedBox(height: 18),
-            const Text(
-              'Cargando detalle de venta…',
-              style: TextStyle(
-                fontSize: 14.5,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF667085),
-              ),
             ),
             if (name.isNotEmpty) ...[
               const SizedBox(height: 8),

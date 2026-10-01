@@ -1735,6 +1735,208 @@ void main() {
     expect(pdfBytes, isNotEmpty);
   });
 
+  test('recibo carga datos correctos para abono inicial', () async {
+    final now = DateTime(2026, 3, 27);
+
+    await clientRepository.save(
+      Client(
+        fullName: 'Cliente Inicial Recibo',
+        documentId: '001-0000200-1',
+        phone: '8095551201',
+        address: 'La Vega',
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+
+    await lotRepository.save(
+      Lot(
+        blockNumber: 'RI',
+        lotNumber: '01',
+        area: 220,
+        price: 700000,
+        status: 'disponible',
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+
+    final client = (await clientRepository.fetchAll()).single;
+    final lot = (await lotRepository.fetchAll()).single;
+    final saleId = await salesRepository.createSale(
+      SaleDraft(
+        clientId: client.id!,
+        lotId: lot.id!,
+        userId: 1,
+        saleDate: now,
+        salePrice: lot.price,
+        downPaymentPercentage: 10,
+        requiredInitialPayment: 70000,
+        initialPaymentPaid: 70000,
+        initialPaymentMethod: 'transferencia',
+        monthlyInterest: 1,
+        installmentCount: 12,
+      ),
+    );
+
+    final db = await appDatabase.database;
+    final paymentRows = await db.query(
+      DatabaseSchema.paymentsTable,
+      where: 'venta_id = ? AND tipo_pago = ?',
+      whereArgs: [saleId, 'abono_inicial'],
+      orderBy: 'id ASC',
+    );
+
+    final receipt = await receiptRepository.fetchReceiptByPaymentId(
+      paymentRows.single['id'] as int,
+    );
+
+    expect(receipt, isNotNull);
+    expect(receipt!.sale.saleId, saleId);
+    expect(receipt.sale.clientName, 'Cliente Inicial Recibo');
+    expect(receipt.paymentDate, now);
+    expect(receipt.paymentConcept, contains('Abono a inicial'));
+    expect(receipt.paymentMethodLabel, 'Transferencia');
+    expect(receipt.totalAmount, 70000);
+    expect(receipt.blockNumber, 'RI');
+    expect(receipt.lotNumber, '01');
+    expect(receipt.payments, hasLength(1));
+  });
+
+  test(
+    'recibo no mezcla pagos de otra venta con la misma referencia',
+    () async {
+      final now = DateTime(2026, 3, 27);
+
+      await clientRepository.save(
+        Client(
+          fullName: 'Cliente Referencia Uno',
+          documentId: '001-0000100-1',
+          phone: '8095551101',
+          address: 'Santiago',
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+      await clientRepository.save(
+        Client(
+          fullName: 'Cliente Referencia Dos',
+          documentId: '001-0000100-2',
+          phone: '8095551102',
+          address: 'Moca',
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+
+      await lotRepository.save(
+        Lot(
+          blockNumber: 'RF',
+          lotNumber: '01',
+          area: 200,
+          price: 600000,
+          status: 'disponible',
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+      await lotRepository.save(
+        Lot(
+          blockNumber: 'RF',
+          lotNumber: '02',
+          area: 210,
+          price: 650000,
+          status: 'disponible',
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+
+      final clients = await clientRepository.fetchAll();
+      final lots = await lotRepository.fetchAll();
+      final firstSaleId = await salesRepository.createSale(
+        SaleDraft(
+          clientId: clients[0].id!,
+          lotId: lots[0].id!,
+          userId: 1,
+          saleDate: now,
+          salePrice: lots[0].price,
+          downPaymentPercentage: 10,
+          requiredInitialPayment: 60000,
+          initialPaymentPaid: 60000,
+          monthlyInterest: 1,
+          installmentCount: 12,
+        ),
+      );
+      final secondSaleId = await salesRepository.createSale(
+        SaleDraft(
+          clientId: clients[1].id!,
+          lotId: lots[1].id!,
+          userId: 1,
+          saleDate: now,
+          salePrice: lots[1].price,
+          downPaymentPercentage: 10,
+          requiredInitialPayment: 65000,
+          initialPaymentPaid: 65000,
+          monthlyInterest: 1,
+          installmentCount: 12,
+        ),
+      );
+
+      final firstContext = await paymentsRepository.fetchSaleContext(
+        firstSaleId,
+      );
+      final secondContext = await paymentsRepository.fetchSaleContext(
+        secondSaleId,
+      );
+      final firstInstallment = firstContext!.installments.first;
+      final secondInstallment = secondContext!.installments.first;
+
+      await paymentsRepository.registerPayment(
+        PaymentDraft(
+          saleId: firstSaleId,
+          paymentDate: firstInstallment.dueDate,
+          amountPaid: firstInstallment.totalAmount,
+          paymentMethod: 'efectivo',
+        ),
+      );
+      await paymentsRepository.registerPayment(
+        PaymentDraft(
+          saleId: secondSaleId,
+          paymentDate: secondInstallment.dueDate,
+          amountPaid: secondInstallment.totalAmount,
+          paymentMethod: 'efectivo',
+        ),
+      );
+
+      final db = await appDatabase.database;
+      await db.update(
+        DatabaseSchema.paymentsTable,
+        {'referencia': 'REFERENCIA-COMPARTIDA'},
+        where: 'tipo_pago = ?',
+        whereArgs: ['cuota'],
+      );
+
+      final secondPaymentRows = await db.query(
+        DatabaseSchema.paymentsTable,
+        where: 'venta_id = ? AND tipo_pago = ?',
+        whereArgs: [secondSaleId, 'cuota'],
+        orderBy: 'id ASC',
+      );
+
+      final receipt = await receiptRepository.fetchReceiptByPaymentId(
+        secondPaymentRows.single['id'] as int,
+      );
+
+      expect(receipt, isNotNull);
+      expect(receipt!.sale.saleId, secondSaleId);
+      expect(receipt.payments, hasLength(1));
+      expect(receipt.payments.single.saleId, secondSaleId);
+      expect(receipt.totalAmount, closeTo(secondInstallment.totalAmount, 0.01));
+      expect(receipt.paidInstallment?.saleId, secondSaleId);
+    },
+  );
+
   test('rechaza sobrepago y no deja movimientos parciales', () async {
     final now = DateTime(2026, 3, 26);
 

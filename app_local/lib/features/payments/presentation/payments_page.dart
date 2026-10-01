@@ -500,7 +500,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
     if (_controller.isLoading &&
         _controller.activeSales.isEmpty &&
         _controller.workQueue == null) {
-      return _buildLoadingState('Consultando cuotas y pagos...');
+      return _buildLoadingState();
     }
 
     // Pantalla fatal real: solo cuando NO hay ningun dato visible.
@@ -571,7 +571,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
         _controller.selectedContext ??
         _partialContextFromData(matchedSales, workQueue);
     if (contextData == null) {
-      return _buildLoadingState('Cargando cuotas y pagos...');
+      return _buildLoadingState();
     }
 
     if (workQueue == null) {
@@ -669,21 +669,12 @@ class _PaymentsPageState extends State<PaymentsPage> {
     );
   }
 
-  Widget _buildLoadingState(String message) {
+  Widget _buildLoadingState() {
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           const CircularProgressIndicator(),
-          const SizedBox(height: 14),
-          Text(
-            message,
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF556079),
-            ),
-          ),
         ],
       ),
     );
@@ -706,11 +697,6 @@ class _PaymentsPageState extends State<PaymentsPage> {
               width: 18,
               height: 18,
               child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-            SizedBox(height: 12),
-            Text(
-              'Cargando detalle de la venta…',
-              style: TextStyle(fontSize: 13, color: Color(0xFF6B7494)),
             ),
           ],
         ),
@@ -861,9 +847,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
                     borderRadius: BorderRadius.circular(999),
                   ),
                   child: Text(
-                    hasPendingContexts && totalInstallments == 0
-                        ? 'Cargando...'
-                        : 'Mostrando ${visibleInstallments.length} de $totalInstallments',
+                    'Mostrando ${visibleInstallments.length} de $totalInstallments',
                     style: const TextStyle(
                       fontSize: 13.5,
                       fontWeight: FontWeight.w600,
@@ -1699,7 +1683,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
     if (normalized.length < 2) {
       return;
     }
-    _searchDebounce = Timer(const Duration(milliseconds: 280), () {
+    _searchDebounce = Timer(const Duration(milliseconds: 200), () {
       if (!mounted) {
         return;
       }
@@ -2189,10 +2173,11 @@ class _PaymentsPageState extends State<PaymentsPage> {
     int paymentId, {
     bool autoPrint = false,
   }) async {
-    await ReceiptDialog.printQuick(
+    await ReceiptDialog.show(
       context,
       paymentId: paymentId,
       receiptRepository: widget._receiptRepository,
+      autoPrint: autoPrint,
     );
   }
 
@@ -2326,7 +2311,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
         return;
       }
 
-      await ReceiptDialog.printQuick(
+      await ReceiptDialog.show(
         context,
         paymentId: selectedPayment.id,
         receiptRepository: widget._receiptRepository,

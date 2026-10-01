@@ -11,7 +11,27 @@ class SellersController extends ResilientListController<Seller> {
             ? repository.getAll()
             : repository.search(query.trim()),
         fetchCache: repository.fetchCachedList,
+        filterCache: _filterSellers,
       );
 
   List<Seller> get sellers => items;
+
+  static List<Seller> _filterSellers(List<Seller> sellers, String query) {
+    final normalized = query.trim().toLowerCase();
+    if (normalized.isEmpty) return sellers;
+    final digits = query.replaceAll(RegExp(r'\D+'), '');
+    return sellers.where((seller) {
+      final haystack = [
+        seller.name,
+        seller.documentId,
+        seller.phone,
+      ].join(' ').toLowerCase();
+      final normalizedDigits = [
+        seller.documentId,
+        seller.phone,
+      ].join(' ').replaceAll(RegExp(r'\D+'), '');
+      return haystack.contains(normalized) ||
+          (digits.length >= 2 && normalizedDigits.contains(digits));
+    }).toList(growable: false);
+  }
 }

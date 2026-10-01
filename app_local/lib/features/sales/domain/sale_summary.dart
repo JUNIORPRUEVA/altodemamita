@@ -4,6 +4,7 @@ class SaleSummary {
     required this.syncStatus,
     required this.clientName,
     required this.clientDocumentId,
+    this.clientPhone = '',
     required this.lotDisplayCode,
     required this.saleDate,
     required this.salePrice,
@@ -28,6 +29,7 @@ class SaleSummary {
   final String syncStatus;
   final String clientName;
   final String clientDocumentId;
+  final String clientPhone;
   final String lotDisplayCode;
   final DateTime saleDate;
   final double salePrice;
@@ -55,6 +57,7 @@ class SaleSummary {
       syncStatus: map['sync_status'] as String? ?? 'synced',
       clientName: map['cliente_nombre'] as String? ?? '',
       clientDocumentId: map['cliente_cedula'] as String? ?? '',
+      clientPhone: map['cliente_telefono'] as String? ?? '',
       lotDisplayCode:
           'M${map['manzana_numero'] as String? ?? ''}-S${map['solar_numero'] as String? ?? ''}',
       saleDate: DateTime.parse(map['fecha_venta'] as String),
@@ -90,14 +93,13 @@ class SaleSummary {
 
   bool get isFinancingActive => status == 'activa' || status == 'pagada';
 
-  SaleSummary copyWith({
-    int? overdueInstallmentCount,
-  }) {
+  SaleSummary copyWith({int? overdueInstallmentCount}) {
     return SaleSummary(
       id: id,
       syncStatus: syncStatus,
       clientName: clientName,
       clientDocumentId: clientDocumentId,
+      clientPhone: clientPhone,
       lotDisplayCode: lotDisplayCode,
       saleDate: saleDate,
       salePrice: salePrice,
