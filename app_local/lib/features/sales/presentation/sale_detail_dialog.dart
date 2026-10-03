@@ -2,11 +2,11 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../../core/business/installment_status.dart';
 import '../../../core/responsive/app_breakpoints.dart';
 import '../../payments/data/payments_repository.dart';
+import '../../payments/domain/payment_sale_option.dart';
 import '../../payments/presentation/payment_history_fullscreen.dart';
 import '../domain/sale_calculator.dart';
 import '../domain/sale_detail.dart';
@@ -121,6 +121,22 @@ class SaleDetailDialog extends StatelessWidget {
     );
   }
 
+  static Future<void> showLive(
+    BuildContext context, {
+    required SaleDetail initialDetail,
+    Future<SaleDetail?> Function()? loadCachedDetail,
+    Future<SaleDetail?> Function()? loadDetail,
+  }) {
+    return showDialog<void>(
+      context: context,
+      builder: (_) => _LiveSaleDetailDialog(
+        initialDetail: initialDetail,
+        loadCachedDetail: loadCachedDetail,
+        loadDetail: loadDetail,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.sizeOf(context);
@@ -170,15 +186,15 @@ class SaleDetailDialog extends StatelessWidget {
             const Divider(height: 1),
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(24, 18, 24, 18),
+                padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     _TopDetailsBand(detail: detail),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 8),
                     _SummarySection(detail: detail),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 8),
                     _InstallmentsSection(detail: detail),
                   ],
                 ),
@@ -197,6 +213,72 @@ class SaleDetailDialog extends StatelessWidget {
 
     return Align(alignment: Alignment.centerRight, child: dialog);
   }
+}
+
+class _LiveSaleDetailDialog extends StatefulWidget {
+  const _LiveSaleDetailDialog({
+    required this.initialDetail,
+    this.loadCachedDetail,
+    this.loadDetail,
+  });
+
+  final SaleDetail initialDetail;
+  final Future<SaleDetail?> Function()? loadCachedDetail;
+  final Future<SaleDetail?> Function()? loadDetail;
+
+  @override
+  State<_LiveSaleDetailDialog> createState() => _LiveSaleDetailDialogState();
+}
+
+class _LiveSaleDetailDialogState extends State<_LiveSaleDetailDialog> {
+  late SaleDetail _detail = widget.initialDetail;
+  bool _loadInFlight = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.loadCachedDetail != null || widget.loadDetail != null) {
+      _load();
+    }
+  }
+
+  Future<void> _load() async {
+    if (_loadInFlight) {
+      return;
+    }
+    _loadInFlight = true;
+
+    final cachedDetail = await _guardLoad(widget.loadCachedDetail);
+    if (!mounted) {
+      return;
+    }
+    if (cachedDetail != null) {
+      setState(() => _detail = cachedDetail);
+    }
+
+    final authoritativeDetail = await _guardLoad(widget.loadDetail);
+    if (!mounted) {
+      return;
+    }
+    if (authoritativeDetail != null) {
+      setState(() => _detail = authoritativeDetail);
+    }
+    _loadInFlight = false;
+  }
+
+  Future<SaleDetail?> _guardLoad(Future<SaleDetail?> Function()? loader) async {
+    if (loader == null) {
+      return null;
+    }
+    try {
+      return await loader();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => SaleDetailDialog(detail: _detail);
 }
 
 Future<void> openInstallmentsFullscreen(
@@ -218,12 +300,33 @@ Future<void> openInstallmentsFullscreen(
 Future<void> openSalePaymentsHistory(
   BuildContext context, {
   required int saleId,
+  SaleDetail? previewDetail,
   PaymentsRepository? paymentsRepository,
 }) {
   return openSalePaymentHistoryById(
     context,
     saleId: saleId,
+    previewSale: previewDetail == null
+        ? null
+        : _paymentSaleOptionFromDetail(previewDetail),
     paymentsRepository: paymentsRepository,
+  );
+}
+
+PaymentSaleOption _paymentSaleOptionFromDetail(SaleDetail detail) {
+  final sale = detail.sale;
+  return PaymentSaleOption(
+    saleId: sale.id ?? 0,
+    clientId: sale.clientId,
+    clientName: detail.clientName,
+    clientDocumentId: detail.clientDocumentId,
+    clientPhone: '',
+    lotDisplayCode: detail.lotDisplayCode,
+    pendingBalance: sale.pendingBalance,
+    requiredInitialPayment: sale.requiredInitialPayment,
+    paidInitialPayment: sale.paidInitialPayment,
+    pendingInitialPayment: sale.pendingInitialPayment,
+    status: sale.status,
   );
 }
 
@@ -263,7 +366,7 @@ class _DialogHeader extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 21,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w600,
                     color: Color(0xFF1A2235),
                   ),
                 ),
@@ -308,7 +411,7 @@ class _DialogHeader extends StatelessWidget {
                 'En atrasos (${detail.overdueInstallmentCount})',
                 style: const TextStyle(
                   fontSize: 13,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w500,
                   color: Color(0xFFC62828),
                 ),
               ),
@@ -415,10 +518,9 @@ class _TopDetailsBand extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final sale = detail.sale;
-    final syncId = sale.syncId?.trim();
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 19),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
       decoration: BoxDecoration(
         color: const Color(0xFFFAFCFF),
         borderRadius: BorderRadius.circular(14),
@@ -446,16 +548,6 @@ class _TopDetailsBand extends StatelessWidget {
                   '${_money(sale.paidInitialPayment)} / ${_money(sale.requiredInitialPayment)}'
                       '${sale.initialPaymentDeadline == null ? '' : ' · Límite ${_formatDate(sale.initialPaymentDeadline!)}'}',
                 ),
-                _CompactInfoItem(
-                  'ID local',
-                  sale.id?.toString() ?? 'No disponible',
-                  copyValue: sale.id?.toString(),
-                ),
-                _CompactInfoItem(
-                  'Sync ID',
-                  (syncId?.isNotEmpty ?? false) ? syncId! : 'No disponible',
-                  copyValue: (syncId?.isNotEmpty ?? false) ? syncId : null,
-                ),
               ],
             ),
             _TopInfoColumn(
@@ -481,7 +573,7 @@ class _TopDetailsBand extends StatelessWidget {
               children: [
                 for (var index = 0; index < columns.length; index++) ...[
                   columns[index],
-                  if (index != columns.length - 1) const SizedBox(height: 14),
+                  if (index != columns.length - 1) const SizedBox(height: 10),
                 ],
               ],
             );
@@ -491,9 +583,9 @@ class _TopDetailsBand extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(child: columns[0]),
-              const SizedBox(width: 22),
+              const SizedBox(width: 16),
               Expanded(child: columns[1]),
-              const SizedBox(width: 22),
+              const SizedBox(width: 16),
               Expanded(child: columns[2]),
             ],
           );
@@ -606,7 +698,7 @@ class _SummaryCard extends StatelessWidget {
                     label,
                     style: const TextStyle(
                       fontSize: 13,
-                      fontWeight: FontWeight.w700,
+                      fontWeight: FontWeight.w500,
                       letterSpacing: 0.05,
                       color: Color(0xFF8893AA),
                     ),
@@ -616,7 +708,7 @@ class _SummaryCard extends StatelessWidget {
                     value,
                     style: const TextStyle(
                       fontSize: 17,
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w600,
                       color: Color(0xFF1A2235),
                     ),
                   ),
@@ -651,10 +743,10 @@ class _InstallmentsSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const _SectionTitle(title: 'Estado de las cuotas'),
-        const SizedBox(height: 10),
+        const SizedBox(height: 8),
         Container(
           width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
           decoration: BoxDecoration(
             color: const Color(0xFFFCFDFE),
             border: Border.all(color: const Color(0xFFE4EAF2)),
@@ -673,7 +765,7 @@ class _InstallmentsSection extends StatelessWidget {
                           : 'Sin cuotas programadas',
                       style: const TextStyle(
                         fontSize: 17,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w600,
                         color: Color(0xFF1A2235),
                       ),
                     ),
@@ -709,8 +801,11 @@ class _InstallmentsSection extends StatelessWidget {
                   if (hasInstallments && saleId != null && hasAppliedPayments)
                     _CompactFloatingActionButton.extended(
                       heroTag: 'sale-payments-fullscreen',
-                      onPressed: () =>
-                          openSalePaymentsHistory(context, saleId: saleId),
+                      onPressed: () => openSalePaymentsHistory(
+                        context,
+                        saleId: saleId,
+                        previewDetail: detail,
+                      ),
                       icon: Icons.list_alt_outlined,
                       label: 'Historial de pagos',
                     ),
@@ -752,7 +847,7 @@ class _CompactFloatingActionButton extends StatelessWidget {
         label,
         style: const TextStyle(
           fontSize: 14,
-          fontWeight: FontWeight.w700,
+          fontWeight: FontWeight.w500,
           letterSpacing: 0.1,
         ),
       ),
@@ -954,7 +1049,7 @@ class _FooterMetric extends StatelessWidget {
           value,
           style: TextStyle(
             fontSize: emphasize ? 15 : 14,
-            fontWeight: FontWeight.w800,
+            fontWeight: FontWeight.w600,
             color: color,
           ),
         ),
@@ -993,10 +1088,10 @@ class _BottomBar extends StatelessWidget {
     final installmentSummary = detail.installmentSummary;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 14, 24, 16),
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.fromLTRB(16, 13, 16, 14),
+        padding: const EdgeInsets.fromLTRB(16, 11, 16, 12),
         decoration: BoxDecoration(
           color: const Color(0xFFF9FBFE),
           borderRadius: BorderRadius.circular(14),
@@ -1021,20 +1116,30 @@ class _BottomBar extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 6),
-                Text(
-                  'Resumen financiero del plan',
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF1A2235),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  _installmentSummaryText(installmentSummary),
-                  style: const TextStyle(
-                    fontSize: 13.5,
-                    color: Color(0xFF8893AA),
+                Expanded(
+                  child: Text.rich(
+                    TextSpan(
+                      children: [
+                        const TextSpan(
+                          text: 'Resumen financiero del plan',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF1A2235),
+                          ),
+                        ),
+                        TextSpan(
+                          text:
+                              '  ${_installmentSummaryText(installmentSummary)}',
+                          style: const TextStyle(
+                            fontSize: 13.5,
+                            color: Color(0xFF8893AA),
+                          ),
+                        ),
+                      ],
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],
@@ -1126,7 +1231,7 @@ class _FlatMetric extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontSize: 13,
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.w500,
               color: color.withValues(alpha: 0.75),
             ),
           ),
@@ -1137,7 +1242,7 @@ class _FlatMetric extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontSize: 16,
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w600,
               color: color,
             ),
           ),
@@ -1171,7 +1276,7 @@ class _TopInfoColumn extends StatelessWidget {
           title.toUpperCase(),
           style: const TextStyle(
             fontSize: 13,
-            fontWeight: FontWeight.w700,
+            fontWeight: FontWeight.w500,
             letterSpacing: 0.35,
             color: Color(0xFF8893AA),
           ),
@@ -1181,7 +1286,6 @@ class _TopInfoColumn extends StatelessWidget {
           _CompactInfoRow(
             label: items[index].label,
             value: items[index].value,
-            copyValue: items[index].copyValue,
           ),
           if (index != items.length - 1) const SizedBox(height: 8),
         ],
@@ -1191,41 +1295,23 @@ class _TopInfoColumn extends StatelessWidget {
 }
 
 class _CompactInfoItem {
-  const _CompactInfoItem(this.label, this.value, {this.copyValue});
+  const _CompactInfoItem(this.label, this.value);
 
   final String label;
   final String value;
-  final String? copyValue;
 }
 
 class _CompactInfoRow extends StatelessWidget {
   const _CompactInfoRow({
     required this.label,
     required this.value,
-    this.copyValue,
   });
 
   final String label;
   final String value;
-  final String? copyValue;
-
-  Future<void> _copyValue(BuildContext context) async {
-    final valueToCopy = copyValue?.trim();
-    if (valueToCopy == null || valueToCopy.isEmpty) {
-      return;
-    }
-    await Clipboard.setData(ClipboardData(text: valueToCopy));
-    if (!context.mounted) {
-      return;
-    }
-    ScaffoldMessenger.maybeOf(
-      context,
-    )?.showSnackBar(SnackBar(content: Text('$label copiado')));
-  }
 
   @override
   Widget build(BuildContext context) {
-    final canCopy = (copyValue?.trim().isNotEmpty ?? false);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1235,7 +1321,7 @@ class _CompactInfoRow extends StatelessWidget {
             label,
             style: const TextStyle(
               fontSize: 14,
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.w500,
               color: Color(0xFF7F8AA3),
             ),
           ),
@@ -1248,27 +1334,12 @@ class _CompactInfoRow extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               fontSize: 15,
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w600,
               height: 1.35,
               color: Color(0xFF1A2235),
             ),
           ),
         ),
-        if (canCopy) ...[
-          const SizedBox(width: 4),
-          IconButton(
-            onPressed: () => _copyValue(context),
-            icon: const Icon(Icons.copy_rounded, size: 14),
-            tooltip: 'Copiar $label',
-            visualDensity: VisualDensity.compact,
-            style: IconButton.styleFrom(
-              minimumSize: const Size(22, 22),
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              foregroundColor: const Color(0xFF6B7494),
-              padding: const EdgeInsets.all(2),
-            ),
-          ),
-        ],
       ],
     );
   }
@@ -1287,7 +1358,7 @@ class _SectionTitle extends StatelessWidget {
           title.toUpperCase(),
           style: const TextStyle(
             fontSize: 13,
-            fontWeight: FontWeight.w700,
+            fontWeight: FontWeight.w500,
             letterSpacing: 0.45,
             color: Color(0xFF8893AA),
           ),

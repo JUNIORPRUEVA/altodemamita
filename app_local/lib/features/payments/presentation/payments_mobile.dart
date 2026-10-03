@@ -93,6 +93,21 @@ class _PaymentsMobileViewState extends State<PaymentsMobileView> {
     });
   }
 
+  void _handleSearchSubmitted(String value) {
+    final query = value.trim();
+    if (query.isEmpty) {
+      return;
+    }
+
+    _searchDebounce?.cancel();
+    final matches = _visibleSales;
+    if (matches.isNotEmpty) {
+      widget.onSelectSale(matches.first.saleId);
+      return;
+    }
+    widget.onSearch(query);
+  }
+
   List<PaymentSaleOption> get _visibleSales {
     final query = _searchController.text.trim();
     if (query.isEmpty) {
@@ -153,13 +168,13 @@ class _PaymentsMobileViewState extends State<PaymentsMobileView> {
               controller: _searchController,
               hintText: 'Buscar por cliente, cedula, telefono o solar...',
               onChanged: _handleSearchChanged,
-              onSubmitted: widget.onSearch,
+              onSubmitted: _handleSearchSubmitted,
               onClear: _clearSearch,
             ),
           ),
           if (widget.refreshFailed)
             MobileRefreshFailedBanner(onRetry: widget.onRetry)
-          else if (widget.isRefreshing || widget.isSearching)
+          else if (widget.isSearching)
             const MobileRefreshingBar(),
           Expanded(child: _buildBody()),
         ],

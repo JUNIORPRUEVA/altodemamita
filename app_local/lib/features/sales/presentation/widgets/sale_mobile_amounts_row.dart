@@ -33,20 +33,20 @@ class SaleMobileAmountsRow extends StatelessWidget {
   static const double minMetaWidth = 84;
 
   static const TextStyle labelStyle = TextStyle(
-    fontSize: 9.5,
-    fontWeight: FontWeight.w600,
+    fontSize: 10.5,
+    fontWeight: FontWeight.w500,
     color: Color(0xFF6B7A90),
   );
 
   static const TextStyle valueStyle = TextStyle(
-    fontSize: 11.5,
-    fontWeight: FontWeight.w700,
+    fontSize: 12.5,
+    fontWeight: FontWeight.w500,
     color: Color(0xFF1F2937),
   );
 
   static const TextStyle metaStyle = TextStyle(
-    fontSize: 11.5,
-    fontWeight: FontWeight.w600,
+    fontSize: 12,
+    fontWeight: FontWeight.w500,
     color: Color(0xFF6B7A90),
   );
 
@@ -63,8 +63,7 @@ class SaleMobileAmountsRow extends StatelessWidget {
     required double priceWidth,
     required double pendingWidth,
   }) {
-    final available =
-        rowWidth - chevronWidth - gap - minMetaWidth;
+    final available = rowWidth - chevronWidth - gap - minMetaWidth;
     return priceWidth + gap + pendingWidth <= available;
   }
 

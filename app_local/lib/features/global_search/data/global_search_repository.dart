@@ -11,6 +11,7 @@ import '../../installments/domain/installment_detail.dart';
 import '../../lots/data/lot_repository.dart';
 import '../../lots/domain/lot.dart';
 import '../../sales/data/sales_repository.dart';
+import '../../sales/domain/sale_summary.dart';
 import '../domain/search_result.dart';
 
 class GlobalSearchRepository {
@@ -26,6 +27,8 @@ class GlobalSearchRepository {
            clientRepository ?? ClientRepository(appDatabase: appDatabase),
        _lotRepository =
            lotRepository ?? LotRepository(appDatabase: appDatabase),
+       _salesRepository =
+           salesRepository ?? SalesRepository(appDatabase: appDatabase),
        _installmentsRepository =
            installmentsRepository ??
            InstallmentsRepository(database: appDatabase),
@@ -34,6 +37,7 @@ class GlobalSearchRepository {
   final AppDatabase _appDatabase;
   final ClientRepository _clientRepository;
   final LotRepository _lotRepository;
+  final SalesRepository _salesRepository;
   final InstallmentsRepository _installmentsRepository;
   final BackendApiClient _apiClient;
   final BackendEntityIdRegistry _idRegistry = BackendEntityIdRegistry.instance;
@@ -42,13 +46,16 @@ class GlobalSearchRepository {
 
   /// Búsqueda global inteligente que busca clientes y solares
   /// Retorna resultados con toda la información relacionada
-  Future<List<GlobalSearchResult>> search(String query) async {
+  Future<List<GlobalSearchResult>> search(
+    String query, {
+    bool preferCached = true,
+  }) async {
     if (query.trim().isEmpty) {
       return [];
     }
 
     if (_useBackendMode) {
-      return _searchFromBackend(query);
+      return _searchFromBackend(query, preferCached: preferCached);
     }
 
     final results = <GlobalSearchResult>[];
@@ -128,6 +135,22 @@ class GlobalSearchRepository {
     }
 
     return results;
+  }
+
+  /// Resultado inmediato desde la proyeccion local/cacheada.
+  ///
+  /// Replica el arranque cache-first de Ventas: nunca toca red y nunca lanza.
+  /// La pantalla puede usarlo en cada tecla y dejar la confirmacion viva para
+  /// una busqueda diferida.
+  Future<List<GlobalSearchResult>> searchCached(String query) async {
+    if (query.trim().isEmpty || !_useBackendMode) {
+      return const [];
+    }
+    try {
+      return _searchFromCloudCache(query);
+    } catch (_) {
+      return const [];
+    }
   }
 
   /// Obtiene las ventas de un cliente
@@ -224,23 +247,234 @@ class GlobalSearchRepository {
   // locales que no coinciden con los ids sintéticos cloud.
   // =====================================================================
 
-  Future<List<GlobalSearchResult>> _searchFromBackend(String query) async {
+  Future<List<GlobalSearchResult>> _searchFromBackend(
+    String query, {
+    required bool preferCached,
+  }) async {
+    if (preferCached) {
+      final cachedResults = await _searchFromCloudCache(query);
+      if (cachedResults.isNotEmpty) {
+        return cachedResults;
+      }
+    }
+
     final results = <GlobalSearchResult>[];
+    final seen = <String>{};
+
+    final matchingSales = await _salesRepository.fetchAll(query: query);
+    for (final sale in matchingSales) {
+      final key = 'sale:${sale.id}';
+      if (seen.add(key)) {
+        results.add(_resultFromSaleSummary(sale));
+      }
+    }
 
     final matchingClients = await _clientRepository.fetchAll(query: query);
     for (final client in matchingClients) {
-      results.add(await _clientCloudResult(client));
+      final key = 'client:${client.syncId ?? client.id ?? client.documentId}';
+      if (seen.add(key)) {
+        results.add(await _clientCloudResult(client));
+      }
     }
 
     final matchingLots = await _lotRepository.fetchAll(query: query);
     for (final lot in matchingLots) {
       final result = await _lotCloudResult(lot);
-      if (result != null) {
+      final key = 'lot:${lot.id ?? lot.displayCode}';
+      if (result != null && seen.add(key)) {
         results.add(result);
       }
     }
 
     return results;
+  }
+
+  Future<List<GlobalSearchResult>> _searchFromCloudCache(String query) async {
+    final results = <GlobalSearchResult>[];
+    final seen = <String>{};
+
+    final cachedSales = await _salesRepository.searchCachedList(query: query);
+    for (final sale in cachedSales) {
+      results.add(_resultFromSaleSummary(sale));
+      seen.add('sale:${sale.id}');
+    }
+
+    final matchingClients = _filterClients(
+      await _clientRepository.fetchCachedList(),
+      query,
+    );
+    for (final client in matchingClients) {
+      final clientSales = cachedSales
+          .where(
+            (sale) =>
+                _normalizeSearchText(sale.clientName) ==
+                    _normalizeSearchText(client.fullName) ||
+                (client.documentId.isNotEmpty &&
+                    sale.clientDocumentId == client.documentId),
+          )
+          .map(_saleSummaryLocalMap)
+          .toList(growable: false);
+      final key = 'client:${client.syncId ?? client.id ?? client.documentId}';
+      if (seen.add(key)) {
+        results.add(
+          GlobalSearchResult(
+            client: client,
+            relatedSales: clientSales,
+            matchType: 'client',
+          ),
+        );
+      }
+    }
+
+    final matchingLots = _filterLots(
+      await _lotRepository.fetchCachedList(),
+      query,
+    );
+    for (final lot in matchingLots) {
+      final key = 'lot:${lot.id ?? lot.displayCode}';
+      if (seen.add(key)) {
+        results.add(
+          GlobalSearchResult(
+            lot: lot,
+            relatedSales: const [],
+            matchType: 'lot',
+          ),
+        );
+      }
+    }
+
+    return results;
+  }
+
+  GlobalSearchResult _resultFromSaleSummary(SaleSummary sale) {
+    final now = DateTime.now();
+    final client = Client(
+      fullName: sale.clientName,
+      documentId: sale.clientDocumentId,
+      phone: sale.clientPhone.isEmpty ? null : sale.clientPhone,
+      createdAt: now,
+      updatedAt: now,
+    );
+    final lotParts = _parseLotDisplayCode(sale.lotDisplayCode);
+    final lot = Lot(
+      blockNumber: lotParts.$1,
+      lotNumber: lotParts.$2,
+      area: 0,
+      pricePerSquareMeter: 0,
+      status: _lotStatusFromSaleStatus(sale.status),
+      createdAt: now,
+      updatedAt: now,
+    );
+    return GlobalSearchResult(
+      client: client,
+      lot: lot,
+      relatedSales: [_saleSummaryLocalMap(sale)],
+      relatedInstallments: const [],
+      relatedPayments: const [],
+      matchType: 'sale',
+    );
+  }
+
+  Map<String, dynamic> _saleSummaryLocalMap(SaleSummary sale) {
+    final lotParts = _parseLotDisplayCode(sale.lotDisplayCode);
+    return {
+      'id': sale.id,
+      'estado': sale.status,
+      'fecha_venta': sale.saleDate.toIso8601String(),
+      'fecha_creacion': sale.saleDate.toIso8601String(),
+      'cliente_nombre': sale.clientName,
+      'cliente_cedula': sale.clientDocumentId,
+      'cliente_telefono': sale.clientPhone,
+      'manzana_numero': lotParts.$1,
+      'solar_numero': lotParts.$2,
+      'precio_venta': sale.salePrice,
+      'monto_inicial_requerido': sale.requiredInitialPayment,
+      'monto_inicial_pagado': sale.paidInitialPayment,
+      'monto_inicial_pendiente': sale.pendingInitialPayment,
+      'monto_apartado_minimo': sale.minimumReserveAmount,
+      'monto_apartado_pagado': sale.paidApartadoPayment,
+      'fecha_limite_inicial': sale.initialPaymentDeadline?.toIso8601String(),
+      'saldo_financiado': sale.financedBalance,
+      'saldo_pendiente': sale.pendingBalance,
+      'interes_mensual': sale.monthlyInterest,
+      'cantidad_cuotas': sale.installmentCount,
+      'cuotas_generadas': sale.generatedInstallments,
+      'cuotas_vencidas': sale.overdueInstallmentCount,
+    };
+  }
+
+  List<Client> _filterClients(List<Client> clients, String query) {
+    final tokens = _searchTokens(query);
+    if (tokens.isEmpty) {
+      return const [];
+    }
+    return clients
+        .where((client) {
+          final searchable = _normalizeSearchText(
+            '${client.fullName} ${client.documentId} ${client.phone ?? ''}',
+          );
+          return tokens.every(searchable.contains);
+        })
+        .toList(growable: false);
+  }
+
+  List<Lot> _filterLots(List<Lot> lots, String query) {
+    final tokens = _searchTokens(query);
+    if (tokens.isEmpty) {
+      return const [];
+    }
+    return lots
+        .where((lot) {
+          final searchable = _normalizeSearchText(
+            '${lot.displayCode} ${lot.blockNumber} ${lot.lotNumber} ${lot.status}',
+          );
+          return tokens.every(searchable.contains);
+        })
+        .toList(growable: false);
+  }
+
+  List<String> _searchTokens(String query) {
+    return _normalizeSearchText(query)
+        .split(RegExp(r'\s+'))
+        .where((token) => token.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  String _normalizeSearchText(String value) {
+    return value
+        .trim()
+        .toLowerCase()
+        .replaceAll('á', 'a')
+        .replaceAll('é', 'e')
+        .replaceAll('í', 'i')
+        .replaceAll('ó', 'o')
+        .replaceAll('ú', 'u')
+        .replaceAll('ü', 'u')
+        .replaceAll('ñ', 'n');
+  }
+
+  (String, String) _parseLotDisplayCode(String displayCode) {
+    final match = RegExp(
+      r'^M(.+)-S(.+)$',
+      caseSensitive: false,
+    ).firstMatch(displayCode.trim());
+    if (match == null) {
+      return ('', displayCode.trim());
+    }
+    return (match.group(1)?.trim() ?? '', match.group(2)?.trim() ?? '');
+  }
+
+  String _lotStatusFromSaleStatus(String status) {
+    switch (status.trim().toLowerCase()) {
+      case 'apartado':
+      case 'inicial_incompleto':
+        return 'reservado';
+      case 'activa':
+      case 'pagada':
+        return 'vendido';
+      default:
+        return 'disponible';
+    }
   }
 
   Future<GlobalSearchResult> _clientCloudResult(Client client) async {

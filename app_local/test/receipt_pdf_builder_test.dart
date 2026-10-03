@@ -3,7 +3,9 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sistema_solares/features/installments/domain/installment.dart';
 import 'package:sistema_solares/features/payments/domain/payment_history_item.dart';
+import 'package:sistema_solares/features/payments/domain/payment_sale_context.dart';
 import 'package:sistema_solares/features/payments/domain/payment_sale_option.dart';
+import 'package:sistema_solares/features/payments/data/receipt_repository.dart';
 import 'package:sistema_solares/features/payments/domain/receipt.dart';
 import 'package:sistema_solares/features/payments/presentation/receipt/receipt_pdf_builder.dart';
 import 'package:sistema_solares/features/settings/domain/company_info.dart';
@@ -22,6 +24,49 @@ void main() {
     expect(utf8.decode(bytes.take(4).toList()), '%PDF');
     expect(utf8.decode(secondBytes.take(4).toList()), '%PDF');
     expect(bytes.length, greaterThan(2500));
+  });
+
+  test('genera recibo desde contexto cloud sin fila local de pago', () async {
+    final paymentDate = DateTime(2026, 6, 2, 10, 30);
+    final payment = PaymentHistoryItem(
+      id: 730257513,
+      saleId: 162493397,
+      clientId: 0,
+      paymentDate: paymentDate,
+      amountPaid: 92762.40,
+      paymentMethod: 'efectivo',
+      paymentType: 'abono_inicial',
+      reference: 'cloud-payment-1',
+    );
+    final context = PaymentSaleContext(
+      sale: const PaymentSaleOption(
+        saleId: 162493397,
+        clientId: 1,
+        clientName: 'CLARA MARIA BAEZ ALVAREZ',
+        clientDocumentId: '028-0076241-7',
+        clientPhone: '',
+        lotDisplayCode: 'MM-H-S84',
+        pendingBalance: 834861.60,
+        requiredInitialPayment: 92762.40,
+        paidInitialPayment: 92762.40,
+        pendingInitialPayment: 0,
+        status: 'activa',
+      ),
+      monthlyInterest: 1,
+      installments: const [],
+      history: [payment],
+    );
+
+    final receipt = await ReceiptRepository().buildReceiptFromContext(
+      context: context,
+      payment: payment,
+    );
+    final bytes = await ReceiptPdfBuilder.build(receipt);
+
+    expect(receipt.paymentId, 730257513);
+    expect(receipt.sale.clientName, contains('CLARA'));
+    expect(receipt.totalAmount, closeTo(92762.40, 0.001));
+    expect(bytes, isNotEmpty);
   });
 }
 

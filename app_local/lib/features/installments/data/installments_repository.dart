@@ -1,3 +1,4 @@
+import '../../../core/cloud_foundation/list_snapshot_store.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_schema.dart';
 import '../domain/installment_detail.dart';
@@ -7,6 +8,10 @@ class InstallmentsRepository {
     : _appDatabase = database ?? AppDatabase.instance;
 
   final AppDatabase _appDatabase;
+  late final ListSnapshotStore _listSnapshot = ListSnapshotStore(
+    _appDatabase,
+    entity: 'installments',
+  );
 
   /// Get all installments with related sale and client information
   Future<List<InstallmentDetail>> getAll() async {
@@ -39,7 +44,11 @@ class InstallmentsRepository {
       ORDER BY q.venta_id ASC, q.numero_cuota ASC, q.fecha_vencimiento ASC
     ''');
 
-    return rows.map((row) => InstallmentDetail.fromMap(row)).toList();
+    final installments = rows
+        .map((row) => InstallmentDetail.fromMap(row))
+        .toList(growable: false);
+    await _writeCachedList(installments);
+    return installments;
   }
 
   /// Get installments for a specific sale
@@ -78,6 +87,51 @@ class InstallmentsRepository {
     );
 
     return rows.map((row) => InstallmentDetail.fromMap(row)).toList();
+  }
+
+  /// Ultima lista valida de cuotas para pintar rapido sin depender de SQLite.
+  Future<List<InstallmentDetail>> fetchCachedList() async {
+    final items = await _listSnapshot.read();
+    if (items == null) {
+      return const [];
+    }
+    try {
+      return items
+          .whereType<Map>()
+          .map(
+            (item) => InstallmentDetail.fromMap(
+              item.map((key, value) => MapEntry(key.toString(), value)),
+            ),
+          )
+          .toList(growable: false);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<void> _writeCachedList(List<InstallmentDetail> installments) async {
+    await _listSnapshot.write(
+      installments.map(_installmentToCacheMap).toList(growable: false),
+    );
+  }
+
+  Map<String, dynamic> _installmentToCacheMap(InstallmentDetail installment) {
+    return {
+      'id': installment.id,
+      'numero_cuota': installment.installmentNumber,
+      'venta_id': installment.saleId,
+      'nombre_cliente': installment.clientName,
+      'cedula_cliente': installment.clientDocumentId,
+      'codigo_solar': installment.lotCode,
+      'fecha_vencimiento': installment.dueDate.toIso8601String(),
+      'saldo_inicial': installment.openingBalance,
+      'capital_cuota': installment.principalAmount,
+      'interes_cuota': installment.interestAmount,
+      'monto_cuota': installment.totalAmount,
+      'monto_pagado': installment.paidAmount,
+      'saldo_final': installment.endingBalance,
+      'estado': installment.status,
+    };
   }
 
   /// Search installments by multiple criteria

@@ -11,15 +11,21 @@ class ReceiptController extends ChangeNotifier {
   bool _isLoading = false;
   FriendlyErrorMessage? _loadError;
 
-  ReceiptController({
-    required ReceiptRepository receiptRepository,
-  }) : _receiptRepository = receiptRepository;
+  ReceiptController({required ReceiptRepository receiptRepository})
+    : _receiptRepository = receiptRepository;
 
   // Getters
   Receipt? get receipt => _receipt;
   bool get isLoading => _isLoading;
   FriendlyErrorMessage? get loadError => _loadError;
   bool get hasReceipt => _receipt != null;
+
+  void seedReceipt(Receipt receipt) {
+    _receipt = receipt;
+    _loadError = null;
+    _isLoading = false;
+    notifyListeners();
+  }
 
   /// Carga un recibo específico por ID de pago
   Future<void> loadReceipt(int paymentId) async {

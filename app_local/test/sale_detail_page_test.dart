@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sistema_solares/features/installments/domain/installment.dart';
 import 'package:sistema_solares/features/sales/domain/sale.dart';
 import 'package:sistema_solares/features/sales/domain/sale_detail.dart';
+import 'package:sistema_solares/features/sales/presentation/sale_detail_dialog.dart';
 import 'package:sistema_solares/features/sales/presentation/sale_detail_page.dart';
 
 import 'helpers/responsive_test_harness.dart';
@@ -176,6 +177,24 @@ void main() {
       expect(find.textContaining('UUID'), findsNothing);
     });
 
+    testWidgets('el panel lateral no muestra identificadores tecnicos', (
+      tester,
+    ) async {
+      useTestSize(tester, const Size(1200, 900));
+      await tester.pumpWidget(
+        testApp(
+          SaleDetailDialog(
+            detail: _detail(sale: _sale(id: 10, syncId: 'sync-abc-123')),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('ID local'), findsNothing);
+      expect(find.textContaining('Sync ID'), findsNothing);
+      expect(find.text('sync-abc-123'), findsNothing);
+    });
+
     testWidgets('muestra montos completos y fecha en español', (tester) async {
       useTestSize(tester, const Size(390, 1500));
       await tester.pumpWidget(
@@ -255,7 +274,6 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.text('Cargando detalle de venta…'), findsOneWidget);
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
       expect(find.text('THELEMARQUE WISMIQUE'), findsOneWidget);
       expect(find.text('Solar MM-B-1-S446'), findsOneWidget);
@@ -264,6 +282,32 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('RESUMEN FINANCIERO'), findsOneWidget);
     });
+
+    testWidgets(
+      'abre con detalle inicial inmediato y refresca cuando llega el autoritativo',
+      (tester) async {
+        useTestSize(tester, const Size(390, 1500));
+        final completer = Completer<SaleDetail?>();
+        await tester.pumpWidget(
+          testApp(
+            SaleDetailPage(
+              initialDetail: _detail(clientName: 'CLIENTE CACHEADO'),
+              loadDetail: () => completer.future,
+            ),
+          ),
+        );
+        await tester.pump();
+
+        expect(find.text('CLIENTE CACHEADO'), findsWidgets);
+        expect(find.byType(LinearProgressIndicator), findsWidgets);
+
+        completer.complete(_detail(clientName: 'CLIENTE ACTUALIZADO'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('CLIENTE ACTUALIZADO'), findsWidgets);
+        expect(find.text('CLIENTE CACHEADO'), findsNothing);
+      },
+    );
 
     testWidgets('estado de error permite reintentar', (tester) async {
       useTestSize(tester, const Size(390, 1500));

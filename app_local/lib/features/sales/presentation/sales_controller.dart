@@ -24,28 +24,61 @@ import '../domain/seller.dart';
 /// a vacío y la pantalla queda en skeleton esperando a SQLite (que puede estar
 /// tomado por el writer del sync durante 1-2 minutos).
 ///
-/// Sólo guarda la lista COMPLETA sin filtros, que es la que se pinta al entrar.
+/// Guarda las listas por alcance y conserva la lista completa como fallback:
+/// al entrar con busqueda/filtro se puede pintar algo inmediato sin esperar I/O.
 class SalesListMemoryCache {
   SalesListMemoryCache._();
 
-  static List<SaleSummary> _items = const [];
-  static String _scope = '';
+  static final Map<String, List<SaleSummary>> _itemsByScope =
+      <String, List<SaleSummary>>{};
 
   /// Lista memorizada para ese alcance (`''` = lista completa sin filtros).
   static List<SaleSummary> forScope(String scope) =>
-      _scope == scope ? _items : const [];
+      _itemsByScope[scope] ?? const [];
 
-  static bool hasForScope(String scope) => _scope == scope && _items.isNotEmpty;
+  static bool hasForScope(String scope) =>
+      (_itemsByScope[scope] ?? const []).isNotEmpty;
 
   static void store(String scope, List<SaleSummary> items) {
-    _scope = scope;
-    _items = List<SaleSummary>.unmodifiable(items);
+    _itemsByScope[scope] = List<SaleSummary>.unmodifiable(items);
   }
 
   /// Se usa al cerrar sesión: la lista de un usuario no debe verse en otro.
   static void clear() {
-    _items = const [];
-    _scope = '';
+    _itemsByScope.clear();
+  }
+
+  @visibleForTesting
+  static void debugReset() => clear();
+}
+
+/// Ultimo detalle completo visto durante el proceso.
+///
+/// Complementa el cache SQLite: abrir un detalle repetido no debe tocar red ni
+/// disco para pintar la primera vista. El refresh autoritativo sigue corriendo
+/// en background y reemplaza estos datos si hay cambios.
+class SalesDetailMemoryCache {
+  SalesDetailMemoryCache._();
+
+  static final Map<int, SaleDetail> _itemsBySaleId = <int, SaleDetail>{};
+
+  static SaleDetail? get(int saleId) => _itemsBySaleId[saleId];
+
+  static void store(SaleDetail detail) {
+    final saleId = detail.sale.id;
+    if (saleId == null || saleId <= 0) {
+      return;
+    }
+    _itemsBySaleId[saleId] = detail;
+  }
+
+  static void remove(int saleId) {
+    _itemsBySaleId.remove(saleId);
+  }
+
+  /// Se usa al cerrar sesión: detalles de un usuario no deben verse en otro.
+  static void clear() {
+    _itemsBySaleId.clear();
   }
 
   @visibleForTesting
@@ -173,13 +206,17 @@ class SalesController extends ChangeNotifier {
     // Ventas o al buscar, la pantalla pinta YA y el backend confirma despues.
     // PROHIBIDO el patrón clear-list + loading=true al reentrar.
     if (_loadedQuery != scope) {
-      final memo = SalesListMemoryCache.forScope('');
+      final memo = SalesListMemoryCache.forScope(scope).isNotEmpty
+          ? SalesListMemoryCache.forScope(scope)
+          : SalesListMemoryCache.forScope('');
       if (memo.isNotEmpty) {
-        sales = _salesRepository.filterSummaries(
-          memo,
-          query: currentQuery,
-          settlementFilter: _settlementFilter,
-        );
+        sales = SalesListMemoryCache.hasForScope(scope)
+            ? memo
+            : _salesRepository.filterSummaries(
+                memo,
+                query: currentQuery,
+                settlementFilter: _settlementFilter,
+              );
         _loadedQuery = scope;
         hasLocalPreview = true;
       }
@@ -190,7 +227,7 @@ class SalesController extends ChangeNotifier {
       // REFRESHING_WITH_DATA/PREVIEW: conservar lo visible (incluido vacio
       // local de busqueda) y refrescar en segundo plano.
       isLoading = false;
-      isRefreshing = true;
+      isRefreshing = false;
       refreshFailed = false;
     } else {
       // LOADING_WITHOUT_DATA: skeleton (nunca "No hay ventas" durante carga).
@@ -218,7 +255,7 @@ class SalesController extends ChangeNotifier {
           SalesListMemoryCache.store('', cached);
         }
         isLoading = false;
-        isRefreshing = true;
+        isRefreshing = false;
         _notifyIfActive();
       }
     }
@@ -246,6 +283,9 @@ class SalesController extends ChangeNotifier {
       _loadedQuery = scope;
       if (isUnfilteredScope) {
         SalesListMemoryCache.store('', listResult);
+      }
+      if (listResult.isNotEmpty) {
+        SalesListMemoryCache.store(scope, sales);
       }
       searchFailed = false;
       refreshFailed = false;
@@ -440,6 +480,7 @@ class SalesController extends ChangeNotifier {
     _notifyIfActive();
     try {
       await _salesRepository.deleteSale(saleId);
+      SalesDetailMemoryCache.remove(saleId);
       _removeDeletedSaleFromView(saleId);
       unawaited(_reloadAfterDeleteInBackground());
       return null;
@@ -473,7 +514,24 @@ class SalesController extends ChangeNotifier {
   }
 
   Future<SaleDetail?> fetchDetail(int saleId) {
-    return _salesRepository.fetchDetail(saleId);
+    return _salesRepository.fetchDetail(saleId).then((detail) {
+      if (detail != null) {
+        SalesDetailMemoryCache.store(detail);
+      }
+      return detail;
+    });
+  }
+
+  Future<SaleDetail?> fetchCachedDetail(int saleId) async {
+    final memoryDetail = SalesDetailMemoryCache.get(saleId);
+    if (memoryDetail != null) {
+      return memoryDetail;
+    }
+    final cachedDetail = await _salesRepository.fetchCachedDetail(saleId);
+    if (cachedDetail != null) {
+      SalesDetailMemoryCache.store(cachedDetail);
+    }
+    return cachedDetail;
   }
 
   double _parseDouble(String? value, {required double fallback}) {

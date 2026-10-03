@@ -246,7 +246,23 @@ void main() {
     variant: TargetPlatformVariant.only(TargetPlatform.windows),
   );
 
-  testWidgets('10. PWA (compacto): no queda atrapado el teclado', (
+  testWidgets('10. escritorio: escribir no mueve ni redimensiona el buscador', (
+    tester,
+  ) async {
+    await _pumpDesktop(tester);
+
+    final before = tester.getRect(_searchField);
+    await tester.enterText(_searchField, 'y');
+    await tester.pump();
+    final after = tester.getRect(_searchField);
+
+    expect(after.top, closeTo(before.top, 0.1));
+    expect(after.left, closeTo(before.left, 0.1));
+    expect(after.width, closeTo(before.width, 0.1));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('11. PWA (compacto): no queda atrapado el teclado', (
     tester,
   ) async {
     useTestSize(tester, _pwaCompact);

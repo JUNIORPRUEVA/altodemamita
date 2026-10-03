@@ -728,6 +728,7 @@ class _AppShellState extends State<AppShell> {
     // sobrevivir a un cambio de usuario en la misma PC.
     DashboardStatsStore.instance.clear();
     SalesListMemoryCache.clear();
+    SalesDetailMemoryCache.clear();
     await authProvider.signOut();
   }
 
@@ -890,9 +891,7 @@ class _AppShellState extends State<AppShell> {
                 // El usuario pidió ir DIRECTO a la pantalla de usuarios.
                 // El drawer ya se cerró antes de invocar este callback.
                 Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const UsersScreen(),
-                  ),
+                  MaterialPageRoute<void>(builder: (_) => const UsersScreen()),
                 );
                 return;
               }
@@ -920,6 +919,8 @@ class _AppShellState extends State<AppShell> {
             child: shellContent,
           );
         }
+
+        final hideFooter = resolvedModule == AppModule.payments;
 
         return Scaffold(
           backgroundColor: const Color(0xFFF0F3F8),
@@ -958,7 +959,10 @@ class _AppShellState extends State<AppShell> {
                                   onOpenProfile: _openProfile,
                                 ),
                                 Expanded(child: shellContent),
-                                _ShellFooter(companyName: _companyDisplayName),
+                                if (!hideFooter)
+                                  _ShellFooter(
+                                    companyName: _companyDisplayName,
+                                  ),
                               ],
                             ),
                           ),
@@ -1011,6 +1015,7 @@ class _AppShellState extends State<AppShell> {
                                 _toggleAdministrationMenu,
                             onAdministrationHoverChanged:
                                 _setAdministrationMenuHover,
+                            onSignOut: _signOut,
                           ),
                         ),
                       ),
@@ -1241,6 +1246,7 @@ class _ShellNavigation extends StatelessWidget {
     required this.onSelectModule,
     required this.onToggleAdministrationMenu,
     required this.onAdministrationHoverChanged,
+    required this.onSignOut,
   });
 
   final AppModule selectedModule;
@@ -1252,6 +1258,7 @@ class _ShellNavigation extends StatelessWidget {
   final ValueChanged<AppModule> onSelectModule;
   final VoidCallback? onToggleAdministrationMenu;
   final ValueChanged<bool>? onAdministrationHoverChanged;
+  final Future<void> Function() onSignOut;
 
   @override
   Widget build(BuildContext context) {
@@ -1518,9 +1525,7 @@ class _ShellNavigation extends StatelessWidget {
                             _SidebarCompactAction(
                               icon: Icons.logout_rounded,
                               tooltip: 'Cerrar sesión',
-                              onTap: () async {
-                                await context.read<AuthProvider>().signOut();
-                              },
+                              onTap: onSignOut,
                             ),
                           ],
                         )
@@ -1550,9 +1555,7 @@ class _ShellNavigation extends StatelessWidget {
                             _SidebarFooterActionButton(
                               icon: Icons.logout_rounded,
                               label: 'Cerrar sesión',
-                              onTap: () async {
-                                await context.read<AuthProvider>().signOut();
-                              },
+                              onTap: onSignOut,
                             ),
                           ],
                         ),

@@ -20,6 +20,8 @@ class SensitiveStorage {
       return await _preferencesFactory();
     } on MissingPluginException {
       return null;
+    } catch (_) {
+      return null;
     }
   }
 

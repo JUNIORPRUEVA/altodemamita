@@ -8,10 +8,7 @@ import 'installments_controller.dart';
 import 'installments_mobile.dart';
 
 class InstallmentsPage extends StatefulWidget {
-  const InstallmentsPage({
-    super.key,
-    this.saleId,
-  });
+  const InstallmentsPage({super.key, this.saleId});
 
   final int? saleId;
 
@@ -27,10 +24,10 @@ class _InstallmentsPageState extends State<InstallmentsPage> {
   void initState() {
     super.initState();
     _searchController = TextEditingController();
-    
+
     final repository = InstallmentsRepository();
     _controller = InstallmentsController(installmentsRepository: repository);
-    
+
     // Load data based on whether a specific sale is selected
     if (widget.saleId != null) {
       _controller.loadBySaleId(widget.saleId!);
@@ -78,84 +75,79 @@ class _InstallmentsPageState extends State<InstallmentsPage> {
           children: [
             _buildToolbar(),
             if (_controller.isLoading && !_controller.hasVisibleData)
-              const Expanded(
-                  child: Center(child: CircularProgressIndicator()))
+              const Expanded(child: Center(child: CircularProgressIndicator()))
             else ...[
-                if (_controller.isRefreshing)
-                  const LinearProgressIndicator(minHeight: 1),
-                if (_controller.selectedSaleSummary != null)
-                  _buildSaleSummaryStrip(
-                      _controller.selectedSaleSummary!)
-                else if (_controller.installments.isNotEmpty)
-                  _buildGeneralSummaryStrip(),
+              if (_controller.selectedSaleSummary != null)
+                _buildSaleSummaryStrip(_controller.selectedSaleSummary!)
+              else if (_controller.installments.isNotEmpty)
+                _buildGeneralSummaryStrip(),
 
-                // ── List ────────────────────────────────────────────────
-                Expanded(
-                  child: _controller.installments.isEmpty
-                      ? Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(32),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Container(
-                                  width: 72,
-                                  height: 72,
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFEEF2FF),
-                                    borderRadius:
-                                        BorderRadius.circular(22),
-                                  ),
-                                  child: const Icon(
-                                    Icons.view_list_outlined,
-                                    size: 34,
-                                    color: Color(0xFF3B5BDB),
-                                  ),
+              // ── List ────────────────────────────────────────────────
+              Expanded(
+                child: _controller.installments.isEmpty
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(32),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 72,
+                                height: 72,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFEEF2FF),
+                                  borderRadius: BorderRadius.circular(22),
                                 ),
-                                const SizedBox(height: 18),
-                                Text(
-                                  widget.saleId != null
-                                      ? 'Esta venta todavía no tiene cuotas activas.'
-                                      : 'No hay cuotas registradas.',
-                                  style: const TextStyle(
-                                    fontSize: 17,
-                                    fontWeight: FontWeight.w700,
-                                    color: Color(0xFF1A2235),
+                                child: const Icon(
+                                  Icons.view_list_outlined,
+                                  size: 34,
+                                  color: Color(0xFF3B5BDB),
+                                ),
+                              ),
+                              const SizedBox(height: 18),
+                              Text(
+                                widget.saleId != null
+                                    ? 'Esta venta todavía no tiene cuotas activas.'
+                                    : 'No hay cuotas registradas.',
+                                style: const TextStyle(
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF1A2235),
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 8),
+                              if (widget.saleId != null)
+                                const Text(
+                                  'El financiamiento inicia cuando el inicial queda completo.',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Color(0xFF8893AA),
                                   ),
                                   textAlign: TextAlign.center,
                                 ),
-                                const SizedBox(height: 8),
-                                if (widget.saleId != null)
-                                  const Text(
-                                    'El financiamiento inicia cuando el inicial queda completo.',
-                                    style: TextStyle(
-                                        fontSize: 13,
-                                        color: Color(0xFF8893AA)),
-                                    textAlign: TextAlign.center,
-                                  ),
-                              ],
-                            ),
-                          ),
-                        )
-                      : Container(
-                          color: Colors.white,
-                          child: ListView.separated(
-                            itemCount:
-                                _controller.installments.length,
-                            separatorBuilder: (_, _) =>
-                                const Divider(height: 1, indent: 64),
-                            itemBuilder: (context, index) {
-                              return _buildInstallmentRow(
-                                _controller.installments[index],
-                              );
-                            },
+                            ],
                           ),
                         ),
-                ),
-              ],
+                      )
+                    : Container(
+                        color: Colors.white,
+                        child: ListView.separated(
+                          itemCount: _controller.installments.length,
+                          separatorBuilder: (_, _) =>
+                              const Divider(height: 1, indent: 64),
+                          itemBuilder: (context, index) {
+                            return _buildInstallmentRow(
+                              _controller.installments[index],
+                            );
+                          },
+                        ),
+                      ),
+              ),
             ],
-          ),
+          ],
         ),
+      ),
     );
   }
 
@@ -231,10 +223,7 @@ class _InstallmentsPageState extends State<InstallmentsPage> {
               children: [
                 searchField,
                 const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: filterRow,
-                ),
+                Align(alignment: Alignment.centerLeft, child: filterRow),
               ],
             );
           }
@@ -263,8 +252,7 @@ class _InstallmentsPageState extends State<InstallmentsPage> {
         color: Color(0xFFF5F7FA),
         border: Border(bottom: BorderSide(color: Color(0xFFE4EAF2))),
       ),
-      padding:
-          const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -285,7 +273,9 @@ class _InstallmentsPageState extends State<InstallmentsPage> {
                     Text(
                       '${summary.lotCode}  ·  ${summary.clientDocumentId}',
                       style: const TextStyle(
-                          fontSize: 12, color: Color(0xFF8893AA)),
+                        fontSize: 12,
+                        color: Color(0xFF8893AA),
+                      ),
                     ),
                   ],
                 ),
@@ -313,19 +303,20 @@ class _InstallmentsPageState extends State<InstallmentsPage> {
               _StatChip(
                 label: 'Total financiado',
                 value: InstallmentsController.formatCurrency(
-                    summary.totalFinanced),
+                  summary.totalFinanced,
+                ),
                 color: const Color(0xFF3B5BDB),
               ),
               _StatChip(
                 label: 'Pagado',
-                value: InstallmentsController.formatCurrency(
-                    summary.totalPaid),
+                value: InstallmentsController.formatCurrency(summary.totalPaid),
                 color: const Color(0xFF2E7D32),
               ),
               _StatChip(
                 label: 'Pendiente',
                 value: InstallmentsController.formatCurrency(
-                    summary.totalPending),
+                  summary.totalPending,
+                ),
                 color: const Color(0xFFE67E00),
               ),
             ],
@@ -341,8 +332,7 @@ class _InstallmentsPageState extends State<InstallmentsPage> {
         color: Color(0xFFF5F7FA),
         border: Border(bottom: BorderSide(color: Color(0xFFE4EAF2))),
       ),
-      padding:
-          const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       child: Wrap(
         spacing: 10,
         runSpacing: 8,
@@ -351,26 +341,28 @@ class _InstallmentsPageState extends State<InstallmentsPage> {
           _StatChip(
             label: 'Total financiado',
             value: InstallmentsController.formatCurrency(
-                _controller.totalFinanced),
+              _controller.totalFinanced,
+            ),
             color: const Color(0xFF3B5BDB),
           ),
           _StatChip(
             label: 'Pagado',
-            value: InstallmentsController.formatCurrency(
-                _controller.totalPaid),
+            value: InstallmentsController.formatCurrency(_controller.totalPaid),
             color: const Color(0xFF2E7D32),
           ),
           _StatChip(
             label: 'Pendiente',
             value: InstallmentsController.formatCurrency(
-                _controller.totalPending),
+              _controller.totalPending,
+            ),
             color: const Color(0xFFE67E00),
           ),
           if (_controller.hasOverdue)
             _StatChip(
               label: 'Vencido',
               value: InstallmentsController.formatCurrency(
-                  _controller.totalOverdueAmount),
+                _controller.totalOverdueAmount,
+              ),
               color: const Color(0xFFC62828),
               warning: true,
             ),
@@ -387,27 +379,24 @@ class _InstallmentsPageState extends State<InstallmentsPage> {
 
     return GestureDetector(
       onTap: () => _controller.filterByStatus(
-          isSelected && status != null ? null : status),
+        isSelected && status != null ? null : status,
+      ),
       child: Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
         decoration: BoxDecoration(
           color: isSelected
               ? color.withValues(alpha: 0.12)
               : Colors.transparent,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: isSelected
-                ? color
-                : const Color(0xFFD0D7E4),
+            color: isSelected ? color : const Color(0xFFD0D7E4),
           ),
         ),
         child: Text(
           label,
           style: TextStyle(
             fontSize: 12,
-            fontWeight:
-                isSelected ? FontWeight.w700 : FontWeight.w500,
+            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
             color: isSelected ? color : const Color(0xFF6B7494),
           ),
         ),
@@ -420,8 +409,7 @@ class _InstallmentsPageState extends State<InstallmentsPage> {
     final statusColor = _instStatusColor(status);
     final statusLabel = _instStatusLabel(status);
     final progress = installment.totalAmount > 0
-        ? (installment.paidAmount / installment.totalAmount)
-              .clamp(0.0, 1.0)
+        ? (installment.paidAmount / installment.totalAmount).clamp(0.0, 1.0)
         : 0.0;
 
     return Column(
@@ -589,6 +577,7 @@ class _InstallmentsPageState extends State<InstallmentsPage> {
       ],
     );
   }
+
   String _formatDate(DateTime date) {
     return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
   }
@@ -649,8 +638,9 @@ class _StatChip extends StatelessWidget {
               Text(
                 label,
                 style: TextStyle(
-                    fontSize: 10,
-                    color: color.withValues(alpha: 0.7)),
+                  fontSize: 10,
+                  color: color.withValues(alpha: 0.7),
+                ),
               ),
               Text(
                 value,

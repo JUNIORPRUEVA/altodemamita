@@ -152,6 +152,30 @@ void main() {
       expect(permissionRows, isNotEmpty);
     });
 
+    test('online_login_resolves_cached_username_alias_to_email_test', () async {
+      backendState.adminEmail = 'admin@sistema.local';
+      final authService = AuthService(
+        appDatabase: appDatabase,
+        syncConfigRepository: configRepository,
+        httpClient: FakeBackendHttpClient(state: backendState),
+      );
+
+      await authService.signInHybrid(
+        email: 'admin@sistema.local',
+        password: 'Ayleen10',
+      );
+      await authService.signOut();
+
+      final result = await authService.signInHybrid(
+        email: 'admin',
+        password: 'Ayleen10',
+      );
+
+      expect(result.mode, AuthSignInMode.online);
+      expect(result.user.email, 'admin@sistema.local');
+      expect(backendState.authLoginRequests, 2);
+    });
+
     test('offline_login_with_cached_user_works_test', () async {
       final authService = AuthService(
         appDatabase: appDatabase,

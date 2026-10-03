@@ -608,37 +608,37 @@ class _SalesPageState extends State<SalesPage> {
   }
 
   Future<void> _openDetail(SaleSummary summary) async {
-    // PWA / compacto: el detalle es una PAGINA completa, ordenada y adaptable.
-    if (_usesDetailPage) {
-      await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => SaleDetailPage(
-            initialDetail: _previewDetailFromSummary(summary),
-            loadDetail: () => _controller.fetchDetail(summary.id),
-            previewClientName: summary.clientName,
-            previewLotCode: summary.lotDisplayCode,
-            canUpdate: _canUpdateSales,
-            canDelete: _canDeleteSales,
-            onEdit: () => _editSaleFromDetailPage(summary),
-            onDelete: () => _confirmDeleteSale(summary),
-          ),
+    // El detalle debe abrir instantaneamente: nunca esperamos red/sync antes de
+    // navegar. En Windows/escritorio se conserva el panel derecho existente; en
+    // web/compacto se usa la pagina completa.
+    final initialDetail =
+        SalesDetailMemoryCache.get(summary.id) ??
+        _previewDetailFromSummary(summary);
+    if (!_usesDetailPage) {
+      await SaleDetailDialog.showLive(
+        context,
+        initialDetail: initialDetail,
+        loadCachedDetail: () => _controller.fetchCachedDetail(summary.id),
+        loadDetail: () => _controller.fetchDetail(summary.id),
+      );
+      return;
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SaleDetailPage(
+          initialDetail: initialDetail,
+          loadCachedDetail: () => _controller.fetchCachedDetail(summary.id),
+          loadDetail: () => _controller.fetchDetail(summary.id),
+          previewClientName: summary.clientName,
+          previewLotCode: summary.lotDisplayCode,
+          canUpdate: _canUpdateSales,
+          canDelete: _canDeleteSales,
+          onEdit: () => _editSaleFromDetailPage(summary),
+          onDelete: () => _confirmDeleteSale(summary),
         ),
-      );
-      return;
-    }
-
-    final detail = await _controller.fetchDetail(summary.id);
-    if (!mounted) {
-      return;
-    }
-    if (detail == null) {
-      _showMessage(
-        'No pudimos abrir el detalle de esta venta. Actualiza la lista e intenta nuevamente.',
-      );
-      return;
-    }
-
-    await SaleDetailDialog.show(context, detail);
+      ),
+    );
   }
 
   /// Edicion lanzada desde la pagina de detalle.
@@ -665,6 +665,7 @@ class _SalesPageState extends State<SalesPage> {
       MaterialPageRoute<void>(
         builder: (_) => SaleDetailPage(
           initialDetail: detail,
+          loadDetail: () => _controller.fetchDetail(summary.id),
           canUpdate: _canUpdateSales,
           canDelete: _canDeleteSales,
           onEdit: () => _editSaleFromDetailPage(summary),
@@ -1015,7 +1016,7 @@ class _SalesFilterDrawer extends StatelessWidget {
                       'Filtros',
                       style: TextStyle(
                         fontSize: 20,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w600,
                         color: Color(0xFF12243A),
                       ),
                     ),
@@ -1034,7 +1035,7 @@ class _SalesFilterDrawer extends StatelessWidget {
                 onChanged: (_) => onToggleSettled(),
                 title: const Text(
                   'Venta definitiva',
-                  style: TextStyle(fontWeight: FontWeight.w800),
+                  style: TextStyle(fontWeight: FontWeight.w600),
                 ),
                 subtitle: const Text('Mostrar solo ventas saldadas.'),
                 secondary: const Icon(Icons.verified_rounded),
@@ -1395,7 +1396,7 @@ class _SaleMobileCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         fontSize: 14,
-                        fontWeight: FontWeight.w700,
+                        fontWeight: FontWeight.w500,
                         letterSpacing: 0.1,
                         color: Color(0xFF1F2937),
                       ),
@@ -1479,8 +1480,8 @@ class _SaleStatusPill extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
-          fontSize: 10.5,
-          fontWeight: FontWeight.w700,
+          fontSize: 11.5,
+          fontWeight: FontWeight.w500,
           color: color,
         ),
       ),
@@ -1544,7 +1545,7 @@ class _SaleRow extends StatelessWidget {
                   initials,
                   style: const TextStyle(
                     fontSize: 14,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w500,
                     color: Color(0xFF1E3A5F),
                   ),
                 ),
@@ -1564,7 +1565,7 @@ class _SaleRow extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
                               fontSize: 14,
-                              fontWeight: FontWeight.w700,
+                              fontWeight: FontWeight.w500,
                               color: Color(0xFF1A2235),
                             ),
                           ),
@@ -1574,7 +1575,7 @@ class _SaleRow extends StatelessWidget {
                           _formatSaleMoney(sale.salePrice),
                           style: const TextStyle(
                             fontSize: 13,
-                            fontWeight: FontWeight.w800,
+                            fontWeight: FontWeight.w600,
                             color: Color(0xFF1A2235),
                           ),
                         ),
@@ -1601,8 +1602,8 @@ class _SaleRow extends StatelessWidget {
                                 ? 'Saldada'
                                 : _saleRowStatusLabel(sale.status),
                             style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
                               color: statusColor,
                             ),
                           ),
@@ -1628,8 +1629,8 @@ class _SaleRow extends StatelessWidget {
                             child: const Text(
                               'Venta definitiva',
                               style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
                                 color: Color(0xFF1B5E20),
                               ),
                             ),
@@ -1653,8 +1654,8 @@ class _SaleRow extends StatelessWidget {
                             child: Text(
                               'Apartado: ${_formatSaleMoney(sale.paidApartadoPayment)}',
                               style: const TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w700,
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w500,
                                 color: Color(0xFFE67E00),
                               ),
                             ),
@@ -1670,9 +1671,9 @@ class _SaleRow extends StatelessWidget {
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(
-                                    fontSize: 12,
+                                    fontSize: 12.5,
                                     color: Color(0xFF8893AA),
-                                    fontWeight: FontWeight.w600,
+                                    fontWeight: FontWeight.w500,
                                   ),
                                 ),
                               ),
@@ -1694,9 +1695,9 @@ class _SaleRow extends StatelessWidget {
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(
-                                      fontSize: 10.5,
+                                      fontSize: 11.5,
                                       color: Color(0xFFC62828),
-                                      fontWeight: FontWeight.w800,
+                                      fontWeight: FontWeight.w500,
                                     ),
                                   ),
                                 ),
@@ -1708,9 +1709,9 @@ class _SaleRow extends StatelessWidget {
                         Text(
                           dateLabel,
                           style: const TextStyle(
-                            fontSize: 12,
+                            fontSize: 12.5,
                             color: Color(0xFF8893AA),
-                            fontWeight: FontWeight.w600,
+                            fontWeight: FontWeight.w500,
                           ),
                         ),
                       ],

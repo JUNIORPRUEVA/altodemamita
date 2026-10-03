@@ -1451,6 +1451,45 @@ class SalesRepository {
     return _filterSummariesByQuery(filteredBySettlement, query);
   }
 
+  /// Ultimo detalle completo guardado localmente para abrir la venta sin
+  /// depender de red. Es solo una semilla visual: el detalle vivo se confirma
+  /// luego con [_fetchDetailFromBackend].
+  Future<SaleDetail?> fetchCachedDetail(int saleId) async {
+    if (!_useBackendMode) {
+      return fetchDetail(saleId);
+    }
+    try {
+      final remoteId = _idRegistry.resolveRemoteId('sales', saleId);
+      if (remoteId == null || remoteId.isEmpty) {
+        return null;
+      }
+      final db = await _appDatabase.database;
+      final rows = await db.query(
+        DatabaseSchema.salesListCacheTable,
+        columns: ['payload'],
+        where: 'cache_key = ?',
+        whereArgs: [_detailCacheKey(remoteId)],
+        limit: 1,
+      );
+      if (rows.isEmpty) {
+        return null;
+      }
+      final decoded = jsonDecode(rows.first['payload'] as String? ?? '{}');
+      if (decoded is! Map) {
+        return null;
+      }
+      final item = decoded['item'];
+      if (item is! Map) {
+        return null;
+      }
+      return _saleDetailFromBackend(
+        item.map((key, value) => MapEntry(key.toString(), value)),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
   List<SaleSummary> _filterSummariesByQuery(
     List<SaleSummary> summaries,
     String query,
@@ -1493,6 +1532,8 @@ class SalesRepository {
   }
 
   static const String _listCacheKey = 'default';
+
+  String _detailCacheKey(String remoteId) => 'detail:$remoteId';
 
   /// Ultima lista valida de ventas guardada en cache local (solo lectura,
   /// best-effort: nunca lanza; devuelve vacio si no hay snapshot o falla).
@@ -1567,6 +1608,32 @@ class SalesRepository {
     }
   }
 
+  Future<void> _writeDetailCache(Map<String, dynamic> item) async {
+    if (!_useBackendMode) {
+      return;
+    }
+    try {
+      final remoteId = item['id']?.toString().trim() ?? '';
+      if (remoteId.isEmpty) {
+        return;
+      }
+      final db = await _appDatabase.database;
+      final now = DateTime.now().toUtc().toIso8601String();
+      await db.insert(
+        DatabaseSchema.salesListCacheTable,
+        {
+          'cache_key': _detailCacheKey(remoteId),
+          'query': '',
+          'payload': jsonEncode({'savedAt': now, 'item': item}),
+          'updated_at': now,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    } catch (_) {
+      // Best-effort: una falla de cache nunca debe fallar la lectura.
+    }
+  }
+
   Future<void> _invalidateListCache() async {
     if (!_useBackendMode) {
       return;
@@ -1592,6 +1659,7 @@ class SalesRepository {
       final detailPayload = _responseData(detailResponse);
       final detailSale = _asMap(detailPayload['sale']);
       if (detailSale != null && detailSale.isNotEmpty) {
+        await _writeDetailCache(detailSale);
         return _saleDetailFromBackend(detailSale);
       }
     } catch (_) {
@@ -1610,6 +1678,7 @@ class SalesRepository {
       final mapped = item.map((key, value) => MapEntry(key.toString(), value));
       if (mapped['id']?.toString().trim() == remoteId ||
           mapped['saleId']?.toString().trim() == remoteId) {
+        await _writeDetailCache(mapped);
         return _saleDetailFromBackend(mapped);
       }
     }

@@ -6,42 +6,47 @@ import 'package:sistema_solares/shared/controllers/resilient_list_controller.dar
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  var moduleCounter = 0;
 
   ResilientListController<String> build({
     required Future<List<String>> Function(String query) fetch,
     Future<List<String>> Function()? cache,
+    String? moduleLabel,
   }) {
     return ResilientListController<String>(
-      moduleLabel: 'Prueba',
+      moduleLabel: moduleLabel ?? 'Prueba${moduleCounter++}',
       fetch: fetch,
       fetchCache: cache,
     );
   }
 
-  test('cache-first: muestra cache y refresca en segundo plano sin vaciar', () async {
-    final gate = Completer<void>();
-    final controller = build(
-      fetch: (_) async {
-        await gate.future;
-        return ['cloud1', 'cloud2'];
-      },
-      cache: () async => ['cache1'],
-    );
+  test(
+    'cache-first: muestra cache y refresca en segundo plano sin vaciar',
+    () async {
+      final gate = Completer<void>();
+      final controller = build(
+        fetch: (_) async {
+          await gate.future;
+          return ['cloud1', 'cloud2'];
+        },
+        cache: () async => ['cache1'],
+      );
 
-    final loadFuture = controller.load();
-    await pumpEventQueue();
-    expect(controller.hasVisibleData, isTrue);
-    expect(controller.items, ['cache1']);
-    expect(controller.isLoading, isFalse);
-    expect(controller.isRefreshing, isTrue);
-    expect(controller.loadError, isNull);
+      final loadFuture = controller.load();
+      await pumpEventQueue();
+      expect(controller.hasVisibleData, isTrue);
+      expect(controller.items, ['cache1']);
+      expect(controller.isLoading, isFalse);
+      expect(controller.isRefreshing, isFalse);
+      expect(controller.loadError, isNull);
 
-    gate.complete();
-    await loadFuture;
-    expect(controller.items, ['cloud1', 'cloud2']);
-    expect(controller.isRefreshing, isFalse);
-    controller.dispose();
-  });
+      gate.complete();
+      await loadFuture;
+      expect(controller.items, ['cloud1', 'cloud2']);
+      expect(controller.isRefreshing, isFalse);
+      controller.dispose();
+    },
+  );
 
   test('refresh fallido conserva datos y no es fatal', () async {
     var fail = false;
@@ -64,16 +69,19 @@ void main() {
     controller.dispose();
   });
 
-  test('sin datos + caida de red: fatal acotado, sin implicar corrupcion', () async {
-    final controller = build(
-      fetch: (_) async => throw SocketException('network unreachable'),
-      cache: () async => const [],
-    );
-    await controller.load();
-    expect(controller.loadError, isNotNull);
-    expect(controller.loadError!.message, contains('no hay conexión'));
-    controller.dispose();
-  });
+  test(
+    'sin datos + caida de red: fatal acotado, sin implicar corrupcion',
+    () async {
+      final controller = build(
+        fetch: (_) async => throw SocketException('network unreachable'),
+        cache: () async => const [],
+      );
+      await controller.load();
+      expect(controller.loadError, isNotNull);
+      expect(controller.loadError!.message, contains('no hay conexión'));
+      controller.dispose();
+    },
+  );
 
   test('cargar NO es vacio; vacio solo tras exito confirmado', () async {
     final gate = Completer<void>();
@@ -151,4 +159,37 @@ void main() {
     expect(controller.items, ['b']);
     controller.dispose();
   });
+
+  test(
+    'nuevo controlador muestra ultima lista buena sin spinner visible',
+    () async {
+      const moduleLabel = 'MemoriaListados';
+      final first = build(
+        moduleLabel: moduleLabel,
+        fetch: (_) async => ['guardado'],
+      );
+      await first.load();
+      first.dispose();
+
+      final gate = Completer<void>();
+      final second = build(
+        moduleLabel: moduleLabel,
+        fetch: (_) async {
+          await gate.future;
+          return ['actualizado'];
+        },
+      );
+
+      final loadFuture = second.load();
+      await pumpEventQueue();
+      expect(second.items, ['guardado']);
+      expect(second.isLoading, isFalse);
+      expect(second.isRefreshing, isFalse);
+
+      gate.complete();
+      await loadFuture;
+      expect(second.items, ['actualizado']);
+      second.dispose();
+    },
+  );
 }

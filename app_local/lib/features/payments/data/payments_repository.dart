@@ -5,6 +5,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../../../core/cloud_foundation/list_snapshot_store.dart';
 import '../../../core/cloud_foundation/sales_cache_invalidation.dart';
+import '../../../core/business/installment_status.dart';
 import '../../../core/config/app_flags.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_schema.dart';
@@ -48,6 +49,8 @@ class PaymentsRepository {
     _appDatabase,
     entity: 'payments-work-queue',
   );
+  ListSnapshotStore _contextSnapshot(int saleId) =>
+      ListSnapshotStore(_appDatabase, entity: 'payments-sale-context-$saleId');
 
   /// Invalida lo derivado de una operacion financiera (lista de ventas +
   /// work queue de pagos) usando el mecanismo COMPARTIDO. Sin esto, la lista de
@@ -281,6 +284,27 @@ class PaymentsRepository {
         page: _toInt(map['page']) == 0 ? 1 : _toInt(map['page']),
         pageSize: _toInt(map['pageSize']) == 0 ? 100 : _toInt(map['pageSize']),
       );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Ultimo contexto financiero valido de una venta. Es cache visual
+  /// best-effort: permite pintar Pagos de inmediato y luego confirmar contra
+  /// backend con [fetchSaleContext].
+  Future<PaymentSaleContext?> fetchCachedSaleContext(int saleId) async {
+    if (!_useBackendMode) {
+      return null;
+    }
+    final payload = await _contextSnapshot(saleId).readJson();
+    if (payload is! Map) {
+      return null;
+    }
+    try {
+      final dataMap = payload.map(
+        (key, value) => MapEntry(key.toString(), value),
+      );
+      return _saleContextFromBackendDataMap(dataMap, saleId: saleId);
     } catch (_) {
       return null;
     }
@@ -978,21 +1002,24 @@ class PaymentsRepository {
         );
       }
 
-      final overdueCheck = await txn.rawQuery(
-        '''
-        SELECT id
-        FROM ${DatabaseSchema.installmentsTable}
-        WHERE venta_id = ?
-          AND deleted_at IS NULL
-          AND estado NOT IN ('pagada', 'ajustada', 'cancelada')
-          AND (monto_cuota - monto_pagado) > 0.009
-          AND date(fecha_vencimiento) < date(?)
-        LIMIT 1
-      ''',
-        [draft.saleId, timestamp],
+      final openRows = await txn.query(
+        DatabaseSchema.installmentsTable,
+        where:
+            'venta_id = ? AND deleted_at IS NULL AND estado NOT IN (?, ?, ?) AND (monto_cuota - monto_pagado) > ?',
+        whereArgs: [draft.saleId, 'pagada', 'ajustada', 'cancelada', 0.009],
       );
+      final hasOverdue = openRows.any((row) {
+        final rawDueDate = row['fecha_vencimiento']?.toString();
+        if (rawDueDate == null || rawDueDate.trim().isEmpty) {
+          return false;
+        }
+        return InstallmentStatusResolver.isPastDue(
+          dueDate: DateTime.parse(rawDueDate),
+          businessDate: draft.paymentDate,
+        );
+      });
 
-      if (overdueCheck.isNotEmpty) {
+      if (hasOverdue) {
         throw StateError(
           'No puedes aplicar pago a capital porque este cliente tiene cuotas vencidas. Primero debes saldar las cuotas atrasadas.',
         );
@@ -1366,7 +1393,7 @@ class PaymentsRepository {
           if (installment.remainingAmount <= 0.009) {
             return false;
           }
-          return !installment.dueDate.isAfter(paymentDate);
+          return _isDueOnOrBeforeBusinessDate(installment, paymentDate);
         }).toList()..sort((left, right) {
           final byDate = left.dueDate.compareTo(right.dueDate);
           if (byDate != 0) {
@@ -1421,7 +1448,7 @@ class PaymentsRepository {
       return installments.where((i) {
         if (_isClosedStatus(i.status)) return false;
         if (i.remainingAmount <= 0.009) return false;
-        return !i.dueDate.isAfter(paymentDate);
+        return _isDueOnOrBeforeBusinessDate(i, paymentDate);
       }).toList();
     }
     final actionable = _findActionableInstallment(installments, paymentDate);
@@ -1532,7 +1559,7 @@ class PaymentsRepository {
       if (currentInstallmentNumber > 0) {
         return installment.installmentNumber > currentInstallmentNumber;
       }
-      return installment.dueDate.isAfter(paymentDate);
+      return _isAfterBusinessDate(installment, paymentDate);
     }).toList();
 
     if (futureInstallments.isEmpty) {
@@ -1665,6 +1692,23 @@ class PaymentsRepository {
 
   bool _isClosedStatus(String status) {
     return status == 'pagada' || status == 'ajustada' || status == 'cancelada';
+  }
+
+  bool _isDueOnOrBeforeBusinessDate(
+    Installment installment,
+    DateTime paymentDate,
+  ) {
+    return InstallmentStatusResolver.businessDateKey(
+          installment.dueDate,
+        ).compareTo(InstallmentStatusResolver.businessDateKey(paymentDate)) <=
+        0;
+  }
+
+  bool _isAfterBusinessDate(Installment installment, DateTime paymentDate) {
+    return InstallmentStatusResolver.businessDateKey(
+          installment.dueDate,
+        ).compareTo(InstallmentStatusResolver.businessDateKey(paymentDate)) >
+        0;
   }
 
   bool _isDatabaseClosedError(DatabaseException error) {
@@ -2005,6 +2049,18 @@ class PaymentsRepository {
     final rawSale = dataMap['sale'];
     if (rawSale is! Map) {
       return null;
+    }
+    await _contextSnapshot(saleId).writeJson(dataMap);
+    return _saleContextFromBackendDataMap(dataMap, saleId: saleId);
+  }
+
+  PaymentSaleContext _saleContextFromBackendDataMap(
+    Map<String, dynamic> dataMap, {
+    required int saleId,
+  }) {
+    final rawSale = dataMap['sale'];
+    if (rawSale is! Map) {
+      throw const FormatException('payments context missing sale');
     }
     final sale = rawSale.map((key, value) => MapEntry(key.toString(), value));
 

@@ -50,13 +50,17 @@ Future<void> openSalePaymentHistoryFullscreen(
 Future<void> openSalePaymentHistoryById(
   BuildContext context, {
   required int saleId,
+  PaymentSaleOption? previewSale,
   PaymentsRepository? paymentsRepository,
 }) {
   final repository = paymentsRepository ?? PaymentsRepository();
   return Navigator.of(context).push(
     MaterialPageRoute(
-      builder: (_) =>
-          _SalePaymentHistoryLoaderPage(saleId: saleId, repository: repository),
+      builder: (_) => _SalePaymentHistoryLoaderPage(
+        saleId: saleId,
+        previewSale: previewSale,
+        repository: repository,
+      ),
     ),
   );
 }
@@ -65,10 +69,12 @@ Future<void> openSalePaymentHistoryById(
 class _SalePaymentHistoryLoaderPage extends StatefulWidget {
   const _SalePaymentHistoryLoaderPage({
     required this.saleId,
+    this.previewSale,
     required this.repository,
   });
 
   final int saleId;
+  final PaymentSaleOption? previewSale;
   final PaymentsRepository repository;
 
   @override
@@ -84,7 +90,9 @@ class _SalePaymentHistoryLoaderPageState
   @override
   void initState() {
     super.initState();
-    _load();
+    if (widget.previewSale == null) {
+      _load();
+    }
   }
 
   Future<void> _load() async {
@@ -107,11 +115,20 @@ class _SalePaymentHistoryLoaderPageState
   @override
   Widget build(BuildContext context) {
     final loaded = _context;
+    final previewSale = widget.previewSale;
     if (loaded != null) {
       return _SalePaymentHistoryFullscreenPage(
         sale: loaded.sale,
         history: loaded.history,
         paymentsRepository: widget.repository,
+      );
+    }
+    if (previewSale != null) {
+      return _SalePaymentHistoryFullscreenPage(
+        sale: previewSale,
+        history: const [],
+        paymentsRepository: widget.repository,
+        loadContext: () => widget.repository.fetchSaleContext(widget.saleId),
       );
     }
 
@@ -251,11 +268,13 @@ class _SalePaymentHistoryFullscreenPage extends StatefulWidget {
     required this.sale,
     required this.history,
     this.paymentsRepository,
+    this.loadContext,
   });
 
   final PaymentSaleOption sale;
   final List<PaymentHistoryItem> history;
   final PaymentsRepository? paymentsRepository;
+  final Future<PaymentSaleContext?> Function()? loadContext;
 
   @override
   State<_SalePaymentHistoryFullscreenPage> createState() =>
@@ -266,7 +285,9 @@ class _SalePaymentHistoryFullscreenPageState
     extends State<_SalePaymentHistoryFullscreenPage> {
   late final PaymentsRepository _repository =
       widget.paymentsRepository ?? PaymentsRepository();
+  late PaymentSaleOption _sale = widget.sale;
   late List<PaymentHistoryItem> _history = List.of(widget.history);
+  bool _isRefreshing = false;
   bool _isSaving = false;
 
   /// Pago activo mas reciente: unico candidato a anulacion segun la regla
@@ -287,6 +308,38 @@ class _SalePaymentHistoryFullscreenPageState
     return latest;
   }
 
+  @override
+  void initState() {
+    super.initState();
+    if (widget.loadContext != null) {
+      _refreshContext();
+    }
+  }
+
+  Future<void> _refreshContext() async {
+    final loader = widget.loadContext;
+    if (loader == null || _isRefreshing) {
+      return;
+    }
+    setState(() => _isRefreshing = true);
+    PaymentSaleContext? refreshed;
+    try {
+      refreshed = await loader();
+    } catch (_) {
+      refreshed = null;
+    }
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _isRefreshing = false;
+      if (refreshed != null) {
+        _sale = refreshed.sale;
+        _history = List.of(refreshed.history);
+      }
+    });
+  }
+
   Future<void> _annulPayment() async {
     final target = _annullablePayment;
     if (target == null || _isSaving) {
@@ -300,7 +353,7 @@ class _SalePaymentHistoryFullscreenPageState
     final request = await showDialog<PaymentAnnulResult>(
       context: context,
       builder: (_) => PaymentAnnulDialog(
-        clientName: widget.sale.clientName,
+        clientName: _sale.clientName,
         concept: paymentAnnulConceptLabel(
           target.paymentType,
           target.installmentNumber,
@@ -345,7 +398,7 @@ class _SalePaymentHistoryFullscreenPageState
         return;
       }
       // Estado autoritativo: se relee el contexto de la venta en el backend.
-      final refreshed = await _repository.fetchSaleContext(widget.sale.saleId);
+      final refreshed = await _repository.fetchSaleContext(_sale.saleId);
       if (!mounted) {
         return;
       }
@@ -398,8 +451,7 @@ class _SalePaymentHistoryFullscreenPageState
         _annullablePayment != null &&
         !_isSaving;
 
-    final remainingAmount =
-        widget.sale.pendingBalance + widget.sale.pendingInitialPayment;
+    final remainingAmount = _sale.pendingBalance + _sale.pendingInitialPayment;
     final totalPaid = _history.fold<double>(
       0,
       (sum, item) => sum + item.amountPaid,
@@ -416,14 +468,15 @@ class _SalePaymentHistoryFullscreenPageState
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   _SaleHistoryHeader(
-                    sale: widget.sale,
+                    sale: _sale,
                     historyCount: _history.length,
+                    isRefreshing: _isRefreshing,
                   ),
                   const SizedBox(height: 8),
                   Expanded(
                     child: _SaleHistoryTableViewport(
                       history: _history,
-                      lotDisplayCode: widget.sale.lotDisplayCode,
+                      lotDisplayCode: _sale.lotDisplayCode,
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -606,10 +659,15 @@ class _HeaderMetric extends StatelessWidget {
 }
 
 class _SaleHistoryHeader extends StatelessWidget {
-  const _SaleHistoryHeader({required this.sale, required this.historyCount});
+  const _SaleHistoryHeader({
+    required this.sale,
+    required this.historyCount,
+    required this.isRefreshing,
+  });
 
   final PaymentSaleOption sale;
   final int historyCount;
+  final bool isRefreshing;
 
   @override
   Widget build(BuildContext context) {
@@ -646,11 +704,19 @@ class _SaleHistoryHeader extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 18,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w600,
                     color: Color(0xFF172433),
                   ),
                 ),
               ),
+              if (isRefreshing) ...[
+                const SizedBox(width: 8),
+                const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ],
               const SizedBox(width: 10),
               Container(
                 padding: const EdgeInsets.symmetric(
@@ -665,7 +731,7 @@ class _SaleHistoryHeader extends StatelessWidget {
                   '$historyCount pago(s)',
                   style: const TextStyle(
                     fontSize: 13,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w500,
                     color: Color(0xFF6B7494),
                   ),
                 ),

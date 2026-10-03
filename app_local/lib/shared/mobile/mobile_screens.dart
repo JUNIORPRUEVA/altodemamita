@@ -264,9 +264,8 @@ class _MobileModuleListViewState<T> extends State<MobileModuleListView<T>> {
               ),
             ),
           if (widget.refreshFailed)
-            MobileRefreshFailedBanner(onRetry: widget.onRetry)
-          else if (widget.isRefreshing)
-            const MobileRefreshingBar(),
+            MobileRefreshFailedBanner(onRetry: widget.onRetry),
+          if (widget.isRefreshing) const SizedBox.shrink(),
           Expanded(child: _buildBody()),
         ],
       ),

@@ -73,6 +73,9 @@ class SyncConfigRepository {
       return await _preferencesFactory();
     } on MissingPluginException {
       return null;
+    } catch (error) {
+      debugPrint('[sync-config] SharedPreferences unavailable: $error');
+      return null;
     }
   }
 

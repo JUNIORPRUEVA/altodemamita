@@ -2,6 +2,9 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sistema_solares/features/payments/domain/client_pagare_report.dart';
+import 'package:sistema_solares/features/payments/domain/payment_history_item.dart';
+import 'package:sistema_solares/features/payments/domain/payment_sale_context.dart';
+import 'package:sistema_solares/features/payments/domain/payment_sale_option.dart';
 import 'package:sistema_solares/features/payments/presentation/reports/client_pagare_pdf_builder.dart';
 import 'package:sistema_solares/features/settings/domain/company_info.dart';
 
@@ -54,5 +57,58 @@ void main() {
     expect(utf8.decode(bytes.take(4).toList()), '%PDF');
     expect(utf8.decode(secondBytes.take(4).toList()), '%PDF');
     expect(bytes.length, greaterThan(2200));
+  });
+
+  test('genera PDF de lista desde contexto cloud sin pagos locales', () async {
+    final now = DateTime(2026, 6, 2, 10, 30);
+    final payment = PaymentHistoryItem(
+      id: 730257513,
+      saleId: 162493397,
+      clientId: 0,
+      paymentDate: now,
+      amountPaid: 92762.40,
+      paymentMethod: 'efectivo',
+      paymentType: 'abono_inicial',
+      reference: 'cloud-payment-1',
+    );
+    final report = ClientPagareReport.fromPaymentContext(
+      context: PaymentSaleContext(
+        sale: const PaymentSaleOption(
+          saleId: 162493397,
+          clientId: 1,
+          clientName: 'CLARA MARIA BAEZ ALVAREZ',
+          clientDocumentId: '028-0076241-7',
+          clientPhone: '',
+          lotDisplayCode: 'MM-H-S84',
+          pendingBalance: 834861.60,
+          requiredInitialPayment: 92762.40,
+          paidInitialPayment: 92762.40,
+          pendingInitialPayment: 0,
+          status: 'activa',
+        ),
+        monthlyInterest: 1,
+        installments: const [],
+        history: [payment],
+      ),
+    );
+    final company = CompanyInfo(
+      nombre: 'Sistema de Solares',
+      telefono: null,
+      direccion: null,
+      logoBytesBase64: null,
+      fechaCreacion: now,
+      fechaActualizacion: now,
+    );
+
+    final bytes = await ClientPagarePdfBuilder.build(
+      report: report,
+      company: company,
+    );
+
+    expect(report.items, hasLength(1));
+    expect(report.clientName, contains('CLARA'));
+    expect(report.totalPaid, closeTo(92762.40, 0.001));
+    expect(bytes, isNotEmpty);
+    expect(utf8.decode(bytes.take(4).toList()), '%PDF');
   });
 }

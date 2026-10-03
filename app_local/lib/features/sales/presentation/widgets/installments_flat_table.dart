@@ -117,7 +117,7 @@ class _Header extends StatelessWidget {
   Widget build(BuildContext context) {
     const style = TextStyle(
       fontSize: 13,
-      fontWeight: FontWeight.w800,
+      fontWeight: FontWeight.w600,
       color: Color(0xFF7A859D),
       letterSpacing: 0.2,
     );
@@ -168,7 +168,7 @@ class _Row extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 fontSize: 14,
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w600,
                 color: Color(0xFF1A2235),
               ),
             ),
@@ -192,7 +192,7 @@ class _Row extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 13,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w600,
                     color: statusColor,
                   ),
                 ),
@@ -207,7 +207,7 @@ class _Row extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 fontSize: 14,
-                fontWeight: FontWeight.w700,
+                fontWeight: FontWeight.w500,
                 color: Color(0xFF54627B),
               ),
             ),
@@ -220,7 +220,7 @@ class _Row extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 fontSize: 14,
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w600,
                 color: Color(0xFF1A2235),
               ),
             ),
@@ -233,7 +233,7 @@ class _Row extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 fontSize: 14,
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w600,
                 color: settled
                     ? const Color(0xFF2E7D32)
                     : const Color(0xFF1A2235),
@@ -248,7 +248,7 @@ class _Row extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 fontSize: 14,
-                fontWeight: FontWeight.w700,
+                fontWeight: FontWeight.w500,
                 color: Color(0xFF2D3A55),
               ),
             ),
@@ -261,7 +261,7 @@ class _Row extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 fontSize: 14,
-                fontWeight: FontWeight.w700,
+                fontWeight: FontWeight.w500,
                 color: Color(0xFF2D3A55),
               ),
             ),
@@ -274,7 +274,7 @@ class _Row extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 fontSize: 14,
-                fontWeight: FontWeight.w700,
+                fontWeight: FontWeight.w500,
                 color: Color(0xFF54627B),
               ),
             ),
@@ -286,7 +286,7 @@ class _Row extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 fontSize: 14,
-                fontWeight: FontWeight.w700,
+                fontWeight: FontWeight.w500,
                 color: Color(0xFF54627B),
               ),
             ),

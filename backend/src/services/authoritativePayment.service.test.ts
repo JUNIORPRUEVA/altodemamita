@@ -63,6 +63,70 @@ test('selects all overdue installments for overdue batch mode', () => {
   );
 });
 
+test('selects installments due today by business date, not by exact hour', () => {
+  const dueLaterToday = {
+    ...installment,
+    id: 'inst-due-today',
+    installmentNumber: 2,
+    dueDate: new Date('2026-09-15T23:30:00.000-04:00'),
+    status: 'pendiente',
+  };
+  const future = {
+    ...installment,
+    id: 'inst-future',
+    installmentNumber: 3,
+    dueDate: new Date('2026-09-16T00:00:00.000-04:00'),
+    status: 'pendiente',
+  };
+
+  const selected = resolveInstallmentsToProcess({
+    installments: [dueLaterToday, future],
+    paymentDate: new Date('2026-09-15T08:00:00.000-04:00'),
+    paymentTypeOverride: 'cuota',
+  });
+
+  assert.deepEqual(
+    selected.map((item) => item.id),
+    ['inst-due-today'],
+  );
+});
+
+test('settlement quote treats due-today interest as due for the whole business day', () => {
+  const dueLaterToday = {
+    ...installment,
+    id: 'inst-due-today',
+    installmentNumber: 2,
+    dueDate: new Date('2026-09-15T23:30:00.000-04:00'),
+    interestAmount: new Prisma.Decimal(1500),
+    totalAmount: new Prisma.Decimal(9500),
+    status: 'pendiente',
+  };
+  const future = {
+    ...installment,
+    id: 'inst-future',
+    installmentNumber: 3,
+    dueDate: new Date('2026-09-16T00:00:00.000-04:00'),
+    interestAmount: new Prisma.Decimal(500),
+    totalAmount: new Prisma.Decimal(8500),
+    status: 'pendiente',
+  };
+
+  const quote = buildSettlementQuoteForTest({
+    sale: {
+      id: 'sale-1',
+      version: 4,
+      balance: new Prisma.Decimal(24000),
+      initialPendingAmount: new Prisma.Decimal(0),
+      status: 'activa',
+    } as never,
+    installments: [dueLaterToday, future] as never,
+    asOfDate: new Date('2026-09-15T08:00:00.000-04:00'),
+  });
+
+  assert.equal(quote.dueInterest, 1500);
+  assert.equal(quote.futureInterestWaived, 500);
+});
+
 test('settlement quote charges outstanding principal and due interest only', () => {
   const future = {
     ...installment,

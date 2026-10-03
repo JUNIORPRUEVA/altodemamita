@@ -87,6 +87,19 @@ void main() {
     },
   );
 
+  test('loadSettings tolera SharedPreferences corruptas o ilegibles', () async {
+    final syncConfigRepository = SyncConfigRepository(
+      settingsRepository: settingsRepository,
+      preferencesFactory: () async =>
+          throw const FormatException('shared preferences corruptas'),
+    );
+
+    final settings = await syncConfigRepository.loadSettings();
+
+    expect(settings.baseUrl, isNotNull);
+    expect(settings.deviceId, isNotEmpty);
+  });
+
   test(
     'CLOUD_AUTHORITATIVE usa la URL compilada aunque exista sync.base_url viejo',
     () async {

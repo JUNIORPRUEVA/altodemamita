@@ -27,6 +27,7 @@ class ResilientListController<T> extends ChangeNotifier {
   final Future<List<T>> Function(String query) _fetch;
   final Future<List<T>> Function()? _fetchCache;
   final List<T> Function(List<T> items, String query)? _filterCache;
+  static final Map<String, _ListMemorySnapshot<Object?>> _lastGoodByScope = {};
 
   /// Carga inicial en curso SIN datos visibles (skeleton, jamas vacio).
   bool isLoading = false;
@@ -54,6 +55,7 @@ class ResilientListController<T> extends ChangeNotifier {
   String _loadedQuery = '';
 
   bool get isDisposed => _isDisposed;
+  String get _memoryKey => '${T.toString()}::$_moduleLabel::$currentQuery';
 
   /// True cuando la lista visible pertenece a la consulta actual.
   bool get hasVisibleData => items.isNotEmpty && _loadedQuery == currentQuery;
@@ -71,9 +73,14 @@ class ResilientListController<T> extends ChangeNotifier {
     loadError = null;
     searchFailed = false;
     final hadVisible = _loadedQuery == scope && items.isNotEmpty;
+    final memoryApplied = _restoreLastGood(scope);
     if (hadVisible) {
       isLoading = false;
-      isRefreshing = true;
+      isRefreshing = false;
+      refreshFailed = false;
+    } else if (memoryApplied) {
+      isLoading = false;
+      isRefreshing = false;
       refreshFailed = false;
     } else {
       isLoading = true;
@@ -101,13 +108,14 @@ class ResilientListController<T> extends ChangeNotifier {
         items = cached;
         _loadedQuery = scope;
         isLoading = false;
-        isRefreshing = true;
+        isRefreshing = false;
+        _rememberLastGood(scope, cached);
         _notifyIfActive();
       } else if (scope.isNotEmpty && _filterCache != null) {
         items = const [];
         _loadedQuery = scope;
         isLoading = false;
-        isRefreshing = true;
+        isRefreshing = false;
         _notifyIfActive();
       }
     }
@@ -126,6 +134,7 @@ class ResilientListController<T> extends ChangeNotifier {
     if (result != null) {
       items = result;
       _loadedQuery = scope;
+      _rememberLastGood(scope, result);
       searchFailed = false;
       refreshFailed = false;
       isLoading = false;
@@ -149,7 +158,26 @@ class ResilientListController<T> extends ChangeNotifier {
   /// Quita un item visible tras una eliminacion exitosa (sin recargar todo).
   void removeItemById(int Function(T item) idOf, int id) {
     items = items.where((item) => idOf(item) != id).toList(growable: false);
+    _rememberLastGood(currentQuery, items);
     _notifyIfActive();
+  }
+
+  bool _restoreLastGood(String scope) {
+    final snapshot = _lastGoodByScope[_memoryKey];
+    if (snapshot == null || snapshot.items.isEmpty) {
+      return false;
+    }
+    items = snapshot.items.cast<T>().toList(growable: false);
+    _loadedQuery = scope;
+    return true;
+  }
+
+  void _rememberLastGood(String scope, List<T> value) {
+    if (_isDisposed || value.isEmpty) {
+      return;
+    }
+    _lastGoodByScope['${T.toString()}::$_moduleLabel::$scope'] =
+        _ListMemorySnapshot<Object?>(value.cast<Object?>());
   }
 
   FriendlyErrorMessage _noDataLoadFailure(Object? error) {
@@ -194,4 +222,10 @@ class ResilientListController<T> extends ChangeNotifier {
     _isDisposed = true;
     super.dispose();
   }
+}
+
+class _ListMemorySnapshot<T> {
+  const _ListMemorySnapshot(this.items);
+
+  final List<T> items;
 }

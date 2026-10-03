@@ -1,3 +1,6 @@
+import 'payment_history_item.dart';
+import 'payment_sale_context.dart';
+
 class ClientPagareItem {
   const ClientPagareItem({
     required this.paymentId,
@@ -54,10 +57,41 @@ class ClientPagareReport {
     required this.items,
   });
 
+  factory ClientPagareReport.fromPaymentContext({
+    required PaymentSaleContext context,
+    Iterable<PaymentHistoryItem>? payments,
+  }) {
+    final source = payments ?? context.history;
+    final items = source
+        .where((payment) => !payment.isAnnulled)
+        .map(
+          (payment) => ClientPagareItem(
+            paymentId: payment.id,
+            saleId: payment.saleId,
+            lotDisplayCode: context.sale.lotDisplayCode,
+            paymentDate: payment.paymentDate,
+            amountPaid: payment.amountPaid,
+            paymentMethod: payment.paymentMethod,
+            paymentType: payment.paymentType,
+            installmentNumber: payment.installmentNumber,
+            reference: payment.reference,
+          ),
+        )
+        .toList(growable: false);
+
+    return ClientPagareReport(
+      clientId: context.sale.clientId,
+      clientName: context.sale.clientName,
+      clientDocumentId: context.sale.clientDocumentId,
+      items: items,
+    );
+  }
+
   final int clientId;
   final String clientName;
   final String clientDocumentId;
   final List<ClientPagareItem> items;
 
-  double get totalPaid => items.fold<double>(0, (sum, item) => sum + item.amountPaid);
+  double get totalPaid =>
+      items.fold<double>(0, (sum, item) => sum + item.amountPaid);
 }

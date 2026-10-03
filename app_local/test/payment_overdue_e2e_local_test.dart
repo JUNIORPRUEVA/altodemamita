@@ -34,9 +34,7 @@ void main() {
   }
 
   /// Venta sin cuotas vencidas (ancla hoy: la primera cuota vence en 1 mes).
-  Future<int> createSaleWithoutOverdue(
-    PaymentApplicationTestHarness harness,
-  ) {
+  Future<int> createSaleWithoutOverdue(PaymentApplicationTestHarness harness) {
     return harness.createFinancedSale(saleDate: anchor, installmentCount: 6);
   }
 
@@ -55,7 +53,8 @@ void main() {
     int saleId,
   ) async {
     final summaries = await harness.salesRepository.fetchAll();
-    return summaries.firstWhere((item) => item.id == saleId)
+    return summaries
+        .firstWhere((item) => item.id == saleId)
         .overdueInstallmentsLabel;
   }
 
@@ -132,7 +131,10 @@ void main() {
 
       // Sin duplicados: mismas cuotas y exactamente UN pago nuevo.
       expect(post.installments, hasLength(6));
-      expect(post.installments.where((i) => i.status == 'pagada'), hasLength(1));
+      expect(
+        post.installments.where((i) => i.status == 'pagada'),
+        hasLength(1),
+      );
       expect(await paymentsCount(harness), baselinePayments + 1);
     },
   );
@@ -171,6 +173,57 @@ void main() {
       expect(await detailOverdue(harness, saleId), 2);
       expect(await listOverdueLabel(harness, saleId), '2 cuotas vencidas');
       expect(await paymentsCount(harness), baselinePayments + 1);
+    },
+  );
+
+  test(
+    'E2E pago de cuota exigible hoy: usa dia de negocio y no hora exacta',
+    () async {
+      final harness = await PaymentApplicationTestHarness.create();
+      addTearDown(harness.dispose);
+
+      final saleId = await createSaleWithoutOverdue(harness);
+      final db = await harness.appDatabase.database;
+      final dueLaterToday = DateTime(
+        anchor.year,
+        anchor.month,
+        anchor.day,
+        23,
+        30,
+      );
+      await db.update(
+        DatabaseSchema.installmentsTable,
+        {
+          'fecha_vencimiento': dueLaterToday.toIso8601String(),
+          'fecha_actualizacion': dueLaterToday.toIso8601String(),
+        },
+        where: 'venta_id = ? AND numero_cuota = ?',
+        whereArgs: [saleId, 1],
+      );
+
+      final paymentMorning = DateTime(anchor.year, anchor.month, anchor.day, 8);
+      final pre = await harness.paymentsRepository.fetchSaleContext(saleId);
+      expect(pre, isNotNull);
+      expect(pre!.actionableInstallment?.installmentNumber, 1);
+
+      final target = pre.actionableInstallment!;
+      await harness.paymentsRepository.registerPayment(
+        PaymentDraft(
+          saleId: saleId,
+          paymentDate: paymentMorning,
+          amountPaid: target.remainingAmount,
+          paymentMethod: 'efectivo',
+          paymentTypeOverride: 'cuota',
+          targetInstallmentId: target.id,
+        ),
+      );
+
+      final post = await harness.paymentsRepository.fetchSaleContext(saleId);
+      final paid = post!.installments.firstWhere(
+        (item) => item.installmentNumber == 1,
+      );
+      expect(paid.status, 'pagada');
+      expect(paid.remainingAmount, lessThanOrEqualTo(0.009));
     },
   );
 

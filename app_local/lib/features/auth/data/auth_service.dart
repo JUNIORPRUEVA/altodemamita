@@ -300,7 +300,11 @@ class AuthService {
       debugPrint('[SignIn] Backend no configurado, intentando login local.');
     } else {
       try {
-        final onlineUser = await loginOnline(email: email, password: password);
+        final onlineIdentifier = await _resolveOnlineLoginIdentifier(email);
+        final onlineUser = await loginOnline(
+          email: onlineIdentifier,
+          password: password,
+        );
         return AuthSignInResult(
           user: onlineUser,
           mode: AuthSignInMode.online,
@@ -346,6 +350,32 @@ class AuthService {
     );
     debugPrint('[SignIn] login local success para ${localUser.email}.');
     return AuthSignInResult(user: localUser, mode: AuthSignInMode.offline);
+  }
+
+  Future<String> _resolveOnlineLoginIdentifier(String identifier) async {
+    final normalizedIdentifier = _normalizeIdentifier(identifier);
+    if (normalizedIdentifier.isEmpty || normalizedIdentifier.contains('@')) {
+      return identifier;
+    }
+
+    try {
+      final db = await _appDatabase.database;
+      final lookup = await _findLocalUserForLogin(db, normalizedIdentifier);
+      final resolvedEmail = (lookup?.row['email'] as String? ?? '')
+          .trim()
+          .toLowerCase();
+      if (resolvedEmail.isNotEmpty && resolvedEmail.contains('@')) {
+        _debugAuth(
+          '[SignIn] alias_cloud_login identifier=$normalizedIdentifier '
+          'resolved_by=${lookup?.foundBy ?? 'none'}',
+        );
+        return resolvedEmail;
+      }
+    } catch (error) {
+      _debugAuth('[SignIn] alias_cloud_login skipped: $error');
+    }
+
+    return identifier;
   }
 
   Future<void> debugDumpLocalUsersSafe({String context = 'manual'}) async {
@@ -1870,9 +1900,10 @@ class AuthService {
     late HttpClientResponse response;
     late String body;
     try {
-      final request = await _openRequest(method, uri).timeout(
-        const Duration(seconds: 30),
-      );
+      final request = await _openRequest(
+        method,
+        uri,
+      ).timeout(const Duration(seconds: 30));
       request.headers.contentType = ContentType.json;
       request.headers.set(HttpHeaders.acceptHeader, ContentType.json.mimeType);
       if (headers != null) {
@@ -1925,7 +1956,7 @@ class AuthService {
     final elapsedMs = DateTime.now().difference(startedAt).inMilliseconds;
     _logAuthHttp(
       'response method=$normalizedMethod uri=$uri status=${response.statusCode} '
-      'elapsedMs=$elapsedMs body=${_truncateForLog(body)}',
+      'elapsedMs=$elapsedMs body=${_redactResponseBodyForLog(body)}',
     );
     final decoded = _decodeBackendJsonBody(body);
     final responsePayload = decoded is Map<String, dynamic>
@@ -2052,16 +2083,71 @@ class AuthService {
       return '<empty>';
     }
 
-    final redacted = payload.map((key, value) {
-      final normalizedKey = key.trim().toLowerCase();
-      if (normalizedKey.contains('password') ||
-          normalizedKey.contains('token') ||
-          normalizedKey.contains('secret')) {
-        return MapEntry(key, '[REDACTED]');
-      }
-      return MapEntry(key, value);
-    });
+    final redacted = _redactMapForLog(payload);
     return _truncateForLog(jsonEncode(redacted));
+  }
+
+  String _redactResponseBodyForLog(String body) {
+    if (body.trim().isEmpty) {
+      return '<empty>';
+    }
+
+    try {
+      final decoded = jsonDecode(body);
+      return _truncateForLog(jsonEncode(_redactValueForLog(decoded)));
+    } on FormatException {
+      return _truncateForLog(_redactInlineSecretsForLog(body));
+    }
+  }
+
+  Map<String, Object?> _redactMapForLog(Map<dynamic, dynamic> value) {
+    return value.map((key, value) {
+      final keyText = key.toString();
+      final normalizedKey = keyText.trim().toLowerCase();
+      if (_isSensitiveLogKey(normalizedKey)) {
+        return MapEntry(keyText, '[REDACTED]');
+      }
+      return MapEntry(keyText, _redactValueForLog(value));
+    });
+  }
+
+  Object? _redactValueForLog(Object? value) {
+    if (value is Map) {
+      return _redactMapForLog(value);
+    }
+    if (value is List) {
+      return value.map(_redactValueForLog).toList(growable: false);
+    }
+    return value;
+  }
+
+  bool _isSensitiveLogKey(String normalizedKey) {
+    return normalizedKey.contains('password') ||
+        normalizedKey.contains('token') ||
+        normalizedKey.contains('secret') ||
+        normalizedKey.contains('authorization') ||
+        normalizedKey.contains('credential');
+  }
+
+  String _redactInlineSecretsForLog(String value) {
+    final patterns = <RegExp>[
+      RegExp(
+        r'("(?:accessToken|refreshToken|token|password|secret|authorization|credential)"\s*:\s*")[^"]*(")',
+        caseSensitive: false,
+      ),
+      RegExp(r'(Bearer\s+)[A-Za-z0-9._~+/=-]+', caseSensitive: false),
+      RegExp(r'(jwt=)[^&\s]+', caseSensitive: false),
+    ];
+
+    var redacted = value;
+    for (final pattern in patterns) {
+      redacted = redacted.replaceAllMapped(
+        pattern,
+        (match) =>
+            '${match.group(1)}[REDACTED]${match.groupCount >= 2 ? match.group(2) : ''}',
+      );
+    }
+    return redacted;
   }
 
   String _truncateForLog(String value, {int maxLength = 1200}) {

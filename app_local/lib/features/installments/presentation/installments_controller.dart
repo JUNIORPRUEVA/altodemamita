@@ -4,10 +4,12 @@ import '../data/installments_repository.dart';
 import '../domain/installment_detail.dart';
 
 class InstallmentsController extends ChangeNotifier {
-  InstallmentsController({required InstallmentsRepository installmentsRepository})
-    : _installmentsRepository = installmentsRepository;
+  InstallmentsController({
+    required InstallmentsRepository installmentsRepository,
+  }) : _installmentsRepository = installmentsRepository;
 
   final InstallmentsRepository _installmentsRepository;
+  static final Map<String, _InstallmentsMemorySnapshot> _lastGoodByScope = {};
 
   List<InstallmentDetail> _installments = const [];
   List<InstallmentDetail> _filteredInstallments = const [];
@@ -30,30 +32,61 @@ class InstallmentsController extends ChangeNotifier {
   String? get selectedStatus => _selectedStatus;
 
   // Calculated statistics
-  double get totalFinanced => _selectedSaleSummary?.totalFinanced ?? 
-    _filteredInstallments.fold(0.0, (sum, inst) => sum + inst.totalAmount);
-  
-  double get totalPaid => _selectedSaleSummary?.totalPaid ?? 
-    _filteredInstallments.fold(0.0, (sum, inst) => sum + inst.paidAmount);
-  
-  double get totalPending => _selectedSaleSummary?.totalPending ?? 
-    _filteredInstallments.fold(0.0, (sum, inst) => sum + inst.remainingAmount);
+  double get totalFinanced =>
+      _selectedSaleSummary?.totalFinanced ??
+      _filteredInstallments.fold(0.0, (sum, inst) => sum + inst.totalAmount);
 
-  int get totalInstallments => _selectedSaleSummary?.totalInstallments ?? _filteredInstallments.length;
-  
-  int get paidInstallments => _selectedSaleSummary?.paidInstallments ?? 
-    _filteredInstallments.where((inst) => inst.remainingAmount <= 0.009).length;
-  
+  double get totalPaid =>
+      _selectedSaleSummary?.totalPaid ??
+      _filteredInstallments.fold(0.0, (sum, inst) => sum + inst.paidAmount);
+
+  double get totalPending =>
+      _selectedSaleSummary?.totalPending ??
+      _filteredInstallments.fold(
+        0.0,
+        (sum, inst) => sum + inst.remainingAmount,
+      );
+
+  int get totalInstallments =>
+      _selectedSaleSummary?.totalInstallments ?? _filteredInstallments.length;
+
+  int get paidInstallments =>
+      _selectedSaleSummary?.paidInstallments ??
+      _filteredInstallments
+          .where((inst) => inst.remainingAmount <= 0.009)
+          .length;
+
   int get pendingInstallments => totalInstallments - paidInstallments;
 
   // Load all installments
   Future<void> load() async {
     final generation = ++_generation;
+    final scope = _allScope;
     final hadVisible = _installments.isNotEmpty;
-    _isLoading = !hadVisible;
-    _isRefreshing = hadVisible;
+    final memoryApplied = _restoreLastGood(scope);
+    _isLoading = !hadVisible && !memoryApplied;
+    _isRefreshing = false;
     _refreshFailed = false;
     notifyListeners();
+
+    if (!hadVisible && !memoryApplied) {
+      try {
+        final cached = await _installmentsRepository.fetchCachedList();
+        if (generation != _generation) {
+          return;
+        }
+        if (cached.isNotEmpty) {
+          _installments = cached;
+          _selectedSaleSummary = null;
+          _applyFilters();
+          _rememberLastGood(scope);
+          _isLoading = false;
+          notifyListeners();
+        }
+      } catch (_) {
+        // Cache best-effort: si falla, se continua con la lectura viva.
+      }
+    }
 
     try {
       final next = await _installmentsRepository.getAll();
@@ -61,9 +94,11 @@ class InstallmentsController extends ChangeNotifier {
         return;
       }
       _installments = next;
+      _selectedSaleSummary = null;
       _applyFilters();
+      _rememberLastGood(scope);
     } catch (e) {
-      _refreshFailed = hadVisible;
+      _refreshFailed = _installments.isNotEmpty;
       if (kDebugMode) {
         print('Error loading installments: $e');
       }
@@ -79,9 +114,11 @@ class InstallmentsController extends ChangeNotifier {
   // Load installments for a specific sale
   Future<void> loadBySaleId(int saleId) async {
     final generation = ++_generation;
+    final scope = _saleScope(saleId);
     final hadVisible = _installments.isNotEmpty;
-    _isLoading = !hadVisible;
-    _isRefreshing = hadVisible;
+    final memoryApplied = _restoreLastGood(scope);
+    _isLoading = !hadVisible && !memoryApplied;
+    _isRefreshing = false;
     _refreshFailed = false;
     notifyListeners();
 
@@ -96,8 +133,9 @@ class InstallmentsController extends ChangeNotifier {
       _installments = results[0] as List<InstallmentDetail>;
       _selectedSaleSummary = results[1] as SaleInstallmentsSummary?;
       _applyFilters();
+      _rememberLastGood(scope);
     } catch (e) {
-      _refreshFailed = hadVisible;
+      _refreshFailed = _installments.isNotEmpty;
       if (kDebugMode) {
         print('Error loading sale installments: $e');
       }
@@ -148,10 +186,37 @@ class InstallmentsController extends ChangeNotifier {
 
     // Apply status filter if selected
     if (_selectedStatus != null && _selectedStatus!.isNotEmpty) {
-      working = working.where((inst) => inst.calculatedStatus == _selectedStatus);
+      working = working.where(
+        (inst) => inst.calculatedStatus == _selectedStatus,
+      );
     }
 
     _filteredInstallments = working.toList();
+  }
+
+  String get _allScope => 'all';
+
+  String _saleScope(int saleId) => 'sale:$saleId';
+
+  bool _restoreLastGood(String scope) {
+    final snapshot = _lastGoodByScope[scope];
+    if (snapshot == null || snapshot.installments.isEmpty) {
+      return false;
+    }
+    _installments = snapshot.installments;
+    _selectedSaleSummary = snapshot.selectedSaleSummary;
+    _applyFilters();
+    return true;
+  }
+
+  void _rememberLastGood(String scope) {
+    if (_installments.isEmpty) {
+      return;
+    }
+    _lastGoodByScope[scope] = _InstallmentsMemorySnapshot(
+      installments: List<InstallmentDetail>.unmodifiable(_installments),
+      selectedSaleSummary: _selectedSaleSummary,
+    );
   }
 
   // Get grouped installments by status
@@ -183,10 +248,20 @@ class InstallmentsController extends ChangeNotifier {
 
   // Check if there are overdue installments
   bool get hasOverdue =>
-    _filteredInstallments.any((inst) => inst.calculatedStatus == 'vencida');
+      _filteredInstallments.any((inst) => inst.calculatedStatus == 'vencida');
 
   // Get total overdue amount
   double get totalOverdueAmount => _filteredInstallments
-    .where((inst) => inst.calculatedStatus == 'vencida')
-    .fold(0.0, (sum, inst) => sum + inst.remainingAmount);
+      .where((inst) => inst.calculatedStatus == 'vencida')
+      .fold(0.0, (sum, inst) => sum + inst.remainingAmount);
+}
+
+class _InstallmentsMemorySnapshot {
+  const _InstallmentsMemorySnapshot({
+    required this.installments,
+    required this.selectedSaleSummary,
+  });
+
+  final List<InstallmentDetail> installments;
+  final SaleInstallmentsSummary? selectedSaleSummary;
 }

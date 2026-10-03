@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../../core/utils/dominican_formatters.dart';
@@ -23,165 +25,222 @@ class SearchResultDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final screen = MediaQuery.sizeOf(context);
+    final dialogWidth = math.max(940.0, math.min(screen.width - 48, 1280.0));
+    final dialogHeight = math.max(740.0, math.min(screen.height - 36, 940.0));
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
     return Dialog(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 960, maxHeight: 760),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Encabezado con nombre/código
-                Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            result.displayName,
-                            style: Theme.of(context).textTheme.headlineSmall,
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            result.displaySubtitle,
-                            style: Theme.of(context).textTheme.labelMedium,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Revisa coincidencias y navega directamente al módulo relacionado.',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                const SizedBox(height: 24),
-
-                // Información del cliente
-                if (result.client != null) ...[
-                  _buildSectionTitle(context, 'Información del cliente'),
-                  const SizedBox(height: 12),
-                  _buildClientInfo(context, result.client!),
-                  const SizedBox(height: 24),
-                ],
-
-                // Información del solar
-                if (result.lot != null) ...[
-                  _buildSectionTitle(context, 'Información del solar'),
-                  const SizedBox(height: 12),
-                  _buildLotInfo(context, result.lot!),
-                  const SizedBox(height: 24),
-                ],
-
-                // Ventas relacionadas
-                if (result.relatedSales.isNotEmpty) ...[
-                  _buildSectionTitle(
-                    context,
-                    'Ventas (${result.relatedSales.length})',
-                  ),
-                  const SizedBox(height: 12),
-                  ListView.separated(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: result.relatedSales.length,
-                    separatorBuilder: (_, _) => const Divider(height: 16),
-                    itemBuilder: (context, index) {
-                      final sale = result.relatedSales[index];
-                      return _buildSaleInfo(context, sale);
-                    },
-                  ),
-                  const SizedBox(height: 24),
-                ],
-
-                // Cuotas pendientes
-                if (result.relatedInstallments.isNotEmpty) ...[
-                  _buildSectionTitle(
-                    context,
-                    'Cuotas pendientes (${result.pendingInstallmentsCount})',
-                  ),
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.primaryContainer,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      child: SizedBox(
+        width: dialogWidth,
+        height: dialogHeight,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(32, 28, 22, 24),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Monto total pendiente: RD\$${result.totalPendingAmount.toStringAsFixed(2)}',
-                          style: Theme.of(context).textTheme.titleMedium,
+                          result.displayName,
+                          style: theme.textTheme.headlineSmall?.copyWith(
+                            fontSize: 28,
+                            fontWeight: FontWeight.w700,
+                            height: 1.12,
+                            letterSpacing: 0,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 10),
                         Text(
-                          '${result.pendingInstallmentsCount} de ${result.relatedInstallments.length} cuotas pendientes',
-                          style: Theme.of(context).textTheme.labelMedium,
+                          result.displaySubtitle,
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            fontSize: 16,
+                            color: colorScheme.onSurfaceVariant,
+                            height: 1.4,
+                            letterSpacing: 0,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  ListView.separated(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: result.relatedInstallments.length,
-                    separatorBuilder: (_, _) => const Divider(height: 1),
-                    itemBuilder: (context, index) {
-                      final installment = result.relatedInstallments[index];
-                      return _buildInstallmentInfo(context, installment);
-                    },
-                  ),
-                ] else if (result.relatedInstallments.isEmpty &&
-                    result.relatedSales.isNotEmpty)
-                  Text(
-                    'No hay cuotas registradas',
-                    style: Theme.of(context).textTheme.labelMedium,
-                  ),
-
-                // Historial de pagos
-                if (result.relatedPayments.isNotEmpty) ...[
-                  const SizedBox(height: 24),
-                  _buildSectionTitle(
-                    context,
-                    'Historial de pagos (${result.relatedPayments.length})',
-                  ),
-                  const SizedBox(height: 12),
-                  ListView.separated(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: result.relatedPayments.length,
-                    separatorBuilder: (_, _) => const Divider(height: 1),
-                    itemBuilder: (context, index) {
-                      return _buildPaymentInfo(
-                        context,
-                        result.relatedPayments[index],
-                      );
-                    },
+                  IconButton(
+                    tooltip: 'Cerrar',
+                    icon: const Icon(Icons.close_rounded, size: 30),
+                    onPressed: () => Navigator.pop(context),
                   ),
                 ],
-
-                const SizedBox(height: 24),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: FilledButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('Cerrar'),
-                  ),
-                ),
-              ],
+              ),
             ),
-          ),
+            const Divider(height: 1),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(32, 28, 32, 30),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Revisa coincidencias y navega directamente al módulo relacionado.',
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        fontSize: 16,
+                        height: 1.35,
+                        letterSpacing: 0,
+                      ),
+                    ),
+                    const SizedBox(height: 28),
+
+                    // Información del cliente
+                    if (result.client != null) ...[
+                      _buildSectionTitle(context, 'Información del cliente'),
+                      const SizedBox(height: 14),
+                      _buildClientInfo(context, result.client!),
+                      const SizedBox(height: 28),
+                    ],
+
+                    // Información del solar
+                    if (result.lot != null) ...[
+                      _buildSectionTitle(context, 'Información del solar'),
+                      const SizedBox(height: 14),
+                      _buildLotInfo(context, result.lot!),
+                      const SizedBox(height: 28),
+                    ],
+
+                    // Ventas relacionadas
+                    if (result.relatedSales.isNotEmpty) ...[
+                      _buildSectionTitle(
+                        context,
+                        'Ventas (${result.relatedSales.length})',
+                      ),
+                      const SizedBox(height: 14),
+                      ListView.separated(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: result.relatedSales.length,
+                        separatorBuilder: (_, _) => const Divider(height: 16),
+                        itemBuilder: (context, index) {
+                          final sale = result.relatedSales[index];
+                          return _buildSaleInfo(context, sale);
+                        },
+                      ),
+                      const SizedBox(height: 28),
+                    ],
+
+                    // Cuotas pendientes
+                    if (result.relatedInstallments.isNotEmpty) ...[
+                      _buildSectionTitle(
+                        context,
+                        'Cuotas pendientes (${result.pendingInstallmentsCount})',
+                      ),
+                      const SizedBox(height: 14),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: colorScheme.primaryContainer,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Monto total pendiente: ${formatRdMoney(result.totalPendingAmount)}',
+                              style: theme.textTheme.titleLarge?.copyWith(
+                                fontSize: 22,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 0,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              '${result.pendingInstallmentsCount} de ${result.relatedInstallments.length} cuotas pendientes',
+                              style: theme.textTheme.bodyLarge?.copyWith(
+                                fontSize: 16,
+                                height: 1.35,
+                                letterSpacing: 0,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      ListView.separated(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: result.relatedInstallments.length,
+                        separatorBuilder: (_, _) => const Divider(height: 1),
+                        itemBuilder: (context, index) {
+                          final installment = result.relatedInstallments[index];
+                          return _buildInstallmentInfo(context, installment);
+                        },
+                      ),
+                    ] else if (result.relatedInstallments.isEmpty &&
+                        result.relatedSales.isNotEmpty)
+                      Text(
+                        'No hay cuotas registradas',
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          fontSize: 16,
+                        ),
+                      ),
+
+                    // Historial de pagos
+                    if (result.relatedPayments.isNotEmpty) ...[
+                      const SizedBox(height: 28),
+                      _buildSectionTitle(
+                        context,
+                        'Historial de pagos (${result.relatedPayments.length})',
+                      ),
+                      const SizedBox(height: 14),
+                      ListView.separated(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: result.relatedPayments.length,
+                        separatorBuilder: (_, _) => const Divider(height: 1),
+                        itemBuilder: (context, index) {
+                          return _buildPaymentInfo(
+                            context,
+                            result.relatedPayments[index],
+                          );
+                        },
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(32, 18, 32, 20),
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: FilledButton(
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 28,
+                      vertical: 18,
+                    ),
+                    textStyle: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0,
+                    ),
+                  ),
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cerrar'),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -190,16 +249,20 @@ class SearchResultDialog extends StatelessWidget {
   Widget _buildSectionTitle(BuildContext context, String title) {
     return Text(
       title,
-      style: Theme.of(
-        context,
-      ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+        fontSize: 20,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0,
+      ),
     );
   }
 
   Widget _buildClientInfo(BuildContext context, client) {
     return Card(
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -241,8 +304,10 @@ class SearchResultDialog extends StatelessWidget {
 
   Widget _buildLotInfo(BuildContext context, lot) {
     return Card(
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -307,24 +372,31 @@ class SearchResultDialog extends StatelessWidget {
           children: [
             Text(
               total > 1 ? 'Venta $order de $total' : 'Venta',
-              style: Theme.of(
-                context,
-              ).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600),
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0,
+              ),
             ),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
               decoration: BoxDecoration(
                 color: _getStatusColor(sale['estado']),
-                borderRadius: BorderRadius.circular(4),
+                borderRadius: BorderRadius.circular(7),
               ),
               child: Text(
                 sale['estado'] ?? 'DESCONOCIDO',
-                style: const TextStyle(fontSize: 12, color: Colors.white),
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                  letterSpacing: 0,
+                ),
               ),
             ),
           ],
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 12),
         _buildDetailRow(
           context,
           'Fecha y hora venta',
@@ -411,10 +483,10 @@ class SearchResultDialog extends StatelessWidget {
           onNavigate: () => onOpenInstallments?.call(_saleIdFromMap(sale)),
           tooltip: 'Ir a Cuotas',
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 12),
         Wrap(
-          spacing: 8,
-          runSpacing: 4,
+          spacing: 10,
+          runSpacing: 8,
           children: [
             _buildQuickAction(
               context,
@@ -456,10 +528,12 @@ class SearchResultDialog extends StatelessWidget {
       installment.calculatedStatus,
       isOverdue,
     );
+    final theme = Theme.of(context);
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: 14),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Expanded(
             child: Column(
@@ -467,27 +541,40 @@ class SearchResultDialog extends StatelessWidget {
               children: [
                 Text(
                   'Cuota #${installment.installmentNumber}',
-                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontSize: 16,
                     fontWeight: FontWeight.w600,
+                    height: 1.25,
+                    letterSpacing: 0,
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 7),
                 Text(
                   '${_formatDate(installment.dueDate)} • Total: ${formatRdMoney(installment.totalAmount)}',
-                  style: Theme.of(context).textTheme.labelSmall,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontSize: 14,
+                    height: 1.35,
+                    letterSpacing: 0,
+                  ),
                 ),
               ],
             ),
           ),
+          const SizedBox(width: 16),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
             decoration: BoxDecoration(
               color: color,
-              borderRadius: BorderRadius.circular(4),
+              borderRadius: BorderRadius.circular(7),
             ),
             child: Text(
               'Pendiente: ${formatRdMoney(installment.remainingAmount)}',
-              style: const TextStyle(fontSize: 12, color: Colors.white),
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+                letterSpacing: 0,
+              ),
             ),
           ),
         ],
@@ -512,8 +599,10 @@ class SearchResultDialog extends StatelessWidget {
       _ => cuota != null ? 'Cuota #$cuota' : 'Pago',
     };
 
+    final theme = Theme.of(context);
+
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: 14),
       child: Row(
         children: [
           Expanded(
@@ -522,30 +611,41 @@ class SearchResultDialog extends StatelessWidget {
               children: [
                 Text(
                   label,
-                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontSize: 16,
                     fontWeight: FontWeight.w600,
+                    letterSpacing: 0,
                   ),
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 6),
                 Text(
                   '$fecha • $metodo${ano != null ? " • Año: $ano" : ""}',
-                  style: Theme.of(context).textTheme.labelSmall,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontSize: 14,
+                    height: 1.35,
+                    letterSpacing: 0,
+                  ),
                 ),
                 if (ref != 'No especificado')
                   Text(
                     'Ref: $ref',
-                    style: Theme.of(
-                      context,
-                    ).textTheme.labelSmall?.copyWith(color: Colors.grey),
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontSize: 13,
+                      color: Colors.grey,
+                      letterSpacing: 0,
+                    ),
                   ),
               ],
             ),
           ),
+          const SizedBox(width: 16),
           Text(
             formatRdMoney(monto),
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              fontWeight: FontWeight.w700,
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
               color: Colors.green,
+              letterSpacing: 0,
             ),
           ),
         ],
@@ -560,19 +660,35 @@ class SearchResultDialog extends StatelessWidget {
     VoidCallback? onNavigate,
     String? tooltip,
   }) {
+    final theme = Theme.of(context);
+
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 7),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 100,
+            width: 210,
             child: Text(
               '$label:',
-              style: const TextStyle(fontWeight: FontWeight.w500),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                height: 1.35,
+                letterSpacing: 0,
+              ),
             ),
           ),
-          Expanded(child: Text(value)),
+          Expanded(
+            child: Text(
+              value,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontSize: 15,
+                height: 1.35,
+                letterSpacing: 0,
+              ),
+            ),
+          ),
           if (onNavigate != null)
             Opacity(
               opacity: 0.58,
@@ -582,13 +698,13 @@ class SearchResultDialog extends StatelessWidget {
                   onNavigate();
                 },
                 tooltip: tooltip,
-                icon: const Icon(Icons.open_in_new_outlined, size: 15),
+                icon: const Icon(Icons.open_in_new_outlined, size: 20),
                 visualDensity: VisualDensity.compact,
-                splashRadius: 16,
+                splashRadius: 20,
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints.tightFor(
-                  width: 20,
-                  height: 20,
+                  width: 28,
+                  height: 28,
                 ),
               ),
             ),
@@ -615,11 +731,17 @@ class SearchResultDialog extends StatelessWidget {
                   Navigator.of(context).pop();
                   onTap();
                 },
-          icon: Icon(icon, size: 14),
-          label: Text(label, style: const TextStyle(fontSize: 11)),
+          icon: Icon(icon, size: 18),
+          label: Text(
+            label,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0,
+            ),
+          ),
           style: OutlinedButton.styleFrom(
-            visualDensity: VisualDensity.compact,
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
           ),
         ),
       ),

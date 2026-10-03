@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -55,6 +57,7 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
   String _query = '';
   List<GlobalSearchResult> _results = const [];
   int _searchGeneration = 0;
+  Timer? _searchDebounce;
 
   @override
   void initState() {
@@ -71,6 +74,7 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _searchFocusNode.dispose();
     _searchController.dispose();
     super.dispose();
@@ -87,7 +91,7 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
         results: _results,
         isLoading: _isLoading,
         searchFailed: _searchFailed,
-        onSearch: _search,
+        onSearch: _scheduleSearch,
         onClear: _clearSearch,
         onRetry: _search,
         onOpenClients: widget.onOpenClients,
@@ -104,7 +108,6 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
   Widget _buildDesktopView() {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final hasQuery = _query.isNotEmpty;
 
     return CallbackShortcuts(
       bindings: <ShortcutActivator, VoidCallback>{
@@ -168,31 +171,21 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
                 padding: const EdgeInsets.fromLTRB(28, 28, 28, 24),
                 child: Column(
                   children: [
-                    AnimatedContainer(
-                      duration: const Duration(milliseconds: 180),
-                      curve: Curves.easeOut,
-                      padding: EdgeInsets.only(top: hasQuery ? 0 : 68),
+                    Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 1180),
+                        child: _buildDesktopSearchPanel(),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Expanded(
                       child: Center(
                         child: ConstrainedBox(
-                          constraints: BoxConstraints(
-                            maxWidth: hasQuery ? 1080 : 860,
-                          ),
-                          child: _buildDesktopSearchPanel(compact: hasQuery),
+                          constraints: const BoxConstraints(maxWidth: 1320),
+                          child: _buildDesktopResultsPanel(),
                         ),
                       ),
                     ),
-                    if (hasQuery) ...[
-                      const SizedBox(height: 18),
-                      Expanded(
-                        child: Center(
-                          child: ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 1180),
-                            child: _buildDesktopResultsPanel(),
-                          ),
-                        ),
-                      ),
-                    ] else
-                      const Spacer(),
                   ],
                 ),
               ),
@@ -219,55 +212,20 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
     );
   }
 
-  Widget _buildDesktopSearchPanel({required bool compact}) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
+  Widget _buildDesktopSearchPanel() {
+    final colorScheme = Theme.of(context).colorScheme;
 
     return Card(
       color: colorScheme.surface.withValues(alpha: 0.94),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(compact ? 22 : 28),
+        borderRadius: BorderRadius.circular(18),
         side: BorderSide(color: colorScheme.outline.withValues(alpha: 0.68)),
       ),
       child: Padding(
-        padding: EdgeInsets.all(compact ? 22 : 34),
+        padding: const EdgeInsets.fromLTRB(22, 20, 22, 18),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (!compact) ...[
-              Container(
-                width: 62,
-                height: 62,
-                decoration: BoxDecoration(
-                  color: colorScheme.primary.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: colorScheme.primary.withValues(alpha: 0.16),
-                  ),
-                ),
-                child: Icon(
-                  Icons.travel_explore_rounded,
-                  color: colorScheme.primary,
-                  size: 30,
-                ),
-              ),
-              const SizedBox(height: 18),
-              Text(
-                'Encuentra lo que necesitas',
-                style: theme.textTheme.headlineSmall?.copyWith(fontSize: 30),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Busca clientes, solares, ventas, cuotas y pagos desde un solo lugar.',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                  height: 1.35,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 26),
-            ],
             Row(
               children: [
                 Expanded(child: _buildDesktopSearchField()),
@@ -276,8 +234,15 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
                   height: 62,
                   child: FilledButton.icon(
                     onPressed: _search,
-                    icon: const Icon(Icons.search_rounded),
-                    label: const Text('Buscar'),
+                    icon: const Icon(Icons.search_rounded, size: 22),
+                    label: const Text(
+                      'Buscar',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0,
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -307,15 +272,6 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
                 ),
               ],
             ),
-            if (!compact) ...[
-              const SizedBox(height: 16),
-              Text(
-                'Ctrl + K enfoca el buscador · Esc limpia la búsqueda',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
           ],
         ),
       ),
@@ -339,18 +295,20 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
       child: TextField(
         focusNode: _searchFocusNode,
         controller: _searchController,
-        style: theme.textTheme.titleMedium?.copyWith(
+        style: theme.textTheme.titleLarge?.copyWith(
+          fontSize: 21,
           fontWeight: FontWeight.w600,
+          letterSpacing: 0,
         ),
         decoration: InputDecoration(
           hintText: 'Buscar cliente, cédula, teléfono, solar, venta o cuota...',
-          prefixIcon: const Icon(Icons.search_rounded),
+          prefixIcon: const Icon(Icons.search_rounded, size: 28),
           suffixIcon: _searchController.text.isEmpty
               ? null
               : IconButton(
                   tooltip: 'Limpiar',
                   onPressed: _clearSearch,
-                  icon: const Icon(Icons.close_rounded),
+                  icon: const Icon(Icons.close_rounded, size: 28),
                 ),
           filled: true,
           fillColor: colorScheme.surface,
@@ -372,7 +330,7 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
           ),
         ),
         onSubmitted: (_) => _search(),
-        onChanged: (_) => setState(() {}),
+        onChanged: (_) => _scheduleSearch(),
       ),
     );
   }
@@ -388,7 +346,7 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
         side: BorderSide(color: colorScheme.outline.withValues(alpha: 0.72)),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.all(22),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -401,7 +359,10 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
                     _results.isEmpty
                         ? 'Resultados de búsqueda'
                         : '${_results.length} resultado(s) encontrados',
-                    style: theme.textTheme.titleMedium,
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0,
+                    ),
                   ),
                 ),
                 if (_isLoading)
@@ -484,7 +445,10 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
               const SizedBox(height: 10),
               Text(
                 'Puedes buscar clientes, solares, ventas y cuotas desde una sola pantalla.',
-                style: Theme.of(context).textTheme.bodyMedium,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  height: 1.35,
+                  letterSpacing: 0,
+                ),
                 textAlign: TextAlign.center,
               ),
             ],
@@ -508,14 +472,19 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
               const SizedBox(height: 16),
               Text(
                 'No se encontraron resultados',
-                style: Theme.of(context).textTheme.titleMedium,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0,
+                ),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 8),
               Text(
                 'Prueba con otro nombre, cédula, teléfono o código de solar.',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  height: 1.35,
+                  letterSpacing: 0,
                 ),
                 textAlign: TextAlign.center,
               ),
@@ -759,17 +728,20 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
   }
 
   void _clearSearch() {
+    _searchDebounce?.cancel();
     _searchController.clear();
     _searchGeneration++;
     setState(() {
       _query = '';
       _results = [];
+      _isLoading = false;
       _searchFailed = false;
     });
   }
 
-  Future<void> _search() async {
+  void _scheduleSearch() {
     final query = _searchController.text.trim();
+    _searchDebounce?.cancel();
     if (query.isEmpty) {
       _clearSearch();
       return;
@@ -777,15 +749,49 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
 
     final generation = ++_searchGeneration;
     setState(() {
-      _isLoading = true;
+      _query = query;
+      _isLoading = false;
+      _searchFailed = false;
+    });
+    _paintCachedResults(query, generation);
+    _searchDebounce = Timer(
+      const Duration(milliseconds: 220),
+      () => _search(showLoading: false, generation: generation),
+    );
+  }
+
+  Future<void> _paintCachedResults(String query, int generation) async {
+    final cachedResults = await _searchRepository.searchCached(query);
+    if (!mounted || generation != _searchGeneration || cachedResults.isEmpty) {
+      return;
+    }
+    setState(() {
+      _results = cachedResults;
+    });
+  }
+
+  Future<void> _search({bool showLoading = true, int? generation}) async {
+    _searchDebounce?.cancel();
+    final query = _searchController.text.trim();
+    if (query.isEmpty) {
+      _clearSearch();
+      return;
+    }
+
+    final activeGeneration = generation ?? ++_searchGeneration;
+    setState(() {
+      _isLoading = showLoading && _results.isEmpty;
       _searchFailed = false;
       _query = query;
     });
 
     try {
-      final results = await _searchRepository.search(query);
+      final results = await _searchRepository.search(
+        query,
+        preferCached: false,
+      );
 
-      if (!mounted || generation != _searchGeneration) {
+      if (!mounted || activeGeneration != _searchGeneration) {
         return;
       }
 
@@ -793,7 +799,7 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
         _results = results;
       });
     } catch (error) {
-      if (!mounted || generation != _searchGeneration) {
+      if (!mounted || activeGeneration != _searchGeneration) {
         return;
       }
       FriendlyErrorMessages.forOperation(
@@ -802,10 +808,10 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
         module: 'busqueda global',
       );
       setState(() {
-        _searchFailed = true;
+        _searchFailed = showLoading && _results.isEmpty;
       });
     } finally {
-      if (mounted && generation == _searchGeneration) {
+      if (mounted && activeGeneration == _searchGeneration) {
         setState(() {
           _isLoading = false;
         });
@@ -855,7 +861,11 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
     required String tooltip,
     VoidCallback? onTap,
   }) {
-    final textStyle = Theme.of(context).textTheme.labelMedium;
+    final textStyle = Theme.of(context).textTheme.bodyLarge?.copyWith(
+      fontSize: 16,
+      height: 1.3,
+      letterSpacing: 0,
+    );
     return Row(
       children: [
         Expanded(
@@ -872,11 +882,11 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
             child: IconButton(
               onPressed: onTap,
               tooltip: tooltip,
-              icon: const Icon(Icons.open_in_new_outlined, size: 15),
+              icon: const Icon(Icons.open_in_new_outlined, size: 18),
               visualDensity: VisualDensity.compact,
               splashRadius: 16,
               padding: EdgeInsets.zero,
-              constraints: const BoxConstraints.tightFor(width: 20, height: 20),
+              constraints: const BoxConstraints.tightFor(width: 24, height: 24),
             ),
           ),
       ],
@@ -897,8 +907,15 @@ class _GlobalSearchPageState extends State<GlobalSearchPage> {
         message: tooltip,
         child: OutlinedButton.icon(
           onPressed: onTap,
-          icon: Icon(icon, size: 14),
-          label: Text(label, style: const TextStyle(fontSize: 11)),
+          icon: Icon(icon, size: 16),
+          label: Text(
+            label,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0,
+            ),
+          ),
           style: OutlinedButton.styleFrom(
             visualDensity: VisualDensity.compact,
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),

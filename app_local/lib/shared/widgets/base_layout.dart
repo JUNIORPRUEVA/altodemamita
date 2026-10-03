@@ -18,6 +18,7 @@ class BaseLayout extends StatelessWidget {
   final bool showPageTitle;
   final double? appBarToolbarHeight;
   final bool centerTitle;
+  final EdgeInsetsGeometry contentPadding;
 
   const BaseLayout({
     super.key,
@@ -26,15 +27,13 @@ class BaseLayout extends StatelessWidget {
     this.showPageTitle = true,
     this.appBarToolbarHeight,
     this.centerTitle = true,
+    this.contentPadding = const EdgeInsets.all(16),
   });
 
   @override
   Widget build(BuildContext context) {
     final inShell = ShellLayoutScope.isActive(context);
-    final paddedChild = Padding(
-      padding: const EdgeInsets.all(16),
-      child: child,
-    );
+    final paddedChild = Padding(padding: contentPadding, child: child);
 
     if (inShell) {
       return SizedBox.expand(child: paddedChild);

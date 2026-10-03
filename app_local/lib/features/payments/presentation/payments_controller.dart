@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../../../core/resilience/friendly_error_messages.dart';
@@ -30,6 +32,13 @@ class PaymentsController extends ChangeNotifier {
   PaymentWorkQueue? workQueue;
   PaymentSaleContext? selectedContext;
   int? selectedSaleId;
+  final Map<int, PaymentSaleContext> _contextCache =
+      <int, PaymentSaleContext>{};
+  static PaymentWorkQueue? _lastGoodWorkQueue;
+  static List<PaymentSaleOption> _lastGoodActiveSales =
+      const <PaymentSaleOption>[];
+  static PaymentSaleContext? _lastGoodSelectedContext;
+  static int? _lastGoodSelectedSaleId;
   int _loadGeneration = 0;
 
   /// Resultados de la busqueda autoritativa (PostgreSQL) del modulo Pagos.
@@ -40,6 +49,7 @@ class PaymentsController extends ChangeNotifier {
   bool isSearching = false;
   FriendlyErrorMessage? searchError;
   int _searchGeneration = 0;
+  static const Duration _searchTimeout = Duration(seconds: 8);
 
   /// Busca ventas en el backend (autoridad) por nombre, cedula, telefono,
   /// solar o referencia. Protegida con generation token contra respuestas
@@ -56,26 +66,33 @@ class PaymentsController extends ChangeNotifier {
       return;
     }
 
+    final localMatches = _localSearchMatches(trimmed);
+
     isSearching = true;
+    searchResults = localMatches;
     searchError = null;
     notifyListeners();
 
     try {
-      final results = await _paymentsRepository.searchSales(trimmed);
+      final results = await _paymentsRepository
+          .searchSales(trimmed)
+          .timeout(_searchTimeout);
       if (_isDisposed || generation != _searchGeneration) {
         return;
       }
-      searchResults = results;
+      searchResults = _mergeSearchResults(localMatches, results);
     } catch (error) {
       if (_isDisposed || generation != _searchGeneration) {
         return;
       }
-      searchResults = const [];
-      searchError = FriendlyErrorMessages.recoverable(
-        action: 'buscar la venta',
-        module: 'pagos',
-        error: error,
-      );
+      searchResults = localMatches;
+      searchError = localMatches.isEmpty
+          ? FriendlyErrorMessages.recoverable(
+              action: 'buscar la venta',
+              module: 'pagos',
+              error: error,
+            )
+          : null;
     } finally {
       if (!_isDisposed && generation == _searchGeneration) {
         isSearching = false;
@@ -97,6 +114,24 @@ class PaymentsController extends ChangeNotifier {
     loadError = null;
     refreshFailed = false;
     if (workQueue == null && activeSales.isEmpty) {
+      if (_lastGoodWorkQueue != null || _lastGoodActiveSales.isNotEmpty) {
+        workQueue = _lastGoodWorkQueue;
+        activeSales = _lastGoodActiveSales;
+        selectedContext = _lastGoodSelectedContext;
+        selectedSaleId = preferredSaleId ?? _lastGoodSelectedSaleId;
+        if (selectedContext != null) {
+          _contextCache[selectedContext!.sale.saleId] = selectedContext!;
+        }
+        isLoading = false;
+        isRefreshing = false;
+        isSelectedContextLoading = false;
+        notifyListeners();
+      } else {
+        isLoading = true;
+        isRefreshing = false;
+        isSelectedContextLoading = false;
+        notifyListeners();
+      }
       // Cache-first: mostrar la ultima cola valida antes de la red.
       final cachedQueue = await _paymentsRepository.fetchCachedWorkQueue();
       if (_isDisposed || generation != _loadGeneration) {
@@ -105,11 +140,25 @@ class PaymentsController extends ChangeNotifier {
       if (cachedQueue != null && cachedQueue.entries.isNotEmpty) {
         workQueue = cachedQueue;
         activeSales = _salesFromWorkQueue(cachedQueue);
+        selectedSaleId = _resolvePreferredSaleId(preferredSaleId);
+        isLoading = false;
+        isRefreshing = false;
+        _seedSelectedContextFromMemory(selectedSaleId!);
+        _rememberLastGoodState();
+        notifyListeners();
+
+        isSelectedContextLoading = selectedContext == null;
+        await _seedSelectedContextFromCache(selectedSaleId!, generation);
+        if (!_isDisposed && generation == _loadGeneration) {
+          isSelectedContextLoading = false;
+          _rememberLastGoodState();
+          notifyListeners();
+        }
       }
     }
     final hasVisibleData = workQueue != null || activeSales.isNotEmpty;
     isLoading = !hasVisibleData;
-    isRefreshing = hasVisibleData;
+    isRefreshing = false;
     if (!hasVisibleData) {
       activeSales = const [];
       selectedContext = null;
@@ -144,22 +193,33 @@ class PaymentsController extends ChangeNotifier {
       }
 
       if (activeSales.isEmpty) {
-        selectedSaleId = null;
-        selectedContext = null;
+        if (selectedContext != null) {
+          activeSales = [selectedContext!.sale];
+          selectedSaleId = selectedContext!.sale.saleId;
+        } else {
+          selectedSaleId = null;
+          selectedContext = null;
+        }
       } else {
         // La lista ya esta disponible: dejamos de bloquear el modulo y
         // cargamos el detalle financiero de la venta en segundo plano.
         selectedSaleId = _resolvePreferredSaleId(preferredSaleId);
         isLoading = false;
         isSelectedContextLoading = true;
+        await _seedSelectedContextFromCache(selectedSaleId!, generation);
         notifyListeners();
-        selectedContext = await _paymentsRepository.fetchSaleContext(
+        final context = await _paymentsRepository.fetchSaleContext(
           selectedSaleId!,
         );
         if (_isDisposed || generation != _loadGeneration) {
           return;
         }
+        if (context != null) {
+          selectedContext = context;
+          _contextCache[selectedSaleId!] = context;
+        }
       }
+      _rememberLastGoodState();
     } catch (error) {
       if (workQueue != null || activeSales.isNotEmpty) {
         refreshFailed = true;
@@ -176,21 +236,40 @@ class PaymentsController extends ChangeNotifier {
     }
   }
 
-  Future<void> selectSale(int saleId) async {
+  Future<void> selectSale(int saleId, {PaymentSaleOption? previewSale}) async {
     final generation = ++_loadGeneration;
+    _cancelSearch();
     selectedSaleId = saleId;
-    selectedContext = null;
     isSelectedContextLoading = true;
+    await _seedSelectedContextFromCache(saleId, generation);
+    if (!_isDisposed &&
+        generation == _loadGeneration &&
+        selectedContext == null &&
+        previewSale != null) {
+      selectedContext = PaymentSaleContext(
+        sale: previewSale,
+        monthlyInterest: 0,
+        installments: const [],
+        history: const [],
+      );
+    }
     notifyListeners();
 
     try {
       loadError = null;
-      selectedContext = await _paymentsRepository.fetchSaleContext(saleId);
+      final context = await _paymentsRepository.fetchSaleContext(saleId);
       if (_isDisposed || generation != _loadGeneration) {
         return;
       }
+      selectedContext = context;
+      if (context != null) {
+        _contextCache[saleId] = context;
+        _rememberLastGoodState();
+      }
     } catch (error) {
-      selectedContext = null;
+      if (selectedContext?.sale.saleId != saleId) {
+        selectedContext = null;
+      }
       loadError = FriendlyErrorMessages.recoverable(
         action: 'cargar la venta seleccionada',
         module: 'pagos',
@@ -204,13 +283,75 @@ class PaymentsController extends ChangeNotifier {
     }
   }
 
+  void _cancelSearch() {
+    _searchGeneration++;
+    searchResults = const [];
+    isSearching = false;
+    searchError = null;
+  }
+
+  List<PaymentSaleOption> _localSearchMatches(String query) {
+    final normalizedQuery = _normalizeSearchValue(query);
+    final lowerQuery = query.toLowerCase();
+    final source = activeSales.isNotEmpty ? activeSales : _lastGoodActiveSales;
+
+    return source
+        .where((sale) {
+          final haystack = [
+            sale.clientName,
+            sale.clientPhone,
+            sale.clientDocumentId,
+            sale.lotDisplayCode,
+            '#${sale.saleId}',
+          ].join(' ').toLowerCase();
+          final normalizedHaystack = _normalizeSearchValue(
+            [
+              sale.clientPhone,
+              sale.clientDocumentId,
+              sale.lotDisplayCode,
+              '${sale.saleId}',
+            ].join(' '),
+          );
+          return haystack.contains(lowerQuery) ||
+              (normalizedQuery.isNotEmpty &&
+                  normalizedHaystack.contains(normalizedQuery));
+        })
+        .toList(growable: false);
+  }
+
+  List<PaymentSaleOption> _mergeSearchResults(
+    List<PaymentSaleOption> localMatches,
+    List<PaymentSaleOption> remoteResults,
+  ) {
+    final merged = <PaymentSaleOption>[];
+    final seenSaleIds = <int>{};
+    for (final sale in [...localMatches, ...remoteResults]) {
+      if (seenSaleIds.add(sale.saleId)) {
+        merged.add(sale);
+      }
+    }
+    return merged;
+  }
+
+  String _normalizeSearchValue(String value) {
+    return value.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '').toLowerCase();
+  }
+
   Future<void> reloadWorkQueue({String state = 'collectible'}) async {
     if (!_paymentsRepository.usesBackendMode) {
       return;
     }
     final generation = ++_loadGeneration;
-    isLoading = workQueue == null;
-    isRefreshing = workQueue != null;
+    if (workQueue == null && activeSales.isEmpty) {
+      if (_lastGoodWorkQueue != null || _lastGoodActiveSales.isNotEmpty) {
+        workQueue = _lastGoodWorkQueue;
+        activeSales = _lastGoodActiveSales;
+        selectedSaleId ??= _lastGoodSelectedSaleId;
+        selectedContext = _lastGoodSelectedContext;
+      }
+    }
+    isLoading = workQueue == null && activeSales.isEmpty;
+    isRefreshing = false;
     loadError = null;
     notifyListeners();
 
@@ -231,6 +372,7 @@ class PaymentsController extends ChangeNotifier {
           selectedSaleId!,
         );
       }
+      _rememberLastGoodState();
     } catch (error) {
       if (workQueue != null || activeSales.isNotEmpty) {
         refreshFailed = true;
@@ -265,7 +407,7 @@ class PaymentsController extends ChangeNotifier {
         return null;
       }
 
-      await load(preferredSaleId: draft.saleId);
+      await _refreshAfterFinancialChange(draft.saleId);
       return null;
     } catch (error) {
       return FriendlyErrorMessages.forOperation(
@@ -314,7 +456,7 @@ class PaymentsController extends ChangeNotifier {
       if (_isDisposed) {
         return null;
       }
-      await load(preferredSaleId: saleId);
+      await _refreshAfterFinancialChange(saleId);
       return null;
     } catch (error) {
       return FriendlyErrorMessages.forOperation(
@@ -347,7 +489,7 @@ class PaymentsController extends ChangeNotifier {
         return null;
       }
 
-      await load(preferredSaleId: preferredSaleId ?? selectedSaleId);
+      await _refreshAfterFinancialChange(preferredSaleId ?? selectedSaleId);
       return null;
     } catch (error) {
       return FriendlyErrorMessages.forOperation(
@@ -400,6 +542,99 @@ class PaymentsController extends ChangeNotifier {
     }
 
     return activeSales.first.saleId;
+  }
+
+  Future<void> _seedSelectedContextFromCache(int saleId, int generation) async {
+    if (_seedSelectedContextFromMemory(saleId)) {
+      return;
+    }
+    final cachedContext = await _paymentsRepository.fetchCachedSaleContext(
+      saleId,
+    );
+    if (_isDisposed || generation != _loadGeneration) {
+      return;
+    }
+    if (cachedContext != null) {
+      selectedContext = cachedContext;
+      _contextCache[saleId] = cachedContext;
+    } else {
+      selectedContext = null;
+    }
+  }
+
+  bool _seedSelectedContextFromMemory(int saleId) {
+    final memoryContext = _contextCache[saleId];
+    if (memoryContext != null) {
+      selectedContext = memoryContext;
+      return true;
+    }
+    final lastContext = _lastGoodSelectedContext;
+    if (lastContext != null && lastContext.sale.saleId == saleId) {
+      selectedContext = lastContext;
+      _contextCache[saleId] = lastContext;
+      return true;
+    }
+    return false;
+  }
+
+  Future<void> _refreshAfterFinancialChange(int? saleId) async {
+    if (saleId == null) {
+      await load(preferredSaleId: selectedSaleId);
+      return;
+    }
+    final generation = ++_loadGeneration;
+    selectedSaleId = saleId;
+    isSelectedContextLoading = true;
+    isRefreshing = false;
+    notifyListeners();
+
+    try {
+      final contextFuture = _paymentsRepository.fetchSaleContext(saleId);
+      final queueFuture = _paymentsRepository.usesBackendMode
+          ? _paymentsRepository.fetchWorkQueue()
+          : Future<PaymentWorkQueue?>.value(null);
+
+      final context = await contextFuture;
+      if (_isDisposed || generation != _loadGeneration) {
+        return;
+      }
+      selectedContext = context;
+      if (context != null) {
+        _contextCache[saleId] = context;
+      }
+
+      final nextQueue = await queueFuture;
+      if (_isDisposed || generation != _loadGeneration) {
+        return;
+      }
+      if (nextQueue != null) {
+        workQueue = nextQueue;
+        activeSales = _salesFromWorkQueue(nextQueue);
+        if (context != null &&
+            !activeSales.any((sale) => sale.saleId == context.sale.saleId)) {
+          activeSales = [context.sale, ...activeSales];
+        }
+      } else {
+        activeSales = await _paymentsRepository.fetchActiveSales();
+      }
+      _rememberLastGoodState();
+    } catch (error) {
+      refreshFailed = true;
+    } finally {
+      if (!_isDisposed && generation == _loadGeneration) {
+        isLoading = false;
+        isSelectedContextLoading = false;
+        isRefreshing = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  void _rememberLastGoodState() {
+    _lastGoodWorkQueue = workQueue;
+    _lastGoodActiveSales = activeSales;
+    _lastGoodSelectedContext = selectedContext;
+    _lastGoodSelectedSaleId = selectedSaleId;
   }
 
   @override

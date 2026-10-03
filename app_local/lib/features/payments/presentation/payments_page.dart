@@ -19,6 +19,7 @@ import '../domain/payment_history_item.dart';
 import '../domain/payment_sale_context.dart';
 import '../domain/payment_sale_option.dart';
 import '../domain/payment_work_queue.dart';
+import '../domain/receipt.dart';
 import '../domain/settlement_quote.dart';
 import 'payment_annul_dialog.dart';
 import 'payment_form_dialog.dart';
@@ -69,7 +70,12 @@ class _PaymentsPageState extends State<PaymentsPage> {
     _saleSearchController = TextEditingController();
     _historyScrollController = ScrollController();
     _controller.addListener(_syncSelectedSaleState);
-    _controller.load(preferredSaleId: widget.initialSaleId);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      _controller.load(preferredSaleId: widget.initialSaleId);
+    });
   }
 
   @override
@@ -165,16 +171,95 @@ class _PaymentsPageState extends State<PaymentsPage> {
 
     return BaseLayout(
       title: 'Pagos',
+      contentPadding: EdgeInsets.zero,
       child: ListenableBuilder(
         listenable: _controller,
-        builder: (context, _) => Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _buildHeader(context, canCreatePayments: canCreatePayments),
-            Expanded(child: _buildBody(context, isAdmin: isAdmin)),
-          ],
+        builder: (context, _) => _buildDesktopPage(
+          context,
+          canCreatePayments: canCreatePayments,
+          isAdmin: isAdmin,
         ),
       ),
+    );
+  }
+
+  Widget _buildDesktopPage(
+    BuildContext context, {
+    required bool canCreatePayments,
+    required bool isAdmin,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final desiredDetailsWidth = (constraints.maxWidth * 0.35).clamp(
+          460.0,
+          640.0,
+        );
+        final maxDetailsWidth = (constraints.maxWidth - 520).clamp(
+          360.0,
+          640.0,
+        );
+        final detailsWidth = desiredDetailsWidth > maxDetailsWidth
+            ? maxDetailsWidth
+            : desiredDetailsWidth;
+        return ColoredBox(
+          color: const Color(0xFFF5F7FA),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _buildHeader(context, canCreatePayments: canCreatePayments),
+                    Expanded(
+                      child: _buildBody(
+                        context,
+                        isAdmin: isAdmin,
+                        showDetailsPanel: false,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(
+                width: detailsWidth,
+                child: _buildDesktopDetailsPane(context, isAdmin: isAdmin),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildDesktopDetailsPane(
+    BuildContext context, {
+    required bool isAdmin,
+  }) {
+    final matchedSales = _controller.activeSales;
+    final workQueue = _controller.workQueue;
+    final hasConfirmedContext = _controller.selectedContext != null;
+    final contextData =
+        _controller.selectedContext ??
+        _partialContextFromData(matchedSales, workQueue);
+
+    if (contextData == null) {
+      return const ColoredBox(color: Color(0xFFF7FAFE));
+    }
+
+    final visibleHistory = hasConfirmedContext
+        ? _filteredHistory(contextData.history)
+        : const <PaymentHistoryItem>[];
+    final selectedHistoryPaymentId = _resolveSelectedHistoryPaymentId(
+      visibleHistory,
+    );
+
+    return _buildDetailsPanel(
+      contextData,
+      visibleHistory,
+      isAdmin: isAdmin,
+      selectedHistoryPaymentId: selectedHistoryPaymentId,
+      edgeToEdge: true,
     );
   }
 
@@ -237,6 +322,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
                         onPressed:
                             !canCreatePayments ||
                                 _controller.selectedContext == null ||
+                                _controller.isSelectedContextLoading ||
                                 _controller.isSaving
                             ? null
                             : _registerPayment,
@@ -347,7 +433,10 @@ class _PaymentsPageState extends State<PaymentsPage> {
             Material(
               color: Colors.transparent,
               child: InkWell(
-                onTap: () => _commitSaleSelection(visibleMatches[index].saleId),
+                onTap: () => _commitSaleSelection(
+                  visibleMatches[index].saleId,
+                  previewSale: visibleMatches[index],
+                ),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 14,
@@ -494,13 +583,17 @@ class _PaymentsPageState extends State<PaymentsPage> {
     );
   }
 
-  Widget _buildBody(BuildContext context, {required bool isAdmin}) {
+  Widget _buildBody(
+    BuildContext context, {
+    required bool isAdmin,
+    bool showDetailsPanel = true,
+  }) {
     final matchedSales = _controller.activeSales;
 
     if (_controller.isLoading &&
         _controller.activeSales.isEmpty &&
         _controller.workQueue == null) {
-      return _buildLoadingState();
+      return const SizedBox.expand();
     }
 
     // Pantalla fatal real: solo cuando NO hay ningun dato visible.
@@ -571,7 +664,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
         _controller.selectedContext ??
         _partialContextFromData(matchedSales, workQueue);
     if (contextData == null) {
-      return _buildLoadingState();
+      return const SizedBox.expand();
     }
 
     if (workQueue == null) {
@@ -594,13 +687,14 @@ class _PaymentsPageState extends State<PaymentsPage> {
 
     return Column(
       children: [
-        ModuleStatusBanner(
-          isRefreshing: _controller.isRefreshing,
-          refreshFailed: _controller.refreshFailed,
-          onRetry: () =>
-              _controller.load(preferredSaleId: widget.initialSaleId),
-          moduleLabel: 'Pagos',
-        ),
+        if (_controller.refreshFailed)
+          ModuleStatusBanner(
+            isRefreshing: false,
+            refreshFailed: true,
+            onRetry: () =>
+                _controller.load(preferredSaleId: widget.initialSaleId),
+            moduleLabel: 'Pagos',
+          ),
         Expanded(
           child: ColoredBox(
             color: const Color(0xFFF5F7FA),
@@ -608,7 +702,17 @@ class _PaymentsPageState extends State<PaymentsPage> {
               padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  final wide = constraints.maxWidth >= 900;
+                  final wide = showDetailsPanel && constraints.maxWidth >= 900;
+
+                  if (!showDetailsPanel) {
+                    return _buildInstallmentsPanel(
+                      contextData,
+                      visibleInstallments,
+                      matchedSalesCount: matchedSales.length,
+                      totalInstallments: totalInstallments,
+                      hasPendingContexts: hasPendingContexts,
+                    );
+                  }
 
                   if (!wide) {
                     return ListView(
@@ -669,24 +773,13 @@ class _PaymentsPageState extends State<PaymentsPage> {
     );
   }
 
-  Widget _buildLoadingState() {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const CircularProgressIndicator(),
-        ],
-      ),
-    );
-  }
-
   /// Panel de detalle discreto mientras llega el contexto real de la venta
   /// (no bloquea el resto del modulo).
-  Widget _buildDetailsLoadingCard() {
+  Widget _buildDetailsLoadingCard({bool edgeToEdge = false}) {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(edgeToEdge ? 0 : 14),
         border: Border.all(color: const Color(0xFFE4EAF2)),
       ),
       child: const Center(
@@ -1050,9 +1143,10 @@ class _PaymentsPageState extends State<PaymentsPage> {
     required int? selectedHistoryPaymentId,
     bool scrollable = true,
     bool isContextLoading = false,
+    bool edgeToEdge = false,
   }) {
     if (isContextLoading) {
-      return _buildDetailsLoadingCard();
+      return _buildDetailsLoadingCard(edgeToEdge: edgeToEdge);
     }
     final sale = contextData.sale;
     final authProvider = context.watch<AuthProvider>();
@@ -1101,15 +1195,28 @@ class _PaymentsPageState extends State<PaymentsPage> {
                     color: Color(0xFF1A2235),
                   ),
                 ),
-                const SizedBox(height: 12),
-                _DetailGrid(
-                  items: [
-                    _DetailItem(label: 'Cedula', value: sale.clientDocumentId),
-                    _DetailItem(label: 'Solar', value: sale.lotDisplayCode),
-                    _DetailItem(label: 'Venta', value: '#${sale.saleId}'),
-                    _DetailItem(
-                      label: 'Modalidad',
-                      value: isFinancingActive ? 'Financiamiento' : 'Inicial',
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _InfoChip(
+                      icon: Icons.badge_outlined,
+                      label: sale.clientDocumentId,
+                    ),
+                    _InfoChip(
+                      icon: Icons.grid_view_rounded,
+                      label: 'Solar ${sale.lotDisplayCode}',
+                    ),
+                    _InfoChip(
+                      icon: Icons.sell_outlined,
+                      label: 'Venta #${sale.saleId}',
+                    ),
+                    _InfoChip(
+                      icon: isFinancingActive
+                          ? Icons.account_balance_outlined
+                          : Icons.flag_outlined,
+                      label: isFinancingActive ? 'Financiamiento' : 'Inicial',
                     ),
                   ],
                 ),
@@ -1154,70 +1261,29 @@ class _PaymentsPageState extends State<PaymentsPage> {
           ),
           const Divider(height: 28),
           _DetailSection(
-            title: 'Estado actual',
-            trailing: Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              alignment: WrapAlignment.end,
-              children: [
-                if (isFinancingActive && sale.pendingBalance > 0.009)
-                  OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size(0, 34),
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                    ),
-                    onPressed: canSettleSale
-                        ? () => _settleTotalDebt(contextData)
-                        : null,
-                    icon: const Icon(Icons.done_all_outlined, size: 16),
-                    label: const Text(
-                      'Saldar deuda total',
-                      style: TextStyle(fontSize: 14.5),
-                    ),
-                  ),
-                _SummaryBadge(
-                  label: !isFinancingActive
-                      ? 'Inicial en proceso'
-                      : actionableInstallment == null
-                      ? 'Ira a capital'
-                      : 'Cuota prioritaria',
-                  color: !isFinancingActive
-                      ? const Color(0xFFE67E00)
-                      : actionableInstallment == null
-                      ? const Color(0xFF3B5BDB)
-                      : const Color(0xFFE67E00),
-                ),
-              ],
+            title: 'Accion sugerida',
+            trailing: _SummaryBadge(
+              label: !isFinancingActive
+                  ? 'Inicial en proceso'
+                  : actionableInstallment == null
+                  ? 'Ira a capital'
+                  : 'Cuota prioritaria',
+              color: !isFinancingActive
+                  ? const Color(0xFFE67E00)
+                  : actionableInstallment == null
+                  ? const Color(0xFF3B5BDB)
+                  : const Color(0xFFE67E00),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _DetailGrid(
-                  items: [
-                    _DetailItem(
-                      label: 'Pagos realizados',
-                      value: '${visibleHistory.length}',
-                    ),
-                    _DetailItem(label: 'Cuotas pagadas', value: '$paidCount'),
-                    _DetailItem(
-                      label: 'Cuotas pendientes',
-                      value: '$pendingCount',
-                    ),
-                    _DetailItem(
-                      label: 'Proxima prioridad',
-                      value: actionableInstallment == null
-                          ? 'Capital'
-                          : 'Cuota #${actionableInstallment.installmentNumber}',
-                    ),
-                    _DetailItem(
-                      label: 'Fecha de corte',
-                      value: _dateRange == null
-                          ? 'Sin rango'
-                          : '${_formatDate(_dateRange!.start)} - ${_formatDate(_dateRange!.end)}',
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
+                if (isFinancingActive && sale.pendingBalance > 0.009) ...[
+                  _SettleDebtButton(
+                    enabled: canSettleSale,
+                    onPressed: () => _settleTotalDebt(contextData),
+                  ),
+                  const SizedBox(height: 12),
+                ],
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(12),
@@ -1234,6 +1300,21 @@ class _PaymentsPageState extends State<PaymentsPage> {
                       color: Color(0xFF556079),
                     ),
                   ),
+                ),
+                const SizedBox(height: 12),
+                _DetailGrid(
+                  items: [
+                    _DetailItem(
+                      label: 'Cuotas',
+                      value: '$paidCount pagadas · $pendingCount pendientes',
+                    ),
+                    _DetailItem(
+                      label: 'Fecha de corte',
+                      value: _dateRange == null
+                          ? 'Sin rango'
+                          : '${_formatDate(_dateRange!.start)} - ${_formatDate(_dateRange!.end)}',
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -1319,7 +1400,11 @@ class _PaymentsPageState extends State<PaymentsPage> {
                             },
                             onDeleteTap: () =>
                                 _confirmDeletePayment(payment, contextData),
-                            onReceiptTap: () => _showReceiptDialog(payment.id),
+                            onReceiptTap: () => _showReceiptDialog(
+                              payment.id,
+                              contextData: contextData,
+                              payment: payment,
+                            ),
                           );
                         },
                       ),
@@ -1339,13 +1424,14 @@ class _PaymentsPageState extends State<PaymentsPage> {
                         itemCount: contextData.annulledHistory.length,
                         separatorBuilder: (_, _) => const Divider(height: 12),
                         itemBuilder: (context, index) => _annulledHistoryRow(
+                          contextData,
                           contextData.annulledHistory[index],
                         ),
                       )
                     : Column(
                         children: [
                           for (final annulled in contextData.annulledHistory)
-                            _annulledHistoryRow(annulled),
+                            _annulledHistoryRow(contextData, annulled),
                         ],
                       ),
               ),
@@ -1355,6 +1441,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
       ),
     );
 
+    final borderRadius = BorderRadius.circular(edgeToEdge ? 0 : 16);
     return DecoratedBox(
       decoration: BoxDecoration(
         gradient: const LinearGradient(
@@ -1362,18 +1449,20 @@ class _PaymentsPageState extends State<PaymentsPage> {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: borderRadius,
         border: Border.all(color: const Color(0xFFD7E0EC)),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x140D2844),
-            blurRadius: 24,
-            offset: Offset(0, 10),
-          ),
-        ],
+        boxShadow: edgeToEdge
+            ? null
+            : const [
+                BoxShadow(
+                  color: Color(0x140D2844),
+                  blurRadius: 24,
+                  offset: Offset(0, 10),
+                ),
+              ],
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: borderRadius,
         child: Column(
           children: [
             Container(
@@ -1386,6 +1475,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
                 ),
               ),
             ),
+            const SizedBox(height: 2),
             if (scrollable)
               Expanded(child: SingleChildScrollView(child: content))
             else
@@ -1697,20 +1787,20 @@ class _PaymentsPageState extends State<PaymentsPage> {
     }
 
     _searchDebounce?.cancel();
-    _controller.searchSales(value);
-
     final matches = _matchSales(value);
-    if (matches.length != 1) {
+    if (matches.isNotEmpty) {
+      _commitSaleSelection(matches.first.saleId, previewSale: matches.first);
       return;
     }
 
-    _commitSaleSelection(matches.first.saleId);
+    _controller.searchSales(value);
   }
 
   int? get _effectiveSelectedSaleId =>
       _selectedSaleId ?? _controller.selectedSaleId;
 
-  void _commitSaleSelection(int saleId) {
+  void _commitSaleSelection(int saleId, {PaymentSaleOption? previewSale}) {
+    final preview = previewSale ?? _findSaleForSelection(saleId);
     _searchDebounce?.cancel();
     _saleSearchController.clear();
     _controller.clearSearch();
@@ -1720,9 +1810,22 @@ class _PaymentsPageState extends State<PaymentsPage> {
       _selectedHistoryPaymentId = null;
     });
 
-    if (_controller.selectedSaleId != saleId) {
-      _controller.selectSale(saleId);
+    if (_controller.selectedSaleId != saleId ||
+        _controller.selectedContext?.sale.saleId != saleId) {
+      _controller.selectSale(saleId, previewSale: preview);
     }
+  }
+
+  PaymentSaleOption? _findSaleForSelection(int saleId) {
+    for (final sale in [
+      ..._controller.searchResults,
+      ..._controller.activeSales,
+    ]) {
+      if (sale.saleId == saleId) {
+        return sale;
+      }
+    }
+    return null;
   }
 
   void _syncSelectedSaleState() {
@@ -1742,6 +1845,9 @@ class _PaymentsPageState extends State<PaymentsPage> {
     final activeSaleIds = _controller.activeSales
         .map((sale) => sale.saleId)
         .toSet();
+    if (controllerContext != null) {
+      activeSaleIds.add(controllerContext.sale.saleId);
+    }
     if (_saleContextCache.keys.any(
       (saleId) => !activeSaleIds.contains(saleId),
     )) {
@@ -2051,36 +2157,20 @@ class _PaymentsPageState extends State<PaymentsPage> {
   }
 
   Future<void> _settleTotalDebt(PaymentSaleContext contextData) async {
-    final quoteResult = await _controller.fetchSettlementQuote(
+    final quoteFuture = _controller.fetchSettlementQuote(
       contextData.sale.saleId,
     );
-    if (!mounted) {
-      return;
-    }
-    final quote = quoteResult.quote;
-    if (quote == null) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(
-          content: Text(
-            quoteResult.error ??
-                'No se pudo calcular el monto para saldar la deuda.',
-          ),
-        ),
-      );
-      return;
-    }
-
-    final confirmed = await showDialog<bool>(
+    final quote = await showDialog<SettlementQuote>(
       context: context,
       barrierDismissible: false,
       builder: (_) => _SettlementQuoteDialog(
-        quote: quote,
+        quoteFuture: quoteFuture,
         clientName: contextData.sale.clientName,
         lotDisplayCode: contextData.sale.lotDisplayCode,
         moneyFormatter: _money,
       ),
     );
-    if (!mounted || confirmed != true) {
+    if (!mounted || quote == null) {
       return;
     }
 
@@ -2113,7 +2203,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Estas seguro de aplicar este pago?'),
+              const Text('¿Estás seguro de aplicar este pago?'),
               const SizedBox(height: 14),
               _PaymentConfirmationRow(
                 label: 'Monto',
@@ -2146,7 +2236,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
                 const Padding(
                   padding: EdgeInsets.only(top: 8),
                   child: Text(
-                    'Se imprimira el recibo automaticamente despues de guardar.',
+                    'Se imprimirá el recibo automáticamente después de aplicar el pago.',
                   ),
                 ),
             ],
@@ -2172,13 +2262,50 @@ class _PaymentsPageState extends State<PaymentsPage> {
   Future<void> _showReceiptDialog(
     int paymentId, {
     bool autoPrint = false,
+    PaymentSaleContext? contextData,
+    PaymentHistoryItem? payment,
   }) async {
-    await ReceiptDialog.show(
-      context,
-      paymentId: paymentId,
-      receiptRepository: widget._receiptRepository,
-      autoPrint: autoPrint,
-    );
+    try {
+      Receipt? receipt = await widget._receiptRepository
+          .fetchReceiptByPaymentId(paymentId);
+      if (receipt == null && contextData != null && payment != null) {
+        receipt = await widget._receiptRepository.buildReceiptFromContext(
+          context: contextData,
+          payment: payment,
+        );
+      }
+      if (!mounted) {
+        return;
+      }
+      if (receipt != null) {
+        await ReceiptDialog.showReceipt(
+          context,
+          receipt: receipt,
+          receiptRepository: widget._receiptRepository,
+          autoPrint: autoPrint,
+        );
+        return;
+      }
+
+      await ReceiptDialog.show(
+        context,
+        paymentId: paymentId,
+        receiptRepository: widget._receiptRepository,
+        autoPrint: autoPrint,
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      final message = FriendlyErrorMessages.forOperation(
+        'preparar el recibo de pago',
+        error,
+        module: 'pagos',
+      );
+      ScaffoldMessenger.maybeOf(
+        context,
+      )?.showSnackBar(SnackBar(content: Text(message)));
+    }
   }
 
   Future<void> _showClientPagares(PaymentSaleContext contextData) async {
@@ -2197,37 +2324,25 @@ class _PaymentsPageState extends State<PaymentsPage> {
     );
   }
 
-  Future<ClientPagareReport?> _loadClientPagareReport(int clientId) async {
-    try {
-      final ClientPagareReport report = await widget.paymentsRepository
-          .fetchClientPagareReport(clientId);
-
-      if (!mounted) {
-        return null;
-      }
-
-      if (report.items.isEmpty) {
+  Future<ClientPagareReport?> _loadClientPagareReport(
+    PaymentSaleContext contextData,
+    List<PaymentHistoryItem> visibleHistory,
+  ) async {
+    final report = ClientPagareReport.fromPaymentContext(
+      context: contextData,
+      payments: visibleHistory,
+    );
+    if (report.items.isEmpty) {
+      if (mounted) {
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(
           const SnackBar(
-            content: Text(
-              'El cliente no tiene pagares/pagos registrados todavia.',
-            ),
+            content: Text('Este cliente no tiene pagos para imprimir.'),
           ),
         );
-        return null;
       }
-      return report;
-    } catch (error) {
-      if (!mounted) {
-        return null;
-      }
-      FriendlyErrorMessages.forOperation(
-        'generar el reporte de pagares',
-        error,
-        module: 'reportes',
-      );
       return null;
     }
+    return report;
   }
 
   int? _resolveSelectedHistoryPaymentId(List<PaymentHistoryItem> history) {
@@ -2311,23 +2426,92 @@ class _PaymentsPageState extends State<PaymentsPage> {
         return;
       }
 
-      await ReceiptDialog.show(
-        context,
-        paymentId: selectedPayment.id,
-        receiptRepository: widget._receiptRepository,
+      final receipt = await widget._receiptRepository.buildReceiptFromContext(
+        context: contextData,
+        payment: selectedPayment,
       );
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          duration: Duration(seconds: 2),
+          content: Text('Preparando ticket para imprimir...'),
+        ),
+      );
+      try {
+        final printed = await ReceiptDialog.printReceipt(receipt: receipt);
+        if (!printed && mounted) {
+          ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+            const SnackBar(
+              content: Text(
+                'No se abrió la impresión del ticket. Verifica la impresora de Windows.',
+              ),
+            ),
+          );
+        }
+      } catch (error) {
+        if (!mounted) {
+          return;
+        }
+        final message = FriendlyErrorMessages.forOperation(
+          'imprimir el ticket',
+          error,
+          module: 'pagos',
+        );
+        ScaffoldMessenger.maybeOf(
+          context,
+        )?.showSnackBar(SnackBar(content: Text(message)));
+      }
       return;
     }
 
-    final report = await _loadClientPagareReport(contextData.sale.clientId);
+    final report = await _loadClientPagareReport(
+      contextData,
+      contextData.history,
+    );
     if (!mounted || report == null) {
       return;
     }
 
-    await ClientPagareDialog.printQuick(context, report: report);
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      const SnackBar(
+        duration: Duration(seconds: 2),
+        content: Text('Preparando lista de pagos para imprimir...'),
+      ),
+    );
+
+    try {
+      final printed = await ClientPagareDialog.printReport(report: report);
+      if (!printed && mounted) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          const SnackBar(
+            content: Text(
+              'No se abrió la impresión de la lista. Verifica la impresora de Windows.',
+            ),
+          ),
+        );
+      }
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      final message = FriendlyErrorMessages.forOperation(
+        'imprimir la lista de pagos',
+        error,
+        module: 'reportes',
+      );
+      ScaffoldMessenger.maybeOf(
+        context,
+      )?.showSnackBar(SnackBar(content: Text(message)));
+    }
   }
 
-  Widget _annulledHistoryRow(PaymentHistoryItem payment) {
+  Widget _annulledHistoryRow(
+    PaymentSaleContext contextData,
+    PaymentHistoryItem payment,
+  ) {
     return _HistoryRow(
       title: _paymentTypeLabel(payment.paymentType, payment.installmentNumber),
       subtitle: _annulledSubtitle(payment),
@@ -2337,7 +2521,11 @@ class _PaymentsPageState extends State<PaymentsPage> {
       isAnnulled: true,
       canDelete: false,
       selected: false,
-      onReceiptTap: () => _showReceiptDialog(payment.id),
+      onReceiptTap: () => _showReceiptDialog(
+        payment.id,
+        contextData: contextData,
+        payment: payment,
+      ),
     );
   }
 
@@ -2931,6 +3119,120 @@ class _SummaryBadge extends StatelessWidget {
   }
 }
 
+class _InfoChip extends StatelessWidget {
+  const _InfoChip({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = label.trim().isEmpty ? 'Sin dato' : label.trim();
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF4F7FC),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0xFFDCE5F2)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 15, color: const Color(0xFF53627A)),
+          const SizedBox(width: 6),
+          Text(
+            text,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF1A2235),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SettleDebtButton extends StatefulWidget {
+  const _SettleDebtButton({required this.enabled, required this.onPressed});
+
+  final bool enabled;
+  final VoidCallback onPressed;
+
+  @override
+  State<_SettleDebtButton> createState() => _SettleDebtButtonState();
+}
+
+class _SettleDebtButtonState extends State<_SettleDebtButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1450),
+  )..repeat(reverse: true);
+
+  late final Animation<double> _scale = Tween<double>(
+    begin: 1,
+    end: 1.018,
+  ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = widget.enabled;
+    return AnimatedBuilder(
+      animation: _scale,
+      builder: (context, child) {
+        return Transform.scale(
+          scale: enabled ? _scale.value : 1,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: enabled
+                  ? [
+                      BoxShadow(
+                        color: const Color(
+                          0xFF2563EB,
+                        ).withValues(alpha: 0.20 + (_scale.value - 1) * 5),
+                        blurRadius: 18,
+                        offset: const Offset(0, 8),
+                      ),
+                    ]
+                  : null,
+            ),
+            child: child,
+          ),
+        );
+      },
+      child: FilledButton.icon(
+        style: FilledButton.styleFrom(
+          minimumSize: const Size.fromHeight(42),
+          backgroundColor: const Color(0xFF2563EB),
+          disabledBackgroundColor: const Color(0xFFB8C4D8),
+          foregroundColor: Colors.white,
+          disabledForegroundColor: Colors.white.withValues(alpha: 0.78),
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+        onPressed: enabled ? widget.onPressed : null,
+        icon: const Icon(Icons.done_all_outlined, size: 18),
+        label: const Text(
+          'Saldar deuda total',
+          style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700),
+        ),
+      ),
+    );
+  }
+}
+
 class _DetailItem {
   const _DetailItem({
     required this.label,
@@ -2989,13 +3291,13 @@ IconData _paymentTypeIcon(String type) {
 
 class _SettlementQuoteDialog extends StatelessWidget {
   const _SettlementQuoteDialog({
-    required this.quote,
+    required this.quoteFuture,
     required this.clientName,
     required this.lotDisplayCode,
     required this.moneyFormatter,
   });
 
-  final SettlementQuote quote;
+  final Future<({SettlementQuote? quote, String? error})> quoteFuture;
   final String clientName;
   final String lotDisplayCode;
   final String Function(double value) moneyFormatter;
@@ -3027,48 +3329,137 @@ class _SettlementQuoteDialog extends StatelessWidget {
               ),
             ],
             const SizedBox(height: 18),
-            _SettlementQuoteRow(
-              label: 'Capital pendiente',
-              value: moneyFormatter(quote.principalOutstanding),
-            ),
-            _SettlementQuoteRow(
-              label: 'Intereses exigibles',
-              value: moneyFormatter(quote.dueInterest),
-            ),
-            _SettlementQuoteRow(
-              label: 'Interes futuro condonado',
-              value: moneyFormatter(quote.futureInterestWaived),
-            ),
-            _SettlementQuoteRow(
-              label: 'Mora',
-              value: moneyFormatter(quote.lateFees),
-            ),
-            const Divider(height: 24),
-            _SettlementQuoteRow(
-              label: 'Total a pagar hoy',
-              value: moneyFormatter(quote.settlementAmount),
-              emphasized: true,
-            ),
-            const SizedBox(height: 14),
-            const Text(
-              'Al confirmar, la venta quedara completamente saldada.',
-              style: TextStyle(fontSize: 13, color: Color(0xFF556079)),
+            FutureBuilder<({SettlementQuote? quote, String? error})>(
+              future: quoteFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState != ConnectionState.done) {
+                  return const _SettlementQuoteLoading();
+                }
+
+                final result = snapshot.data;
+                final quote = result?.quote;
+                if (quote == null) {
+                  return _SettlementQuoteError(
+                    message:
+                        result?.error ??
+                        'No se pudo calcular el monto para saldar la deuda.',
+                  );
+                }
+
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _SettlementQuoteRow(
+                      label: 'Capital pendiente',
+                      value: moneyFormatter(quote.principalOutstanding),
+                    ),
+                    _SettlementQuoteRow(
+                      label: 'Intereses exigibles',
+                      value: moneyFormatter(quote.dueInterest),
+                    ),
+                    _SettlementQuoteRow(
+                      label: 'Interes futuro condonado',
+                      value: moneyFormatter(quote.futureInterestWaived),
+                    ),
+                    _SettlementQuoteRow(
+                      label: 'Mora',
+                      value: moneyFormatter(quote.lateFees),
+                    ),
+                    const Divider(height: 24),
+                    _SettlementQuoteRow(
+                      label: 'Total a pagar hoy',
+                      value: moneyFormatter(quote.settlementAmount),
+                      emphasized: true,
+                    ),
+                    const SizedBox(height: 14),
+                    const Text(
+                      'Al confirmar, la venta quedara completamente saldada.',
+                      style: TextStyle(fontSize: 13, color: Color(0xFF556079)),
+                    ),
+                  ],
+                );
+              },
             ),
           ],
         ),
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.of(context).pop(false),
+          onPressed: () => Navigator.of(context).pop(null),
           child: const Text('Cancelar'),
         ),
-        FilledButton(
-          onPressed: quote.settlementAmount <= 0.009
-              ? null
-              : () => Navigator.of(context).pop(true),
-          child: const Text('Confirmar pago total'),
+        FutureBuilder<({SettlementQuote? quote, String? error})>(
+          future: quoteFuture,
+          builder: (context, snapshot) {
+            final quote = snapshot.data?.quote;
+            return FilledButton(
+              onPressed: quote == null || quote.settlementAmount <= 0.009
+                  ? null
+                  : () => Navigator.of(context).pop(quote),
+              child: const Text('Confirmar pago total'),
+            );
+          },
         ),
       ],
+    );
+  }
+}
+
+class _SettlementQuoteLoading extends StatelessWidget {
+  const _SettlementQuoteLoading();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      padding: EdgeInsets.symmetric(vertical: 18),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 22,
+            height: 22,
+            child: CircularProgressIndicator(strokeWidth: 2.6),
+          ),
+          SizedBox(width: 14),
+          Expanded(
+            child: Text(
+              'Calculando liquidacion...',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF556079),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SettlementQuoteError extends StatelessWidget {
+  const _SettlementQuoteError({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF1F2),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFFECACA)),
+      ),
+      child: Text(
+        message,
+        style: const TextStyle(
+          fontSize: 13.5,
+          height: 1.35,
+          color: Color(0xFF991B1B),
+          fontWeight: FontWeight.w600,
+        ),
+      ),
     );
   }
 }

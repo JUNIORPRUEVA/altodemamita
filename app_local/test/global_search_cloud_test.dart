@@ -12,6 +12,7 @@ import 'package:sistema_solares/core/network/backend_api_client.dart';
 import 'package:sistema_solares/features/clients/data/client_repository.dart';
 import 'package:sistema_solares/features/global_search/data/global_search_repository.dart';
 import 'package:sistema_solares/features/lots/data/lot_repository.dart';
+import 'package:sistema_solares/features/sales/data/sales_repository.dart';
 
 import 'helpers/fake_backend.dart';
 
@@ -41,9 +42,7 @@ void main() {
     }
   });
 
-  Future<GlobalSearchRepository> buildRepository(
-    MockClient client,
-  ) async {
+  Future<GlobalSearchRepository> buildRepository(MockClient client) async {
     final configRepository = FakeSyncConfigRepository(
       settings: buildFakeSettings(),
     );
@@ -52,15 +51,159 @@ void main() {
       syncConfigRepository: configRepository,
       client: client,
     );
-    final clients = ClientRepository(appDatabase: appDatabase, apiClient: apiClient);
+    final clients = ClientRepository(
+      appDatabase: appDatabase,
+      apiClient: apiClient,
+    );
     final lots = LotRepository(appDatabase: appDatabase, apiClient: apiClient);
     return GlobalSearchRepository(
       appDatabase: appDatabase,
       clientRepository: clients,
       lotRepository: lots,
+      salesRepository: SalesRepository(
+        appDatabase: appDatabase,
+        apiClient: apiClient,
+      ),
       apiClient: apiClient,
     );
   }
+
+  test(
+    'CLOUD_AUTHORITATIVE buscador responde desde cache de ventas sin esperar detalle remoto',
+    () async {
+      if (cloudCutoverMode != CloudCutoverMode.cloudAuthoritative) {
+        return;
+      }
+
+      final configRepository = FakeSyncConfigRepository(
+        settings: buildFakeSettings(),
+      );
+      await configRepository.saveJwtToken('jwt-test-token');
+      final apiClient = BackendApiClient(
+        syncConfigRepository: configRepository,
+        client: MockClient((request) async {
+          final path = request.url.path;
+          if (path == '/api/owner/sales') {
+            return _json(200, {
+              'data': {
+                'items': [_saleJson()],
+              },
+            });
+          }
+          return _json(500, {'message': 'unexpected live lookup $path'});
+        }),
+      );
+      final sales = SalesRepository(
+        appDatabase: appDatabase,
+        apiClient: apiClient,
+      );
+      await sales.fetchAll();
+
+      final repository = GlobalSearchRepository(
+        appDatabase: appDatabase,
+        clientRepository: ClientRepository(
+          appDatabase: appDatabase,
+          apiClient: apiClient,
+        ),
+        lotRepository: LotRepository(
+          appDatabase: appDatabase,
+          apiClient: apiClient,
+        ),
+        salesRepository: sales,
+        apiClient: apiClient,
+      );
+
+      final results = await repository.search('Junior');
+
+      expect(results, hasLength(1));
+      expect(results.single.matchType, 'sale');
+      expect(results.single.client?.fullName, 'Junior pruebas');
+      expect(results.single.relatedSales.single['saldo_pendiente'], 450000);
+    },
+  );
+
+  test(
+    'CLOUD_AUTHORITATIVE buscador refresca ventas desde nube aunque exista cache viejo',
+    () async {
+      if (cloudCutoverMode != CloudCutoverMode.cloudAuthoritative) {
+        return;
+      }
+
+      var salesCalls = 0;
+      final configRepository = FakeSyncConfigRepository(
+        settings: buildFakeSettings(),
+      );
+      await configRepository.saveJwtToken('jwt-test-token');
+      final apiClient = BackendApiClient(
+        syncConfigRepository: configRepository,
+        client: MockClient((request) async {
+          final path = request.url.path;
+          if (path == '/api/owner/sales') {
+            salesCalls++;
+            final staleSale = _saleJson(
+              clientName: 'Junior viejo',
+              balance: '450000',
+            );
+            final freshSale = _saleJson(
+              clientName: 'Junior fresco',
+              balance: '123456.78',
+            );
+            return _json(200, {
+              'data': {
+                'items': [salesCalls == 1 ? staleSale : freshSale],
+              },
+            });
+          }
+          if (path == '/api/business/clients' || path == '/api/business/lots') {
+            return _json(200, {
+              'data': {'items': <Object>[], 'total': 0},
+            });
+          }
+          return _json(404, {'message': 'unexpected $path'});
+        }),
+      );
+      final sales = SalesRepository(
+        appDatabase: appDatabase,
+        apiClient: apiClient,
+      );
+      await sales.fetchAll();
+
+      final repository = GlobalSearchRepository(
+        appDatabase: appDatabase,
+        clientRepository: ClientRepository(
+          appDatabase: appDatabase,
+          apiClient: apiClient,
+        ),
+        lotRepository: LotRepository(
+          appDatabase: appDatabase,
+          apiClient: apiClient,
+        ),
+        salesRepository: sales,
+        apiClient: apiClient,
+      );
+
+      final cachedResults = await repository.searchCached('Junior');
+      expect(cachedResults.single.client?.fullName, 'Junior viejo');
+      expect(
+        cachedResults.single.relatedSales.single['saldo_pendiente'],
+        450000,
+      );
+
+      final liveResults = await repository.search(
+        'Junior',
+        preferCached: false,
+      );
+
+      expect(salesCalls, 2);
+      expect(liveResults, hasLength(1));
+      expect(liveResults.single.matchType, 'sale');
+      expect(liveResults.single.client?.fullName, 'Junior fresco');
+      expect(
+        liveResults.single.relatedSales.single['saldo_pendiente'] as double,
+        closeTo(123456.78, 0.001),
+      );
+    },
+  );
 
   test(
     'CLOUD_AUTHORITATIVE buscador muestra cliente con 1 venta y su historial real',
@@ -72,6 +215,11 @@ void main() {
       final repository = await buildRepository(
         MockClient((request) async {
           final path = request.url.path;
+          if (path == '/api/owner/sales') {
+            return _json(200, {
+              'data': {'items': <Object>[]},
+            });
+          }
           if (path == '/api/business/clients') {
             return _json(200, {
               'data': {
@@ -81,7 +229,9 @@ void main() {
             });
           }
           if (path == '/api/business/lots') {
-            return _json(200, {'data': {'items': <Object>[], 'total': 0}});
+            return _json(200, {
+              'data': {'items': <Object>[], 'total': 0},
+            });
           }
           if (path == '/api/owner/clients/client-remote-1') {
             return _json(200, {
@@ -125,10 +275,7 @@ void main() {
         result.relatedInstallments.first.principalAmount,
         closeTo(35481.95, 0.01),
       );
-      expect(
-        result.relatedInstallments.last.installmentNumber,
-        12,
-      );
+      expect(result.relatedInstallments.last.installmentNumber, 12);
 
       expect(result.relatedPayments, hasLength(1));
       final payment = result.relatedPayments.single;
@@ -148,21 +295,36 @@ void main() {
       final repository = await buildRepository(
         MockClient((request) async {
           final path = request.url.path;
+          if (path == '/api/owner/sales') {
+            return _json(200, {
+              'data': {'items': <Object>[]},
+            });
+          }
           if (path == '/api/business/clients') {
             return _json(200, {
               'data': {
-                'items': [_clientJson(id: 'client-no-sale', syncId: 'client-nosale-sync')],
+                'items': [
+                  _clientJson(
+                    id: 'client-no-sale',
+                    syncId: 'client-nosale-sync',
+                  ),
+                ],
                 'total': 1,
               },
             });
           }
           if (path == '/api/business/lots') {
-            return _json(200, {'data': {'items': <Object>[], 'total': 0}});
+            return _json(200, {
+              'data': {'items': <Object>[], 'total': 0},
+            });
           }
           if (path == '/api/owner/clients/client-no-sale') {
             return _json(200, {
               'data': {
-                'client': _clientJson(id: 'client-no-sale', syncId: 'client-nosale-sync'),
+                'client': _clientJson(
+                  id: 'client-no-sale',
+                  syncId: 'client-nosale-sync',
+                ),
                 'summary': {
                   'sales': 0,
                   'activeSales': 0,
@@ -188,11 +350,15 @@ void main() {
   );
 }
 
-Map<String, Object?> _clientJson({String id = 'client-remote-1', String syncId = 'client-sync-1'}) {
+Map<String, Object?> _clientJson({
+  String id = 'client-remote-1',
+  String syncId = 'client-sync-1',
+  String name = 'Junior pruebas',
+}) {
   return {
     'id': id,
     'syncId': syncId,
-    'name': 'Junior pruebas',
+    'name': name,
     'document': '40238377333',
     'phone': '8091234567',
     'address': null,
@@ -201,11 +367,40 @@ Map<String, Object?> _clientJson({String id = 'client-remote-1', String syncId =
   };
 }
 
-Map<String, Object?> _saleJson() {
+Map<String, Object?> _saleJson({
+  String clientName = 'Junior pruebas',
+  String balance = '450000',
+}) {
   final installments = List.generate(12, (index) {
     final number = index + 1;
-    const principal = [35481.95, 35836.77, 36195.14, 36557.09, 36922.66, 37291.89, 37664.8, 38041.45, 38421.87, 38806.09, 39194.15, 39586.14];
-    const interest = [4500.0, 4145.18, 3786.81, 3424.86, 3059.29, 2690.06, 2317.15, 1940.5, 1560.08, 1175.86, 787.8, 395.86];
+    const principal = [
+      35481.95,
+      35836.77,
+      36195.14,
+      36557.09,
+      36922.66,
+      37291.89,
+      37664.8,
+      38041.45,
+      38421.87,
+      38806.09,
+      39194.15,
+      39586.14,
+    ];
+    const interest = [
+      4500.0,
+      4145.18,
+      3786.81,
+      3424.86,
+      3059.29,
+      2690.06,
+      2317.15,
+      1940.5,
+      1560.08,
+      1175.86,
+      787.8,
+      395.86,
+    ];
     return {
       'id': 'installment-remote-$number',
       'syncId': 'installment-sync-$number',
@@ -226,6 +421,7 @@ Map<String, Object?> _saleJson() {
   return {
     'id': 'sale-remote-1',
     'syncId': 'sale-sync-1',
+    'clientEntity': _clientJson(name: clientName),
     'status': 'activa',
     'saleDate': '2026-09-09T10:00:00.000Z',
     'createdAt': '2026-09-09T10:00:00.000Z',
@@ -242,7 +438,7 @@ Map<String, Object?> _saleJson() {
     'financedBalance': '450000',
     'monthlyInterestRate': '1',
     'installmentCount': 12,
-    'balance': '450000',
+    'balance': balance,
     'lotCode': 'Mmd-S122',
     'lot': {
       'id': 'lot-remote-1',

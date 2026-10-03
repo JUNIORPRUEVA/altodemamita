@@ -24,6 +24,7 @@ class ReceiptDialog {
     required int paymentId,
     required ReceiptRepository receiptRepository,
     bool autoPrint = false,
+    Receipt? initialReceipt,
   }) async {
     await showDialog<void>(
       context: context,
@@ -32,7 +33,23 @@ class ReceiptDialog {
         paymentId: paymentId,
         receiptRepository: receiptRepository,
         autoPrint: autoPrint,
+        initialReceipt: initialReceipt,
       ),
+    );
+  }
+
+  static Future<void> showReceipt(
+    BuildContext context, {
+    required Receipt receipt,
+    required ReceiptRepository receiptRepository,
+    bool autoPrint = false,
+  }) {
+    return show(
+      context,
+      paymentId: receipt.paymentId,
+      receiptRepository: receiptRepository,
+      autoPrint: autoPrint,
+      initialReceipt: receipt,
     );
   }
 
@@ -51,13 +68,7 @@ class ReceiptDialog {
         );
       }
 
-      await Printing.layoutPdf(
-        name: 'Recibo-${receipt.receiptNumber}',
-        format: PdfPageFormat.letter.landscape,
-        usePrinterSettings: true,
-        onLayout: (format) =>
-            ReceiptPdfBuilder.build(receipt, pageFormat: format),
-      );
+      await printReceipt(receipt: receipt);
     } catch (error) {
       FriendlyErrorMessages.forOperation(
         'imprimir el ticket',
@@ -66,6 +77,16 @@ class ReceiptDialog {
       );
     }
   }
+
+  static Future<bool> printReceipt({required Receipt receipt}) {
+    return Printing.layoutPdf(
+      name: 'Recibo-${receipt.receiptNumber}',
+      format: PdfPageFormat.letter.landscape,
+      usePrinterSettings: true,
+      onLayout: (format) =>
+          ReceiptPdfBuilder.build(receipt, pageFormat: format),
+    );
+  }
 }
 
 class _ReceiptDialogContent extends StatefulWidget {
@@ -73,11 +94,13 @@ class _ReceiptDialogContent extends StatefulWidget {
     required this.paymentId,
     required this.receiptRepository,
     required this.autoPrint,
+    this.initialReceipt,
   });
 
   final int paymentId;
   final ReceiptRepository receiptRepository;
   final bool autoPrint;
+  final Receipt? initialReceipt;
 
   @override
   State<_ReceiptDialogContent> createState() => _ReceiptDialogContentState();
@@ -98,7 +121,12 @@ class _ReceiptDialogContentState extends State<_ReceiptDialogContent> {
     );
     _printerRepository = PrinterRepository();
     _selectedPageFormatLabel = _receiptPageFormats.keys.first;
-    _controller.loadReceipt(widget.paymentId);
+    final initialReceipt = widget.initialReceipt;
+    if (initialReceipt != null) {
+      _controller.seedReceipt(initialReceipt);
+    } else {
+      _controller.loadReceipt(widget.paymentId);
+    }
     _loadDefaultPrinter();
 
     if (widget.autoPrint) {

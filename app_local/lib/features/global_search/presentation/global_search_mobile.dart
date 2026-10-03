@@ -182,6 +182,7 @@ class GlobalSearchMobileView extends StatelessWidget {
                       ),
                     ),
                     onSubmitted: (_) => onSearch(),
+                    onChanged: (_) => onSearch(),
                   );
                 },
               ),

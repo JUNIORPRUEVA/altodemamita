@@ -2,23 +2,7 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "App Local Web Chrome DEV",
-      "request": "launch",
-      "type": "dart",
-      "cwd": "app_local",
-      "program": "lib/main.dart",
-      "flutterMode": "debug",
-      "deviceId": "chrome",
-      "toolArgs": [
-        "--dart-define=SYNC_API_BASE_URL=https://altomamita-backend.gcdndd.easypanel.host",
-        "--dart-define=CLOUD_CUTOVER_MODE=CLOUD_AUTHORITATIVE",
-        "--dart-define=ALLOW_CLOUD_PULL=true",
-        "--dart-define=ALLOW_LEGACY_MIGRATION=false",
-        "--dart-define=ALLOW_AUTH_BOOTSTRAP=false"
-      ]
-    },
-    {
-      "name": "App Local Windows DEV",
+      "name": "App Local Windows PRODUCCION",
       "request": "launch",
       "type": "dart",
       "cwd": "app_local",
@@ -28,6 +12,26 @@
       "toolArgs": [
         "--dart-define=SYNC_API_BASE_URL=https://altomamita-backend.gcdndd.easypanel.host",
         "--dart-define=CLOUD_CUTOVER_MODE=CLOUD_AUTHORITATIVE",
+        "--dart-define=PRODUCTION_MODE=true",
+        "--dart-define=STORAGE_NAMESPACE=SistemaSolares",
+        "--dart-define=ALLOW_CLOUD_PULL=true",
+        "--dart-define=ALLOW_LEGACY_MIGRATION=false",
+        "--dart-define=ALLOW_AUTH_BOOTSTRAP=false"
+      ]
+    },
+    {
+      "name": "App Local Web Chrome PRODUCCION",
+      "request": "launch",
+      "type": "dart",
+      "cwd": "app_local",
+      "program": "lib/main.dart",
+      "flutterMode": "debug",
+      "deviceId": "chrome",
+      "toolArgs": [
+        "--dart-define=SYNC_API_BASE_URL=https://altomamita-backend.gcdndd.easypanel.host",
+        "--dart-define=CLOUD_CUTOVER_MODE=CLOUD_AUTHORITATIVE",
+        "--dart-define=PRODUCTION_MODE=true",
+        "--dart-define=STORAGE_NAMESPACE=SistemaSolares",
         "--dart-define=ALLOW_CLOUD_PULL=true",
         "--dart-define=ALLOW_LEGACY_MIGRATION=false",
         "--dart-define=ALLOW_AUTH_BOOTSTRAP=false"

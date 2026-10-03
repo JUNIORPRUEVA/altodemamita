@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sistema_solares/features/payments/data/payments_repository.dart';
+import 'package:sistema_solares/features/payments/domain/payment_sale_context.dart';
 import 'package:sistema_solares/features/payments/domain/payment_sale_option.dart';
 import 'package:sistema_solares/features/payments/presentation/payments_controller.dart';
 
@@ -24,98 +25,174 @@ const PaymentSaleOption _saleOutsideWorkQueue = PaymentSaleOption(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('la busqueda de Pagos trae ventas que no estan en la cola de trabajo',
-      () async {
-    final repository = FakeSearchPaymentsRepository(
-      resultsByQuery: const {
-        '1212': [_saleOutsideWorkQueue],
-      },
-    );
-    final controller = PaymentsController(paymentsRepository: repository);
+  test(
+    'la busqueda de Pagos trae ventas que no estan en la cola de trabajo',
+    () async {
+      final repository = FakeSearchPaymentsRepository(
+        resultsByQuery: const {
+          '1212': [_saleOutsideWorkQueue],
+        },
+      );
+      final controller = PaymentsController(paymentsRepository: repository);
 
-    await controller.searchSales('1212');
+      await controller.searchSales('1212');
 
-    expect(controller.searchResults, hasLength(1));
-    expect(controller.searchResults.single.saleId, 9001);
-    expect(controller.searchResults.single.lotDisplayCode, 'Mgf-S1212');
-    expect(controller.isSearching, isFalse);
-    expect(controller.searchError, isNull);
-    expect(repository.queries, ['1212']);
+      expect(controller.searchResults, hasLength(1));
+      expect(controller.searchResults.single.saleId, 9001);
+      expect(controller.searchResults.single.lotDisplayCode, 'Mgf-S1212');
+      expect(controller.isSearching, isFalse);
+      expect(controller.searchError, isNull);
+      expect(repository.queries, ['1212']);
 
-    controller.dispose();
-  });
+      controller.dispose();
+    },
+  );
 
-  test('la busqueda consulta el backend por cedula y telefono, no solo por la lista local',
-      () async {
-    final repository = FakeSearchPaymentsRepository(
-      resultsByQuery: const {
-        '7568577557': [_saleOutsideWorkQueue],
-        '001-0000000-9': [_saleOutsideWorkQueue],
-      },
-    );
-    final controller = PaymentsController(paymentsRepository: repository);
+  test(
+    'la busqueda consulta el backend por cedula y telefono, no solo por la lista local',
+    () async {
+      final repository = FakeSearchPaymentsRepository(
+        resultsByQuery: const {
+          '7568577557': [_saleOutsideWorkQueue],
+          '001-0000000-9': [_saleOutsideWorkQueue],
+        },
+      );
+      final controller = PaymentsController(paymentsRepository: repository);
 
-    await controller.searchSales('7568577557');
-    expect(controller.searchResults, hasLength(1));
+      await controller.searchSales('7568577557');
+      expect(controller.searchResults, hasLength(1));
 
-    await controller.searchSales('001-0000000-9');
-    expect(controller.searchResults, hasLength(1));
-    expect(repository.queries, ['7568577557', '001-0000000-9']);
+      await controller.searchSales('001-0000000-9');
+      expect(controller.searchResults, hasLength(1));
+      expect(repository.queries, ['7568577557', '001-0000000-9']);
 
-    controller.dispose();
-  });
+      controller.dispose();
+    },
+  );
 
-  test('una respuesta fuera de orden no sobreescribe la busqueda mas reciente',
-      () async {
-    final slow = Completer<void>();
-    final fast = Completer<void>();
-    final repository = FakeSearchPaymentsRepository(
-      resultsByQuery: const {
-        'aaa': [_saleOutsideWorkQueue],
-        'bbb': [],
-      },
-      gateByQuery: {'aaa': slow, 'bbb': fast},
-    );
-    final controller = PaymentsController(paymentsRepository: repository);
+  test(
+    'una respuesta fuera de orden no sobreescribe la busqueda mas reciente',
+    () async {
+      final slow = Completer<void>();
+      final fast = Completer<void>();
+      final repository = FakeSearchPaymentsRepository(
+        resultsByQuery: const {
+          'aaa': [_saleOutsideWorkQueue],
+          'bbb': [],
+        },
+        gateByQuery: {'aaa': slow, 'bbb': fast},
+      );
+      final controller = PaymentsController(paymentsRepository: repository);
 
-    final firstRun = controller.searchSales('aaa');
-    final secondRun = controller.searchSales('bbb');
+      final firstRun = controller.searchSales('aaa');
+      final secondRun = controller.searchSales('bbb');
 
-    fast.complete();
-    await secondRun;
-    slow.complete();
-    await firstRun;
+      fast.complete();
+      await secondRun;
+      slow.complete();
+      await firstRun;
 
-    // La consulta vieja ('aaa') llega tarde y NO debe imponerse.
-    expect(controller.searchResults, isEmpty);
+      // La consulta vieja ('aaa') llega tarde y NO debe imponerse.
+      expect(controller.searchResults, isEmpty);
 
-    controller.dispose();
-  });
+      controller.dispose();
+    },
+  );
 
-  test('al cambiar la consulta no se heredan resultados del cliente anterior',
-      () async {
+  test(
+    'al cambiar la consulta no se heredan resultados del cliente anterior',
+    () async {
+      final gate = Completer<void>();
+      final repository = FakeSearchPaymentsRepository(
+        resultsByQuery: const {
+          'todoterreno': [_saleOutsideWorkQueue],
+          'x': [],
+        },
+        gateByQuery: {'x': gate},
+      );
+      final controller = PaymentsController(paymentsRepository: repository);
+
+      await controller.searchSales('todoterreno');
+      expect(controller.searchResults, hasLength(1));
+
+      final pending = controller.searchSales('xyz');
+      // Mientras la nueva consulta esta en vuelo, ya no debe mostrarse el
+      // resultado anterior como si fuera coincidencia.
+      expect(controller.searchResults, isEmpty);
+      expect(controller.isSearching, isTrue);
+
+      gate.complete();
+      await pending;
+      expect(controller.isSearching, isFalse);
+
+      controller.dispose();
+    },
+  );
+
+  test(
+    'muestra coincidencias locales mientras confirma contra el servidor',
+    () async {
+      final gate = Completer<void>();
+      final repository = FakeSearchPaymentsRepository(
+        resultsByQuery: const {'prueva': []},
+        gateByQuery: {'prueva': gate},
+      );
+      final controller = PaymentsController(paymentsRepository: repository)
+        ..activeSales = const [_saleOutsideWorkQueue];
+
+      final pending = controller.searchSales('prueva');
+
+      expect(controller.isSearching, isTrue);
+      expect(controller.searchResults, hasLength(1));
+      expect(controller.searchResults.single.saleId, 9001);
+
+      gate.complete();
+      await pending;
+
+      expect(controller.isSearching, isFalse);
+      expect(controller.searchResults, hasLength(1));
+
+      controller.dispose();
+    },
+  );
+
+  test('seleccionar una venta cancela una busqueda pendiente', () async {
     final gate = Completer<void>();
     final repository = FakeSearchPaymentsRepository(
       resultsByQuery: const {
-        'todoterreno': [_saleOutsideWorkQueue],
-        'x': [],
+        'prueva': [_saleOutsideWorkQueue],
       },
-      gateByQuery: {'x': gate},
+      gateByQuery: {'prueva': gate},
+      contextBySaleId: const {
+        9001: PaymentSaleContext(
+          sale: _saleOutsideWorkQueue,
+          monthlyInterest: 0,
+          installments: [],
+          history: [],
+        ),
+      },
     );
     final controller = PaymentsController(paymentsRepository: repository);
 
-    await controller.searchSales('todoterreno');
-    expect(controller.searchResults, hasLength(1));
-
-    final pending = controller.searchSales('xyz');
-    // Mientras la nueva consulta esta en vuelo, ya no debe mostrarse el
-    // resultado anterior como si fuera coincidencia.
-    expect(controller.searchResults, isEmpty);
+    final search = controller.searchSales('prueva');
     expect(controller.isSearching, isTrue);
 
-    gate.complete();
-    await pending;
+    final selection = controller.selectSale(
+      9001,
+      previewSale: _saleOutsideWorkQueue,
+    );
+
     expect(controller.isSearching, isFalse);
+    expect(controller.searchResults, isEmpty);
+
+    gate.complete();
+    await search;
+    await selection;
+
+    expect(controller.selectedSaleId, 9001);
+    expect(controller.selectedContext?.sale.saleId, 9001);
+    expect(controller.isSearching, isFalse);
+    expect(controller.searchResults, isEmpty);
 
     controller.dispose();
   });
@@ -172,11 +249,13 @@ class FakeSearchPaymentsRepository extends PaymentsRepository {
     this.resultsByQuery = const {},
     this.gateByQuery = const {},
     this.failQueries = const {},
+    this.contextBySaleId = const {},
   });
 
   final Map<String, List<PaymentSaleOption>> resultsByQuery;
   final Map<String, Completer<void>> gateByQuery;
   final Set<String> failQueries;
+  final Map<int, PaymentSaleContext> contextBySaleId;
   final List<String> queries = [];
 
   @override
@@ -194,4 +273,11 @@ class FakeSearchPaymentsRepository extends PaymentsRepository {
     }
     return resultsByQuery[query] ?? const [];
   }
+
+  @override
+  Future<PaymentSaleContext?> fetchCachedSaleContext(int saleId) async => null;
+
+  @override
+  Future<PaymentSaleContext?> fetchSaleContext(int saleId) async =>
+      contextBySaleId[saleId];
 }

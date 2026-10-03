@@ -44,7 +44,7 @@ void main() {
       expect(controller.hasVisibleData, isTrue);
       expect(controller.sales.map((s) => s.id), [1]);
       expect(controller.isLoading, isFalse);
-      expect(controller.isRefreshing, isTrue);
+      expect(controller.isRefreshing, isFalse);
       expect(controller.loadError, isNull);
 
       gate.complete();
@@ -186,7 +186,7 @@ void main() {
 
       expect(controller.sales.map((s) => s.id), [1]);
       expect(controller.isLoading, isFalse);
-      expect(controller.isRefreshing, isTrue);
+      expect(controller.isRefreshing, isFalse);
       expect(controller.searchFailed, isFalse);
 
       gate.complete();
@@ -360,7 +360,7 @@ void main() {
 
         expect(controller.sales.map((s) => s.id), [1]);
         expect(controller.isLoading, isFalse);
-        expect(controller.isRefreshing, isTrue);
+        expect(controller.isRefreshing, isFalse);
 
         gate.complete();
         await pumpEventQueue();

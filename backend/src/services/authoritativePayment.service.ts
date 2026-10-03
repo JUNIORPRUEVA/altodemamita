@@ -21,6 +21,11 @@ import {
   requireIdempotencyKey,
   runIdempotentOperation,
 } from './idempotency.service';
+import {
+  BUSINESS_TIMEZONE,
+  dateKeyInTimeZone,
+  isPastDueBusinessDay,
+} from './installmentStatus.service';
 
 type TransactionClient = Prisma.TransactionClient;
 type LoadedInstallment = Awaited<ReturnType<typeof loadActiveInstallments>>[number];
@@ -227,7 +232,7 @@ async function settleSaleInTransaction(
     if (isClosedStatus(installment.status ?? '')) {
       continue;
     }
-    const due = (installment.dueDate?.getTime() ?? Number.POSITIVE_INFINITY) <= paymentDate.getTime();
+    const due = isDueOnOrBeforeBusinessDate(installment.dueDate, paymentDate);
     if (due) {
       await tx.installment.update({
         where: { id: installment.id },
@@ -855,7 +860,7 @@ function buildSettlementQuoteResponse(
   );
   const dueInterest = roundCurrency(
     open
-      .filter((item) => (item.dueDate?.getTime() ?? Number.POSITIVE_INFINITY) <= asOfDate.getTime())
+      .filter((item) => isDueOnOrBeforeBusinessDate(item.dueDate, asOfDate))
       .reduce(
         (sum, item) =>
           sum + Math.max(toNumber(item.interestAmount) - toNumber(item.paidInterestAmount), 0),
@@ -864,7 +869,7 @@ function buildSettlementQuoteResponse(
   );
   const futureInterestWaived = roundCurrency(
     open
-      .filter((item) => (item.dueDate?.getTime() ?? Number.POSITIVE_INFINITY) > asOfDate.getTime())
+      .filter((item) => isAfterBusinessDate(item.dueDate, asOfDate))
       .reduce(
         (sum, item) =>
           sum + Math.max(toNumber(item.interestAmount) - toNumber(item.paidInterestAmount), 0),
@@ -1085,14 +1090,23 @@ async function assertCapitalPaymentAllowed(
       409,
     );
   }
-  const overdue = await tx.installment.findFirst({
+  const openInstallments = await tx.installment.findMany({
     where: {
       saleId,
       deletedAt: null,
       status: { notIn: ['pagada', 'ajustada', 'cancelada'] },
-      dueDate: { lt: paymentDate },
     },
   });
+  const overdue = openInstallments.find(
+    (item) =>
+      item.dueDate &&
+      isPastDueBusinessDay({
+        dueDate: item.dueDate,
+        businessDate: paymentDate,
+        timezone: BUSINESS_TIMEZONE,
+      }) &&
+      remainingAmount(item) > 0.009,
+  );
   if (overdue && remainingAmount(overdue) > 0.009) {
     throw new AuthoritativeError(
       'CAPITAL_PAYMENT_BLOCKED_OVERDUE_INSTALLMENTS',
@@ -1163,13 +1177,13 @@ export function resolveInstallmentsToProcess(input: {
     return input.installments.filter(
       (item) =>
         isEligible(item) &&
-        (item.dueDate?.getTime() ?? Number.POSITIVE_INFINITY) <= input.paymentDate.getTime(),
+        isDueOnOrBeforeBusinessDate(item.dueDate, input.paymentDate),
     );
   }
   const actionable = input.installments.find(
     (item) =>
       isEligible(item) &&
-      (item.dueDate?.getTime() ?? Number.POSITIVE_INFINITY) <= input.paymentDate.getTime(),
+      isDueOnOrBeforeBusinessDate(item.dueDate, input.paymentDate),
   );
   return actionable ? [actionable] : input.installments.filter(isEligible).slice(0, 1);
 }
@@ -1215,7 +1229,7 @@ async function recalculateFutureInstallments(
     if (input.currentInstallmentNumber > 0) {
       return (installment.installmentNumber ?? 0) > input.currentInstallmentNumber;
     }
-    return (installment.dueDate?.getTime() ?? 0) > input.paymentDate.getTime();
+    return isAfterBusinessDate(installment.dueDate, input.paymentDate);
   });
   if (futureInstallments.length === 0) {
     return;
@@ -1260,6 +1274,16 @@ async function recalculateFutureInstallments(
         : zeroAdjustedInstallmentData(),
     });
   }
+}
+
+function isDueOnOrBeforeBusinessDate(dueDate: Date | null | undefined, asOf: Date) {
+  if (!dueDate) return false;
+  return dateKeyInTimeZone(dueDate, BUSINESS_TIMEZONE) <= dateKeyInTimeZone(asOf, BUSINESS_TIMEZONE);
+}
+
+function isAfterBusinessDate(dueDate: Date | null | undefined, asOf: Date) {
+  if (!dueDate) return false;
+  return dateKeyInTimeZone(dueDate, BUSINESS_TIMEZONE) > dateKeyInTimeZone(asOf, BUSINESS_TIMEZONE);
 }
 
 async function regenerateInstallmentsForActivatedSale(

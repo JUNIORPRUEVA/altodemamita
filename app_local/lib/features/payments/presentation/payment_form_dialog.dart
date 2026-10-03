@@ -563,7 +563,7 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
               contentPadding: EdgeInsets.zero,
               title: const Text('Imprimir tique automáticamente'),
               subtitle: const Text(
-                'Si activas esta opción, al guardar el pago se abre e imprime el recibo.',
+                'Si activas esta opción, al aplicar el pago se abre e imprime el recibo.',
               ),
               value: _printReceiptAutomatically,
               onChanged: (value) {
@@ -712,8 +712,8 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
                   const SizedBox(width: 8),
                   FilledButton.icon(
                     onPressed: canSave ? _submit : null,
-                    icon: const Icon(Icons.save_outlined),
-                    label: const Text('Guardar pago'),
+                    icon: const Icon(Icons.check_circle_outline),
+                    label: const Text('Aplicar pago'),
                   ),
                 ],
               ),

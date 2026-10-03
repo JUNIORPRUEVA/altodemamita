@@ -21,6 +21,7 @@ class SaleDetailPage extends StatefulWidget {
   const SaleDetailPage({
     super.key,
     this.initialDetail,
+    this.loadCachedDetail,
     this.loadDetail,
     this.previewClientName,
     this.previewLotCode,
@@ -32,6 +33,9 @@ class SaleDetailPage extends StatefulWidget {
 
   /// Detalle ya cargado (crear / editar venta).
   final SaleDetail? initialDetail;
+
+  /// Ultimo detalle local/cacheado. Nunca debe bloquear la apertura visual.
+  final Future<SaleDetail?> Function()? loadCachedDetail;
 
   /// Carga diferida cuando solo se tiene el resumen de la lista.
   final Future<SaleDetail?> Function()? loadDetail;
@@ -55,30 +59,49 @@ class SaleDetailPage extends StatefulWidget {
 class _SaleDetailPageState extends State<SaleDetailPage> {
   SaleDetail? _detail;
   bool _isLoading = false;
+  bool _loadInFlight = false;
 
   @override
   void initState() {
     super.initState();
     _detail = widget.initialDetail;
-    if (widget.loadDetail != null) {
+    _isLoading =
+        _detail == null &&
+        (widget.loadCachedDetail != null || widget.loadDetail != null);
+    if (widget.loadCachedDetail != null || widget.loadDetail != null) {
       _load();
     }
   }
 
   Future<void> _load() async {
-    final loader = widget.loadDetail;
-    if (loader == null || _isLoading) {
+    final cachedLoader = widget.loadCachedDetail;
+    final authoritativeLoader = widget.loadDetail;
+    if ((cachedLoader == null && authoritativeLoader == null) ||
+        _loadInFlight) {
       return;
     }
-    setState(() {
-      _isLoading = true;
-    });
-    SaleDetail? detail;
-    try {
-      detail = await loader();
-    } catch (_) {
-      detail = null;
+    _loadInFlight = true;
+    if (mounted && !_isLoading) {
+      setState(() {
+        _isLoading = true;
+      });
     }
+
+    if (cachedLoader != null) {
+      final cachedDetail = await _guardDetailLoad(cachedLoader);
+      if (!mounted) {
+        return;
+      }
+      if (cachedDetail != null) {
+        setState(() {
+          _detail = cachedDetail;
+        });
+      }
+    }
+
+    final detail = authoritativeLoader == null
+        ? null
+        : await _guardDetailLoad(authoritativeLoader);
     if (!mounted) {
       return;
     }
@@ -88,6 +111,17 @@ class _SaleDetailPageState extends State<SaleDetailPage> {
         _detail = detail;
       }
     });
+    _loadInFlight = false;
+  }
+
+  Future<SaleDetail?> _guardDetailLoad(
+    Future<SaleDetail?> Function() loader,
+  ) async {
+    try {
+      return await loader();
+    } catch (_) {
+      return null;
+    }
   }
 
   @override
@@ -105,7 +139,7 @@ class _SaleDetailPageState extends State<SaleDetailPage> {
           SaleDetailPage.title,
           style: TextStyle(
             fontSize: 21,
-            fontWeight: FontWeight.w700,
+            fontWeight: FontWeight.w500,
             color: Color(0xFF16202E),
           ),
         ),
@@ -196,7 +230,11 @@ class _SaleDetailPageState extends State<SaleDetailPage> {
       );
     }
 
-    return _LoadFailedState(onRetry: widget.loadDetail == null ? null : _load);
+    return _LoadFailedState(
+      onRetry: widget.loadCachedDetail == null && widget.loadDetail == null
+          ? null
+          : _load,
+    );
   }
 }
 
@@ -328,7 +366,7 @@ class _IdentityCard extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               fontSize: 23,
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.w500,
               color: Color(0xFF16202E),
               height: 1.2,
             ),
@@ -446,7 +484,7 @@ class _FinancialSection extends StatelessWidget {
                 maxLines: 1,
                 style: TextStyle(
                   fontSize: 18.5,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w500,
                   color: tone ?? const Color(0xFF16202E),
                 ),
               ),
@@ -485,7 +523,7 @@ class _PaymentPlanSection extends StatelessWidget {
                 '$total cuotas',
                 style: const TextStyle(
                   fontSize: 18,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w500,
                   color: Color(0xFF16202E),
                 ),
               ),
@@ -531,6 +569,7 @@ class _PaymentPlanSection extends StatelessWidget {
                           : () => openSalePaymentsHistory(
                               context,
                               saleId: saleId,
+                              previewDetail: detail,
                             ),
                     ),
                   ),
@@ -567,7 +606,7 @@ class _SectionTitle extends StatelessWidget {
         title.toUpperCase(),
         style: const TextStyle(
           fontSize: 13,
-          fontWeight: FontWeight.w700,
+          fontWeight: FontWeight.w500,
           letterSpacing: 0.4,
           color: Color(0xFF98A2B3),
         ),
@@ -817,7 +856,7 @@ class _LoadingState extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   fontSize: 15,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w500,
                   color: Color(0xFF16202E),
                 ),
               ),
@@ -864,7 +903,7 @@ class _LoadFailedState extends StatelessWidget {
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 16,
-                fontWeight: FontWeight.w700,
+                fontWeight: FontWeight.w500,
                 color: Color(0xFF16202E),
               ),
             ),

@@ -41,7 +41,10 @@ class ModuleStatusBanner extends StatelessWidget {
               Expanded(
                 child: Text(
                   'No pudimos actualizar$label. Mostrando los datos guardados.',
-                  style: const TextStyle(fontSize: 12, color: Color(0xFF7A4A00)),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF7A4A00),
+                  ),
                 ),
               ),
               if (onRetry != null)
@@ -64,7 +67,7 @@ class ModuleStatusBanner extends StatelessWidget {
     }
 
     if (isRefreshing) {
-      return const LinearProgressIndicator(minHeight: 1);
+      return const SizedBox.shrink();
     }
 
     return const SizedBox.shrink();
@@ -114,7 +117,11 @@ class ModuleSearchFailedView extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.search_off_outlined, size: 44, color: Color(0xFFB54708)),
+            const Icon(
+              Icons.search_off_outlined,
+              size: 44,
+              color: Color(0xFFB54708),
+            ),
             const SizedBox(height: 12),
             Text(
               message,

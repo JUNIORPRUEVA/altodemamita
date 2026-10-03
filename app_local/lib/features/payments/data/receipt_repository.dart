@@ -6,6 +6,7 @@ import '../../installments/domain/installment.dart';
 import '../../settings/data/company_repository.dart';
 import '../../settings/domain/company_info.dart';
 import '../domain/payment_history_item.dart';
+import '../domain/payment_sale_context.dart';
 import '../domain/receipt.dart';
 import 'payments_repository.dart';
 
@@ -37,6 +38,122 @@ class ReceiptRepository {
       await _appDatabase.close();
       return _fetchReceiptByPaymentId(paymentId);
     }
+  }
+
+  Future<Receipt> buildReceiptFromContext({
+    required PaymentSaleContext context,
+    required PaymentHistoryItem payment,
+  }) async {
+    var company = _companyRepository != null
+        ? await _companyRepository.getCompanyInfo()
+        : null;
+    if (company == null && _settingsDatabase != null) {
+      final companyRepo = CompanyRepository(_settingsDatabase);
+      company = await companyRepo.getCompanyInfo();
+    }
+    company ??= await CompanyRepository(
+      await _appDatabase.database,
+    ).getCompanyInfo();
+    company ??= CompanyInfo(
+      nombre: 'Sistema de Solares',
+      telefono: null,
+      direccion: null,
+      logoBytesBase64: null,
+      fechaCreacion: DateTime.now(),
+      fechaActualizacion: DateTime.now(),
+    );
+
+    final paymentReference = (payment.reference ?? '').trim();
+    final operationPayments = paymentReference.isEmpty
+        ? [payment]
+        : context.history
+              .where(
+                (item) =>
+                    item.saleId == payment.saleId &&
+                    (item.reference ?? '').trim() == paymentReference,
+              )
+              .toList(growable: false);
+    final receiptPayments = operationPayments.isEmpty
+        ? [payment]
+        : operationPayments;
+
+    Installment? paidInstallment;
+    final installmentId = payment.installmentId;
+    if (installmentId != null) {
+      for (final installment in context.installments) {
+        if (installment.id == installmentId ||
+            installment.installmentNumber == payment.installmentNumber) {
+          paidInstallment = installment;
+          break;
+        }
+      }
+    }
+
+    final paidCapital = receiptPayments
+        .where((item) => item.paymentType == 'abono_capital')
+        .fold<double>(0, (sum, item) => sum + item.amountPaid);
+    final paidInstallments = context.installments
+        .where((i) => i.status == 'pagada' || i.status == 'ajustada')
+        .length;
+    final remainingInstallments =
+        context.installments.length - paidInstallments;
+    final totalPaidAccumulated = context.history.fold<double>(
+      0,
+      (sum, item) => sum + item.amountPaid,
+    );
+    final nextInstallment =
+        context.actionableInstallment ??
+        context.installments
+            .where((installment) => !_isClosedStatus(installment.status))
+            .cast<Installment?>()
+            .firstWhere((item) => item != null, orElse: () => null);
+    final accountStatusLabel = _buildAccountStatus(
+      context.sale,
+      nextInstallment,
+      payment.paymentDate,
+    );
+    final lotParts = _splitLotDisplayCode(context.sale.lotDisplayCode);
+    final hasInitialStagePayments = receiptPayments.any(
+      (item) =>
+          item.paymentType == 'apartado' || item.paymentType == 'abono_inicial',
+    );
+    final installmentCount = context.installments.length;
+    final conditionsOfPayment = hasInitialStagePayments
+        ? 'Pago aplicado al inicial requerido de la venta. El financiamiento solo inicia cuando el inicial queda completado.'
+        : installmentCount <= 0
+        ? 'Pago registrado sin plan de cuotas asociado.'
+        : '$installmentCount cuotas mensuales fijas con interes simple de ${context.monthlyInterest.toStringAsFixed(2)}% sobre el capital financiado original.';
+    final note = hasInitialStagePayments
+        ? 'Este recibo corresponde a un pago previo a la activación del financiamiento. El saldo del inicial y el estado de la venta fueron actualizados en el sistema.'
+        : 'Conserve este recibo. Cada pago reduce el saldo pendiente del plan sin recalcular el interes pactado ni cambiar la cuota mensual fija.';
+
+    return Receipt(
+      paymentId: payment.id,
+      receiptNumber: _generateReceiptNumber(payment.id, payment.paymentDate),
+      paymentDate: payment.paymentDate,
+      sale: context.sale,
+      payment: payment,
+      payments: receiptPayments,
+      company: company,
+      paidInstallment: paidInstallment,
+      paidCapitalAmount: paidCapital > 0 ? paidCapital : null,
+      installmentsPaid: paidInstallments,
+      installmentsRemaining: remainingInstallments,
+      totalPaidAccumulated: _toDouble(totalPaidAccumulated),
+      accountStatusLabel: accountStatusLabel,
+      nextInstallmentNumber: nextInstallment?.installmentNumber,
+      nextInstallmentDueDate: nextInstallment?.dueDate,
+      nextInstallmentAmount: nextInstallment?.remainingAmount,
+      monthlyInterest: context.monthlyInterest,
+      blockNumber: lotParts.$1,
+      lotNumber: lotParts.$2,
+      installmentCount: installmentCount,
+      userName: '',
+      paymentRegisteredByName: '',
+      sellerName: null,
+      conditionsOfPayment: conditionsOfPayment,
+      note: note,
+    );
   }
 
   Future<Receipt?> _fetchReceiptByPaymentId(int paymentId) async {
@@ -252,6 +369,21 @@ class ReceiptRepository {
   String _generateReceiptNumber(int paymentId, DateTime paymentDate) {
     final dateStr = paymentDate.toString().substring(0, 10).replaceAll('-', '');
     return '$dateStr-$paymentId';
+  }
+
+  (String, String) _splitLotDisplayCode(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      return ('', '');
+    }
+    final separator = trimmed.indexOf('-');
+    if (separator <= 0 || separator >= trimmed.length - 1) {
+      return (trimmed, '');
+    }
+    return (
+      trimmed.substring(0, separator).trim(),
+      trimmed.substring(separator + 1).trim(),
+    );
   }
 
   double _toDouble(Object? value) {

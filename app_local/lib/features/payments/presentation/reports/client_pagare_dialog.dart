@@ -33,21 +33,7 @@ class ClientPagareDialog {
     required ClientPagareReport report,
   }) async {
     try {
-      final db = await AppDatabase.instance.database;
-      final company =
-          await CompanyRepository(db).getCompanyInfo() ??
-          CompanyInfo.empty().copyWith(nombre: 'Sistema de Solares');
-      final bytes = await ClientPagarePdfBuilder.build(
-        report: report,
-        company: company,
-      );
-
-      await Printing.layoutPdf(
-        name: 'Pagares-Cliente-${report.clientId}',
-        format: ClientPagarePdfBuilder.pageFormat,
-        usePrinterSettings: true,
-        onLayout: (_) async => bytes,
-      );
+      await printReport(report: report);
     } catch (error) {
       FriendlyErrorMessages.forOperation(
         'imprimir la lista de pagos',
@@ -55,6 +41,24 @@ class ClientPagareDialog {
         module: 'reportes',
       );
     }
+  }
+
+  static Future<bool> printReport({required ClientPagareReport report}) async {
+    final db = await AppDatabase.instance.database;
+    final company =
+        await CompanyRepository(db).getCompanyInfo() ??
+        CompanyInfo.empty().copyWith(nombre: 'Sistema de Solares');
+    final bytes = await ClientPagarePdfBuilder.build(
+      report: report,
+      company: company,
+    );
+
+    return Printing.layoutPdf(
+      name: 'Lista-Pagos-Cliente-${report.clientId}',
+      format: ClientPagarePdfBuilder.pageFormat,
+      usePrinterSettings: true,
+      onLayout: (_) async => bytes,
+    );
   }
 }
 

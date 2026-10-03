@@ -8,6 +8,7 @@ import 'package:sistema_solares/features/auth/domain/permission_model.dart';
 import 'package:sistema_solares/features/auth/domain/user_model.dart';
 import 'package:sistema_solares/features/auth/presentation/auth_provider.dart';
 import 'package:sistema_solares/features/payments/data/payments_repository.dart';
+import 'package:sistema_solares/features/payments/domain/payment_history_item.dart';
 import 'package:sistema_solares/features/payments/domain/payment_sale_context.dart';
 import 'package:sistema_solares/features/payments/domain/payment_sale_option.dart';
 import 'package:sistema_solares/features/payments/presentation/payment_history_fullscreen.dart';
@@ -78,6 +79,7 @@ class _FakePaymentsRepository extends PaymentsRepository {
 PaymentSaleContext _paymentContext({
   double pendingBalance = 12345678.9,
   String clientName = 'CLIENTE CON NOMBRE LARGO DE PRUEBA',
+  List<PaymentHistoryItem> history = const [],
 }) {
   return PaymentSaleContext(
     sale: PaymentSaleOption(
@@ -95,7 +97,7 @@ PaymentSaleContext _paymentContext({
     ),
     monthlyInterest: 1,
     installments: const [],
-    history: const [],
+    history: history,
   );
 }
 
@@ -109,7 +111,11 @@ Iterable<Scrollable> _horizontalScrollables(WidgetTester tester) {
       );
 }
 
-Future<void> _pumpTable(WidgetTester tester, Size size, {int count = 24}) async {
+Future<void> _pumpTable(
+  WidgetTester tester,
+  Size size, {
+  int count = 24,
+}) async {
   useTestSize(tester, size);
   await tester.pumpWidget(
     testApp(
@@ -132,7 +138,15 @@ Future<void> _pumpTable(WidgetTester tester, Size size, {int count = 24}) async 
 
 void main() {
   group('Cuotas amortizadas (tabla plana) - compacto', () {
-    for (final width in const [320.0, 360.0, 375.0, 390.0, 412.0, 430.0, 768.0]) {
+    for (final width in const [
+      320.0,
+      360.0,
+      375.0,
+      390.0,
+      412.0,
+      430.0,
+      768.0,
+    ]) {
       testWidgets('sin desbordes a ${width.toInt()} px', (tester) async {
         await _pumpTable(tester, Size(width, 800));
 
@@ -171,8 +185,7 @@ void main() {
 
       final vertical = find.byWidgetPredicate(
         (widget) =>
-            widget is Scrollable &&
-            widget.axisDirection == AxisDirection.down,
+            widget is Scrollable && widget.axisDirection == AxisDirection.down,
       );
       expect(vertical, findsOneWidget);
 
@@ -187,7 +200,9 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('en escritorio (1024) NO usa scroll horizontal', (tester) async {
+    testWidgets('en escritorio (1024) NO usa scroll horizontal', (
+      tester,
+    ) async {
       await _pumpTable(tester, const Size(1024, 800));
 
       expect(_horizontalScrollables(tester), isEmpty);
@@ -281,14 +296,99 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    for (final width in const [320.0, 360.0, 375.0, 390.0, 412.0, 430.0, 768.0]) {
+    testWidgets('con vista previa abre el historial antes de cargar pagos', (
+      tester,
+    ) async {
+      useTestSize(tester, const Size(390, 844));
+      final gate = Completer<void>();
+      final repository = _FakePaymentsRepository(
+        context: _paymentContext(
+          history: [
+            PaymentHistoryItem(
+              id: 1,
+              saleId: 10,
+              clientId: 1,
+              paymentDate: DateTime(2026, 5, 2),
+              amountPaid: 15000,
+              paymentMethod: 'efectivo',
+              paymentType: 'cuota',
+              installmentNumber: 1,
+            ),
+          ],
+        ),
+        gate: gate,
+      );
+      const previewSale = PaymentSaleOption(
+        saleId: 10,
+        clientId: 1,
+        clientName: 'CLIENTE PREVIEW',
+        clientDocumentId: '001-0000000-1',
+        clientPhone: '',
+        lotDisplayCode: 'MM-B-1-S446',
+        pendingBalance: 120000,
+        requiredInitialPayment: 75000,
+        paidInitialPayment: 75000,
+        pendingInitialPayment: 0,
+        status: 'activa',
+      );
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider<AuthProvider>.value(
+              value: _TestAuthProvider(),
+            ),
+          ],
+          child: MaterialApp(
+            home: Builder(
+              builder: (context) => Scaffold(
+                body: Center(
+                  child: ElevatedButton(
+                    onPressed: () => openSalePaymentHistoryById(
+                      context,
+                      saleId: 10,
+                      previewSale: previewSale,
+                      paymentsRepository: repository,
+                    ),
+                    child: const Text('Ver pagos'),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Ver pagos'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(find.textContaining('Historial de pagos'), findsOneWidget);
+      expect(find.textContaining('CLIENTE PREVIEW'), findsOneWidget);
+      expect(find.text('Cargando pagos…'), findsNothing);
+      expect(repository.calls, 1);
+
+      gate.complete();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Pago de cuota #1'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    for (final width in const [
+      320.0,
+      360.0,
+      375.0,
+      390.0,
+      412.0,
+      430.0,
+      768.0,
+    ]) {
       testWidgets('historial de pagos sin desbordes a ${width.toInt()} px', (
         tester,
       ) async {
         useTestSize(tester, Size(width, 800));
-        final repository = _FakePaymentsRepository(
-          context: _paymentContext(),
-        );
+        final repository = _FakePaymentsRepository(context: _paymentContext());
 
         await tester.pumpWidget(
           MultiProvider(
