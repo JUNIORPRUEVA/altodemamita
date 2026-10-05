@@ -1,4 +1,4 @@
-﻿import 'dart:math' as math;
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -57,6 +57,10 @@ class PaymentFormDialog extends StatefulWidget {
 }
 
 class _PaymentFormDialogState extends State<PaymentFormDialog> {
+  static const bool _lateFeeEnabled = true;
+  static const double _lateFeeDailyRate = 0.005;
+  static const int _lateFeeGraceDays = 5;
+
   static const List<String> _paymentMethods = [
     'efectivo',
     'transferencia',
@@ -74,6 +78,7 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
   int? _selectedOverdueInstallmentId;
   late DateTime _paymentDate;
   bool _printReceiptAutomatically = false;
+  bool _amountWasAutoPrefilled = false;
 
   @override
   void initState() {
@@ -103,7 +108,9 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
       }
     } else if (_selectedPaymentType == 'cuota_vencida' &&
         widget.overdueInstallments.isNotEmpty) {
-      prefillAmount = widget.overdueInstallments.first.remainingAmount;
+      prefillAmount = _recommendedTotalForInstallments([
+        widget.overdueInstallments.first,
+      ]);
     } else if (_selectedPaymentType == 'cuota' &&
         widget.actionableInstallment != null) {
       prefillAmount = null; // do not auto-fill for current installment
@@ -114,6 +121,9 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
           ? _amountFormatter.formatValue(prefillAmount)
           : '',
     );
+    if (prefillAmount != null) {
+      _amountWasAutoPrefilled = true;
+    }
     _yearToPayController = TextEditingController(
       text: DateTime.now().year.toString(),
     );
@@ -188,15 +198,16 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
       if (newType == 'cuota_vencida' && widget.overdueInstallments.isNotEmpty) {
         _selectedOverdueInstallmentId ??= widget.overdueInstallments.first.id;
         _amountController.text = _amountFormatter.formatValue(
-          _effectiveInstallment!.remainingAmount,
+          _recommendedTotalForInstallments([_effectiveInstallment!]),
         );
+        _amountWasAutoPrefilled = true;
       } else if (newType == 'todas_cuotas_vencidas' &&
           widget.overdueInstallments.isNotEmpty) {
-        final total = widget.overdueInstallments.fold(
-          0.0,
-          (sum, i) => sum + i.remainingAmount,
+        final total = _recommendedTotalForInstallments(
+          widget.overdueInstallments,
         );
         _amountController.text = _amountFormatter.formatValue(total);
+        _amountWasAutoPrefilled = true;
       } else if (newType == 'cuota' && widget.actionableInstallment != null) {
         // Don't auto-fill cuota to avoid overwriting user input
       } else if (newType == 'abono_capital') {
@@ -210,19 +221,18 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
       _selectedPaymentType = 'cuota_vencida';
       _selectedOverdueInstallmentId = installment.id;
       _amountController.text = _amountFormatter.formatValue(
-        installment.remainingAmount,
+        _recommendedTotalForInstallments([installment]),
       );
+      _amountWasAutoPrefilled = true;
     });
   }
 
   void _applyAllOverdueInstallments() {
-    final total = widget.overdueInstallments.fold(
-      0.0,
-      (sum, i) => sum + i.remainingAmount,
-    );
+    final total = _recommendedTotalForInstallments(widget.overdueInstallments);
     setState(() {
       _selectedPaymentType = 'todas_cuotas_vencidas';
       _amountController.text = _amountFormatter.formatValue(total);
+      _amountWasAutoPrefilled = true;
     });
   }
 
@@ -232,21 +242,37 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
     final effectiveInstallment = _effectiveInstallment;
     final amount = _parseDouble(_amountController.text) ?? 0;
     final hasAmount = amount > 0.009;
+    final selectedLateFeePreview = _lateFeePreviewForSelection();
+    final lateFeeCovered = selectedLateFeePreview.hasItems
+        ? math.min(amount, selectedLateFeePreview.totalLateFee)
+        : 0.0;
+    final amountAvailableForDebt = selectedLateFeePreview.hasItems
+        ? (amount - lateFeeCovered).clamp(0.0, double.infinity)
+        : amount;
 
     final installmentApplied =
         !isFinancingActive || effectiveInstallment == null
         ? 0.0
-        : amount.clamp(0.0, effectiveInstallment.remainingAmount);
+        : amountAvailableForDebt.clamp(
+            0.0,
+            effectiveInstallment.remainingAmount,
+          );
     final capitalApplied = isFinancingActive
-        ? (amount - installmentApplied).clamp(0.0, double.infinity)
+        ? _selectedPaymentType == 'todas_cuotas_vencidas'
+              ? 0.0
+              : (amountAvailableForDebt - installmentApplied).clamp(
+                  0.0,
+                  double.infinity,
+                )
         : 0.0;
     final currentPendingAmount = isFinancingActive
         ? widget.sale.pendingBalance
         : widget.sale.pendingInitialPayment;
-    final projectedPendingAmount = (currentPendingAmount - amount).clamp(
-      0.0,
-      double.infinity,
-    );
+    final projectedPendingAmount =
+        (currentPendingAmount - amountAvailableForDebt).clamp(
+          0.0,
+          double.infinity,
+        );
 
     final dialogTitle = !isFinancingActive
         ? (widget.sale.paidInitialPayment <= 0.009
@@ -388,17 +414,15 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
                 ),
                 inputFormatters: [_amountFormatter],
                 validator: (value) {
-                  final parsed = _parseDouble(value);
-                  if (parsed == null || parsed <= 0) {
-                    return 'Ingrese un monto válido mayor que cero';
-                  }
-                  if (!isFinancingActive &&
-                      parsed - widget.sale.pendingInitialPayment > 0.009) {
-                    return 'No puede exceder el inicial pendiente';
-                  }
-                  return null;
+                  return _validateAmount(
+                    value,
+                    isFinancingActive: isFinancingActive,
+                    lateFeePreview: selectedLateFeePreview,
+                  );
                 },
-                onChanged: (_) => setState(() {}),
+                onChanged: (_) => setState(() {
+                  _amountWasAutoPrefilled = false;
+                }),
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
@@ -470,18 +494,16 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
                       ),
                       inputFormatters: [_amountFormatter],
                       validator: (value) {
-                        final parsed = _parseDouble(value);
-                        if (parsed == null || parsed <= 0) {
-                          return 'Monto inválido';
-                        }
-                        if (!isFinancingActive &&
-                            parsed - widget.sale.pendingInitialPayment >
-                                0.009) {
-                          return 'Excede inicial';
-                        }
-                        return null;
+                        return _validateAmount(
+                          value,
+                          isFinancingActive: isFinancingActive,
+                          lateFeePreview: selectedLateFeePreview,
+                          compact: true,
+                        );
                       },
-                      onChanged: (_) => setState(() {}),
+                      onChanged: (_) => setState(() {
+                        _amountWasAutoPrefilled = false;
+                      }),
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -621,11 +643,28 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
                           ? '${widget.overdueInstallments.length} cuotas vencidas: ${widget.overdueInstallments.map((i) => '#${i.installmentNumber}').join(', ')}'
                           : effectiveInstallment == null
                           ? 'Abono a capital'
-                          : amount > effectiveInstallment.remainingAmount
+                          : amountAvailableForDebt >
+                                effectiveInstallment.remainingAmount
                           ? 'Cuota #${effectiveInstallment.installmentNumber} + abono a capital'
                           : 'Cuota #${effectiveInstallment.installmentNumber}',
                     ),
                     _summaryRow('Pago a registrar', _money(amount)),
+                    if (selectedLateFeePreview.hasItems) ...[
+                      _summaryRow(
+                        'Saldo de cuotas',
+                        _money(selectedLateFeePreview.totalInstallments),
+                      ),
+                      _summaryRow(
+                        'Mora calculada',
+                        '${_money(selectedLateFeePreview.totalLateFee)} (${selectedLateFeePreview.totalLateFeeDays} dia${selectedLateFeePreview.totalLateFeeDays == 1 ? '' : 's'} de mora)',
+                        highlight: selectedLateFeePreview.totalLateFee > 0.009,
+                      ),
+                      _summaryRow(
+                        'Total recomendado',
+                        _money(selectedLateFeePreview.recommendedTotal),
+                        highlight: true,
+                      ),
+                    ],
                     _summaryRow(
                       isFinancingActive
                           ? 'Saldo actual del plan'
@@ -788,7 +827,7 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
                       onPressed: _applyAllOverdueInstallments,
                       icon: const Icon(Icons.playlist_add_check, size: 14),
                       label: Text(
-                        'Pagar todas (${_money(overdueInstallments.fold(0.0, (s, i) => s + i.remainingAmount))})',
+                        'Pagar todas (${_money(_recommendedTotalForInstallments(overdueInstallments))})',
                         style: const TextStyle(fontSize: 11),
                       ),
                     ),
@@ -834,7 +873,7 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
                           children: [
                             Expanded(
                               child: Text(
-                                'Cuota #${installment.installmentNumber} · ${_formatDate(installment.dueDate)} · ${_money(installment.remainingAmount)}',
+                                _overdueInstallmentLabel(installment),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
@@ -892,6 +931,11 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
         _paymentDate.hour,
         _paymentDate.minute,
       );
+      if (_amountWasAutoPrefilled) {
+        _amountController.text = _amountFormatter.formatValue(
+          _recommendedTotalForInstallments(_selectedInstallmentsForPreview()),
+        );
+      }
     });
   }
 
@@ -924,6 +968,106 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
   double? _parseDouble(String? value) {
     if (value == null || value.trim().isEmpty) return null;
     return parseRdCurrency(value);
+  }
+
+  String? _validateAmount(
+    String? value, {
+    required bool isFinancingActive,
+    required _LateFeePreview lateFeePreview,
+    bool compact = false,
+  }) {
+    final parsed = _parseDouble(value);
+    if (parsed == null || parsed <= 0) {
+      return compact
+          ? 'Monto invalido'
+          : 'Ingrese un monto valido mayor que cero';
+    }
+    if (!isFinancingActive &&
+        parsed - widget.sale.pendingInitialPayment > 0.009) {
+      return compact
+          ? 'Excede inicial'
+          : 'No puede exceder el inicial pendiente';
+    }
+    if (lateFeePreview.hasItems &&
+        lateFeePreview.totalLateFee > 0.009 &&
+        parsed + 0.009 < lateFeePreview.totalLateFee) {
+      return 'Menor que la mora calculada';
+    }
+    return null;
+  }
+
+  List<Installment> _selectedInstallmentsForPreview() {
+    if (_selectedPaymentType == 'todas_cuotas_vencidas') {
+      return widget.overdueInstallments;
+    }
+    if (_selectedPaymentType == 'cuota_vencida') {
+      final installment = _effectiveInstallment;
+      return installment == null ? const [] : [installment];
+    }
+    return const [];
+  }
+
+  _LateFeePreview _lateFeePreviewForSelection() {
+    return _buildLateFeePreview(_selectedInstallmentsForPreview());
+  }
+
+  _LateFeePreview _buildLateFeePreview(List<Installment> installments) {
+    if (installments.isEmpty) return _LateFeePreview.empty();
+
+    var installmentTotal = 0.0;
+    var lateFeeTotal = 0.0;
+    var lateFeeDaysTotal = 0;
+    for (final installment in installments) {
+      final remaining = _roundCurrency(installment.remainingAmount);
+      final lateFeeDays = _lateFeeDaysFor(installment);
+      final lateFee = _lateFeeFor(installment);
+      installmentTotal = _roundCurrency(installmentTotal + remaining);
+      lateFeeTotal = _roundCurrency(lateFeeTotal + lateFee);
+      lateFeeDaysTotal += lateFeeDays;
+    }
+
+    return _LateFeePreview(
+      installmentTotal: installmentTotal,
+      lateFeeTotal: lateFeeTotal,
+      lateFeeDaysTotal: lateFeeDaysTotal,
+    );
+  }
+
+  double _recommendedTotalForInstallments(List<Installment> installments) {
+    return _buildLateFeePreview(installments).recommendedTotal;
+  }
+
+  int _lateFeeDaysFor(Installment installment) {
+    if (!_lateFeeEnabled || installment.remainingAmount <= 0.009) return 0;
+    final overdueDays = _calendarDaysBetween(installment.dueDate, _paymentDate);
+    return math.max(0, overdueDays - _lateFeeGraceDays);
+  }
+
+  double _lateFeeFor(Installment installment) {
+    final lateFeeDays = _lateFeeDaysFor(installment);
+    if (lateFeeDays <= 0) return 0;
+    return _roundCurrency(
+      installment.remainingAmount * _lateFeeDailyRate * lateFeeDays,
+    );
+  }
+
+  int _calendarDaysBetween(DateTime earlier, DateTime later) {
+    final start = DateTime(earlier.year, earlier.month, earlier.day);
+    final end = DateTime(later.year, later.month, later.day);
+    return end.difference(start).inDays;
+  }
+
+  double _roundCurrency(double value) {
+    return (value * 100).round() / 100;
+  }
+
+  String _overdueInstallmentLabel(Installment installment) {
+    final lateFee = _lateFeeFor(installment);
+    final base =
+        'Cuota #${installment.installmentNumber} · ${_formatDate(installment.dueDate)} · ${_money(installment.remainingAmount)}';
+    if (lateFee <= 0.009) return base;
+    final total = _recommendedTotalForInstallments([installment]);
+    return '$base + mora ${_money(lateFee)} = ${_money(total)}';
   }
 
   String _money(double value) => 'RD\$ ${formatRdCurrency(value)}';
@@ -976,4 +1120,31 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
       ),
     );
   }
+}
+
+class _LateFeePreview {
+  const _LateFeePreview({
+    required this.installmentTotal,
+    required this.lateFeeTotal,
+    required this.lateFeeDaysTotal,
+  });
+
+  factory _LateFeePreview.empty() {
+    return const _LateFeePreview(
+      installmentTotal: 0,
+      lateFeeTotal: 0,
+      lateFeeDaysTotal: 0,
+    );
+  }
+
+  final double installmentTotal;
+  final double lateFeeTotal;
+  final int lateFeeDaysTotal;
+
+  bool get hasItems => installmentTotal > 0.009;
+  double get totalInstallments => installmentTotal;
+  double get totalLateFee => lateFeeTotal;
+  int get totalLateFeeDays => lateFeeDaysTotal;
+  double get recommendedTotal =>
+      ((installmentTotal + lateFeeTotal) * 100).round() / 100;
 }

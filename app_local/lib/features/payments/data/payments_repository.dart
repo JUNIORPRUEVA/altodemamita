@@ -66,8 +66,13 @@ class PaymentsRepository {
   bool get _useBackendMode => cloudCutoverMode.usesAuthoritativeBusinessWrites;
   bool get usesBackendMode => _useBackendMode;
 
-  void _log(String message) {
-    developer.log(message, name: 'SistemaSolares.PaymentsSync');
+  void _log(String message, {Object? error, StackTrace? stackTrace}) {
+    developer.log(
+      message,
+      name: 'SistemaSolares.PaymentsSync',
+      error: error,
+      stackTrace: stackTrace,
+    );
   }
 
   Future<T> _runWithDatabaseRetry<T>(Future<T> Function() action) async {
@@ -302,6 +307,230 @@ class PaymentsRepository {
         partial: _toInt(counts['partial']),
       ),
     );
+  }
+
+  Future<PaymentWorkQueue> _fetchLocalWorkQueue({
+    required String state,
+    required String search,
+    required int page,
+    required int pageSize,
+  }) async {
+    final db = await _appDatabase.database;
+    final normalizedSearch = search.trim();
+    final searchClause = normalizedSearch.isEmpty
+        ? ''
+        : '''
+        AND (
+          COALESCE(c.nombre, '') LIKE ?
+          OR COALESCE(c.cedula, '') LIKE ?
+          OR COALESCE(c.telefono, '') LIKE ?
+          OR COALESCE(s.manzana_numero, '') LIKE ?
+          OR COALESCE(s.solar_numero, '') LIKE ?
+        )
+      ''';
+    final searchArgs = normalizedSearch.isEmpty
+        ? const <Object?>[]
+        : List<Object?>.filled(5, '%$normalizedSearch%');
+    final today = DateTime.now().toIso8601String();
+    final rows = await db.rawQuery(
+      '''
+      SELECT
+        v.id,
+        v.cliente_id,
+        v.solar_id,
+        v.saldo_pendiente,
+        v.monto_inicial_requerido,
+        v.monto_inicial_pagado,
+        v.monto_inicial_pendiente,
+        v.monto_apartado_pagado,
+        v.estado,
+        c.nombre AS cliente_nombre,
+        c.cedula AS cliente_cedula,
+        c.telefono AS cliente_telefono,
+        s.manzana_numero,
+        s.solar_numero,
+        q.id AS cuota_id,
+        q.venta_id AS cuota_venta_id,
+        q.numero_cuota,
+        q.fecha_vencimiento,
+        q.saldo_inicial,
+        q.capital_cuota,
+        q.interes_cuota,
+        q.monto_cuota,
+        q.monto_pagado,
+        q.capital_pagado,
+        q.interes_pagado,
+        q.saldo_final,
+        q.estado AS cuota_estado,
+        q.fecha_creacion AS cuota_fecha_creacion,
+        q.fecha_actualizacion AS cuota_fecha_actualizacion
+      FROM ${DatabaseSchema.salesTable} v
+      INNER JOIN ${DatabaseSchema.clientsTable} c ON c.id = v.cliente_id
+      INNER JOIN ${DatabaseSchema.lotsTable} s ON s.id = v.solar_id
+      INNER JOIN ${DatabaseSchema.installmentsTable} q ON q.id = (
+        SELECT q2.id
+        FROM ${DatabaseSchema.installmentsTable} q2
+        WHERE q2.venta_id = v.id
+          AND q2.deleted_at IS NULL
+          AND q2.estado NOT IN ('pagada', 'ajustada', 'cancelada')
+          AND (q2.monto_cuota - COALESCE(q2.monto_pagado, 0)) > 0.009
+        ORDER BY q2.fecha_vencimiento ASC, q2.numero_cuota ASC
+        LIMIT 1
+      )
+      WHERE v.deleted_at IS NULL
+        AND c.deleted_at IS NULL
+        AND s.deleted_at IS NULL
+        AND v.estado IN ('apartado', 'inicial_incompleto', 'activa')
+        $searchClause
+      ORDER BY q.fecha_vencimiento ASC, v.id ASC
+      LIMIT ? OFFSET ?
+      ''',
+      [...searchArgs, pageSize, (page - 1).clamp(0, 999999) * pageSize],
+    );
+
+    final total = await _countLocalWorkQueue(search: normalizedSearch);
+    final overdue = await _countLocalInstallments(
+      whereSuffix: 'AND q.fecha_vencimiento < ?',
+      args: [today],
+    );
+    final dueToday = await _countLocalInstallments(
+      whereSuffix: 'AND substr(q.fecha_vencimiento, 1, 10) = ?',
+      args: [today.substring(0, 10)],
+    );
+    final partial = await _countLocalInstallments(
+      whereSuffix: 'AND COALESCE(q.monto_pagado, 0) > 0.009',
+    );
+
+    return PaymentWorkQueue(
+      entries: rows
+          .map((row) {
+            final sale = PaymentSaleOption.fromMap(row);
+            final installment = Installment.fromMap({
+              'id': row['cuota_id'],
+              'venta_id': row['cuota_venta_id'],
+              'numero_cuota': row['numero_cuota'],
+              'fecha_vencimiento': row['fecha_vencimiento'],
+              'saldo_inicial': row['saldo_inicial'],
+              'capital_cuota': row['capital_cuota'],
+              'interes_cuota': row['interes_cuota'],
+              'monto_cuota': row['monto_cuota'],
+              'monto_pagado': row['monto_pagado'],
+              'capital_pagado': row['capital_pagado'],
+              'interes_pagado': row['interes_pagado'],
+              'saldo_final': row['saldo_final'],
+              'estado': row['cuota_estado'],
+              'fecha_creacion': row['cuota_fecha_creacion'],
+              'fecha_actualizacion': row['cuota_fecha_actualizacion'],
+            });
+            return PaymentWorkQueueEntry(sale: sale, installment: installment);
+          })
+          .toList(growable: false),
+      total: total,
+      page: page,
+      pageSize: pageSize,
+      counts: PaymentWorkQueueCounts(
+        overdue: overdue,
+        dueToday: dueToday,
+        pending: total,
+        partial: partial,
+      ),
+    );
+  }
+
+  Future<int> _countLocalWorkQueue({required String search}) async {
+    final db = await _appDatabase.database;
+    final searchClause = search.isEmpty
+        ? ''
+        : '''
+        AND (
+          COALESCE(c.nombre, '') LIKE ?
+          OR COALESCE(c.cedula, '') LIKE ?
+          OR COALESCE(c.telefono, '') LIKE ?
+          OR COALESCE(s.manzana_numero, '') LIKE ?
+          OR COALESCE(s.solar_numero, '') LIKE ?
+        )
+      ''';
+    final rows = await db.rawQuery('''
+      SELECT COUNT(*) AS total
+      FROM ${DatabaseSchema.salesTable} v
+      INNER JOIN ${DatabaseSchema.clientsTable} c ON c.id = v.cliente_id
+      INNER JOIN ${DatabaseSchema.lotsTable} s ON s.id = v.solar_id
+      WHERE v.deleted_at IS NULL
+        AND c.deleted_at IS NULL
+        AND s.deleted_at IS NULL
+        AND v.estado IN ('apartado', 'inicial_incompleto', 'activa')
+        AND EXISTS (
+          SELECT 1
+          FROM ${DatabaseSchema.installmentsTable} q
+          WHERE q.venta_id = v.id
+            AND q.deleted_at IS NULL
+            AND q.estado NOT IN ('pagada', 'ajustada', 'cancelada')
+            AND (q.monto_cuota - COALESCE(q.monto_pagado, 0)) > 0.009
+        )
+        $searchClause
+      ''', search.isEmpty ? const [] : List<Object?>.filled(5, '%$search%'));
+    return rows.isEmpty ? 0 : _toInt(rows.first['total']);
+  }
+
+  Future<int> _countLocalInstallments({
+    String whereSuffix = '',
+    List<Object?> args = const [],
+  }) async {
+    final db = await _appDatabase.database;
+    final rows = await db.rawQuery('''
+      SELECT COUNT(*) AS total
+      FROM ${DatabaseSchema.installmentsTable} q
+      INNER JOIN ${DatabaseSchema.salesTable} v ON v.id = q.venta_id
+      WHERE q.deleted_at IS NULL
+        AND v.deleted_at IS NULL
+        AND q.estado NOT IN ('pagada', 'ajustada', 'cancelada')
+        AND (q.monto_cuota - COALESCE(q.monto_pagado, 0)) > 0.009
+        $whereSuffix
+      ''', args);
+    return rows.isEmpty ? 0 : _toInt(rows.first['total']);
+  }
+
+  Future<List<PaymentSaleOption>> _searchLocalSales(
+    String query, {
+    required int limit,
+  }) async {
+    final db = await _appDatabase.database;
+    final rows = await db.rawQuery(
+      '''
+      SELECT
+        v.id,
+        v.cliente_id,
+        v.solar_id,
+        v.saldo_pendiente,
+        v.monto_inicial_requerido,
+        v.monto_inicial_pagado,
+        v.monto_inicial_pendiente,
+        v.monto_apartado_pagado,
+        v.estado,
+        c.nombre AS cliente_nombre,
+        c.cedula AS cliente_cedula,
+        c.telefono AS cliente_telefono,
+        s.manzana_numero,
+        s.solar_numero
+      FROM ${DatabaseSchema.salesTable} v
+      INNER JOIN ${DatabaseSchema.clientsTable} c ON c.id = v.cliente_id
+      INNER JOIN ${DatabaseSchema.lotsTable} s ON s.id = v.solar_id
+      WHERE v.deleted_at IS NULL
+        AND c.deleted_at IS NULL
+        AND s.deleted_at IS NULL
+        AND (
+          COALESCE(c.nombre, '') LIKE ?
+          OR COALESCE(c.cedula, '') LIKE ?
+          OR COALESCE(c.telefono, '') LIKE ?
+          OR COALESCE(s.manzana_numero, '') LIKE ?
+          OR COALESCE(s.solar_numero, '') LIKE ?
+        )
+      ORDER BY c.nombre COLLATE NOCASE ASC, v.id ASC
+      LIMIT ?
+      ''',
+      [...List<Object?>.filled(5, '%$query%'), limit],
+    );
+    return rows.map(PaymentSaleOption.fromMap).toList(growable: false);
   }
 
   /// Ultima cola de pagos valida guardada en cache local (best-effort: null si
