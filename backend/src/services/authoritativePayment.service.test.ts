@@ -42,6 +42,18 @@ test('applies installment payment interest first then principal', () => {
   assert.equal(outcome.newStatus, 'parcial');
 });
 
+test('applies installment payment to late fee before interest and principal', () => {
+  const outcome = applyToInstallment(installment, 2500, new Date(2026, 0, 8), 600);
+
+  assert.equal(outcome.appliedAmount, 2500);
+  assert.equal(outcome.lateFeePaidNow, 600);
+  assert.equal(outcome.interestPaidNow, 1900);
+  assert.equal(outcome.principalPaidNow, 0);
+  assert.equal(outcome.newPaidAmount, 1900);
+  assert.equal(outcome.remainingAmount, 0);
+  assert.equal(outcome.newStatus, 'parcial');
+});
+
 test('selects all overdue installments for overdue batch mode', () => {
   const future = {
     ...installment,

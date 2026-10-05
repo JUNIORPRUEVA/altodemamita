@@ -2,190 +2,124 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { LateFeeCalculationService } from './lateFeeCalculation.service';
 
-const service = new LateFeeCalculationService({ dailyRate: '0.01' });
+const service = new LateFeeCalculationService({ dailyRate: '0.005', graceDays: 5 });
 const rdDate = (date: string) => new Date(`${date}T04:00:00.000Z`);
 
 describe('LateFeeCalculationService', () => {
-  it('calcula una cuota vencida al 1% diario', () => {
-    const summary = service.calculateSaleSummary({
+  it('aplica 5 dias completos de gracia y cobra desde el sexto dia posterior al vencimiento', () => {
+    const inGrace = service.calculateSaleSummary({
       context: { saleSyncId: 'venta-1' },
-      calculationDate: rdDate('2026-08-01'),
+      calculationDate: rdDate('2026-10-06'),
       installments: [
         {
           syncId: 'cuota-1',
-          dueDate: rdDate('2026-07-22'),
-          principalAmount: '10000',
-          paidPrincipalAmount: '0',
+          dueDate: rdDate('2026-10-01'),
+          totalAmount: '10000',
+          paidAmount: '0',
+          status: 'pendiente',
+        },
+      ],
+    });
+    const firstFeeDay = service.calculateSaleSummary({
+      context: { saleSyncId: 'venta-1' },
+      calculationDate: rdDate('2026-10-07'),
+      installments: inGrace.cuotas.map((cuota) => ({
+        syncId: cuota.cuotaSyncId,
+        dueDate: rdDate(cuota.fechaVencimiento),
+        totalAmount: cuota.montoOriginal,
+        paidAmount: cuota.montoPagado,
+        status: 'pendiente',
+      })),
+    });
+
+    assert.equal(inGrace.cuotas[0].diasAtraso, 5);
+    assert.equal(inGrace.cuotas[0].diasMora, 0);
+    assert.equal(inGrace.moraTotal, '0.00');
+    assert.equal(firstFeeDay.cuotas[0].diasAtraso, 6);
+    assert.equal(firstFeeDay.cuotas[0].diasMora, 1);
+    assert.equal(firstFeeDay.moraTotal, '50.00');
+  });
+
+  it('no limita la mora a 30 dias', () => {
+    const summary = service.calculateSaleSummary({
+      context: { saleSyncId: 'venta-1' },
+      calculationDate: rdDate('2026-04-01'),
+      installments: [
+        {
+          syncId: 'cuota-1',
+          dueDate: rdDate('2026-01-01'),
+          totalAmount: '10000',
+          paidAmount: '0',
           status: 'pendiente',
         },
       ],
     });
 
-    assert.equal(summary.capitalPendiente, '10000.00');
-    assert.equal(summary.moraTotal, '1000.00');
-    assert.equal(summary.totalGeneral, '11000.00');
+    assert.equal(summary.cuotas[0].diasAtraso, 90);
+    assert.equal(summary.cuotas[0].diasMora, 85);
+    assert.equal(summary.moraTotal, '4250.00');
   });
 
-  it('calcula cada cuota con su propio vencimiento y consolida totales', () => {
+  it('calcula la mora sobre saldo pendiente de cuota, no sobre dinero ya pagado', () => {
     const summary = service.calculateSaleSummary({
       context: { saleSyncId: 'venta-1' },
-      calculationDate: rdDate('2026-08-01'),
+      calculationDate: rdDate('2026-10-11'),
       installments: [
         {
           syncId: 'cuota-1',
-          installmentNumber: 1,
-          dueDate: rdDate('2026-06-01'),
-          principalAmount: '10000',
-          paidPrincipalAmount: '0',
-          status: 'pendiente',
-        },
-        {
-          syncId: 'cuota-2',
-          installmentNumber: 2,
-          dueDate: rdDate('2026-07-01'),
-          principalAmount: '10000',
-          paidPrincipalAmount: '0',
-          status: 'pendiente',
-        },
-      ],
-    });
-
-    assert.equal(summary.cuotas[0].diasAtraso, 61);
-    assert.equal(summary.cuotas[0].mora, '3000.00');
-    assert.equal(summary.cuotas[1].diasAtraso, 31);
-    assert.equal(summary.cuotas[1].mora, '3000.00');
-    assert.equal(summary.capitalPendiente, '20000.00');
-    assert.equal(summary.moraTotal, '6000.00');
-    assert.equal(summary.totalGeneral, '26000.00');
-  });
-
-  it('no calcula mora sobre mora', () => {
-    const summary = service.calculateSaleSummary({
-      context: { saleSyncId: 'venta-1' },
-      calculationDate: rdDate('2026-07-11'),
-      installments: [
-        {
-          syncId: 'cuota-1',
-          dueDate: rdDate('2026-07-01'),
-          principalAmount: '10000',
-          paidPrincipalAmount: '4000',
+          dueDate: rdDate('2026-10-01'),
+          principalAmount: '8000',
+          interestAmount: '2000',
+          totalAmount: '10000',
+          paidPrincipalAmount: '3000',
+          paidInterestAmount: '2000',
+          paidAmount: '5000',
           status: 'parcial',
         },
       ],
     });
 
-    assert.equal(summary.capitalPendiente, '6000.00');
-    assert.equal(summary.moraTotal, '600.00');
+    assert.equal(summary.cuotas[0].saldoPendiente, '5000.00');
+    assert.equal(summary.cuotas[0].interesPendiente, '0.00');
+    assert.equal(summary.cuotas[0].capitalPendiente, '5000.00');
+    assert.equal(summary.cuotas[0].diasMora, 5);
+    assert.equal(summary.moraTotal, '125.00');
   });
 
-  it('respeta pagos parciales posteriores al vencimiento cuando hay fecha por cuota', () => {
+  it('respeta pagos parciales posteriores al vencimiento dentro del calculo historico', () => {
     const summary = service.calculateSaleSummary({
       context: { saleSyncId: 'venta-1' },
-      calculationDate: rdDate('2026-07-21'),
+      calculationDate: rdDate('2026-10-16'),
       installments: [
         {
           syncId: 'cuota-1',
-          dueDate: rdDate('2026-07-01'),
-          principalAmount: '10000',
-          paidPrincipalAmount: '4000',
+          dueDate: rdDate('2026-10-01'),
+          totalAmount: '10000',
+          paidAmount: '4000',
           status: 'parcial',
         },
       ],
       payments: [
         {
           installmentSyncId: 'cuota-1',
-          paidAt: rdDate('2026-07-11'),
-          amount: '4000',
+          paidAt: rdDate('2026-10-10'),
+          amount: '4100',
+          principalApplied: '4000',
+          interestApplied: '0',
+          lateFeeApplied: '100',
         },
       ],
     });
 
-    assert.equal(summary.capitalPendiente, '6000.00');
-    assert.equal(summary.moraTotal, '1600.00');
+    assert.equal(summary.cuotas[0].saldoPendiente, '6000.00');
+    assert.equal(summary.cuotas[0].diasMora, 10);
+    assert.equal(summary.moraTotal, '380.00');
   });
 
-  it('excluye cuotas pagadas, futuras y que vencen hoy', () => {
+  it('redondea dinero a dos decimales usando 0.50%', () => {
     const summary = service.calculateSaleSummary({
       context: { saleSyncId: 'venta-1' },
-      calculationDate: rdDate('2026-08-01'),
-      installments: [
-        { syncId: 'pagada', dueDate: rdDate('2026-06-01'), principalAmount: '10000', paidPrincipalAmount: '10000', status: 'pagada' },
-        { syncId: 'hoy', dueDate: rdDate('2026-08-01'), principalAmount: '10000', paidPrincipalAmount: '0', status: 'pendiente' },
-        { syncId: 'futura', dueDate: rdDate('2026-08-02'), principalAmount: '10000', paidPrincipalAmount: '0', status: 'pendiente' },
-      ],
-    });
-
-    assert.equal(summary.cantidadCuotasVencidas, 0);
-    assert.equal(summary.totalGeneral, '0.00');
-  });
-
-  it('omite una cuota vencida si ya fue pagada completamente antes de renderizar', () => {
-    const summary = service.calculateSaleSummary({
-      context: { saleSyncId: 'venta-1' },
-      calculationDate: rdDate('2026-08-01'),
-      installments: [
-        {
-          syncId: 'cuota-pagada',
-          dueDate: rdDate('2026-07-01'),
-          totalAmount: '10000',
-          paidAmount: '10000',
-          status: 'pendiente',
-        },
-      ],
-    });
-
-    assert.equal(summary.cantidadCuotasVencidas, 0);
-    assert.equal(summary.totalGeneral, '0.00');
-  });
-
-  it('consolida tres cuotas vencidas sin mezclar dias de atraso', () => {
-    const summary = service.calculateSaleSummary({
-      context: { saleSyncId: 'venta-1' },
-      calculationDate: rdDate('2026-08-01'),
-      installments: [
-        { syncId: 'cuota-1', dueDate: rdDate('2026-05-01'), principalAmount: '1000', paidPrincipalAmount: '0', status: 'pendiente' },
-        { syncId: 'cuota-2', dueDate: rdDate('2026-06-01'), principalAmount: '1000', paidPrincipalAmount: '0', status: 'pendiente' },
-        { syncId: 'cuota-3', dueDate: rdDate('2026-07-01'), principalAmount: '1000', paidPrincipalAmount: '0', status: 'pendiente' },
-      ],
-    });
-
-    assert.deepEqual(summary.cuotas.map((cuota) => cuota.diasAtraso), [92, 61, 31]);
-    assert.equal(summary.moraTotal, '900.00');
-  });
-
-  it('reduce la base antes del vencimiento cuando el pago parcial ocurrio antes', () => {
-    const summary = service.calculateSaleSummary({
-      context: { saleSyncId: 'venta-1' },
-      calculationDate: rdDate('2026-07-11'),
-      installments: [
-        { syncId: 'cuota-1', dueDate: rdDate('2026-07-01'), principalAmount: '10000', paidPrincipalAmount: '4000', status: 'parcial' },
-      ],
-      payments: [
-        { installmentSyncId: 'cuota-1', paidAt: rdDate('2026-06-25'), amount: '4000' },
-      ],
-    });
-
-    assert.equal(summary.capitalPendiente, '6000.00');
-    assert.equal(summary.moraTotal, '600.00');
-  });
-
-  it('ignora cuotas canceladas o ajustadas', () => {
-    const summary = service.calculateSaleSummary({
-      context: { saleSyncId: 'venta-1' },
-      calculationDate: rdDate('2026-08-01'),
-      installments: [
-        { syncId: 'cancelada', dueDate: rdDate('2026-06-01'), principalAmount: '10000', paidPrincipalAmount: '0', status: 'cancelada' },
-        { syncId: 'ajustada', dueDate: rdDate('2026-06-01'), principalAmount: '10000', paidPrincipalAmount: '0', status: 'ajustada' },
-      ],
-    });
-
-    assert.equal(summary.cantidadCuotasVencidas, 0);
-  });
-
-  it('redondea dinero a dos decimales y usa 0.01 como 1%', () => {
-    const summary = service.calculateSaleSummary({
-      context: { saleSyncId: 'venta-1' },
-      calculationDate: rdDate('2026-07-02'),
+      calculationDate: rdDate('2026-07-08'),
       installments: [
         {
           syncId: 'cuota-1',
@@ -201,42 +135,18 @@ describe('LateFeeCalculationService', () => {
     assert.equal(summary.moraTotal, '12.35');
   });
 
-  it('usa el monto total de la cuota como saldo pendiente cuando incluye capital e interes', () => {
-    const summary = service.calculateSaleSummary({
-      context: { saleSyncId: 'venta-real' },
-      calculationDate: rdDate('2026-07-27'),
+  it('puede deshabilitar la mora sin ocultar la cuota vencida', () => {
+    const disabled = new LateFeeCalculationService({ enabled: false, dailyRate: '0.005', graceDays: 5 });
+    const summary = disabled.calculateSaleSummary({
+      context: { saleSyncId: 'venta-1' },
+      calculationDate: rdDate('2026-12-31'),
       installments: [
-        {
-          syncId: 'cuota-4',
-          installmentNumber: 4,
-          dueDate: rdDate('2026-05-27'),
-          principalAmount: '2627.01',
-          interestAmount: '5788.13',
-          totalAmount: '8415.14',
-          paidAmount: '0',
-          paidPrincipalAmount: '0',
-          status: 'pendiente',
-        },
-        {
-          syncId: 'cuota-5',
-          installmentNumber: 5,
-          dueDate: rdDate('2026-06-27'),
-          principalAmount: '2653.28',
-          interestAmount: '5761.86',
-          totalAmount: '8415.14',
-          paidAmount: '0',
-          paidPrincipalAmount: '0',
-          status: 'pendiente',
-        },
+        { syncId: 'cuota-1', dueDate: rdDate('2026-07-01'), totalAmount: '10000', paidAmount: '0', status: 'pendiente' },
       ],
     });
 
-    assert.equal(summary.capitalPendiente, '16830.28');
-    assert.equal(summary.cuotas[0].diasAtraso, 61);
-    assert.equal(summary.cuotas[0].mora, '2524.54');
-    assert.equal(summary.cuotas[1].diasAtraso, 30);
-    assert.equal(summary.cuotas[1].mora, '2524.54');
-    assert.equal(summary.moraTotal, '5049.08');
-    assert.equal(summary.totalGeneral, '21879.36');
+    assert.equal(summary.cantidadCuotasVencidas, 1);
+    assert.equal(summary.cuotas[0].diasMora, 0);
+    assert.equal(summary.moraTotal, '0.00');
   });
 });

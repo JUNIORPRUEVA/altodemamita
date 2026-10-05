@@ -203,8 +203,8 @@ function validateSafetyConfig() {
   if (config.paymentRemindersAllowRealRecipients) {
     throw new Error('PAYMENT_REMINDERS_ALLOW_REAL_RECIPIENTS debe estar en false.');
   }
-  if (Number(config.lateFeeDailyRate) !== 0.01) {
-    throw new Error('LATE_FEE_DAILY_RATE debe ser 0.01.');
+  if (Number(config.lateFeeDailyRate) !== 0.005) {
+    throw new Error('LATE_FEE_DAILY_RATE debe ser 0.005.');
   }
   if (!config.whatsappPaymentTestTemplate.trim()) {
     throw new Error('WHATSAPP_PAYMENT_TEST_TEMPLATE es requerido.');
@@ -232,6 +232,7 @@ function validateSafetyConfig() {
 async function findOverdueSales(count: number, approvedTemplates: Map<string, TemplateRecord>) {
   const calculator = new LateFeeCalculationService({
     dailyRate: config.lateFeeDailyRate,
+    graceDays: Number(config.lateFeeGraceDays),
     timezone: config.paymentReminderTimezone,
   });
   const candidateInstallments = await prisma.installment.findMany({

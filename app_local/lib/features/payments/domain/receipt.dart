@@ -106,6 +106,28 @@ class Receipt {
   }
 
   List<ReceiptLineItem> get paymentBreakdown {
+    final lateFeePaid = payments.fold<double>(
+      0,
+      (sum, item) => sum + item.lateFeeApplied,
+    );
+    final interestPaid = payments.fold<double>(
+      0,
+      (sum, item) => sum + item.interestApplied,
+    );
+    final principalPaid = payments.fold<double>(
+      0,
+      (sum, item) => sum + item.principalApplied,
+    );
+    if (lateFeePaid > 0.009 || interestPaid > 0.009 || principalPaid > 0.009) {
+      return [
+        if (lateFeePaid > 0.009)
+          ReceiptLineItem(label: 'Mora pagada', amount: lateFeePaid),
+        if (interestPaid > 0.009)
+          ReceiptLineItem(label: 'Interes pagado', amount: interestPaid),
+        if (principalPaid > 0.009)
+          ReceiptLineItem(label: 'Capital pagado', amount: principalPaid),
+      ];
+    }
     return payments
         .map((item) {
           final label = switch (item.paymentType) {

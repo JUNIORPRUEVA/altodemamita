@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { config } from '../config';
 import { prisma } from '../prisma';
 import { LateFeeCalculationService, LateFeeSummary, PAYMENT_REMINDER_TYPE } from './lateFeeCalculation.service';
+import { readLateFeePolicy } from './lateFeePolicy.service';
 import { PaymentReminderRecipients, resolvePaymentReminderRecipients } from './paymentReminderRecipients.service';
 import { isPaymentReminderSendWindowOpen, paymentReminderWindowDescription } from './paymentReminderWindow.service';
 import { isPaymentReminderEnabledForCompany } from './paymentReminderAdmin.service';
@@ -28,10 +29,6 @@ export const PROFESSIONAL4_PROJECT_PAYMENT_REMINDER_TEMPLATE = 'recordatorio_cuo
 export const PROFESSIONAL5_PROJECT_PAYMENT_REMINDER_TEMPLATE = 'recordatorio_cuotas_vencidas_profesional5';
 
 export class PaymentReminderService {
-  private readonly calculator = new LateFeeCalculationService({
-    dailyRate: config.lateFeeDailyRate,
-    timezone: config.paymentReminderTimezone,
-  });
   private readonly whatsapp = new WhatsappService();
   private readonly approvedTemplateCache = new Map<string, boolean>();
 
@@ -41,7 +38,7 @@ export class PaymentReminderService {
     });
     if (!sale || isTerminalSaleStatus(sale.status)) return null;
 
-    const [client, lot, installments, payments, lastNotification] = await Promise.all([
+    const [client, lot, installments, payments, lastNotification, lateFeePolicy] = await Promise.all([
       sale.clientSyncId
         ? prisma.client.findFirst({
             where: { companyId, syncId: sale.clientSyncId, deletedAt: null },
@@ -64,9 +61,16 @@ export class PaymentReminderService {
         where: { companyId, saleSyncId, type: PAYMENT_REMINDER_TYPE },
         orderBy: { createdAt: 'desc' },
       }),
+      readLateFeePolicy(prisma, companyId, calculationDate),
     ]);
 
-    const summary = this.calculator.calculateSaleSummary({
+    const calculator = new LateFeeCalculationService({
+      enabled: lateFeePolicy.enabled,
+      dailyRate: lateFeePolicy.dailyRate,
+      graceDays: lateFeePolicy.graceDays,
+      timezone: config.paymentReminderTimezone,
+    });
+    const summary = calculator.calculateSaleSummary({
       context: {
         companyId,
         clienteId: client?.id ?? null,
@@ -115,6 +119,9 @@ export class PaymentReminderService {
     const result = await this.getSaleSummary(input.companyId, input.saleSyncId, input.calculationDate);
     if (!result || result.summary.cantidadCuotasVencidas === 0 || !result.summary.ultimaCuotaVencidaSyncId) {
       return { status: 'SKIPPED_NO_OVERDUE', summary: result?.summary ?? null };
+    }
+    if (Number(result.summary.moraTotal) <= 0) {
+      return { status: 'SKIPPED_IN_GRACE', summary: result.summary };
     }
 
     const dryRun = input.dryRun ?? config.paymentRemindersDryRun;
@@ -226,6 +233,24 @@ export class PaymentReminderService {
         saleSyncId: input.saleSyncId,
       });
       return { status: 'SKIPPED_DUPLICATE', summary: result.summary };
+    }
+
+    const fresh = await this.getSaleSummary(input.companyId, input.saleSyncId, new Date());
+    if (
+      !fresh ||
+      !fresh.summary.ultimaCuotaVencidaSyncId ||
+      Number(fresh.summary.moraTotal) <= 0 ||
+      fresh.summary.ultimaCuotaVencidaSyncId !== result.summary.ultimaCuotaVencidaSyncId ||
+      fresh.summary.totalGeneral !== result.summary.totalGeneral
+    ) {
+      await prisma.paymentReminderNotification.update({
+        where: { id: reservation.notificationId },
+        data: {
+          status: 'SKIPPED_STALE',
+          error: 'La deuda cambio antes del envio; se omitio el recordatorio.',
+        },
+      });
+      return { status: 'SKIPPED_STALE', summary: fresh?.summary ?? result.summary };
     }
 
     const deliveryResults = [];
@@ -587,6 +612,8 @@ export class PaymentReminderService {
         calculatedAt: new Date(`${summary.fechaCalculo}T04:00:00.000Z`),
         baseBalance: cuota.saldoPendiente,
         overdueDays: cuota.diasAtraso,
+        graceDays: cuota.diasGracia ?? 0,
+        lateFeeDays: cuota.diasMora ?? 0,
         dailyRate: cuota.tasaDiaria,
         calculatedLateFee: cuota.mora,
         eventType,

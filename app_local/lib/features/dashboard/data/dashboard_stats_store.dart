@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/cloud_foundation/sales_cache_invalidation.dart';
+import '../../../core/database/app_database.dart';
+import '../../../core/database/database_schema.dart';
 import '../../../core/resilience/app_storage_namespace.dart';
 import '../../clients/data/client_repository.dart';
 import '../../installments/data/installments_repository.dart';
@@ -75,9 +77,7 @@ class DashboardStats {
   /// Devuelve `null` ante cualquier JSON invalido o incompleto: un snapshot
   /// corrupto NUNCA debe romper la pantalla ni mostrar ceros falsos.
   static DashboardStats? fromJson(Object? raw) {
-    final map = raw is String
-        ? (jsonDecode(raw) as Object?)
-        : raw;
+    final map = raw is String ? (jsonDecode(raw) as Object?) : raw;
     if (map is! Map) {
       return null;
     }
@@ -146,14 +146,19 @@ Future<DashboardStats> computeDashboardStats({
   required SalesRepository salesRepository,
   required InstallmentsRepository installmentsRepository,
 }) async {
-  final results = await Future.wait<dynamic>([
-    clientRepository.countAll(),
-    lotRepository.countAll(),
-    lotRepository.countByStatus('disponible'),
-    lotRepository.countByStatus('vendido'),
-    salesRepository.fetchAll(),
-    installmentsRepository.getAll(),
-  ]);
+  final List<dynamic> results;
+  try {
+    results = await Future.wait<dynamic>([
+      clientRepository.countAll(),
+      lotRepository.countAll(),
+      lotRepository.countByStatus('disponible'),
+      lotRepository.countByStatus('vendido'),
+      salesRepository.fetchAll(),
+      installmentsRepository.getAll(),
+    ]);
+  } catch (_) {
+    return _computeDashboardStatsFromLocalSqlite();
+  }
 
   final sales = results[4] as List<SaleSummary>;
   final installments = results[5] as List<dynamic>;
@@ -191,6 +196,98 @@ Future<DashboardStats> computeDashboardStats({
     totalLots: results[1] as int,
     availableLots: results[2] as int,
     soldLots: results[3] as int,
+    pendingPayments: pendingPayments,
+    incompleteInitialPayments: incompleteInitialPayments,
+    overduePayments: overduePayments,
+    activeFinancing: activeFinancing,
+    portfolioPendingAmount: portfolioPendingAmount,
+    collectedAmount: collectedAmount,
+    soldAmount: soldAmount,
+  );
+}
+
+Future<DashboardStats> _computeDashboardStatsFromLocalSqlite() async {
+  final db = await AppDatabase.instance.database;
+  final today = DateTime.now().toIso8601String();
+
+  Future<int> intValue(String sql, [List<Object?> args = const []]) async {
+    final rows = await db.rawQuery(sql, args);
+    if (rows.isEmpty) {
+      return 0;
+    }
+    return (rows.first.values.first as num?)?.toInt() ?? 0;
+  }
+
+  Future<double> doubleValue(
+    String sql, [
+    List<Object?> args = const [],
+  ]) async {
+    final rows = await db.rawQuery(sql, args);
+    if (rows.isEmpty) {
+      return 0;
+    }
+    return (rows.first.values.first as num?)?.toDouble() ?? 0;
+  }
+
+  final totalClients = await intValue(
+    'SELECT COUNT(*) FROM ${DatabaseSchema.clientsTable} '
+    'WHERE deleted_at IS NULL',
+  );
+  final totalLots = await intValue(
+    'SELECT COUNT(*) FROM ${DatabaseSchema.lotsTable} WHERE deleted_at IS NULL',
+  );
+  final availableLots = await intValue(
+    'SELECT COUNT(*) FROM ${DatabaseSchema.lotsTable} '
+    "WHERE deleted_at IS NULL AND estado = 'disponible'",
+  );
+  final soldLots = await intValue(
+    'SELECT COUNT(*) FROM ${DatabaseSchema.lotsTable} '
+    "WHERE deleted_at IS NULL AND estado = 'vendido'",
+  );
+  final pendingPayments = await intValue(
+    'SELECT COUNT(*) FROM ${DatabaseSchema.installmentsTable} q '
+    'INNER JOIN ${DatabaseSchema.salesTable} v ON v.id = q.venta_id '
+    'WHERE q.deleted_at IS NULL AND v.deleted_at IS NULL '
+    "AND q.estado NOT IN ('pagada', 'ajustada', 'cancelada') "
+    'AND (q.monto_cuota - COALESCE(q.monto_pagado, 0)) > 0.009',
+  );
+  final overduePayments = await intValue(
+    'SELECT COUNT(*) FROM ${DatabaseSchema.installmentsTable} q '
+    'INNER JOIN ${DatabaseSchema.salesTable} v ON v.id = q.venta_id '
+    'WHERE q.deleted_at IS NULL AND v.deleted_at IS NULL '
+    "AND q.estado NOT IN ('pagada', 'ajustada', 'cancelada') "
+    'AND (q.monto_cuota - COALESCE(q.monto_pagado, 0)) > 0.009 '
+    'AND q.fecha_vencimiento < ?',
+    [today],
+  );
+  final incompleteInitialPayments = await intValue(
+    'SELECT COUNT(*) FROM ${DatabaseSchema.salesTable} '
+    'WHERE deleted_at IS NULL AND monto_inicial_pendiente > 0.009',
+  );
+  final activeFinancing = await intValue(
+    'SELECT COUNT(*) FROM ${DatabaseSchema.salesTable} '
+    "WHERE deleted_at IS NULL AND estado = 'activa' "
+    'AND saldo_pendiente > 0.009',
+  );
+  final portfolioPendingAmount = await doubleValue(
+    'SELECT COALESCE(SUM(monto_inicial_pendiente + saldo_pendiente), 0) '
+    'FROM ${DatabaseSchema.salesTable} WHERE deleted_at IS NULL',
+  );
+  final collectedAmount = await doubleValue(
+    'SELECT COALESCE(SUM(monto_inicial_pagado + '
+    'MAX(precio_venta - saldo_pendiente - inicial_monto, 0)), 0) '
+    'FROM ${DatabaseSchema.salesTable} WHERE deleted_at IS NULL',
+  );
+  final soldAmount = await doubleValue(
+    'SELECT COALESCE(SUM(precio_venta), 0) '
+    'FROM ${DatabaseSchema.salesTable} WHERE deleted_at IS NULL',
+  );
+
+  return DashboardStats(
+    totalClients: totalClients,
+    totalLots: totalLots,
+    availableLots: availableLots,
+    soldLots: soldLots,
     pendingPayments: pendingPayments,
     incompleteInitialPayments: incompleteInitialPayments,
     overduePayments: overduePayments,

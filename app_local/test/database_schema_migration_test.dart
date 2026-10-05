@@ -25,6 +25,116 @@ void main() {
   });
 
   test(
+    'migracion v29 agrega componentes de pago y parametros de mora sin recalcular historicos',
+    () async {
+      final dbPath = path.join(tempDirectory.path, 'migration_v29.db');
+      final db = await databaseFactory.openDatabase(dbPath);
+      final nowIso = DateTime(2026, 10, 3).toIso8601String();
+
+      await db.execute('''
+        CREATE TABLE usuarios (
+          id INTEGER PRIMARY KEY,
+          nombre TEXT,
+          email TEXT,
+          password_hash TEXT,
+          password_reset_required INTEGER,
+          rol TEXT,
+          activo INTEGER,
+          telefono TEXT,
+          fecha_creacion TEXT,
+          fecha_actualizacion TEXT,
+          password_updated_at TEXT
+        )
+      ''');
+      await db.execute('''
+        CREATE TABLE configuracion (
+          clave TEXT PRIMARY KEY,
+          valor TEXT NOT NULL,
+          fecha_actualizacion TEXT NOT NULL
+        )
+      ''');
+      await db.execute('''
+        CREATE TABLE pagos (
+          id INTEGER PRIMARY KEY,
+          venta_id INTEGER NOT NULL,
+          cliente_id INTEGER NOT NULL,
+          fecha_pago TEXT NOT NULL,
+          monto_pagado REAL NOT NULL DEFAULT 0,
+          metodo_pago TEXT,
+          tipo_pago TEXT NOT NULL DEFAULT 'cuota',
+          referencia TEXT,
+          fecha_creacion TEXT NOT NULL,
+          fecha_actualizacion TEXT NOT NULL
+        )
+      ''');
+      await db.execute('''
+        CREATE TABLE parametros_financieros (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          inicial_porcentaje TEXT NOT NULL DEFAULT '10.0',
+          interes_mensual TEXT NOT NULL DEFAULT '1.0',
+          cantidad_cuotas TEXT NOT NULL DEFAULT '12',
+          simbolo_moneda TEXT NOT NULL DEFAULT 'RD\$',
+          lugares_decimales TEXT NOT NULL DEFAULT '2',
+          fecha_actualizacion TEXT NOT NULL
+        )
+      ''');
+      await db.insert('pagos', {
+        'id': 1,
+        'venta_id': 1,
+        'cliente_id': 1,
+        'fecha_pago': nowIso,
+        'monto_pagado': 4000.0,
+        'tipo_pago': 'cuota',
+        'fecha_creacion': nowIso,
+        'fecha_actualizacion': nowIso,
+      });
+      await db.insert('parametros_financieros', {
+        'fecha_actualizacion': nowIso,
+      });
+
+      await DatabaseSchema.migrate(db, 28, 29);
+
+      final paymentColumns = await db.rawQuery('PRAGMA table_info(pagos)');
+      final paymentColumnNames = paymentColumns
+          .map((row) => row['name'])
+          .whereType<String>()
+          .toSet();
+      expect(
+        paymentColumnNames,
+        containsAll(['mora_aplicada', 'interes_aplicado', 'capital_aplicado']),
+      );
+
+      final payment = (await db.query('pagos')).single;
+      expect(payment['mora_aplicada'], 0.0);
+      expect(payment['interes_aplicado'], 0.0);
+      expect(payment['capital_aplicado'], 0.0);
+
+      final financialColumns = await db.rawQuery(
+        'PRAGMA table_info(parametros_financieros)',
+      );
+      final financialColumnNames = financialColumns
+          .map((row) => row['name'])
+          .whereType<String>()
+          .toSet();
+      expect(
+        financialColumnNames,
+        containsAll([
+          'mora_habilitada',
+          'mora_tasa_diaria',
+          'mora_dias_gracia',
+        ]),
+      );
+
+      final params = (await db.query('parametros_financieros')).single;
+      expect(params['mora_habilitada'], 'true');
+      expect(params['mora_tasa_diaria'], '0.005');
+      expect(params['mora_dias_gracia'], '5');
+
+      await db.close();
+    },
+  );
+
+  test(
     'migracion v12 conserva cuota parcial y reproyecta cuotas futuras intactas',
     () async {
       final dbPath = path.join(tempDirectory.path, 'migration.db');
@@ -543,12 +653,14 @@ void main() {
     },
   );
 
-  test('migracion v20 crea tablas de paridad y columnas de media offline', () async {
-    final dbPath = path.join(tempDirectory.path, 'migration_v20.db');
-    final db = await databaseFactory.openDatabase(dbPath);
+  test(
+    'migracion v20 crea tablas de paridad y columnas de media offline',
+    () async {
+      final dbPath = path.join(tempDirectory.path, 'migration_v20.db');
+      final db = await databaseFactory.openDatabase(dbPath);
 
-    final nowIso = DateTime(2026, 5, 3, 14, 0).toIso8601String();
-    await db.execute('''
+      final nowIso = DateTime(2026, 5, 3, 14, 0).toIso8601String();
+      await db.execute('''
       CREATE TABLE informacion_empresa (
         id INTEGER PRIMARY KEY,
         nombre TEXT NOT NULL,
@@ -564,7 +676,7 @@ void main() {
         deleted_at TEXT
       )
     ''');
-    await db.execute('''
+      await db.execute('''
       CREATE TABLE usuarios (
         id INTEGER PRIMARY KEY,
         nombre TEXT,
@@ -580,14 +692,14 @@ void main() {
       )
     ''');
 
-    await db.execute('''
+      await db.execute('''
       CREATE TABLE configuracion (
         clave TEXT PRIMARY KEY,
         valor TEXT NOT NULL,
         fecha_actualizacion TEXT NOT NULL
       )
     ''');
-    await db.execute('''
+      await db.execute('''
       CREATE TABLE permisos (
         id INTEGER PRIMARY KEY,
         modulo TEXT,
@@ -596,55 +708,62 @@ void main() {
       )
     ''');
 
-    await db.insert('informacion_empresa', {
-      'id': 1,
-      'nombre': 'Empresa Demo',
-      'telefono': '8095550001',
-      'direccion': 'Zona Norte',
-      'logo_base64': null,
-      'fecha_creacion': nowIso,
-      'fecha_actualizacion': nowIso,
-      'sync_status': 'synced',
-      'id_remote': null,
-      'last_modified_local': nowIso,
-      'last_modified_remote': null,
-      'deleted_at': null,
-    });
+      await db.insert('informacion_empresa', {
+        'id': 1,
+        'nombre': 'Empresa Demo',
+        'telefono': '8095550001',
+        'direccion': 'Zona Norte',
+        'logo_base64': null,
+        'fecha_creacion': nowIso,
+        'fecha_actualizacion': nowIso,
+        'sync_status': 'synced',
+        'id_remote': null,
+        'last_modified_local': nowIso,
+        'last_modified_remote': null,
+        'deleted_at': null,
+      });
 
-    await DatabaseSchema.migrate(db, 19, 20);
+      await DatabaseSchema.migrate(db, 19, 20);
 
-    final tables = await db.rawQuery(
-      "SELECT name FROM sqlite_master WHERE type = 'table'",
-    );
-    final names = tables.map((row) => row['name']).whereType<String>().toSet();
-    expect(
-      names,
-      containsAll({
-        DatabaseSchema.rolesTable,
-        DatabaseSchema.userRolesTable,
-        DatabaseSchema.rolePermissionsTable,
+      final tables = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type = 'table'",
+      );
+      final names = tables
+          .map((row) => row['name'])
+          .whereType<String>()
+          .toSet();
+      expect(
+        names,
+        containsAll({
+          DatabaseSchema.rolesTable,
+          DatabaseSchema.userRolesTable,
+          DatabaseSchema.rolePermissionsTable,
+          DatabaseSchema.companyProfilesTable,
+        }),
+      );
+
+      final companyColumns = await db.rawQuery(
+        'PRAGMA table_info(${DatabaseSchema.companyInfoTable})',
+      );
+      final companyColumnNames = companyColumns
+          .map((row) => row['name'])
+          .whereType<String>()
+          .toSet();
+      expect(
+        companyColumnNames,
+        containsAll({'local_path', 'remote_url', 'upload_status'}),
+      );
+
+      final mirrored = await db.query(
         DatabaseSchema.companyProfilesTable,
-      }),
-    );
+        limit: 1,
+      );
+      expect(mirrored, hasLength(1));
+      expect(mirrored.first['name'], 'Empresa Demo');
 
-    final companyColumns = await db.rawQuery(
-      'PRAGMA table_info(${DatabaseSchema.companyInfoTable})',
-    );
-    final companyColumnNames = companyColumns
-        .map((row) => row['name'])
-        .whereType<String>()
-        .toSet();
-    expect(
-      companyColumnNames,
-      containsAll({'local_path', 'remote_url', 'upload_status'}),
-    );
-
-    final mirrored = await db.query(DatabaseSchema.companyProfilesTable, limit: 1);
-    expect(mirrored, hasLength(1));
-    expect(mirrored.first['name'], 'Empresa Demo');
-
-    await db.close();
-  });
+      await db.close();
+    },
+  );
 
   test(
     'migracion v21 permite historico borrado y fila activa con misma clave de negocio',

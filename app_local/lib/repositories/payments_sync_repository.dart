@@ -64,6 +64,9 @@ class PaymentsSyncRepository implements SyncRepository {
             'installment_sync_id': row['installment_sync_id'],
             'payment_date': row['fecha_pago'],
             'amount_paid': row['monto_pagado'],
+            'late_fee_applied': row['mora_aplicada'],
+            'interest_applied': row['interes_aplicado'],
+            'principal_applied': row['capital_aplicado'],
             'payment_method': row['metodo_pago'],
             'payment_type': row['tipo_pago'],
             'reference': row['referencia'],
@@ -140,8 +143,9 @@ class PaymentsSyncRepository implements SyncRepository {
                 'deleted_at':
                     _readNullableDate(record['updated_at']) ??
                     DateTime.now().toIso8601String(),
-                'fecha_actualizacion':
-                    _readDate(record['updated_at'] ?? record['created_at']),
+                'fecha_actualizacion': _readDate(
+                  record['updated_at'] ?? record['created_at'],
+                ),
                 'last_modified_remote': _readDate(record['updated_at']),
                 'sync_status': DatabaseSchema.syncStatusSynced,
               },
@@ -219,6 +223,9 @@ class PaymentsSyncRepository implements SyncRepository {
               record['payment_date'] ?? record['created_at'],
             ),
             'monto_pagado': _readDouble(record['amount_paid']),
+            'mora_aplicada': _readDouble(record['late_fee_applied']),
+            'interes_aplicado': _readDouble(record['interest_applied']),
+            'capital_aplicado': _readDouble(record['principal_applied']),
             'metodo_pago': record['payment_method'],
             'tipo_pago': record['payment_type'] ?? 'cuota',
             'referencia': record['reference'],
@@ -280,6 +287,9 @@ class PaymentsSyncRepository implements SyncRepository {
           'cuota_id': installmentId,
           'fecha_pago': _readDate(record['payment_date']),
           'monto_pagado': _readDouble(record['amount_paid']),
+          'mora_aplicada': _readDouble(record['late_fee_applied']),
+          'interes_aplicado': _readDouble(record['interest_applied']),
+          'capital_aplicado': _readDouble(record['principal_applied']),
           'metodo_pago': record['payment_method'],
           'tipo_pago': record['payment_type'] ?? 'cuota',
           'referencia': record['reference'],
@@ -353,7 +363,13 @@ class PaymentsSyncRepository implements SyncRepository {
           final installmentId = _readInt(installment['id']);
           final paidRows = await txn.rawQuery(
             '''
-            SELECT COALESCE(SUM(monto_pagado), 0) AS paid_total
+            SELECT COALESCE(SUM(
+              CASE
+                WHEN COALESCE(capital_aplicado, 0) + COALESCE(interes_aplicado, 0) > 0
+                THEN COALESCE(capital_aplicado, 0) + COALESCE(interes_aplicado, 0)
+                ELSE monto_pagado
+              END
+            ), 0) AS paid_total
             FROM ${DatabaseSchema.paymentsTable}
             WHERE cuota_id = ?
               AND deleted_at IS NULL

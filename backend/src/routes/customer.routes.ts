@@ -444,6 +444,7 @@ function serializeCustomerPayment(payment: any) {
     yearToPay: payment.yearToPay,
     principalApplied: payment.principalApplied?.toString() ?? "0",
     interestApplied: payment.interestApplied?.toString() ?? "0",
+    lateFeeApplied: payment.lateFeeApplied?.toString() ?? "0",
     updatedAt: payment.updatedAt?.toISOString() ?? null,
   };
 }

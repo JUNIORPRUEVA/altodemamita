@@ -62,8 +62,13 @@ class SalesRepository {
       identical(_appDatabase, AppDatabase.instance);
   bool get _useBackendMode => cloudCutoverMode.usesAuthoritativeBusinessWrites;
 
-  void _log(String message) {
-    developer.log(message, name: 'SistemaSolares.SalesSync');
+  void _log(String message, {Object? error, StackTrace? stackTrace}) {
+    developer.log(
+      message,
+      name: 'SistemaSolares.SalesSync',
+      error: error,
+      stackTrace: stackTrace,
+    );
   }
 
   Future<List<SaleSummary>> fetchAll({
@@ -71,10 +76,18 @@ class SalesRepository {
     String? settlementFilter,
   }) async {
     if (_useBackendMode) {
-      return _fetchAllFromBackend(
-        query: query,
-        settlementFilter: settlementFilter,
-      );
+      try {
+        return _fetchAllFromBackend(
+          query: query,
+          settlementFilter: settlementFilter,
+        );
+      } catch (error, stackTrace) {
+        _log(
+          'Fallback local en fetchAll por falla backend',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
     }
 
     final db = await _appDatabase.database;
@@ -242,7 +255,18 @@ class SalesRepository {
 
   Future<SaleDetail?> fetchDetail(int saleId) async {
     if (_useBackendMode) {
-      return _fetchDetailFromBackend(saleId);
+      try {
+        final detail = await _fetchDetailFromBackend(saleId);
+        if (detail != null) {
+          return detail;
+        }
+      } catch (error, stackTrace) {
+        _log(
+          'Fallback local en fetchDetail por falla backend',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
     }
 
     final db = await _appDatabase.database;
@@ -543,6 +567,9 @@ class SalesRepository {
             'cuota_id': null,
             'fecha_pago': draft.saleDate.toIso8601String(),
             'monto_pagado': paymentAmount,
+            'mora_aplicada': 0,
+            'interes_aplicado': 0,
+            'capital_aplicado': isCashSale ? paymentAmount : 0,
             'metodo_pago': _normalizeInitialPaymentMethod(
               draft.initialPaymentMethod,
             ),
@@ -911,6 +938,9 @@ class SalesRepository {
             'cuota_id': null,
             'fecha_pago': draft.saleDate.toIso8601String(),
             'monto_pagado': initialPaidAmount,
+            'mora_aplicada': 0,
+            'interes_aplicado': 0,
+            'capital_aplicado': 0,
             'metodo_pago': normalizedInitialPaymentMethod,
             'tipo_pago': saleStatus == 'apartado'
                 ? 'apartado'

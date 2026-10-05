@@ -37,6 +37,9 @@ void main() {
     expect(find.text('RESUMEN FINANCIERO'), findsOneWidget);
     expect(find.text('BALANCE ACTUAL'), findsOneWidget);
     expect(find.text('ABONADO ACUMULADO'), findsOneWidget);
+    expect(find.text('Mora pagada'), findsOneWidget);
+    expect(find.text('Interes pagado'), findsOneWidget);
+    expect(find.text('Capital pagado'), findsOneWidget);
     expect(find.text('ESTADO ACTUAL'), findsOneWidget);
     expect(find.text('Proxima cuota'), findsOneWidget);
     expect(find.text('[TEST] Usuario Cajero'), findsWidgets);
@@ -102,6 +105,9 @@ Receipt _buildSampleReceipt() {
       installmentId: 1,
       paymentDate: now,
       amountPaid: 18500,
+      lateFeeApplied: 500,
+      interestApplied: 1500,
+      principalApplied: 16500,
       paymentMethod: 'transferencia',
       paymentType: 'cuota',
       reference: 'TRX-12345',
@@ -115,6 +121,9 @@ Receipt _buildSampleReceipt() {
         installmentId: 1,
         paymentDate: now,
         amountPaid: 15000,
+        lateFeeApplied: 500,
+        interestApplied: 1500,
+        principalApplied: 13000,
         paymentMethod: 'transferencia',
         paymentType: 'cuota',
         reference: 'TRX-12345',
@@ -127,6 +136,7 @@ Receipt _buildSampleReceipt() {
         installmentId: null,
         paymentDate: now,
         amountPaid: 3500,
+        principalApplied: 3500,
         paymentMethod: 'transferencia',
         paymentType: 'abono_capital',
         reference: 'TRX-12345',

@@ -26,7 +26,9 @@ export const config = {
     process.env.PAYMENT_REMINDERS_TEST_NUMBERS ?? '18295344286,18295319442',
   paymentRemindersAllowRealRecipients:
     String(process.env.PAYMENT_REMINDERS_ALLOW_REAL_RECIPIENTS ?? 'false').toLowerCase() === 'true',
-  lateFeeDailyRate: process.env.LATE_FEE_DAILY_RATE ?? '0.01',
+  lateFeeEnabled: process.env.LATE_FEE_ENABLED ?? 'true',
+  lateFeeDailyRate: process.env.LATE_FEE_DAILY_RATE ?? '0.005',
+  lateFeeGraceDays: process.env.LATE_FEE_GRACE_DAYS ?? '5',
   paymentReminderCron: process.env.PAYMENT_REMINDER_CRON ?? '0 9 * * *',
   paymentReminderTimezone: process.env.PAYMENT_REMINDER_TIMEZONE ?? 'America/Santo_Domingo',
   paymentReminderWindowStartHour: Number(process.env.PAYMENT_REMINDER_WINDOW_START_HOUR ?? 9),
@@ -56,8 +58,12 @@ export function validateConfig() {
     missing.push('DATABASE_URL');
   }
   const rate = Number(config.lateFeeDailyRate);
-  if (!Number.isFinite(rate) || rate !== 0.01) {
-    throw new Error('LATE_FEE_DAILY_RATE debe ser exactamente 0.01 para 1% diario.');
+  if (!Number.isFinite(rate) || rate < 0 || rate > 1) {
+    throw new Error('LATE_FEE_DAILY_RATE debe ser un decimal valido entre 0 y 1. Use 0.005 para 0.50% diario.');
+  }
+  const graceDays = Number(config.lateFeeGraceDays);
+  if (!Number.isInteger(graceDays) || graceDays < 0) {
+    throw new Error('LATE_FEE_GRACE_DAYS debe ser un entero mayor o igual que 0.');
   }
   if (config.paymentReminderTimezone !== 'America/Santo_Domingo') {
     throw new Error('PAYMENT_REMINDER_TIMEZONE debe ser America/Santo_Domingo.');

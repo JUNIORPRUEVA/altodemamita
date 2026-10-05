@@ -16,7 +16,7 @@ export const businessRouter = Router();
 const authoritativeSales = new AuthoritativeSaleService(prisma);
 const permissionDomainSet = new Set<string>(permissionDomains);
 const userPermissionSchema = z.array(z.string().min(1)).default([]);
-const allowedBusinessConfigKeys = new Set(['business_name', 'receipt_footer', 'default_currency', 'payment_terms', 'late_fee_policy', 'invoice_prefix', 'payment_reminders_enabled', 'payment_reminders_sender_whatsapp_number', 'payment_reminders_message_fragment']);
+const allowedBusinessConfigKeys = new Set(['business_name', 'receipt_footer', 'default_currency', 'payment_terms', 'late_fee_policy', 'late_fee_enabled', 'late_fee_daily_rate', 'late_fee_grace_days', 'invoice_prefix', 'payment_reminders_enabled', 'payment_reminders_sender_whatsapp_number', 'payment_reminders_message_fragment']);
 
 businessRouter.use(authGuard);
 

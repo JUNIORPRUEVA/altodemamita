@@ -426,6 +426,7 @@ async function createSaleInTransaction(
           input.reference ?? `SALE-INIT-${sale.id}-${now.getTime().toString()}`,
         principalApplied: decimal(isCashSale ? salePrice : 0),
         interestApplied: decimal(0),
+        lateFeeApplied: decimal(0),
         raw: {
           authoritativeSource: 'phase_1d',
           saleType: isCashSale ? 'CASH' : 'FINANCED',
@@ -832,6 +833,7 @@ async function updateSaleInTransaction(
           input.reference ?? `SALE-EDIT-INIT-${updatedSale.id}-${now.getTime().toString()}`,
         principalApplied: decimal(0),
         interestApplied: decimal(0),
+        lateFeeApplied: decimal(0),
         raw: { authoritativeSource: 'phase_sale_edit' },
       },
       select: { id: true },

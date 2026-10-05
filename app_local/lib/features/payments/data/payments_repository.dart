@@ -85,22 +85,34 @@ class PaymentsRepository {
 
   Future<List<PaymentSaleOption>> fetchActiveSales() async {
     if (_useBackendMode) {
-      final sales = await _fetchOwnerItems('/owner/sales');
-      return sales
-          .map(_paymentSaleOptionFromBackend)
-          .where(
-            (sale) =>
-                const {
-                  'apartado',
-                  'inicial_incompleto',
-                  'activa',
-                }.contains(sale.status) &&
-                (sale.pendingInitialPayment > 0.009 ||
-                    sale.pendingBalance > 0.009),
-          )
-          .toList(growable: false);
+      try {
+        final sales = await _fetchOwnerItems('/owner/sales');
+        return sales
+            .map(_paymentSaleOptionFromBackend)
+            .where(
+              (sale) =>
+                  const {
+                    'apartado',
+                    'inicial_incompleto',
+                    'activa',
+                  }.contains(sale.status) &&
+                  (sale.pendingInitialPayment > 0.009 ||
+                      sale.pendingBalance > 0.009),
+            )
+            .toList(growable: false);
+      } catch (error, stackTrace) {
+        _log(
+          'Fallback local en fetchActiveSales por falla backend',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
     }
 
+    return _fetchActiveSalesFromLocal();
+  }
+
+  Future<List<PaymentSaleOption>> _fetchActiveSalesFromLocal() async {
     final db = await _appDatabase.database;
     final rows = await db.rawQuery('''
       SELECT
@@ -150,15 +162,30 @@ class PaymentsRepository {
       return null;
     }
 
-    final response = await _apiClient.get(
-      '/owner/payments/work-queue',
-      queryParameters: {
-        'state': state,
-        'page': '$page',
-        'pageSize': '$pageSize',
-        if (search.trim().isNotEmpty) 'search': search.trim(),
-      },
-    );
+    final Object response;
+    try {
+      response = await _apiClient.get(
+        '/owner/payments/work-queue',
+        queryParameters: {
+          'state': state,
+          'page': '$page',
+          'pageSize': '$pageSize',
+          if (search.trim().isNotEmpty) 'search': search.trim(),
+        },
+      );
+    } catch (error, stackTrace) {
+      _log(
+        'Fallback local en fetchWorkQueue por falla backend',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return _fetchLocalWorkQueue(
+        state: state,
+        search: search,
+        page: page,
+        pageSize: pageSize,
+      );
+    }
     final payload = response is Map<String, dynamic>
         ? response
         : (response as Map).map(
@@ -184,17 +211,27 @@ class PaymentsRepository {
     String query, {
     int limit = 25,
   }) async {
-    if (!_useBackendMode) {
-      return const [];
-    }
     final trimmed = query.trim();
     if (trimmed.length < 2) {
       return const [];
     }
-    final response = await _apiClient.get(
-      '/owner/payments/sales-search',
-      queryParameters: {'q': trimmed, 'limit': '$limit'},
-    );
+    if (!_useBackendMode) {
+      return _searchLocalSales(trimmed, limit: limit);
+    }
+    final Object response;
+    try {
+      response = await _apiClient.get(
+        '/owner/payments/sales-search',
+        queryParameters: {'q': trimmed, 'limit': '$limit'},
+      );
+    } catch (error, stackTrace) {
+      _log(
+        'Fallback local en searchSales por falla backend',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return _searchLocalSales(trimmed, limit: limit);
+    }
     final payload = response is Map<String, dynamic>
         ? response
         : (response as Map).map(
@@ -312,7 +349,15 @@ class PaymentsRepository {
 
   Future<PaymentSaleContext?> fetchSaleContext(int saleId) async {
     if (_useBackendMode) {
-      return _fetchSaleContextFromBackend(saleId);
+      try {
+        return await _fetchSaleContextFromBackend(saleId);
+      } catch (error, stackTrace) {
+        _log(
+          'Fallback local en fetchSaleContext por falla backend',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
     }
 
     return _runWithDatabaseRetry(() async {
@@ -1063,6 +1108,9 @@ class PaymentsRepository {
           'cuota_id': null,
           'fecha_pago': timestamp,
           'monto_pagado': initialPaymentApplied,
+          'mora_aplicada': 0,
+          'interes_aplicado': 0,
+          'capital_aplicado': 0,
           'metodo_pago': draft.paymentMethod,
           'tipo_pago': paidInitial <= 0.009 ? 'apartado' : 'abono_inicial',
           'referencia': paymentReference,
@@ -1248,6 +1296,9 @@ class PaymentsRepository {
           'cuota_id': installment.id,
           'fecha_pago': timestamp,
           'monto_pagado': installmentOutcome.appliedAmount,
+          'mora_aplicada': 0,
+          'interes_aplicado': installmentOutcome.interestPaidNow,
+          'capital_aplicado': installmentOutcome.principalPaidNow,
           'metodo_pago': draft.paymentMethod,
           'tipo_pago': 'cuota',
           'referencia': paymentReference,
@@ -1291,6 +1342,9 @@ class PaymentsRepository {
         'cuota_id': null,
         'fecha_pago': timestamp,
         'monto_pagado': capitalPrepayment,
+        'mora_aplicada': 0,
+        'interes_aplicado': 0,
+        'capital_aplicado': capitalPrepayment,
         'metodo_pago': draft.paymentMethod,
         'tipo_pago': 'abono_capital',
         'referencia': paymentReference,
@@ -1481,6 +1535,7 @@ class PaymentsRepository {
 
     return _InstallmentPaymentOutcome(
       appliedAmount: _roundCurrency(appliedAmount),
+      interestPaidNow: _roundCurrency(interestPaidNow),
       principalPaidNow: principalPaidNow,
       newPaidAmount: newPaidAmount,
       newInterestPaid: newInterestPaid,
@@ -1806,7 +1861,13 @@ class PaymentsRepository {
 
         final paymentSumRows = await txn.rawQuery(
           '''
-          SELECT COALESCE(SUM(monto_pagado), 0) AS paid_total
+          SELECT COALESCE(SUM(
+            CASE
+              WHEN COALESCE(capital_aplicado, 0) + COALESCE(interes_aplicado, 0) > 0
+              THEN COALESCE(capital_aplicado, 0) + COALESCE(interes_aplicado, 0)
+              ELSE monto_pagado
+            END
+          ), 0) AS paid_total
           FROM ${DatabaseSchema.paymentsTable}
           WHERE cuota_id = ? AND deleted_at IS NULL
           ''',
@@ -1906,7 +1967,13 @@ class PaymentsRepository {
           final paymentRows = await txn.rawQuery(
             '''
             SELECT
-              COALESCE(SUM(monto_pagado), 0) AS paid_total
+              COALESCE(SUM(
+                CASE
+                  WHEN COALESCE(capital_aplicado, 0) + COALESCE(interes_aplicado, 0) > 0
+                  THEN COALESCE(capital_aplicado, 0) + COALESCE(interes_aplicado, 0)
+                  ELSE monto_pagado
+                END
+              ), 0) AS paid_total
             FROM ${DatabaseSchema.paymentsTable}
             WHERE cuota_id = ?
               AND deleted_at IS NULL
@@ -2428,6 +2495,7 @@ class PaymentsRepository {
 class _InstallmentPaymentOutcome {
   const _InstallmentPaymentOutcome({
     required this.appliedAmount,
+    required this.interestPaidNow,
     required this.principalPaidNow,
     required this.newPaidAmount,
     required this.newInterestPaid,
@@ -2437,6 +2505,7 @@ class _InstallmentPaymentOutcome {
   });
 
   final double appliedAmount;
+  final double interestPaidNow;
   final double principalPaidNow;
   final double newPaidAmount;
   final double newInterestPaid;

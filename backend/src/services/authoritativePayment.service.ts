@@ -26,6 +26,11 @@ import {
   dateKeyInTimeZone,
   isPastDueBusinessDay,
 } from './installmentStatus.service';
+import {
+  LateFeeCalculationService,
+  decimal as lateFeeDecimal,
+} from './lateFeeCalculation.service';
+import { readLateFeePolicy } from './lateFeePolicy.service';
 
 type TransactionClient = Prisma.TransactionClient;
 type LoadedInstallment = Awaited<ReturnType<typeof loadActiveInstallments>>[number];
@@ -281,6 +286,7 @@ async function settleSaleInTransaction(
       reference: input.reference ?? `SETTLEMENT-${sale.id}-${now.getTime().toString()}`,
       principalApplied: decimal(quote.principalOutstanding),
       interestApplied: decimal(quote.dueInterest),
+      lateFeeApplied: decimal(quote.lateFees),
       raw: {
         authoritativeSource: 'settlement',
         quote,
@@ -412,6 +418,7 @@ async function registerPaymentInTransaction(
         yearToPay: input.yearToPay,
         principalApplied: decimal(0),
         interestApplied: decimal(0),
+        lateFeeApplied: decimal(0),
         raw: authoritativePaymentRaw(input.sourceSyncId),
       },
       select: { id: true },
@@ -483,6 +490,22 @@ async function registerPaymentInTransaction(
   }
 
   const installments = await loadActiveInstallments(tx, sale.id);
+  const lateFeePolicy = await readLateFeePolicy(tx, input.companyId, paymentDate);
+  const lateFeeCalculator = new LateFeeCalculationService({
+    enabled: lateFeePolicy.enabled,
+    dailyRate: lateFeePolicy.dailyRate,
+    graceDays: lateFeePolicy.graceDays,
+    timezone: BUSINESS_TIMEZONE,
+  });
+  const priorPayments = await tx.payment.findMany({
+    where: {
+      companyId: input.companyId,
+      saleId: sale.id,
+      deletedAt: null,
+      annulledAt: null,
+    },
+    orderBy: [{ paidAt: 'asc' }, { createdAt: 'asc' }],
+  });
   const outstandingPrincipal = calculateOutstandingPrincipal(installments);
   const fixedInstallmentAmount = calculateEstimatedInstallmentAmount({
     financedBalance: toNumber(sale.financedBalance),
@@ -512,13 +535,22 @@ async function registerPaymentInTransaction(
   let totalPrincipalReduction = 0;
   let currentInstallmentNumber = 0;
   let installmentAppliedTotal = 0;
+  const createdPaymentsForLateFee: typeof priorPayments = [];
 
   for (const installment of installmentsToProcess) {
     if (remaining <= 0.009) {
       break;
     }
     currentInstallmentNumber = installment.installmentNumber ?? 0;
-    const outcome = applyToInstallment(installment, remaining, paymentDate);
+    const lateFeeOutstanding = calculateInstallmentLateFeeOutstanding({
+      calculator: lateFeeCalculator,
+      installment,
+      payments: [...priorPayments, ...createdPaymentsForLateFee],
+      paymentDate,
+      companyId: input.companyId,
+      saleSyncId: sale.syncId,
+    });
+    const outcome = applyToInstallment(installment, remaining, paymentDate, lateFeeOutstanding);
     if (outcome.appliedAmount <= 0) {
       continue;
     }
@@ -552,11 +584,26 @@ async function registerPaymentInTransaction(
         yearToPay: input.yearToPay,
         principalApplied: decimal(outcome.principalPaidNow),
         interestApplied: decimal(outcome.interestPaidNow),
+        lateFeeApplied: decimal(outcome.lateFeePaidNow),
         raw: authoritativePaymentRaw(input.sourceSyncId),
       },
-      select: { id: true },
+      select: {
+        id: true,
+        companyId: true,
+        saleId: true,
+        installmentSyncId: true,
+        paidAt: true,
+        amount: true,
+        principalApplied: true,
+        interestApplied: true,
+        lateFeeApplied: true,
+        deletedAt: true,
+        annulledAt: true,
+        createdAt: true,
+      },
     });
     paymentIds.push(payment.id);
+    createdPaymentsForLateFee.push(payment as any);
 
     remaining = outcome.remainingAmount;
     installmentAppliedTotal = roundCurrency(installmentAppliedTotal + outcome.appliedAmount);
@@ -599,6 +646,7 @@ async function registerPaymentInTransaction(
         yearToPay: input.yearToPay,
         principalApplied: decimal(capitalPrepayment),
         interestApplied: decimal(0),
+        lateFeeApplied: decimal(0),
         raw: authoritativePaymentRaw(input.sourceSyncId),
       },
       select: { id: true },
@@ -763,7 +811,10 @@ async function annulPaymentInTransaction(
   const amount = toNumber(payment.amount);
   if (payment.installmentId && payment.installment) {
     const installment = payment.installment;
-    const newPaidAmount = roundCurrency(Math.max(toNumber(installment.paidAmount) - amount, 0));
+    const installmentReduction = roundCurrency(
+      toNumber(payment.principalApplied) + toNumber(payment.interestApplied),
+    );
+    const newPaidAmount = roundCurrency(Math.max(toNumber(installment.paidAmount) - installmentReduction, 0));
     const newPrincipalPaid = roundCurrency(
       Math.max(toNumber(installment.paidPrincipalAmount) - toNumber(payment.principalApplied), 0),
     );
@@ -1116,18 +1167,27 @@ async function assertCapitalPaymentAllowed(
   }
 }
 
-export function applyToInstallment(installment: LoadedInstallment, amount: number, asOf: Date) {
+export function applyToInstallment(
+  installment: LoadedInstallment,
+  amount: number,
+  asOf: Date,
+  lateFeeOutstanding = 0,
+) {
   const installmentRemaining = remainingAmount(installment);
-  const appliedAmount = amount > installmentRemaining ? installmentRemaining : amount;
+  const lateFeePaidNow = roundCurrency(Math.min(amount, Math.max(lateFeeOutstanding, 0)));
+  const amountAfterLateFee = roundCurrency(amount - lateFeePaidNow);
+  const appliedToInstallment = amountAfterLateFee > installmentRemaining ? installmentRemaining : amountAfterLateFee;
   const interestRemaining = toNumber(installment.interestAmount) - toNumber(installment.paidInterestAmount);
-  const interestPaidNow = appliedAmount > interestRemaining ? interestRemaining : appliedAmount;
-  const principalPaidNow = roundCurrency(appliedAmount - interestPaidNow);
-  const newPaidAmount = roundCurrency(toNumber(installment.paidAmount) + appliedAmount);
+  const interestPaidNow = appliedToInstallment > interestRemaining ? interestRemaining : appliedToInstallment;
+  const principalPaidNow = roundCurrency(appliedToInstallment - interestPaidNow);
+  const newPaidAmount = roundCurrency(toNumber(installment.paidAmount) + appliedToInstallment);
   const newInterestPaid = roundCurrency(toNumber(installment.paidInterestAmount) + interestPaidNow);
   const newPrincipalPaid = roundCurrency(toNumber(installment.paidPrincipalAmount) + principalPaidNow);
+  const appliedAmount = roundCurrency(lateFeePaidNow + appliedToInstallment);
 
   return {
-    appliedAmount: roundCurrency(appliedAmount),
+    appliedAmount,
+    lateFeePaidNow,
     principalPaidNow,
     interestPaidNow: roundCurrency(interestPaidNow),
     newPaidAmount,
@@ -1141,6 +1201,46 @@ export function applyToInstallment(installment: LoadedInstallment, amount: numbe
       asOf,
     }),
   };
+}
+
+function calculateInstallmentLateFeeOutstanding(input: {
+  calculator: LateFeeCalculationService;
+  installment: LoadedInstallment;
+  payments: Array<{
+    installmentSyncId?: string | null;
+    paidAt?: Date | null;
+    amount?: Prisma.Decimal | number | string | null;
+    principalApplied?: Prisma.Decimal | number | string | null;
+    interestApplied?: Prisma.Decimal | number | string | null;
+    lateFeeApplied?: Prisma.Decimal | number | string | null;
+    deletedAt?: Date | null;
+    annulledAt?: Date | null;
+  }>;
+  paymentDate: Date;
+  companyId: string;
+  saleSyncId: string;
+}) {
+  const relatedPayments = input.payments.filter(
+    (payment) =>
+      payment.installmentSyncId === input.installment.syncId &&
+      !payment.deletedAt &&
+      !payment.annulledAt,
+  );
+  const summary = input.calculator.calculateSaleSummary({
+    context: {
+      companyId: input.companyId,
+      saleSyncId: input.saleSyncId,
+    },
+    installments: [input.installment],
+    payments: relatedPayments,
+    calculationDate: input.paymentDate,
+  });
+  const accruedLateFee = lateFeeDecimal(summary.cuotas[0]?.mora ?? 0);
+  const paidLateFee = relatedPayments.reduce(
+    (total, payment) => total.plus(payment.lateFeeApplied ?? 0),
+    lateFeeDecimal(0),
+  );
+  return roundCurrency(Math.max(accruedLateFee.minus(paidLateFee).toNumber(), 0));
 }
 
 export function resolveInstallmentsToProcess(input: {

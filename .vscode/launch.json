@@ -2,6 +2,24 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "App Local Windows UAT LOCAL",
+      "request": "launch",
+      "type": "dart",
+      "cwd": "app_local",
+      "program": "lib/main.dart",
+      "flutterMode": "debug",
+      "deviceId": "windows",
+      "toolArgs": [
+        "--dart-define=SYNC_API_BASE_URL=",
+        "--dart-define=CLOUD_CUTOVER_MODE=LEGACY_LOCAL",
+        "--dart-define=PRODUCTION_MODE=false",
+        "--dart-define=STORAGE_NAMESPACE=SistemaSolares",
+        "--dart-define=ALLOW_CLOUD_PULL=false",
+        "--dart-define=ALLOW_LEGACY_MIGRATION=false",
+        "--dart-define=ALLOW_AUTH_BOOTSTRAP=false"
+      ]
+    },
+    {
       "name": "App Local Windows PRODUCCION",
       "request": "launch",
       "type": "dart",

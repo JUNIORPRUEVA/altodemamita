@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { config } from '../config';
 import { prisma } from '../prisma';
 import { LateFeeCalculationService, LateFeeSummary } from './lateFeeCalculation.service';
+import { readLateFeePolicy } from './lateFeePolicy.service';
 import { paymentReminderWindowDescription } from './paymentReminderWindow.service';
 import { normalizeWhatsappPhone } from './whatsapp.service';
 
@@ -161,8 +162,11 @@ export function isWhatsappProviderConfigured() {
 }
 
 async function summarizeReminderCandidates(companyId: string) {
+  const lateFeePolicy = await readLateFeePolicy(prisma, companyId);
   const calculator = new LateFeeCalculationService({
-    dailyRate: config.lateFeeDailyRate,
+    enabled: lateFeePolicy.enabled,
+    dailyRate: lateFeePolicy.dailyRate,
+    graceDays: lateFeePolicy.graceDays,
     timezone: config.paymentReminderTimezone,
   });
   const sales = await prisma.sale.findMany({
@@ -309,7 +313,7 @@ function templateEditableFields(messageFragment: string) {
     { key: 'editableMessageFragment', label: 'Mensaje administrativo', value: messageFragment, editable: true },
     { key: 'lotLabel', label: 'Solar vendido', value: 'Se calcula desde la venta', editable: false },
     { key: 'installmentDetails', label: 'Cuotas vencidas, capital y mora', value: 'Se calcula desde cuotas y pagos', editable: false },
-    { key: 'totalDue', label: 'Total pendiente', value: 'Se calcula con 1% diario de mora hasta 30 dias por cuota', editable: false },
+    { key: 'totalDue', label: 'Total pendiente', value: 'Se calcula con 0.50% diario, 5 dias de gracia y sin tope de dias', editable: false },
   ];
 }
 

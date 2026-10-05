@@ -27,7 +27,10 @@ class _FinancialParamsPageState extends State<FinancialParamsPage> {
   late final TextEditingController _interesController;
   late final TextEditingController _cuotasController;
   late final TextEditingController _monedaController;
+  late final TextEditingController _moraTasaController;
+  late final TextEditingController _moraGraciaController;
 
+  bool _moraEnabled = true;
   bool _isSaving = false;
   FriendlyErrorMessage? _loadError;
 
@@ -38,6 +41,8 @@ class _FinancialParamsPageState extends State<FinancialParamsPage> {
     _interesController = TextEditingController(text: '1');
     _cuotasController = TextEditingController(text: '12');
     _monedaController = TextEditingController(text: 'RD\$');
+    _moraTasaController = TextEditingController(text: '0.50');
+    _moraGraciaController = TextEditingController(text: '5');
     _loadParams();
   }
 
@@ -47,6 +52,8 @@ class _FinancialParamsPageState extends State<FinancialParamsPage> {
     _interesController.dispose();
     _cuotasController.dispose();
     _monedaController.dispose();
+    _moraTasaController.dispose();
+    _moraGraciaController.dispose();
     super.dispose();
   }
 
@@ -80,207 +87,280 @@ class _FinancialParamsPageState extends State<FinancialParamsPage> {
     return BaseLayout(
       title: 'Parámetros Financieros',
       child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: _loadError != null
-                  ? Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 560),
-                        child: InlineModuleRecoveryCard(
-                          title: _loadError!.title,
-                          message: _loadError!.message,
-                          details: _loadError!.details,
-                          suggestions: _loadError!.suggestions,
-                          onRetry: _loadParams,
-                        ),
+        padding: const EdgeInsets.all(16),
+        child: _loadError != null
+            ? Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 560),
+                  child: InlineModuleRecoveryCard(
+                    title: _loadError!.title,
+                    message: _loadError!.message,
+                    details: _loadError!.details,
+                    suggestions: _loadError!.suggestions,
+                    onRetry: _loadParams,
+                  ),
+                ),
+              )
+            : Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Valores por defecto',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w600,
                       ),
-                    )
-                  : Form(
-                      key: _formKey,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Valores por defecto',
-                            style: Theme.of(context).textTheme.titleLarge
-                                ?.copyWith(fontWeight: FontWeight.w600),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Estos valores se usarán cuando se cree una nueva venta',
-                            style: Theme.of(context).textTheme.bodyMedium
-                                ?.copyWith(color: Colors.grey[600]),
-                          ),
-                          const SizedBox(height: 24),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Estos valores se usarán cuando se cree una nueva venta',
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
+                    ),
+                    const SizedBox(height: 24),
 
-                          // Parámetros de pago
-                          Card(
-                            child: Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Parámetros de pago',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleSmall
-                                        ?.copyWith(fontWeight: FontWeight.w600),
-                                  ),
-                                  const SizedBox(height: 16),
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: TextFormField(
-                                          controller: _inicialPercentController,
-                                          enabled: !isReadOnly,
-                                          decoration: const InputDecoration(
-                                            labelText: 'Inicial %',
-                                            suffixText: '%',
-                                            prefixIcon: Icon(
-                                              Icons.percent_outlined,
-                                            ),
-                                          ),
-                                          keyboardType: TextInputType.number,
-                                          validator: (value) {
-                                            final parsed = double.tryParse(
-                                              value ?? '',
-                                            );
-                                            if (parsed == null ||
-                                                parsed < 0 ||
-                                                parsed >= 100) {
-                                              return 'Entre 0-100';
-                                            }
-                                            return null;
-                                          },
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: TextFormField(
-                                          controller: _interesController,
-                                          enabled: !isReadOnly,
-                                          decoration: const InputDecoration(
-                                            labelText: 'Interés mensual %',
-                                            suffixText: '%',
-                                            prefixIcon: Icon(
-                                              Icons.trending_up_outlined,
-                                            ),
-                                          ),
-                                          keyboardType: TextInputType.number,
-                                          validator: (value) {
-                                            final parsed = double.tryParse(
-                                              value ?? '',
-                                            );
-                                            if (parsed == null || parsed < 0) {
-                                              return 'No negativo';
-                                            }
-                                            return null;
-                                          },
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 16),
-                                  TextFormField(
-                                    controller: _cuotasController,
+                    // Parámetros de pago
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Parámetros de pago',
+                              style: Theme.of(context).textTheme.titleSmall
+                                  ?.copyWith(fontWeight: FontWeight.w600),
+                            ),
+                            const SizedBox(height: 16),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextFormField(
+                                    controller: _inicialPercentController,
                                     enabled: !isReadOnly,
                                     decoration: const InputDecoration(
-                                      labelText:
-                                          'Cantidad de cuotas por defecto *',
+                                      labelText: 'Inicial %',
+                                      suffixText: '%',
+                                      prefixIcon: Icon(Icons.percent_outlined),
+                                    ),
+                                    keyboardType: TextInputType.number,
+                                    validator: (value) {
+                                      final parsed = double.tryParse(
+                                        value ?? '',
+                                      );
+                                      if (parsed == null ||
+                                          parsed < 0 ||
+                                          parsed >= 100) {
+                                        return 'Entre 0-100';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: TextFormField(
+                                    controller: _interesController,
+                                    enabled: !isReadOnly,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Interés mensual %',
+                                      suffixText: '%',
                                       prefixIcon: Icon(
-                                        Icons.calendar_month_outlined,
+                                        Icons.trending_up_outlined,
                                       ),
                                     ),
                                     keyboardType: TextInputType.number,
                                     validator: (value) {
-                                      final parsed = int.tryParse(value ?? '');
-                                      if (parsed == null || parsed <= 0) {
-                                        return 'Debe ser mayor a 0';
+                                      final parsed = double.tryParse(
+                                        value ?? '',
+                                      );
+                                      if (parsed == null || parsed < 0) {
+                                        return 'No negativo';
                                       }
                                       return null;
                                     },
                                   ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-
-                          // Configuración de moneda
-                          Card(
-                            child: Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Configuración de moneda',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleSmall
-                                        ?.copyWith(fontWeight: FontWeight.w600),
-                                  ),
-                                  const SizedBox(height: 16),
-                                  TextFormField(
-                                    controller: _monedaController,
-                                    enabled: !isReadOnly,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Símbolo de moneda *',
-                                      prefixIcon: Icon(
-                                        Icons.currency_exchange_outlined,
-                                      ),
-                                      hintText: 'Ej: RD\$, \$, USD',
-                                    ),
-                                    validator: (value) {
-                                      if (value == null ||
-                                          value.trim().isEmpty) {
-                                        return 'El símbolo es requerido';
-                                      }
-                                      return null;
-                                    },
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    'Los valores se mostrarán con este símbolo en todo el sistema',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .labelSmall
-                                        ?.copyWith(color: Colors.grey[600]),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 24),
-
-                          // Botones
-                          Row(
-                            children: [
-                              Expanded(
-                                child: OutlinedButton.icon(
-                                  onPressed: () => Navigator.pop(context),
-                                  icon: const Icon(Icons.close),
-                                  label: const Text('Cancelar'),
                                 ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            TextFormField(
+                              controller: _cuotasController,
+                              enabled: !isReadOnly,
+                              decoration: const InputDecoration(
+                                labelText: 'Cantidad de cuotas por defecto *',
+                                prefixIcon: Icon(Icons.calendar_month_outlined),
                               ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: FilledButton.icon(
-                                  onPressed: _isSaving || isReadOnly
-                                      ? null
-                                      : _save,
-                                  icon: const Icon(Icons.save_outlined),
-                                  label: Text(
-                                    _isSaving ? 'Guardando...' : 'Guardar',
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
+                              keyboardType: TextInputType.number,
+                              validator: (value) {
+                                final parsed = int.tryParse(value ?? '');
+                                if (parsed == null || parsed <= 0) {
+                                  return 'Debe ser mayor a 0';
+                                }
+                                return null;
+                              },
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-            ),
+                    const SizedBox(height: 16),
+
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Cobros y mora',
+                              style: Theme.of(context).textTheme.titleSmall
+                                  ?.copyWith(fontWeight: FontWeight.w600),
+                            ),
+                            const SizedBox(height: 12),
+                            SwitchListTile(
+                              contentPadding: EdgeInsets.zero,
+                              title: const Text('Aplicar mora'),
+                              value: _moraEnabled,
+                              onChanged: isReadOnly
+                                  ? null
+                                  : (value) {
+                                      setState(() {
+                                        _moraEnabled = value;
+                                      });
+                                    },
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextFormField(
+                                    controller: _moraTasaController,
+                                    enabled: !isReadOnly && _moraEnabled,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Tasa diaria',
+                                      suffixText: '%',
+                                      prefixIcon: Icon(Icons.percent_outlined),
+                                    ),
+                                    keyboardType: TextInputType.number,
+                                    validator: (value) {
+                                      if (!_moraEnabled) return null;
+                                      final parsed = double.tryParse(
+                                        value ?? '',
+                                      );
+                                      if (parsed == null ||
+                                          parsed < 0 ||
+                                          parsed > 100) {
+                                        return 'Entre 0 y 100';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: TextFormField(
+                                    controller: _moraGraciaController,
+                                    enabled: !isReadOnly && _moraEnabled,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Días de gracia',
+                                      prefixIcon: Icon(
+                                        Icons.event_available_outlined,
+                                      ),
+                                    ),
+                                    keyboardType: TextInputType.number,
+                                    validator: (value) {
+                                      if (!_moraEnabled) return null;
+                                      final parsed = int.tryParse(value ?? '');
+                                      if (parsed == null || parsed < 0) {
+                                        return 'No negativo';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'La mora comenzará a calcularse después de los días de gracia establecidos.',
+                              style: Theme.of(context).textTheme.labelSmall
+                                  ?.copyWith(color: Colors.grey[600]),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Configuración de moneda
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Configuración de moneda',
+                              style: Theme.of(context).textTheme.titleSmall
+                                  ?.copyWith(fontWeight: FontWeight.w600),
+                            ),
+                            const SizedBox(height: 16),
+                            TextFormField(
+                              controller: _monedaController,
+                              enabled: !isReadOnly,
+                              decoration: const InputDecoration(
+                                labelText: 'Símbolo de moneda *',
+                                prefixIcon: Icon(
+                                  Icons.currency_exchange_outlined,
+                                ),
+                                hintText: 'Ej: RD\$, \$, USD',
+                              ),
+                              validator: (value) {
+                                if (value == null || value.trim().isEmpty) {
+                                  return 'El símbolo es requerido';
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Los valores se mostrarán con este símbolo en todo el sistema',
+                              style: Theme.of(context).textTheme.labelSmall
+                                  ?.copyWith(color: Colors.grey[600]),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+
+                    // Botones
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () => Navigator.pop(context),
+                            icon: const Icon(Icons.close),
+                            label: const Text('Cancelar'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: FilledButton.icon(
+                            onPressed: _isSaving || isReadOnly ? null : _save,
+                            icon: const Icon(Icons.save_outlined),
+                            label: Text(_isSaving ? 'Guardando...' : 'Guardar'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+      ),
     );
   }
 
@@ -296,6 +376,10 @@ class _FinancialParamsPageState extends State<FinancialParamsPage> {
         _interesController.text = params.monthlyInterestDefault.toString();
         _cuotasController.text = params.installmentCountDefault.toString();
         _monedaController.text = params.currencySymbol;
+        _moraEnabled = params.lateFeeEnabled;
+        _moraTasaController.text = (params.lateFeeDailyRate * 100)
+            .toStringAsFixed(2);
+        _moraGraciaController.text = params.lateFeeGraceDays.toString();
         _loadError = null;
       });
     } catch (error) {
@@ -334,6 +418,9 @@ class _FinancialParamsPageState extends State<FinancialParamsPage> {
         monthlyInterestDefault: double.parse(_interesController.text.trim()),
         installmentCountDefault: int.parse(_cuotasController.text.trim()),
         currencySymbol: _monedaController.text.trim(),
+        lateFeeEnabled: _moraEnabled,
+        lateFeeDailyRate: double.parse(_moraTasaController.text.trim()) / 100,
+        lateFeeGraceDays: int.parse(_moraGraciaController.text.trim()),
         fechaActualizacion: DateTime.now(),
       );
 

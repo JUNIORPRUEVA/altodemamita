@@ -8,7 +8,7 @@ import 'lot_repair_service.dart';
 
 class DatabaseSchema {
   static const String databaseName = 'sistema_solares.db';
-  static const int databaseVersion = 28;
+  static const int databaseVersion = 29;
   static String get defaultSyncBaseUrl => BASE_URL;
 
   static const String clientsTable = 'clientes';
@@ -142,6 +142,7 @@ class DatabaseSchema {
     await _migrateToVersion26(db);
     await _migrateToVersion27(db);
     await _migrateToVersion28(db);
+    await _migrateToVersion29(db);
     await ensureSalesListCacheSchema(db);
     await ensureListSnapshotsSchema(db);
   }
@@ -173,6 +174,7 @@ class DatabaseSchema {
     await _migrateToVersion26(db);
     await _migrateToVersion27(db);
     await _migrateToVersion28(db);
+    await _migrateToVersion29(db);
     await ensureSalesListCacheSchema(db);
     await ensureListSnapshotsSchema(db);
     await seedDefaults(db);
@@ -505,7 +507,43 @@ class DatabaseSchema {
       await _migrateToVersion28(db);
     }
 
+    if (oldVersion < 29 && newVersion >= 29) {
+      await _migrateToVersion29(db);
+    }
+
     await seedDefaults(db);
+  }
+
+  /// v29: componentes de pago para mora/interes/capital y parametros locales
+  /// de visualizacion de mora. No recalcula historicos: conserva filas cerradas
+  /// y deja los componentes nuevos en 0 hasta recibirlos del backend autoritativo
+  /// o registrarlos en nuevas operaciones locales.
+  static Future<void> _migrateToVersion29(DatabaseExecutor db) async {
+    const paymentColumns = <String, String>{
+      'mora_aplicada': 'REAL NOT NULL DEFAULT 0',
+      'interes_aplicado': 'REAL NOT NULL DEFAULT 0',
+      'capital_aplicado': 'REAL NOT NULL DEFAULT 0',
+    };
+    for (final entry in paymentColumns.entries) {
+      if (!await _columnExists(db, paymentsTable, entry.key)) {
+        await db.execute(
+          'ALTER TABLE $paymentsTable ADD COLUMN ${entry.key} ${entry.value}',
+        );
+      }
+    }
+
+    const financialColumns = <String, String>{
+      'mora_habilitada': "TEXT NOT NULL DEFAULT 'true'",
+      'mora_tasa_diaria': "TEXT NOT NULL DEFAULT '0.005'",
+      'mora_dias_gracia': "TEXT NOT NULL DEFAULT '5'",
+    };
+    for (final entry in financialColumns.entries) {
+      if (!await _columnExists(db, financialParamsTable, entry.key)) {
+        await db.execute(
+          'ALTER TABLE $financialParamsTable ADD COLUMN ${entry.key} ${entry.value}',
+        );
+      }
+    }
   }
 
   /// v28: Reparación automática de solares duplicados/vendidos.
@@ -1492,6 +1530,9 @@ class DatabaseSchema {
         cuota_id INTEGER,
         fecha_pago TEXT NOT NULL,
         monto_pagado REAL NOT NULL DEFAULT 0,
+        mora_aplicada REAL NOT NULL DEFAULT 0,
+        interes_aplicado REAL NOT NULL DEFAULT 0,
+        capital_aplicado REAL NOT NULL DEFAULT 0,
         metodo_pago TEXT,
         tipo_pago TEXT NOT NULL DEFAULT 'cuota',
         referencia TEXT,
@@ -2421,6 +2462,9 @@ class DatabaseSchema {
         cantidad_cuotas TEXT NOT NULL DEFAULT '12',
         simbolo_moneda TEXT NOT NULL DEFAULT 'RD\$',
         lugares_decimales TEXT NOT NULL DEFAULT '2',
+        mora_habilitada TEXT NOT NULL DEFAULT 'true',
+        mora_tasa_diaria TEXT NOT NULL DEFAULT '0.005',
+        mora_dias_gracia TEXT NOT NULL DEFAULT '5',
         fecha_actualizacion TEXT NOT NULL
       )
     ''');

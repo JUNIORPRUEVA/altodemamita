@@ -1143,7 +1143,7 @@ class _HowItWorksPage extends StatelessWidget {
               lines: [
                 'Cuenta las cuotas vencidas de cada venta.',
                 'Calcula capital pendiente, mora y total actualizado.',
-                'La mora configurada del backend es 1% diario y se limita hasta 30 dias por cuota.',
+                'La mora configurada del backend es 0.50% diario, con 5 dias de gracia y sin tope por cuota.',
                 'La plantilla se ajusta segun la cantidad de cuotas visibles, hasta cinco lineas de detalle.',
               ],
             ),

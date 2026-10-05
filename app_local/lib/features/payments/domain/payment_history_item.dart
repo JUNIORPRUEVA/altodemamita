@@ -6,6 +6,9 @@ class PaymentHistoryItem {
     this.installmentId,
     required this.paymentDate,
     required this.amountPaid,
+    this.lateFeeApplied = 0,
+    this.interestApplied = 0,
+    this.principalApplied = 0,
     required this.paymentMethod,
     required this.paymentType,
     this.reference,
@@ -22,6 +25,9 @@ class PaymentHistoryItem {
   final int? installmentId;
   final DateTime paymentDate;
   final double amountPaid;
+  final double lateFeeApplied;
+  final double interestApplied;
+  final double principalApplied;
   final String paymentMethod;
   final String paymentType;
   final String? reference;
@@ -51,6 +57,9 @@ class PaymentHistoryItem {
       installmentId: map['cuota_id'] as int?,
       paymentDate: DateTime.parse(map['fecha_pago'] as String),
       amountPaid: _toDouble(map['monto_pagado']),
+      lateFeeApplied: _toDouble(map['mora_aplicada']),
+      interestApplied: _toDouble(map['interes_aplicado']),
+      principalApplied: _toDouble(map['capital_aplicado']),
       paymentMethod: map['metodo_pago'] as String? ?? '',
       paymentType: map['tipo_pago'] as String? ?? 'cuota',
       reference: map['referencia'] as String?,

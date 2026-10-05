@@ -69,6 +69,7 @@ model Company {
   companyProfile               CompanyProfile?
   financialParameters          FinancialParameters?
   businessConfigurations       BusinessConfiguration[]
+  lateFeePolicyHistory         LateFeePolicyHistory[]
   paymentReminderNotifications PaymentReminderNotification[]
   lateFeeSnapshots             LateFeeSnapshot[]
   syncBatches                  SyncBatch[]
@@ -254,6 +255,7 @@ model Payment {
   yearToPay            Int?
   principalApplied     Decimal      @default(0) @db.Decimal(14, 2)
   interestApplied      Decimal      @default(0) @db.Decimal(14, 2)
+  lateFeeApplied       Decimal      @default(0) @db.Decimal(14, 2)
   annulledAt           DateTime?
   annulledByUserId     String?
   annulledByUser       User?        @relation("PaymentAnnulledBy", fields: [annulledByUserId], references: [id])
@@ -436,6 +438,22 @@ model BusinessConfiguration {
   @@index([companyId, updatedAt])
 }
 
+model LateFeePolicyHistory {
+  id              String   @id @default(uuid())
+  companyId       String
+  company         Company  @relation(fields: [companyId], references: [id])
+  enabled         Boolean  @default(true)
+  dailyRate       Decimal  @default(0.005) @db.Decimal(8, 6)
+  graceDays       Int      @default(5)
+  effectiveFrom   DateTime @default(now())
+  createdByUserId String?
+  raw             Json?
+  createdAt       DateTime @default(now())
+
+  @@index([companyId, effectiveFrom])
+  @@index([companyId, createdAt])
+}
+
 model SyncBatch {
   id             String   @id @default(uuid())
   companyId      String
@@ -515,6 +533,8 @@ model LateFeeSnapshot {
   calculatedAt      DateTime
   baseBalance       Decimal  @default(0) @db.Decimal(14, 2)
   overdueDays       Int
+  graceDays         Int      @default(0)
+  lateFeeDays       Int      @default(0)
   dailyRate         Decimal  @default(0) @db.Decimal(8, 6)
   calculatedLateFee Decimal  @default(0) @db.Decimal(14, 2)
   eventType         String

@@ -330,16 +330,24 @@ class AuthService {
         debugPrint('[SignIn] Error de red, intentando login local: $error');
       } on AuthException catch (error) {
         if (!_isNetworkAuthFailure(error.message)) {
-          rethrow;
-        }
-        if (_requiresCloudBackedLocalAuth) {
+          if (_requiresCloudBackedLocalAuth &&
+              error.message == invalidLocalCredentialsMessage) {
+            debugPrint(
+              '[SignIn] Backend rechazo credenciales; intentando validar '
+              'copia local cloud-backed.',
+            );
+          } else {
+            rethrow;
+          }
+        } else if (_requiresCloudBackedLocalAuth) {
           debugPrint('[SignIn] Error de red en modo cloud: ${error.message}');
           rethrow;
+        } else {
+          debugPrint(
+            '[SignIn] Error de red autenticando online, intentando login local: '
+            '${error.message}',
+          );
         }
-        debugPrint(
-          '[SignIn] Error de red autenticando online, intentando login local: '
-          '${error.message}',
-        );
       }
     }
 
