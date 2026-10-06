@@ -1,7 +1,5 @@
-import { randomUUID } from 'crypto';
-import type { NextFunction, Request, Response } from 'express';
-import { resolveCompanyForRequest } from '../companyIdentity';
-import { hasPaymentCancellationPermission } from '../rbac';
+import { randomUUID } from "crypto";
+import type { NextFunction, Request, Response } from "express";
 
 /**
  * Autorizacion administrativa acotada.
@@ -18,8 +16,8 @@ import { hasPaymentCancellationPermission } from '../rbac';
  * se propaga: solo se verifica una vez en el endpoint de autorizacion.
  */
 
-export const PAYMENT_CANCEL_ACTION = 'payments.cancel';
-export const PAYMENT_RESOURCE_TYPE = 'PAYMENT';
+export const PAYMENT_CANCEL_ACTION = "payments.cancel";
+export const PAYMENT_RESOURCE_TYPE = "PAYMENT";
 
 const AUTHORIZATION_TTL_MS = 2 * 60 * 1000;
 const MAX_STORED_AUTHORIZATIONS = 500;
@@ -65,7 +63,9 @@ const authorizations = new Map<string, AdminAuthorizationRecord>();
 let clock: () => number = () => Date.now();
 
 /** Solo para pruebas: permite controlar el reloj usado por las expiraciones. */
-export function __setAdminAuthorizationClockForTest(next: (() => number) | null) {
+export function __setAdminAuthorizationClockForTest(
+  next: (() => number) | null,
+) {
   clock = next ?? (() => Date.now());
 }
 
@@ -124,23 +124,23 @@ export function consumeAdminAuthorization(input: {
   const record = authorizations.get(input.id);
   if (!record) {
     throw new AdminAuthorizationError(
-      'ADMIN_AUTHORIZATION_NOT_FOUND',
-      'La autorizacion de administrador no existe o ya fue utilizada. Solicita una nueva.',
+      "ADMIN_AUTHORIZATION_NOT_FOUND",
+      "La autorizacion de administrador no existe o ya fue utilizada. Solicita una nueva.",
       403,
     );
   }
   if (record.consumedAt !== null) {
     throw new AdminAuthorizationError(
-      'ADMIN_AUTHORIZATION_ALREADY_USED',
-      'Esta autorizacion ya fue utilizada. Solicita una nueva.',
+      "ADMIN_AUTHORIZATION_ALREADY_USED",
+      "Esta autorizacion ya fue utilizada. Solicita una nueva.",
       403,
     );
   }
   if (record.expiresAt <= now()) {
     authorizations.delete(record.id);
     throw new AdminAuthorizationError(
-      'ADMIN_AUTHORIZATION_EXPIRED',
-      'La autorizacion de administrador expiro. Solicita una nueva.',
+      "ADMIN_AUTHORIZATION_EXPIRED",
+      "La autorizacion de administrador expiro. Solicita una nueva.",
       403,
     );
   }
@@ -152,8 +152,8 @@ export function consumeAdminAuthorization(input: {
     record.requestedByUserId === input.requestedByUserId;
   if (!matches) {
     throw new AdminAuthorizationError(
-      'ADMIN_AUTHORIZATION_MISMATCH',
-      'La autorizacion no corresponde a esta operacion. Solicita una nueva.',
+      "ADMIN_AUTHORIZATION_MISMATCH",
+      "La autorizacion no corresponde a esta operacion. Solicita una nueva.",
       403,
     );
   }
@@ -165,68 +165,31 @@ export function consumeAdminAuthorization(input: {
 /**
  * Middleware de anulacion de pagos.
  *
- * Camino directo: OWNER o usuario con permiso efectivo de anulacion.
- * Camino con override: usuario sin permiso que aporta una autorizacion
- * administrativa valida emitida por `POST /api/auth/authorize-action`.
+ * La reversión de pagos queda reservada al rol OWNER. No se permite ejecutar
+ * esta operación con permisos delegados ni con override administrativo: la
+ * misma cuenta autenticada debe ser administradora.
  */
 export function requirePaymentCancelAuthorization() {
   return async (req: Request, res: Response, next: NextFunction) => {
     if (!req.user) {
-      return res.status(401).json({ error: { message: 'No autenticado.' } });
+      return res.status(401).json({ error: { message: "No autenticado." } });
     }
 
-    if (await hasPaymentCancellationPermission(req.user.id, req.user.role)) {
-      req.paymentCancellation = { authorizedByUserId: null, authorizationId: null };
-      return next();
-    }
-
-    const body = (req.body ?? {}) as Record<string, unknown>;
-    const authorizationId = stringValue(body.adminAuthorizationId);
-    if (!authorizationId) {
-      return res.status(403).json({
-        error: {
-          code: 'PAYMENT_CANCEL_AUTHORIZATION_REQUIRED',
-          message:
-            'Necesitas autorizacion de un administrador para anular este pago.',
-        },
-      });
-    }
-
-    const paymentId = Array.isArray(req.params.paymentId)
-      ? req.params.paymentId[0]
-      : req.params.paymentId ?? '';
-    try {
-      const company = await resolveCompanyForRequest(req);
-      const record = consumeAdminAuthorization({
-        id: authorizationId,
-        companyId: company.id,
-        action: PAYMENT_CANCEL_ACTION,
-        resourceType: PAYMENT_RESOURCE_TYPE,
-        resourceId: String(paymentId),
-        requestedByUserId: req.user.id,
-      });
+    if (req.user.role === "OWNER") {
       req.paymentCancellation = {
-        authorizedByUserId: record.authorizedByUserId,
-        authorizationId: record.id,
+        authorizedByUserId: null,
+        authorizationId: null,
       };
       return next();
-    } catch (error) {
-      if (error instanceof AdminAuthorizationError) {
-        return res.status(error.status).json({
-          error: { code: error.code, message: error.message },
-        });
-      }
-      return res.status(500).json({
-        error: { code: 'ADMIN_AUTHORIZATION_FAILED', message: 'No se pudo validar la autorizacion.' },
-      });
     }
-  };
-}
 
-function stringValue(value: unknown) {
-  if (typeof value !== 'string') return undefined;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
+    return res.status(403).json({
+      error: {
+        code: "PAYMENT_CANCEL_ADMIN_REQUIRED",
+        message: "No tienes permisos para eliminar pagos.",
+      },
+    });
+  };
 }
 
 const MAX_FAILED_ATTEMPTS = 5;
@@ -243,8 +206,8 @@ export function assertAdminAuthorizationAttemptAllowed(userId: string) {
   }
   if (entry.count >= MAX_FAILED_ATTEMPTS) {
     throw new AdminAuthorizationError(
-      'ADMIN_AUTHORIZATION_THROTTLED',
-      'Demasiados intentos fallidos. Espera unos minutos e intenta de nuevo.',
+      "ADMIN_AUTHORIZATION_THROTTLED",
+      "Demasiados intentos fallidos. Espera unos minutos e intenta de nuevo.",
       429,
     );
   }
@@ -254,7 +217,10 @@ export function registerAdminAuthorizationFailure(userId: string) {
   const currentTime = now();
   const entry = failedAttempts.get(userId);
   if (!entry || entry.resetAt <= currentTime) {
-    failedAttempts.set(userId, { count: 1, resetAt: currentTime + ATTEMPT_WINDOW_MS });
+    failedAttempts.set(userId, {
+      count: 1,
+      resetAt: currentTime + ATTEMPT_WINDOW_MS,
+    });
     return;
   }
   entry.count += 1;

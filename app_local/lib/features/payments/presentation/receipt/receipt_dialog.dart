@@ -111,6 +111,8 @@ class _ReceiptDialogContentState extends State<_ReceiptDialogContent> {
   late final PrinterRepository _printerRepository;
   PrinterConfig? _defaultPrinterConfig;
   bool _loadingPrinterConfig = true;
+  bool _autoPrintStarted = false;
+  bool _isPrinting = false;
   late String _selectedPageFormatLabel;
 
   @override
@@ -119,6 +121,7 @@ class _ReceiptDialogContentState extends State<_ReceiptDialogContent> {
     _controller = ReceiptController(
       receiptRepository: widget.receiptRepository,
     );
+    _controller.addListener(_handleAutoPrintReady);
     _printerRepository = PrinterRepository();
     _selectedPageFormatLabel = _receiptPageFormats.keys.first;
     final initialReceipt = widget.initialReceipt;
@@ -129,15 +132,29 @@ class _ReceiptDialogContentState extends State<_ReceiptDialogContent> {
     }
     _loadDefaultPrinter();
 
-    if (widget.autoPrint) {
-      Future<void>.delayed(const Duration(milliseconds: 500), _printNow);
-    }
+    _handleAutoPrintReady();
   }
 
   @override
   void dispose() {
+    _controller.removeListener(_handleAutoPrintReady);
     _controller.dispose();
     super.dispose();
+  }
+
+  void _handleAutoPrintReady() {
+    if (!widget.autoPrint ||
+        _autoPrintStarted ||
+        _controller.receipt == null ||
+        !mounted) {
+      return;
+    }
+    _autoPrintStarted = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _printNow();
+      }
+    });
   }
 
   Future<void> _loadDefaultPrinter() async {
@@ -161,11 +178,14 @@ class _ReceiptDialogContentState extends State<_ReceiptDialogContent> {
 
   Future<void> _printNow() async {
     final Receipt? receipt = _controller.receipt;
-    if (receipt == null || !mounted) {
+    if (receipt == null || !mounted || _isPrinting) {
       return;
     }
 
     try {
+      setState(() {
+        _isPrinting = true;
+      });
       if (_loadingPrinterConfig && _defaultPrinterConfig == null) {
         final loadedPrinter = await _printerRepository.getDefaultPrinter();
         if (mounted) {
@@ -195,6 +215,12 @@ class _ReceiptDialogContentState extends State<_ReceiptDialogContent> {
         error,
         module: 'pagos',
       );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isPrinting = false;
+        });
+      }
     }
   }
 
@@ -374,6 +400,7 @@ class _ReceiptDialogContentState extends State<_ReceiptDialogContent> {
                       _DialogActions(
                         onExport: _exportPdf,
                         onPrint: _printNow,
+                        isPrinting: _isPrinting,
                         selectedPageFormatLabel: _selectedPageFormatLabel,
                         onChangePageFormat: (label) {
                           setState(() {
@@ -464,6 +491,7 @@ class _DialogActions extends StatelessWidget {
   const _DialogActions({
     required this.onExport,
     required this.onPrint,
+    required this.isPrinting,
     required this.selectedPageFormatLabel,
     required this.onChangePageFormat,
     required this.defaultPrinterName,
@@ -472,6 +500,7 @@ class _DialogActions extends StatelessWidget {
 
   final Future<void> Function() onExport;
   final Future<void> Function() onPrint;
+  final bool isPrinting;
   final String selectedPageFormatLabel;
   final ValueChanged<String> onChangePageFormat;
   final String? defaultPrinterName;
@@ -536,9 +565,9 @@ class _DialogActions extends StatelessWidget {
                 label: const Text('Exportar PDF'),
               ),
               FilledButton.icon(
-                onPressed: onPrint,
+                onPressed: isPrinting ? null : onPrint,
                 icon: const Icon(Icons.print_outlined),
-                label: const Text('Imprimir'),
+                label: Text(isPrinting ? 'Imprimiendo...' : 'Imprimir'),
               ),
             ],
           ),

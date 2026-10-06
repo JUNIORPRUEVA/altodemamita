@@ -347,8 +347,14 @@ class _SalePaymentHistoryFullscreenPageState
     }
 
     final auth = context.read<AuthProvider>();
-    final canCancelDirectly =
-        auth.currentUser?.canCancelPayments ?? auth.isAdmin;
+    if (!auth.isAdmin) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          content: Text('No tienes permisos para eliminar pagos.'),
+        ),
+      );
+      return;
+    }
 
     final request = await showDialog<PaymentAnnulResult>(
       context: context,
@@ -360,7 +366,7 @@ class _SalePaymentHistoryFullscreenPageState
         ),
         amount: 'RD\$ ${formatRdCurrency(target.amountPaid)}',
         paymentDate: _formatShortDate(target.paymentDate),
-        requiresAdminAuthorization: !canCancelDirectly,
+        requiresAdminAuthorization: false,
         onAuthorize: (email, password) async {
           try {
             final authorizationId = await _repository
@@ -446,10 +452,7 @@ class _SalePaymentHistoryFullscreenPageState
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
-    final canAnnul =
-        (auth.currentUser?.canCancelPayments ?? auth.isAdmin) &&
-        _annullablePayment != null &&
-        !_isSaving;
+    final canAnnul = auth.isAdmin && _annullablePayment != null && !_isSaving;
 
     final remainingAmount = _sale.pendingBalance + _sale.pendingInitialPayment;
     final totalPaid = _history.fold<double>(

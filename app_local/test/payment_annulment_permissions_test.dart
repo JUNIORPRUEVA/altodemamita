@@ -39,16 +39,19 @@ UserModel _user(UserRole role, List<PermissionModel> permissions) {
 
 void main() {
   group('permiso granular de anulacion de pagos', () {
-    test('interpreta la accion "anular" del catalogo y la expone en el modelo', () {
-      final permission = PermissionModel.fromLegacy(
-        module: PermissionCatalog.payments,
-        actions: ['ver', 'anular'],
-      );
+    test(
+      'interpreta la accion "anular" del catalogo y la expone en el modelo',
+      () {
+        final permission = PermissionModel.fromLegacy(
+          module: PermissionCatalog.payments,
+          actions: ['ver', 'anular'],
+        );
 
-      expect(permission.cancel, isTrue);
-      expect(permission.allows(PermissionAction.cancel), isTrue);
-      expect(permission.toLegacyActions(), contains('anular'));
-    });
+        expect(permission.cancel, isTrue);
+        expect(permission.allows(PermissionAction.cancel), isTrue);
+        expect(permission.toLegacyActions(), contains('anular'));
+      },
+    );
 
     test('no confunde anular con crear, ver o editar pagos', () {
       final permission = PermissionModel.fromLegacy(
@@ -66,21 +69,27 @@ void main() {
       expect(admin.canCancelPayments, isTrue);
     });
 
-    test('usuario con permiso de anulacion puede anular', () {
-      final operator = _user(UserRole.user, [
-        _permission(PermissionCatalog.payments, read: true, cancel: true),
-      ]);
+    test(
+      'usuario con permiso de anulacion NO puede anular si no es administrador',
+      () {
+        final operator = _user(UserRole.user, [
+          _permission(PermissionCatalog.payments, read: true, cancel: true),
+        ]);
 
-      expect(operator.canCancelPayments, isTrue);
-    });
+        expect(operator.canCancelPayments, isFalse);
+      },
+    );
 
-    test('usuario con permiso legado de eliminacion NO puede anular por si mismo (requiere autorizacion)', () {
-      final operator = _user(UserRole.user, [
-        _permission(PermissionCatalog.payments, read: true, delete: true),
-      ]);
+    test(
+      'usuario con permiso legado de eliminacion NO puede anular por si mismo (requiere autorizacion)',
+      () {
+        final operator = _user(UserRole.user, [
+          _permission(PermissionCatalog.payments, read: true, delete: true),
+        ]);
 
-      expect(operator.canCancelPayments, isFalse);
-    });
+        expect(operator.canCancelPayments, isFalse);
+      },
+    );
 
     test('usuario sin permiso de anulacion requiere autorizacion', () {
       final operator = _user(UserRole.user, [
@@ -168,8 +177,10 @@ void main() {
     }
 
     test('expone la etiqueta compacta exigida por operacion', () {
-      expect(summary(isFullyPaid: true).settlementLabel,
-          'Saldada · Venta definitiva');
+      expect(
+        summary(isFullyPaid: true).settlementLabel,
+        'Saldada · Venta definitiva',
+      );
     });
 
     test('solo marca como definitiva la venta clasificada por el backend', () {

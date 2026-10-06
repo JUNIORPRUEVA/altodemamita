@@ -19,7 +19,6 @@ import '../domain/payment_history_item.dart';
 import '../domain/payment_sale_context.dart';
 import '../domain/payment_sale_option.dart';
 import '../domain/payment_work_queue.dart';
-import '../domain/receipt.dart';
 import '../domain/settlement_quote.dart';
 import 'payment_annul_dialog.dart';
 import 'payment_form_dialog.dart';
@@ -56,6 +55,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
   String _searchQuery = '';
   int? _selectedSaleId;
   int? _selectedHistoryPaymentId;
+  final Set<int> _receiptOpenInProgress = <int>{};
   String _installmentFilter = 'all';
   String _sortOrder = 'recent';
   DateTimeRange? _dateRange;
@@ -1150,8 +1150,6 @@ class _PaymentsPageState extends State<PaymentsPage> {
     }
     final sale = contextData.sale;
     final authProvider = context.watch<AuthProvider>();
-    final canCancelPayments =
-        authProvider.currentUser?.canCancelPayments ?? authProvider.isAdmin;
     final canCreatePayments = authProvider.canAccess(
       PermissionCatalog.payments,
       PermissionAction.create,
@@ -1386,7 +1384,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
                             icon: _paymentTypeIcon(payment.paymentType),
                             isAnnulled: payment.isAnnulled,
                             canDelete:
-                                (canCancelPayments || isAdmin) &&
+                                isAdmin &&
                                 payment.id ==
                                     _latestAnnullablePaymentId(
                                       visibleHistory,
@@ -2136,12 +2134,19 @@ class _PaymentsPageState extends State<PaymentsPage> {
     if (error == null) {
       final updatedContext = _controller.selectedContext;
       if (updatedContext != null && updatedContext.history.isNotEmpty) {
-        final lastPaymentId = updatedContext.history.first.id;
+        final lastPayment = updatedContext.history.first;
+        final lastPaymentId = lastPayment.id;
         setState(() {
           _selectedHistoryPaymentId = lastPaymentId;
         });
         if (draft.printReceiptAutomatically) {
-          await _showReceiptDialog(lastPaymentId, autoPrint: true);
+          await _showReceiptDialog(
+            lastPaymentId,
+            autoPrint: true,
+            contextData: updatedContext,
+            payment: lastPayment,
+            origin: 'REGISTER_PAYMENT_AUTO_PRINT',
+          );
         } else {
           ScaffoldMessenger.maybeOf(context)?.showSnackBar(
             const SnackBar(content: Text('Pago registrado correctamente.')),
@@ -2264,16 +2269,18 @@ class _PaymentsPageState extends State<PaymentsPage> {
     bool autoPrint = false,
     PaymentSaleContext? contextData,
     PaymentHistoryItem? payment,
+    String origin = 'PAYMENTS_PAGE',
   }) async {
+    if (!_receiptOpenInProgress.add(paymentId)) {
+      return;
+    }
     try {
-      Receipt? receipt = await widget._receiptRepository
-          .fetchReceiptByPaymentId(paymentId);
-      if (receipt == null && contextData != null && payment != null) {
-        receipt = await widget._receiptRepository.buildReceiptFromContext(
-          context: contextData,
-          payment: payment,
-        );
-      }
+      final receipt = await widget._receiptRepository.resolveReceiptForPayment(
+        paymentId: paymentId,
+        context: contextData,
+        payment: payment,
+        origin: origin,
+      );
       if (!mounted) {
         return;
       }
@@ -2283,6 +2290,17 @@ class _PaymentsPageState extends State<PaymentsPage> {
           receipt: receipt,
           receiptRepository: widget._receiptRepository,
           autoPrint: autoPrint,
+        );
+        return;
+      }
+
+      if (contextData != null && payment != null) {
+        _showRegisteredPaymentReceiptRecovery(
+          paymentId: paymentId,
+          contextData: contextData,
+          payment: payment,
+          autoPrint: autoPrint,
+          origin: origin,
         );
         return;
       }
@@ -2297,6 +2315,16 @@ class _PaymentsPageState extends State<PaymentsPage> {
       if (!mounted) {
         return;
       }
+      if (contextData != null && payment != null) {
+        _showRegisteredPaymentReceiptRecovery(
+          paymentId: paymentId,
+          contextData: contextData,
+          payment: payment,
+          autoPrint: autoPrint,
+          origin: origin,
+        );
+        return;
+      }
       final message = FriendlyErrorMessages.forOperation(
         'preparar el recibo de pago',
         error,
@@ -2305,7 +2333,39 @@ class _PaymentsPageState extends State<PaymentsPage> {
       ScaffoldMessenger.maybeOf(
         context,
       )?.showSnackBar(SnackBar(content: Text(message)));
+    } finally {
+      _receiptOpenInProgress.remove(paymentId);
     }
+  }
+
+  void _showRegisteredPaymentReceiptRecovery({
+    required int paymentId,
+    required PaymentSaleContext contextData,
+    required PaymentHistoryItem payment,
+    required bool autoPrint,
+    required String origin,
+  }) {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    messenger?.showSnackBar(
+      SnackBar(
+        duration: const Duration(seconds: 7),
+        content: const Text(
+          'No pudimos preparar el recibo en este momento. El pago está registrado correctamente. Puedes intentar imprimirlo nuevamente.',
+        ),
+        action: SnackBarAction(
+          label: 'Intentar nuevamente',
+          onPressed: () {
+            _showReceiptDialog(
+              paymentId,
+              autoPrint: autoPrint,
+              contextData: contextData,
+              payment: payment,
+              origin: '$origin:RETRY',
+            );
+          },
+        ),
+      ),
+    );
   }
 
   Future<void> _showClientPagares(PaymentSaleContext contextData) async {
@@ -2545,8 +2605,14 @@ class _PaymentsPageState extends State<PaymentsPage> {
     PaymentSaleContext contextData,
   ) async {
     final authProvider = context.read<AuthProvider>();
-    final canCancelDirectly =
-        authProvider.currentUser?.canCancelPayments ?? authProvider.isAdmin;
+    if (!authProvider.isAdmin) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          content: Text('No tienes permisos para eliminar pagos.'),
+        ),
+      );
+      return;
+    }
 
     final result = await showDialog<PaymentAnnulResult>(
       context: context,
@@ -2558,7 +2624,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
         ),
         amount: _money(payment.amountPaid),
         paymentDate: _formatDate(payment.paymentDate),
-        requiresAdminAuthorization: !canCancelDirectly,
+        requiresAdminAuthorization: false,
         onAuthorize: (email, password) => _controller.requestAdminAuthorization(
           paymentId: payment.id,
           email: email,

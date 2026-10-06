@@ -1,3 +1,5 @@
+import 'dart:developer' as developer;
+
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../../../core/database/app_database.dart';
@@ -38,6 +40,87 @@ class ReceiptRepository {
       await _appDatabase.close();
       return _fetchReceiptByPaymentId(paymentId);
     }
+  }
+
+  Future<Receipt?> resolveReceiptForPayment({
+    required int paymentId,
+    PaymentSaleContext? context,
+    PaymentHistoryItem? payment,
+    String origin = 'unknown',
+  }) async {
+    _logReceiptStage(
+      'FETCH_PAYMENT',
+      'start',
+      paymentId: paymentId,
+      saleId: context?.sale.saleId ?? payment?.saleId,
+      installmentId: payment?.installmentId,
+      origin: origin,
+      endpoint: 'sqlite:pagos',
+    );
+
+    Object? fetchError;
+    StackTrace? fetchStackTrace;
+    try {
+      final receipt = await fetchReceiptByPaymentId(paymentId);
+      if (receipt != null) {
+        _logReceiptStage(
+          'BUILD_RECEIPT',
+          'success_from_sqlite',
+          paymentId: paymentId,
+          saleId: receipt.sale.saleId,
+          installmentId: receipt.payment.installmentId,
+          origin: origin,
+        );
+        return receipt;
+      }
+    } catch (error, stackTrace) {
+      fetchError = error;
+      fetchStackTrace = stackTrace;
+      _logReceiptStage(
+        'FETCH_PAYMENT',
+        'sqlite_failed',
+        paymentId: paymentId,
+        saleId: context?.sale.saleId ?? payment?.saleId,
+        installmentId: payment?.installmentId,
+        origin: origin,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    final contextPayment =
+        payment ??
+        _findPaymentInContext(context: context, paymentId: paymentId);
+    if (context != null && contextPayment != null) {
+      _logReceiptStage(
+        'BUILD_RECEIPT',
+        'fallback_from_confirmed_context',
+        paymentId: paymentId,
+        saleId: contextPayment.saleId,
+        installmentId: contextPayment.installmentId,
+        origin: origin,
+        endpoint: 'memory:PaymentSaleContext',
+      );
+      return buildReceiptFromContext(context: context, payment: contextPayment);
+    }
+
+    if (fetchError != null) {
+      Error.throwWithStackTrace(
+        fetchError,
+        fetchStackTrace ?? StackTrace.current,
+      );
+    }
+
+    _logReceiptStage(
+      'FETCH_PAYMENT',
+      'not_found',
+      paymentId: paymentId,
+      saleId: context?.sale.saleId ?? payment?.saleId,
+      installmentId: payment?.installmentId,
+      origin: origin,
+      endpoint: 'sqlite:pagos',
+    );
+    return null;
   }
 
   Future<Receipt> buildReceiptFromContext({
@@ -363,6 +446,49 @@ class ReceiptRepository {
 
   bool _isDatabaseClosedError(DatabaseException error) {
     return error.toString().toLowerCase().contains('database_closed');
+  }
+
+  PaymentHistoryItem? _findPaymentInContext({
+    required PaymentSaleContext? context,
+    required int paymentId,
+  }) {
+    if (context == null) {
+      return null;
+    }
+    for (final item in [...context.history, ...context.annulledHistory]) {
+      if (item.id == paymentId) {
+        return item;
+      }
+    }
+    return null;
+  }
+
+  void _logReceiptStage(
+    String stage,
+    String outcome, {
+    required int paymentId,
+    int? saleId,
+    int? installmentId,
+    String origin = 'unknown',
+    String? endpoint,
+    Object? error,
+    StackTrace? stackTrace,
+  }) {
+    developer.log(
+      [
+        'payment_receipt',
+        'stage=$stage',
+        'outcome=$outcome',
+        'paymentId=$paymentId',
+        if (saleId != null) 'saleId=$saleId',
+        if (installmentId != null) 'installmentId=$installmentId',
+        'origin=$origin',
+        if (endpoint != null) 'endpoint=$endpoint',
+      ].join(' '),
+      name: 'SistemaSolares.PaymentReceipt',
+      error: error,
+      stackTrace: stackTrace,
+    );
   }
 
   /// Genera un número de recibo único basado en fecha y ID de pago

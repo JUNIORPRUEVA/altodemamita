@@ -68,6 +68,144 @@ void main() {
     expect(receipt.totalAmount, closeTo(92762.40, 0.001));
     expect(bytes, isNotEmpty);
   });
+
+  test(
+    'resuelve recibo inmediato desde contexto confirmado sin fila local',
+    () async {
+      final paymentDate = DateTime(2026, 6, 2, 10, 30);
+      final payment = PaymentHistoryItem(
+        id: 730257513,
+        saleId: 162493397,
+        clientId: 0,
+        paymentDate: paymentDate,
+        amountPaid: 92762.40,
+        paymentMethod: 'efectivo',
+        paymentType: 'abono_inicial',
+        reference: 'cloud-payment-1',
+      );
+      final context = _buildCloudContext(payment);
+      final repository = _FakeReceiptRepository(localReceipt: null);
+
+      final receipt = await repository.resolveReceiptForPayment(
+        paymentId: payment.id,
+        context: context,
+        payment: payment,
+        origin: 'test-immediate-payment',
+      );
+
+      expect(receipt, isNotNull);
+      expect(receipt!.paymentId, payment.id);
+      expect(repository.fetchCalls, 1);
+      expect(repository.contextBuildCalls, 1);
+    },
+  );
+
+  test('no convierte paymentId inexistente en exito sin evidencia', () async {
+    final repository = _FakeReceiptRepository(localReceipt: null);
+
+    final receipt = await repository.resolveReceiptForPayment(
+      paymentId: 999999,
+      origin: 'test-missing-payment',
+    );
+
+    expect(receipt, isNull);
+    expect(repository.fetchCalls, 1);
+    expect(repository.contextBuildCalls, 0);
+  });
+
+  test(
+    'un fallo permanente al buscar recibo se propaga sin contexto confirmado',
+    () async {
+      final repository = _FakeReceiptRepository(
+        fetchError: StateError('payment fetch failed'),
+      );
+
+      await expectLater(
+        repository.resolveReceiptForPayment(
+          paymentId: 999999,
+          origin: 'test-permanent-failure',
+        ),
+        throwsA(isA<StateError>()),
+      );
+
+      expect(repository.contextBuildCalls, 0);
+    },
+  );
+}
+
+PaymentSaleContext _buildCloudContext(PaymentHistoryItem payment) {
+  return PaymentSaleContext(
+    sale: const PaymentSaleOption(
+      saleId: 162493397,
+      clientId: 1,
+      clientName: 'CLARA MARIA BAEZ ALVAREZ',
+      clientDocumentId: '028-0076241-7',
+      clientPhone: '',
+      lotDisplayCode: 'MM-H-S84',
+      pendingBalance: 834861.60,
+      requiredInitialPayment: 92762.40,
+      paidInitialPayment: 92762.40,
+      pendingInitialPayment: 0,
+      status: 'activa',
+    ),
+    monthlyInterest: 1,
+    installments: const [],
+    history: [payment],
+  );
+}
+
+class _FakeReceiptRepository extends ReceiptRepository {
+  _FakeReceiptRepository({this.localReceipt, this.fetchError});
+
+  final Receipt? localReceipt;
+  final Object? fetchError;
+  int fetchCalls = 0;
+  int contextBuildCalls = 0;
+
+  @override
+  Future<Receipt?> fetchReceiptByPaymentId(int paymentId) async {
+    fetchCalls++;
+    final error = fetchError;
+    if (error != null) {
+      throw error;
+    }
+    return localReceipt;
+  }
+
+  @override
+  Future<Receipt> buildReceiptFromContext({
+    required PaymentSaleContext context,
+    required PaymentHistoryItem payment,
+  }) async {
+    contextBuildCalls++;
+    return Receipt(
+      paymentId: payment.id,
+      receiptNumber: 'TEST-${payment.id}',
+      paymentDate: payment.paymentDate,
+      sale: context.sale,
+      payment: payment,
+      payments: [payment],
+      company: CompanyInfo(
+        nombre: 'Sistema de Solares',
+        telefono: null,
+        direccion: null,
+        logoBytesBase64: null,
+        fechaCreacion: payment.paymentDate,
+        fechaActualizacion: payment.paymentDate,
+      ),
+      paidInstallment: null,
+      installmentsPaid: 0,
+      installmentsRemaining: context.installments.length,
+      totalPaidAccumulated: payment.amountPaid,
+      accountStatusLabel: 'Al dia',
+      blockNumber: 'MM',
+      lotNumber: 'S84',
+      installmentCount: context.installments.length,
+      userName: '',
+      conditionsOfPayment: 'Pago confirmado.',
+      note: 'Recibo de prueba.',
+    );
+  }
 }
 
 Receipt _buildSampleReceipt() {

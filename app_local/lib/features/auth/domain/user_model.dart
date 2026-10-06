@@ -89,15 +89,12 @@ class UserModel {
 
   bool get isAdmin => role == UserRole.admin;
 
-  /// Permiso efectivo para anular pagos. Espeja la regla del backend: un
-  /// administrador siempre puede; un operador requiere la capacidad explicita
-  /// de anulacion en Pagos (no se hereda de editar ni de eliminar).
-  bool get canCancelPayments {
-    if (isAdmin) {
-      return true;
-    }
-    return permissionFor(PermissionCatalog.payments).cancel;
-  }
+  /// Permiso efectivo para anular pagos.
+  ///
+  /// La reversión de pagos es una operación financiera sensible y actualmente
+  /// queda reservada al rol administrador, aun si un operador conserva permisos
+  /// legacy de `pagos/anular` en el catalogo.
+  bool get canCancelPayments => isAdmin;
 
   bool allows(String module, PermissionAction action) {
     if (isAdmin) {
