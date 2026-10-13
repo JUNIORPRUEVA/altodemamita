@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sistema_solares/core/cloud_foundation/sales_cache_invalidation.dart';
 import 'package:sistema_solares/features/clients/data/client_repository.dart';
 import 'package:sistema_solares/features/clients/domain/client.dart';
 import 'package:sistema_solares/features/lots/data/lot_repository.dart';
@@ -74,6 +75,24 @@ void main() {
       expect(controller.refreshFailed, isTrue);
       expect(controller.loadError, isNull);
       expect(controller.isRefreshing, isFalse);
+      controller.dispose();
+    },
+  );
+
+  test(
+    'invalidacion global limpia memoria y recarga ventas abiertas',
+    () async {
+      final fakeSales = _FakeSalesRepository()
+        ..onFetchAll = (_) => [_summary(1, 'Nombre anterior')];
+      final controller = _buildController(sales: fakeSales);
+      await controller.load();
+      expect(controller.sales.single.clientName, 'Nombre anterior');
+
+      fakeSales.onFetchAll = (_) => [_summary(1, 'Nombre corregido')];
+      SalesCacheInvalidation.notifyReadModelChanged();
+      await pumpEventQueue();
+
+      expect(controller.sales.single.clientName, 'Nombre corregido');
       controller.dispose();
     },
   );

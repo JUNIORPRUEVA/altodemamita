@@ -70,6 +70,7 @@ export type RegisterAuthoritativePaymentInput = {
   paymentTypeOverride?: string | null;
   targetInstallmentId?: string | null;
   targetInstallmentNumber?: number | null;
+  advanceInstallmentCount?: number | null;
   yearToPay?: number | null;
   reference?: string | null;
   quoteVersion?: string | null;
@@ -572,6 +573,7 @@ async function registerPaymentInTransaction(
     paymentTypeOverride,
     targetInstallmentId: input.targetInstallmentId ?? null,
     targetInstallmentNumber: input.targetInstallmentNumber ?? null,
+    advanceInstallmentCount: input.advanceInstallmentCount ?? null,
   });
   const requiresInstallmentImpact = [
     "cuota",
@@ -683,19 +685,6 @@ async function registerPaymentInTransaction(
     throw new AuthoritativeError(
       "NO_INSTALLMENT_IMPACT",
       "El pago no impacto ninguna cuota elegible.",
-    );
-  }
-
-  const isAdvanceInstallmentOnly =
-    paymentTypeOverride === "cuotas_adelantadas" ||
-    (paymentTypeOverride === "cuota" &&
-      installmentsToProcess.length > 0 &&
-      isAfterBusinessDate(installmentsToProcess[0].dueDate, paymentDate));
-  if (isAdvanceInstallmentOnly && remaining > 0.009) {
-    throw new AuthoritativeError(
-      "PAYMENT_EXCEEDS_SELECTED_INSTALLMENTS",
-      "El monto excede las cuotas seleccionadas. Para abonar a capital use el tipo Pago a capital.",
-      409,
     );
   }
 
@@ -1422,6 +1411,7 @@ export function resolveInstallmentsToProcess(input: {
   paymentTypeOverride: string;
   targetInstallmentId?: string | null;
   targetInstallmentNumber?: number | null;
+  advanceInstallmentCount?: number | null;
 }) {
   if (input.paymentTypeOverride === "abono_capital") {
     return [];
@@ -1456,16 +1446,23 @@ export function resolveInstallmentsToProcess(input: {
     );
   }
   if (input.paymentTypeOverride === "cuotas_adelantadas") {
-    return input.installments.filter(isEligible).sort((left, right) => {
-      const byDate = dateKeyInTimeZone(
-        left.dueDate ?? new Date(0),
-        BUSINESS_TIMEZONE,
-      ).localeCompare(
-        dateKeyInTimeZone(right.dueDate ?? new Date(0), BUSINESS_TIMEZONE),
-      );
-      if (byDate !== 0) return byDate;
-      return (left.installmentNumber ?? 0) - (right.installmentNumber ?? 0);
-    });
+    const selected = input.installments
+      .filter(isEligible)
+      .sort((left, right) => {
+        const byDate = dateKeyInTimeZone(
+          left.dueDate ?? new Date(0),
+          BUSINESS_TIMEZONE,
+        ).localeCompare(
+          dateKeyInTimeZone(right.dueDate ?? new Date(0), BUSINESS_TIMEZONE),
+        );
+        if (byDate !== 0) return byDate;
+        return (left.installmentNumber ?? 0) - (right.installmentNumber ?? 0);
+      });
+    const count =
+      input.advanceInstallmentCount != null && input.advanceInstallmentCount > 0
+        ? input.advanceInstallmentCount
+        : selected.length;
+    return selected.slice(0, count);
   }
   const actionable = input.installments.find(
     (item) =>

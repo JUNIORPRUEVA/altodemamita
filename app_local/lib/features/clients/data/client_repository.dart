@@ -3,6 +3,7 @@ import 'dart:developer' as developer;
 
 import '../../../core/network/backend_api_client.dart';
 import '../../../core/network/backend_entity_id_registry.dart';
+import '../../../core/cloud_foundation/sales_cache_invalidation.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_schema.dart';
 import '../../../core/cloud_foundation/list_snapshot_store.dart';
@@ -52,8 +53,7 @@ class ClientRepository implements SyncRepository {
       isProductionMode && identical(_appDatabase, AppDatabase.instance);
   bool get _shouldRunBackgroundSync =>
       identical(_appDatabase, AppDatabase.instance);
-  bool get _useBackendMode =>
-      cloudCutoverMode.usesAuthoritativeBusinessWrites;
+  bool get _useBackendMode => cloudCutoverMode.usesAuthoritativeBusinessWrites;
 
   @override
   String get scope => 'clients';
@@ -256,6 +256,7 @@ class ClientRepository implements SyncRepository {
         _scheduleBackgroundSync('create-client');
         // Garantizar sync inmediato tras crear cliente para todos los usuarios
         _scheduleExplicitSync('create-client:$insertedId');
+        await _invalidateClientReadModels();
         return;
       }
 
@@ -277,6 +278,7 @@ class ClientRepository implements SyncRepository {
       _scheduleBackgroundSync('update-client:${normalizedClient.id}');
       // Garantizar sync inmediato tras actualizar cliente para todos los usuarios
       _scheduleExplicitSync('update-client:${normalizedClient.id}');
+      await _invalidateClientReadModels();
     } catch (error, stackTrace) {
       print('💥 ERROR SQLITE: $error');
       print(stackTrace);
@@ -350,6 +352,7 @@ class ClientRepository implements SyncRepository {
       _scheduleBackgroundSync('delete-client:$id');
       // Garantizar sync inmediato tras eliminar cliente para todos los usuarios
       _scheduleExplicitSync('delete-client:$id');
+      await _invalidateClientReadModels();
     } catch (error, stackTrace) {
       print('💥 ERROR SQLITE: $error');
       print(stackTrace);
@@ -391,6 +394,11 @@ class ClientRepository implements SyncRepository {
         stackTrace: stackTrace,
       );
     }
+  }
+
+  Future<void> _invalidateClientReadModels() async {
+    final db = await _appDatabase.database;
+    await SalesCacheInvalidation.invalidateClientReadModelCaches(db);
   }
 
   @override
@@ -819,9 +827,7 @@ class ClientRepository implements SyncRepository {
     final rawItems = items
         .whereType<Map>()
         .map(
-          (item) => item.map(
-            (key, value) => MapEntry(key.toString(), value),
-          ),
+          (item) => item.map((key, value) => MapEntry(key.toString(), value)),
         )
         .toList(growable: false);
     // Snapshot cache-first de la lista completa (no de busquedas).
@@ -860,9 +866,13 @@ class ClientRepository implements SyncRepository {
         _idRegistry.resolveRemoteId('clients', client.id) ??
         client.syncId?.trim();
     if (remoteId == null || remoteId.isEmpty) {
-      final response = await _apiClient.post('/business/clients', body: payload);
+      final response = await _apiClient.post(
+        '/business/clients',
+        body: payload,
+      );
       await _cacheBackendClientResponse(response);
       await _listSnapshot.clear();
+      await _invalidateClientReadModels();
       return;
     }
 
@@ -872,6 +882,7 @@ class ClientRepository implements SyncRepository {
     );
     await _cacheBackendClientResponse(response);
     await _listSnapshot.clear();
+    await _invalidateClientReadModels();
   }
 
   Future<void> _deleteFromBackend(int localId) async {
@@ -884,6 +895,7 @@ class ClientRepository implements SyncRepository {
     final response = await _apiClient.delete('/business/clients/$remoteId');
     await _cacheBackendClientResponse(response);
     await _listSnapshot.clear();
+    await _invalidateClientReadModels();
   }
 
   Client _clientFromBackend(Map<String, dynamic> item) {
@@ -945,7 +957,9 @@ class ClientRepository implements SyncRepository {
 
   Map<String, dynamic>? _entityFromResponse(Object? response, String key) {
     if (response is! Map) return null;
-    final payload = response.map((mapKey, value) => MapEntry(mapKey.toString(), value));
+    final payload = response.map(
+      (mapKey, value) => MapEntry(mapKey.toString(), value),
+    );
     final data = payload['data'];
     final dataMap = data is Map
         ? data.map((mapKey, value) => MapEntry(mapKey.toString(), value))

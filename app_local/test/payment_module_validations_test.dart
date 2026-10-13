@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sistema_solares/core/database/app_database.dart';
+import 'package:sistema_solares/core/database/database_schema.dart';
 import 'package:sistema_solares/features/clients/data/client_repository.dart';
 import 'package:sistema_solares/features/clients/domain/client.dart';
 import 'package:sistema_solares/features/lots/data/lot_repository.dart';
@@ -683,4 +684,65 @@ void main() {
       );
     },
   );
+
+  test('cuotas_adelantadas_applies_extra_amount_to_direct_capital', () async {
+    final saleId = await createActiveSaleWithOverdue(overdueMonths: 0);
+    final context = await paymentsRepo.fetchSaleContext(saleId);
+    final openInstallments =
+        context!.installments
+            .where((item) => item.remainingAmount > 0.009)
+            .toList()
+          ..sort((left, right) {
+            final byDate = left.dueDate.compareTo(right.dueDate);
+            if (byDate != 0) return byDate;
+            return left.installmentNumber.compareTo(right.installmentNumber);
+          });
+    final selectedInstallmentTotal = money(
+      openInstallments
+          .take(2)
+          .fold<double>(0, (sum, item) => sum + item.remainingAmount),
+    );
+
+    await paymentsRepo.registerPayment(
+      PaymentDraft(
+        saleId: saleId,
+        paymentDate: DateTime.now(),
+        amountPaid: selectedInstallmentTotal + 500,
+        paymentMethod: 'efectivo',
+        paymentTypeOverride: 'cuotas_adelantadas',
+        advanceInstallmentCount: 2,
+      ),
+    );
+
+    final sql = await db.database;
+    final paymentRows = await sql.query(
+      DatabaseSchema.paymentsTable,
+      where: 'venta_id = ? AND deleted_at IS NULL',
+      whereArgs: [saleId],
+      orderBy: 'id ASC',
+    );
+    final installmentPayments = paymentRows
+        .where((row) => row['tipo_pago'] == 'cuota')
+        .toList();
+    final capitalPayments = paymentRows
+        .where((row) => row['tipo_pago'] == 'abono_capital')
+        .toList();
+
+    expect(installmentPayments, hasLength(2));
+    expect(capitalPayments, hasLength(1));
+    expect(
+      (capitalPayments.single['monto_pagado'] as num).toDouble(),
+      closeTo(500, 0.02),
+    );
+
+    final refreshed = await paymentsRepo.fetchSaleContext(saleId);
+    final thirdInstallment = refreshed!.installments.firstWhere(
+      (item) => item.installmentNumber == openInstallments[2].installmentNumber,
+    );
+    expect(
+      thirdInstallment.paidAmount,
+      equals(0),
+      reason: 'El sobrante no debe derramarse a la siguiente cuota.',
+    );
+  });
 }

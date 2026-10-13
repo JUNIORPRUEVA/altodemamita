@@ -253,9 +253,7 @@ void main() {
 
     setUp(() async {
       tempDirectory = await Directory.systemTemp.createTemp('ss_inval_');
-      appDatabase = AppDatabase.test(
-        path.join(tempDirectory.path, 'test.db'),
-      );
+      appDatabase = AppDatabase.test(path.join(tempDirectory.path, 'test.db'));
       await appDatabase.initialize();
       DashboardStatsStore.instance.clear();
       DashboardStatsStore.instance.save(sample);
@@ -293,17 +291,20 @@ void main() {
       );
     });
 
-    test('un pago (invalidateFinancialDerivedCaches) invalida el resumen', () async {
-      final db = await appDatabase.database;
+    test(
+      'un pago (invalidateFinancialDerivedCaches) invalida el resumen',
+      () async {
+        final db = await appDatabase.database;
 
-      await SalesCacheInvalidation.invalidateFinancialDerivedCaches(db);
+        await SalesCacheInvalidation.invalidateFinancialDerivedCaches(db);
 
-      expect(
-        DashboardStatsStore.instance.needsRefresh,
-        isTrue,
-        reason: 'pago, pago parcial, abono y anulación pasan por aquí',
-      );
-    });
+        expect(
+          DashboardStatsStore.instance.needsRefresh,
+          isTrue,
+          reason: 'pago, pago parcial, abono y anulación pasan por aquí',
+        );
+      },
+    );
 
     test('una descarga de nube relevante borra el snapshot cacheado', () async {
       final db = await appDatabase.database;
@@ -325,14 +326,17 @@ void main() {
       expect(DashboardStatsStore.instance.needsRefresh, isTrue);
     });
 
-    test('el snapshot viejo NO se sirve como fresco tras varias operaciones', () {
-      DashboardStatsStore.instance.save(sample);
-      expect(DashboardStatsStore.instance.needsRefresh, isFalse);
+    test(
+      'el snapshot viejo NO se sirve como fresco tras varias operaciones',
+      () {
+        DashboardStatsStore.instance.save(sample);
+        expect(DashboardStatsStore.instance.needsRefresh, isFalse);
 
-      SalesCacheInvalidation.revision.value++;
+        SalesCacheInvalidation.revision.value++;
 
-      expect(DashboardStatsStore.instance.needsRefresh, isTrue);
-    });
+        expect(DashboardStatsStore.instance.needsRefresh, isTrue);
+      },
+    );
   });
 
   /// GAP REAL detectado tras iniciar las corridas: una descarga de nube de
@@ -381,6 +385,61 @@ void main() {
         reason: 'se invalida sin borrar: el snapshot sigue para pintar',
       );
     });
+
+    test(
+      'cloud clients records>0 => borra caches que muestran datos del cliente',
+      () async {
+        await db.insert(DatabaseSchema.salesListCacheTable, {
+          'cache_key': SalesCacheInvalidation.salesListCacheKey,
+          'query': '',
+          'payload': '{"items":[]}',
+          'updated_at': DateTime.now().toIso8601String(),
+        });
+        for (final cacheKey in const [
+          'payments-work-queue:default',
+          'clients:default',
+          'payments-sale-context-25:default',
+          'lots:default',
+        ]) {
+          await db.insert(DatabaseSchema.listSnapshotsTable, {
+            'cache_key': cacheKey,
+            'query': '',
+            'payload': '{"items":[]}',
+            'updated_at': DateTime.now().toIso8601String(),
+          });
+        }
+
+        await SalesCacheInvalidation.onCloudRecordsApplied(
+          db,
+          scope: 'clients',
+          records: 1,
+        );
+
+        expect(await db.query(DatabaseSchema.salesListCacheTable), isEmpty);
+        for (final cacheKey in const [
+          'payments-work-queue:default',
+          'clients:default',
+          'payments-sale-context-25:default',
+        ]) {
+          final rows = await db.query(
+            DatabaseSchema.listSnapshotsTable,
+            where: 'cache_key = ?',
+            whereArgs: [cacheKey],
+          );
+          expect(rows, isEmpty, reason: '$cacheKey debe refrescarse');
+        }
+        final unrelatedRows = await db.query(
+          DatabaseSchema.listSnapshotsTable,
+          where: 'cache_key = ?',
+          whereArgs: ['lots:default'],
+        );
+        expect(
+          unrelatedRows,
+          hasLength(1),
+          reason: 'no debe limpiar snapshots no relacionados al cliente',
+        );
+      },
+    );
 
     test(
       'cloud solares/lotes (scope products) records>0 => dashboard invalidated',

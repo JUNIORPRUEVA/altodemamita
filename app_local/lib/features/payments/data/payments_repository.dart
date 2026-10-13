@@ -1474,6 +1474,7 @@ class PaymentsRepository {
       paymentTypeOverride: draft.paymentTypeOverride,
       targetInstallmentId: draft.targetInstallmentId,
       targetInstallmentNumber: draft.targetInstallmentNumber,
+      advanceInstallmentCount: draft.advanceInstallmentCount,
     );
     final requiresInstallmentImpact =
         draft.paymentTypeOverride == 'cuota' ||
@@ -1557,20 +1558,6 @@ class PaymentsRepository {
     if (requiresInstallmentImpact && installmentAppliedTotal <= 0.009) {
       throw StateError(
         'El pago no impactó ninguna cuota elegible. Ajuste la cuota o el monto e intente nuevamente.',
-      );
-    }
-
-    final isAdvanceInstallmentOnly =
-        draft.paymentTypeOverride == 'cuotas_adelantadas' ||
-        (draft.paymentTypeOverride == 'cuota' &&
-            installmentsToProcess.isNotEmpty &&
-            _isAfterBusinessDate(
-              installmentsToProcess.first,
-              draft.paymentDate,
-            ));
-    if (isAdvanceInstallmentOnly && remainingAmount > 0.009) {
-      throw StateError(
-        'El monto excede las cuotas seleccionadas. Para abonar a capital use el tipo Pago a capital.',
       );
     }
 
@@ -1740,6 +1727,7 @@ class PaymentsRepository {
     required String? paymentTypeOverride,
     required int? targetInstallmentId,
     required int? targetInstallmentNumber,
+    required int? advanceInstallmentCount,
   }) {
     if (paymentTypeOverride == 'abono_capital') return const [];
 
@@ -1788,11 +1776,19 @@ class PaymentsRepository {
           'No puedes adelantar cuotas porque existen cuotas vencidas. Primero salda las cuotas atrasadas.',
         );
       }
-      return installments.where(isEligible).toList()..sort((left, right) {
-        final byDate = left.dueDate.compareTo(right.dueDate);
-        if (byDate != 0) return byDate;
-        return left.installmentNumber.compareTo(right.installmentNumber);
-      });
+      final selected = installments.where(isEligible).toList()
+        ..sort((left, right) {
+          final byDate = left.dueDate.compareTo(right.dueDate);
+          if (byDate != 0) return byDate;
+          return left.installmentNumber.compareTo(right.installmentNumber);
+        });
+      return selected
+          .take(
+            advanceInstallmentCount == null || advanceInstallmentCount <= 0
+                ? selected.length
+                : advanceInstallmentCount,
+          )
+          .toList();
     }
     final actionable = _findActionableInstallment(installments, paymentDate);
     return actionable == null ? const [] : [actionable];
@@ -2664,6 +2660,7 @@ class PaymentsRepository {
         if (installmentRemoteId != null && installmentRemoteId.isNotEmpty)
           'targetInstallmentId': installmentRemoteId,
         'targetInstallmentNumber': draft.targetInstallmentNumber,
+        'advanceInstallmentCount': draft.advanceInstallmentCount,
         'yearToPay': int.tryParse(draft.yearToPay ?? ''),
         'operationId': operationId,
       },

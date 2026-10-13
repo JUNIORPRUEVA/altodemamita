@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../../../core/cloud_foundation/sales_cache_invalidation.dart';
 import '../../../core/resilience/friendly_error_messages.dart';
 import '../../clients/data/client_repository.dart';
 import '../../clients/domain/client.dart';
@@ -106,7 +107,9 @@ class SalesController extends ChangeNotifier {
        _clientRepository = clientRepository,
        _lotRepository = lotRepository,
        _sellerRepository = sellerRepository,
-       _settingsRepository = settingsRepository;
+       _settingsRepository = settingsRepository {
+    SalesCacheInvalidation.revision.addListener(_handleCacheInvalidated);
+  }
 
   final SalesRepository _salesRepository;
   final ClientRepository _clientRepository;
@@ -168,6 +171,15 @@ class SalesController extends ChangeNotifier {
 
   /// True cuando la lista visible pertenece a la consulta actual.
   bool get hasVisibleData => sales.isNotEmpty && _loadedQuery == _scopeKey;
+
+  void _handleCacheInvalidated() {
+    SalesListMemoryCache.clear();
+    SalesDetailMemoryCache.clear();
+    if (_isDisposed) {
+      return;
+    }
+    unawaited(_performLoad());
+  }
 
   Future<void> load({String? query, String? settlementFilter}) async {
     await _performLoad(query: query, settlementFilter: settlementFilter);
@@ -556,6 +568,7 @@ class SalesController extends ChangeNotifier {
 
   @override
   void dispose() {
+    SalesCacheInvalidation.revision.removeListener(_handleCacheInvalidated);
     _isDisposed = true;
     super.dispose();
   }

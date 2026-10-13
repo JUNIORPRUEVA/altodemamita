@@ -80,6 +80,7 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
   late String _selectedPaymentMethod;
   late String _selectedPaymentType;
   int? _selectedOverdueInstallmentId;
+  int _selectedAdvanceInstallmentCount = 2;
   late DateTime _paymentDate;
   bool _printReceiptAutomatically = false;
   bool _amountWasAutoPrefilled = false;
@@ -121,7 +122,10 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
           ? widget.actionableInstallment!.remainingAmount
           : null; // do not auto-fill for current/due installment
     } else if (_selectedPaymentType == 'cuotas_adelantadas') {
-      prefillAmount = null;
+      _selectedAdvanceInstallmentCount = _clampedAdvanceInstallmentCount(2);
+      prefillAmount = _recommendedTotalForInstallments(
+        _selectedAdvanceInstallments,
+      );
     }
 
     _amountController = TextEditingController(
@@ -215,6 +219,41 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
     return items;
   }
 
+  int _clampedAdvanceInstallmentCount(int requested) {
+    final available = _advanceInstallments.length;
+    if (available <= 0) return 0;
+    return requested.clamp(1, available);
+  }
+
+  List<int> get _advanceInstallmentCountOptions {
+    final available = _advanceInstallments.length;
+    if (available < 2) return const [];
+    return List<int>.generate(available - 1, (index) => index + 2);
+  }
+
+  List<Installment> get _selectedAdvanceInstallments {
+    if (_selectedPaymentType != 'cuotas_adelantadas') return const [];
+    final count = _clampedAdvanceInstallmentCount(
+      _selectedAdvanceInstallmentCount,
+    );
+    if (count <= 0) return const [];
+    return _advanceInstallments.take(count).toList();
+  }
+
+  void _setAdvanceInstallmentCount(int count) {
+    setState(() {
+      _selectedAdvanceInstallmentCount = _clampedAdvanceInstallmentCount(count);
+      _syncAdvanceAmount();
+    });
+  }
+
+  void _syncAdvanceAmount() {
+    _amountController.text = _amountFormatter.formatValue(
+      _recommendedTotalForInstallments(_selectedAdvanceInstallments),
+    );
+    _amountWasAutoPrefilled = true;
+  }
+
   bool get _isCapitalBlocked =>
       _selectedPaymentType == 'abono_capital' &&
       widget.overdueInstallments.isNotEmpty;
@@ -245,10 +284,8 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
           _amountWasAutoPrefilled = true;
         }
       } else if (newType == 'cuotas_adelantadas') {
-        if (_amountWasAutoPrefilled) {
-          _amountController.clear();
-          _amountWasAutoPrefilled = false;
-        }
+        _selectedAdvanceInstallmentCount = _clampedAdvanceInstallmentCount(2);
+        _syncAdvanceAmount();
       } else if (newType == 'abono_capital') {
         // Clear only if previous was prefilled
       }
@@ -280,6 +317,11 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
     final isFinancingActive = widget.sale.isFinancingActive;
     final effectiveInstallment = _effectiveInstallment;
     final advanceInstallments = _advanceInstallments;
+    final isAdvancePayment = _selectedPaymentType == 'cuotas_adelantadas';
+    final selectedAdvanceInstallments = _selectedAdvanceInstallments;
+    final selectedAdvanceTotal = _recommendedTotalForInstallments(
+      selectedAdvanceInstallments,
+    );
     final amount = _parseDouble(_amountController.text) ?? 0;
     final hasAmount = amount > 0.009;
     final selectedLateFeePreview = _lateFeePreviewForSelection();
@@ -290,8 +332,11 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
         ? (amount - lateFeeCovered).clamp(0.0, double.infinity)
         : amount;
 
-    final installmentApplied =
-        !isFinancingActive || effectiveInstallment == null
+    final installmentApplied = !isFinancingActive
+        ? 0.0
+        : isAdvancePayment
+        ? amountAvailableForDebt.clamp(0.0, selectedAdvanceTotal)
+        : effectiveInstallment == null
         ? 0.0
         : amountAvailableForDebt.clamp(
             0.0,
@@ -299,7 +344,8 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
           );
     final capitalApplied = isFinancingActive
         ? _selectedPaymentType == 'todas_cuotas_vencidas' ||
-                  _selectedPaymentType == 'cuotas_adelantadas'
+                  (_selectedPaymentType == 'cuotas_adelantadas' &&
+                      selectedAdvanceTotal <= 0.009)
               ? 0.0
               : (amountAvailableForDebt - installmentApplied).clamp(
                   0.0,
@@ -437,8 +483,40 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
                     : _selectedPaymentType == 'todas_cuotas_vencidas'
                     ? 'Se aplicará el pago a ${widget.overdueInstallments.length} cuota${widget.overdueInstallments.length == 1 ? '' : 's'} vencida${widget.overdueInstallments.length == 1 ? '' : 's'} en orden.'
                     : _selectedPaymentType == 'cuotas_adelantadas'
-                    ? 'Se aplicará el pago en orden a las cuotas abiertas desde la #${advanceInstallments.isEmpty ? '-' : advanceInstallments.first.installmentNumber}, sin recalcular el plan.'
+                    ? 'Se aplicará primero a las cuotas seleccionadas y cualquier sobrante irá a capital directo.'
                     : 'No hay cuota vencida o exigible hoy.',
+                style: const TextStyle(fontSize: 13, color: Color(0xFF556079)),
+              ),
+            ],
+            if (isAdvancePayment && advanceInstallments.length > 1) ...[
+              const SizedBox(height: 16),
+              DropdownButtonFormField<int>(
+                key: const Key('advance_installment_count_field'),
+                initialValue: _clampedAdvanceInstallmentCount(
+                  _selectedAdvanceInstallmentCount,
+                ),
+                decoration: const InputDecoration(
+                  labelText: 'Cantidad de cuotas',
+                  prefixIcon: Icon(Icons.format_list_numbered_outlined),
+                ),
+                items: _advanceInstallmentCountOptions
+                    .map(
+                      (count) => DropdownMenuItem<int>(
+                        value: count,
+                        child: Text('$count cuotas'),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) {
+                  if (value == null) return;
+                  _setAdvanceInstallmentCount(value);
+                },
+              ),
+              const SizedBox(height: 8),
+              Text(
+                selectedAdvanceInstallments.isEmpty
+                    ? 'No hay cuotas disponibles para adelantar.'
+                    : 'Se pagarán en orden: ${selectedAdvanceInstallments.map((item) => '#${item.installmentNumber}').join(', ')}. Total cuotas: ${_money(selectedAdvanceTotal)}. Si ingresa más, el sobrante va a capital directo.',
                 style: const TextStyle(fontSize: 13, color: Color(0xFF556079)),
               ),
             ],
@@ -449,10 +527,14 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
             const SizedBox(height: 16),
             if (!useCompactTwoColumnLayout) ...[
               TextFormField(
+                key: const Key('payment_amount_field'),
                 controller: _amountController,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Monto',
-                  prefixIcon: Icon(Icons.attach_money_outlined),
+                  prefixIcon: const Icon(Icons.attach_money_outlined),
+                  helperText: isAdvancePayment
+                      ? 'Debe cubrir las cuotas seleccionadas. El sobrante va a capital.'
+                      : null,
                 ),
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
@@ -529,10 +611,14 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
                 children: [
                   Expanded(
                     child: TextFormField(
+                      key: const Key('payment_amount_field'),
                       controller: _amountController,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         labelText: 'Monto',
-                        prefixIcon: Icon(Icons.attach_money_outlined),
+                        prefixIcon: const Icon(Icons.attach_money_outlined),
+                        helperText: isAdvancePayment
+                            ? 'Sobrante a capital'
+                            : null,
                       ),
                       keyboardType: const TextInputType.numberWithOptions(
                         decimal: true,
@@ -687,7 +773,7 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
                           : _selectedPaymentType == 'todas_cuotas_vencidas'
                           ? '${widget.overdueInstallments.length} cuotas vencidas: ${widget.overdueInstallments.map((i) => '#${i.installmentNumber}').join(', ')}'
                           : _selectedPaymentType == 'cuotas_adelantadas'
-                          ? 'Cuotas adelantadas en orden'
+                          ? '${selectedAdvanceInstallments.length} cuotas adelantadas: ${selectedAdvanceInstallments.map((i) => '#${i.installmentNumber}').join(', ')}'
                           : effectiveInstallment == null
                           ? 'Abono a capital'
                           : amountAvailableForDebt >
@@ -696,6 +782,11 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
                           : 'Cuota #${effectiveInstallment.installmentNumber}',
                     ),
                     _summaryRow('Pago a registrar', _money(amount)),
+                    if (isAdvancePayment && selectedAdvanceTotal > 0.009)
+                      _summaryRow(
+                        'Cuotas seleccionadas',
+                        _money(selectedAdvanceTotal),
+                      ),
                     if (selectedLateFeePreview.hasItems) ...[
                       _summaryRow(
                         'Saldo de cuotas',
@@ -725,15 +816,24 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
                       _money(projectedPendingAmount),
                       highlight: true,
                     ),
-                    if (installmentApplied > 0.009)
+                    if (isAdvancePayment && installmentApplied > 0.009)
+                      _summaryRow(
+                        'Cubre cuotas',
+                        '${selectedAdvanceInstallments.map((i) => '#${i.installmentNumber}').join(', ')} → ${_money(installmentApplied)}',
+                      )
+                    else if (installmentApplied > 0.009)
                       _summaryRow(
                         'Cubre cuota',
                         'Cuota #${effectiveInstallment!.installmentNumber} → ${_money(installmentApplied)}',
                       ),
                     if (capitalApplied > 0.009 &&
-                        _selectedPaymentType != 'todas_cuotas_vencidas' &&
-                        _selectedPaymentType != 'cuotas_adelantadas')
-                      _summaryRow('Abono a capital', _money(capitalApplied)),
+                        _selectedPaymentType != 'todas_cuotas_vencidas')
+                      _summaryRow(
+                        isAdvancePayment
+                            ? 'Capital directo'
+                            : 'Abono a capital',
+                        _money(capitalApplied),
+                      ),
                   ],
                 ],
               ),
@@ -1009,6 +1109,10 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
         targetInstallmentNumber: isFinancingActive
             ? targetedInstallment?.installmentNumber
             : null,
+        advanceInstallmentCount:
+            isFinancingActive && _selectedPaymentType == 'cuotas_adelantadas'
+            ? _clampedAdvanceInstallmentCount(_selectedAdvanceInstallmentCount)
+            : null,
       ),
     );
   }
@@ -1042,25 +1146,17 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
       return 'Menor que la mora calculada';
     }
     if (_selectedPaymentType == 'cuotas_adelantadas') {
-      final maxAdvanceAmount = _advanceInstallments.fold<double>(
-        0,
-        (total, installment) =>
-            _roundCurrency(total + installment.remainingAmount),
+      final selectedTotal = _recommendedTotalForInstallments(
+        _selectedAdvanceInstallments,
       );
-      if (parsed - maxAdvanceAmount > 0.009) {
-        return compact
-            ? 'Excede cuotas'
-            : 'El monto excede las cuotas abiertas disponibles';
+      if (selectedTotal <= 0.009) {
+        return compact ? 'Sin cuotas' : 'Seleccione cuotas para adelantar';
       }
-    }
-    final effective = _effectiveInstallment;
-    if (_selectedPaymentType == 'cuota' &&
-        effective != null &&
-        _isFutureInstallment(effective) &&
-        parsed - effective.remainingAmount > 0.009) {
-      return compact
-          ? 'Excede cuota'
-          : 'El monto excede la proxima cuota. Usa "Cuotas adelantadas" para pagar varias.';
+      if (parsed + 0.009 < selectedTotal) {
+        return compact
+            ? 'Menor que cuotas'
+            : 'El monto debe cubrir al menos las cuotas seleccionadas';
+      }
     }
     return null;
   }
@@ -1078,7 +1174,7 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
       return installment == null ? const [] : [installment];
     }
     if (_selectedPaymentType == 'cuotas_adelantadas') {
-      return _advanceInstallments;
+      return _selectedAdvanceInstallments;
     }
     return const [];
   }

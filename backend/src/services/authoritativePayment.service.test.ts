@@ -164,6 +164,42 @@ test("selects open installments in order for advance installment mode", () => {
   );
 });
 
+test("limits advance installment mode to the selected count", () => {
+  const firstFuture = {
+    ...installment,
+    id: "inst-future-1",
+    installmentNumber: 1,
+    dueDate: new Date("2026-09-16T00:00:00.000-04:00"),
+    status: "pendiente",
+  };
+  const secondFuture = {
+    ...installment,
+    id: "inst-future-2",
+    installmentNumber: 2,
+    dueDate: new Date("2026-10-16T00:00:00.000-04:00"),
+    status: "pendiente",
+  };
+  const thirdFuture = {
+    ...installment,
+    id: "inst-future-3",
+    installmentNumber: 3,
+    dueDate: new Date("2026-11-16T00:00:00.000-04:00"),
+    status: "pendiente",
+  };
+
+  const selected = resolveInstallmentsToProcess({
+    installments: [thirdFuture, secondFuture, firstFuture],
+    paymentDate: new Date("2026-09-15T08:00:00.000-04:00"),
+    paymentTypeOverride: "cuotas_adelantadas",
+    advanceInstallmentCount: 2,
+  });
+
+  assert.deepEqual(
+    selected.map((item) => item.id),
+    ["inst-future-1", "inst-future-2"],
+  );
+});
+
 test("settlement quote treats due-today interest as due for the whole business day", () => {
   const dueLaterToday = {
     ...installment,

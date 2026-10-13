@@ -26,8 +26,16 @@ class SalesCacheInvalidation {
   /// Entidad del snapshot de la work queue de Pagos.
   static const String paymentsWorkQueueEntity = 'payments-work-queue';
 
+  /// Prefijo de snapshots de contexto de pago por venta.
+  static const String paymentsSaleContextEntityPrefix =
+      'payments-sale-context-';
+
   /// Entidades cuyo cambio afecta al conteo de vencidas / saldos de la lista.
-  static const Set<String> financialScopes = {'sales', 'installments', 'payments'};
+  static const Set<String> financialScopes = {
+    'sales',
+    'installments',
+    'payments',
+  };
 
   /// Scopes que alimentan los KPIs del Resumen aunque NO tengan cache propia en
   /// la base.
@@ -70,6 +78,10 @@ class SalesCacheInvalidation {
     if (records <= 0) {
       return;
     }
+    if (scope == 'clients') {
+      await invalidateClientReadModelCaches(db);
+      return;
+    }
     if (financialScopes.contains(scope)) {
       await invalidateFinancialDerivedCaches(db);
       return;
@@ -92,11 +104,7 @@ class SalesCacheInvalidation {
 
   /// Invalida la lista de ventas (contiene `overdueInstallmentCount` por venta).
   static Future<void> invalidateSalesList(DatabaseExecutor db) async {
-    await _deleteKey(
-      db,
-      DatabaseSchema.salesListCacheTable,
-      salesListCacheKey,
-    );
+    await _deleteKey(db, DatabaseSchema.salesListCacheTable, salesListCacheKey);
     _notifyRevision();
   }
 
@@ -115,19 +123,43 @@ class SalesCacheInvalidation {
     DatabaseExecutor db,
     String entity,
   ) async {
-    await _deleteKey(
-      db,
-      DatabaseSchema.listSnapshotsTable,
-      '$entity:default',
-    );
+    await _deleteKey(db, DatabaseSchema.listSnapshotsTable, '$entity:default');
     _notifyRevision();
   }
 
   /// Invalida lo derivado de una operación FINANCIERA:
   /// lista de ventas + work queue de pagos.
-  static Future<void> invalidateFinancialDerivedCaches(DatabaseExecutor db) async {
+  static Future<void> invalidateFinancialDerivedCaches(
+    DatabaseExecutor db,
+  ) async {
     await invalidateSalesList(db);
     await invalidatePaymentsWorkQueue(db);
+  }
+
+  /// Invalida vistas derivadas cuando cambia la ficha de un cliente.
+  ///
+  /// El nombre, cedula y telefono se muestran en Ventas, Pagos, recibos y
+  /// reportes a traves de JOINs o snapshots cacheados. Al editar el cliente no
+  /// se debe reescribir la venta ni crear cambios financieros; basta con borrar
+  /// los snapshots que podrian conservar datos personales antiguos.
+  static Future<void> invalidateClientReadModelCaches(
+    DatabaseExecutor db,
+  ) async {
+    await _deleteKey(db, DatabaseSchema.salesListCacheTable, salesListCacheKey);
+    await _deleteKey(
+      db,
+      DatabaseSchema.listSnapshotsTable,
+      '$paymentsWorkQueueEntity:default',
+    );
+    await _deleteKey(db, DatabaseSchema.listSnapshotsTable, 'clients:default');
+    await _safe(
+      () => db.delete(
+        DatabaseSchema.listSnapshotsTable,
+        where: 'cache_key LIKE ?',
+        whereArgs: ['$paymentsSaleContextEntityPrefix%:default'],
+      ),
+    );
+    _notifyRevision();
   }
 
   /// Invalida todas las caches de listado. Se usa cuando una descarga de la nube

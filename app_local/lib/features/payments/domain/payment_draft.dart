@@ -10,6 +10,7 @@
     this.paymentTypeOverride,
     this.targetInstallmentId,
     this.targetInstallmentNumber,
+    this.advanceInstallmentCount,
   });
 
   final int saleId;
@@ -35,4 +36,10 @@
   /// Optional installment number selected by the user.
   /// Fallback when the local installment id changed after background sync.
   final int? targetInstallmentNumber;
+
+  /// Number of open installments selected for 'cuotas_adelantadas'.
+  ///
+  /// This keeps any extra amount from spilling into the next installment; the
+  /// remaining amount can then be applied as direct capital.
+  final int? advanceInstallmentCount;
 }
