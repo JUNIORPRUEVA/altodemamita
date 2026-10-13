@@ -199,16 +199,30 @@ class IOException implements Exception {
   String toString() => 'IOException: $message';
 }
 
+/// Equivalente mínimo de `dart:io` `OSError`.
+class OSError {
+  OSError([this.message = '', this.errorCode = 0]);
+
+  final String message;
+  final int errorCode;
+}
+
 /// Equivalente de `dart:io` `SocketException`.
 class SocketException extends IOException {
-  SocketException(super.message, {this.address, this.port});
+  SocketException(super.message, {Object? address, this.port, this.osError})
+    : address = address == null
+          ? null
+          : address is InternetAddress
+          ? address
+          : InternetAddress('$address');
 
-  final String? address;
+  final InternetAddress? address;
   final int? port;
+  final OSError? osError;
 
   @override
   String toString() =>
-      'SocketException: $message${address == null ? '' : ', address = $address'}';
+      'SocketException: $message${address == null ? '' : ', address = ${address!.address}'}';
 }
 
 /// Equivalente de `dart:io` `FileSystemException`.
