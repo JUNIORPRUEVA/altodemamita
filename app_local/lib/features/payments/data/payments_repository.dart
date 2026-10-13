@@ -1462,6 +1462,7 @@ class PaymentsRepository {
     );
     final installments = installmentRows.map(Installment.fromMap).toList();
     final outstandingPrincipal = _calculateOutstandingPrincipal(installments);
+    final lateFeePolicy = await _readLocalLateFeePolicy(txn);
 
     var totalPrincipalReduction = 0.0;
     var currentInstallmentNumber = 0;
@@ -1477,7 +1478,8 @@ class PaymentsRepository {
     final requiresInstallmentImpact =
         draft.paymentTypeOverride == 'cuota' ||
         draft.paymentTypeOverride == 'cuota_vencida' ||
-        draft.paymentTypeOverride == 'todas_cuotas_vencidas';
+        draft.paymentTypeOverride == 'todas_cuotas_vencidas' ||
+        draft.paymentTypeOverride == 'cuotas_adelantadas';
     final openInstallmentIds = installments
         .where((installment) {
           if (_isClosedStatus(installment.status)) {
@@ -1500,6 +1502,12 @@ class PaymentsRepository {
       final installmentOutcome = _applyToInstallment(
         installment: installment,
         amount: remainingAmount,
+        lateFeeOutstanding: await _calculateLocalInstallmentLateFeeOutstanding(
+          txn: txn,
+          installment: installment,
+          paymentDate: draft.paymentDate,
+          policy: lateFeePolicy,
+        ),
       );
 
       if (installmentOutcome.appliedAmount > 0) {
@@ -1525,7 +1533,7 @@ class PaymentsRepository {
           'cuota_id': installment.id,
           'fecha_pago': timestamp,
           'monto_pagado': installmentOutcome.appliedAmount,
-          'mora_aplicada': 0,
+          'mora_aplicada': installmentOutcome.lateFeePaidNow,
           'interes_aplicado': installmentOutcome.interestPaidNow,
           'capital_aplicado': installmentOutcome.principalPaidNow,
           'metodo_pago': draft.paymentMethod,
@@ -1549,6 +1557,20 @@ class PaymentsRepository {
     if (requiresInstallmentImpact && installmentAppliedTotal <= 0.009) {
       throw StateError(
         'El pago no impactó ninguna cuota elegible. Ajuste la cuota o el monto e intente nuevamente.',
+      );
+    }
+
+    final isAdvanceInstallmentOnly =
+        draft.paymentTypeOverride == 'cuotas_adelantadas' ||
+        (draft.paymentTypeOverride == 'cuota' &&
+            installmentsToProcess.isNotEmpty &&
+            _isAfterBusinessDate(
+              installmentsToProcess.first,
+              draft.paymentDate,
+            ));
+    if (isAdvanceInstallmentOnly && remainingAmount > 0.009) {
+      throw StateError(
+        'El monto excede las cuotas seleccionadas. Para abonar a capital use el tipo Pago a capital.',
       );
     }
 
@@ -1665,10 +1687,9 @@ class PaymentsRepository {
     List<Installment> installments,
     DateTime paymentDate,
   ) {
-    // Prioridad financiera: la cuota exigible es la MÁS ANTIGUA sin pagar cuyo
-    // vencimiento ya ocurrió (<= hoy), sin importar el orden en que llegó la
-    // lista desde el backend.
-    final candidates =
+    // Prioridad financiera: primero la cuota exigible más antigua. Si no hay
+    // cuotas vencidas/exigibles, se permite apuntar a la próxima cuota abierta.
+    final dueCandidates =
         installments.where((installment) {
           if (_isClosedStatus(installment.status)) {
             return false;
@@ -1684,12 +1705,34 @@ class PaymentsRepository {
           }
           return left.installmentNumber.compareTo(right.installmentNumber);
         });
-    return candidates.isEmpty ? null : candidates.first;
+    if (dueCandidates.isNotEmpty) {
+      return dueCandidates.first;
+    }
+
+    final futureCandidates =
+        installments.where((installment) {
+          if (_isClosedStatus(installment.status)) {
+            return false;
+          }
+          if (installment.remainingAmount <= 0.009) {
+            return false;
+          }
+          return _isAfterBusinessDate(installment, paymentDate);
+        }).toList()..sort((left, right) {
+          final byDate = left.dueDate.compareTo(right.dueDate);
+          if (byDate != 0) {
+            return byDate;
+          }
+          return left.installmentNumber.compareTo(right.installmentNumber);
+        });
+    return futureCandidates.isEmpty ? null : futureCandidates.first;
   }
 
   /// Returns the list of installments to process for a given payment type.
   /// - 'abono_capital'        → [] (skip all, apply to capital)
   /// - 'todas_cuotas_vencidas' → all overdue installments in order
+  /// - 'cuotas_adelantadas'   → all open installments in order, only when no
+  ///   overdue installment exists
   /// - everything else        → [first actionable installment] or []
   List<Installment> _resolveInstallmentsToProcess({
     required List<Installment> installments,
@@ -1734,6 +1777,23 @@ class PaymentsRepository {
         return _isDueOnOrBeforeBusinessDate(i, paymentDate);
       }).toList();
     }
+    if (paymentTypeOverride == 'cuotas_adelantadas') {
+      final overdue = installments.any((i) {
+        if (_isClosedStatus(i.status)) return false;
+        if (i.remainingAmount <= 0.009) return false;
+        return _isPastDueBusinessDate(i, paymentDate);
+      });
+      if (overdue) {
+        throw StateError(
+          'No puedes adelantar cuotas porque existen cuotas vencidas. Primero salda las cuotas atrasadas.',
+        );
+      }
+      return installments.where(isEligible).toList()..sort((left, right) {
+        final byDate = left.dueDate.compareTo(right.dueDate);
+        if (byDate != 0) return byDate;
+        return left.installmentNumber.compareTo(right.installmentNumber);
+      });
+    }
     final actionable = _findActionableInstallment(installments, paymentDate);
     return actionable == null ? const [] : [actionable];
   }
@@ -1741,19 +1801,27 @@ class PaymentsRepository {
   _InstallmentPaymentOutcome _applyToInstallment({
     required Installment installment,
     required double amount,
+    double? lateFeeOutstanding,
   }) {
-    final installmentRemaining = installment.remainingAmount;
-    final appliedAmount = amount > installmentRemaining
+    final lateFeePaidNow = _roundCurrency(
+      amount > (lateFeeOutstanding ?? 0) ? (lateFeeOutstanding ?? 0) : amount,
+    );
+    final amountAfterLateFee = _roundCurrency(amount - lateFeePaidNow);
+    final installmentRemaining = _roundCurrency(installment.remainingAmount);
+    final appliedToInstallment = amountAfterLateFee > installmentRemaining
         ? installmentRemaining
-        : amount;
-    final interestRemaining =
-        installment.interestAmount - installment.paidInterestAmount;
-    final interestPaidNow = appliedAmount > interestRemaining
+        : amountAfterLateFee;
+    final interestRemaining = _roundCurrency(
+      installment.interestAmount - installment.paidInterestAmount,
+    );
+    final interestPaidNow = appliedToInstallment > interestRemaining
         ? interestRemaining
-        : appliedAmount;
-    final principalPaidNow = _roundCurrency(appliedAmount - interestPaidNow);
+        : appliedToInstallment;
+    final principalPaidNow = _roundCurrency(
+      appliedToInstallment - interestPaidNow,
+    );
     final newPaidAmount = _roundCurrency(
-      installment.paidAmount + appliedAmount,
+      installment.paidAmount + appliedToInstallment,
     );
     final newInterestPaid = _roundCurrency(
       installment.paidInterestAmount + interestPaidNow,
@@ -1762,15 +1830,19 @@ class PaymentsRepository {
       installment.paidPrincipalAmount + principalPaidNow,
     );
 
+    final appliedAmount = _roundCurrency(lateFeePaidNow + appliedToInstallment);
+
     return _InstallmentPaymentOutcome(
-      appliedAmount: _roundCurrency(appliedAmount),
+      appliedAmount: appliedAmount,
+      lateFeePaidNow: lateFeePaidNow,
       interestPaidNow: _roundCurrency(interestPaidNow),
       principalPaidNow: principalPaidNow,
       newPaidAmount: newPaidAmount,
       newInterestPaid: newInterestPaid,
       newPrincipalPaid: newPrincipalPaid,
       remainingAmount: _roundCurrency(amount - appliedAmount),
-      newStatus: newPaidAmount >= installment.totalAmount - 0.009
+      newStatus:
+          newPaidAmount >= _roundCurrency(installment.totalAmount) - 0.009
           ? 'pagada'
           : newPaidAmount > 0
           ? 'parcial'
@@ -1779,6 +1851,141 @@ class PaymentsRepository {
           : 'pendiente',
     );
   }
+
+  Future<_LocalLateFeePolicy> _readLocalLateFeePolicy(
+    DatabaseExecutor txn,
+  ) async {
+    final rows = await txn.query(DatabaseSchema.financialParamsTable, limit: 1);
+    if (rows.isEmpty) return const _LocalLateFeePolicy();
+    final row = rows.first;
+    return _LocalLateFeePolicy(
+      enabled:
+          (row['mora_habilitada']?.toString().toLowerCase() ?? 'true') ==
+          'true',
+      dailyRate:
+          double.tryParse(row['mora_tasa_diaria']?.toString() ?? '') ?? 0.005,
+      graceDays: int.tryParse(row['mora_dias_gracia']?.toString() ?? '') ?? 5,
+    );
+  }
+
+  Future<double> _calculateLocalInstallmentLateFeeOutstanding({
+    required DatabaseExecutor txn,
+    required Installment installment,
+    required DateTime paymentDate,
+    required _LocalLateFeePolicy policy,
+  }) async {
+    if (!policy.enabled || installment.remainingAmount <= 0.009) return 0;
+    final paymentRows = await txn.query(
+      DatabaseSchema.paymentsTable,
+      where: 'cuota_id = ? AND deleted_at IS NULL',
+      whereArgs: [installment.id],
+      orderBy: 'fecha_pago ASC, fecha_creacion ASC',
+    );
+    final accrued = _calculateLocalHistoricalLateFee(
+      installment: installment,
+      paymentRows: paymentRows,
+      calculationDate: paymentDate,
+      policy: policy,
+    );
+    final paidLateFee = paymentRows.fold<double>(
+      0,
+      (sum, row) => sum + _toDouble(row['mora_aplicada']),
+    );
+    return _roundCurrency(
+      (accrued - paidLateFee).clamp(0, double.infinity).toDouble(),
+    );
+  }
+
+  double _calculateLocalHistoricalLateFee({
+    required Installment installment,
+    required List<Map<String, Object?>> paymentRows,
+    required DateTime calculationDate,
+    required _LocalLateFeePolicy policy,
+  }) {
+    final dueKey = _dateKey(installment.dueDate);
+    final calculationKey = _dateKey(calculationDate);
+    final overdueDays = _calendarDaysBetweenKeys(dueKey, calculationKey);
+    if (overdueDays <= policy.graceDays) return 0;
+    if (paymentRows.isEmpty || installment.paidAmount <= 0.009) {
+      return _roundCurrency(
+        installment.remainingAmount *
+            policy.dailyRate *
+            (overdueDays - policy.graceDays),
+      );
+    }
+
+    var remaining = installment.totalAmount;
+    var unallocatedPaid = installment.paidAmount;
+    final graceEndKey = _addCalendarDaysKey(dueKey, policy.graceDays);
+    var cursorKey = graceEndKey;
+    var totalFee = 0.0;
+
+    for (final row in paymentRows) {
+      if (unallocatedPaid <= 0.009) break;
+      final paidAt = DateTime.tryParse(row['fecha_pago']?.toString() ?? '');
+      if (paidAt == null) continue;
+      final paymentKey = _dateKey(paidAt);
+      final paymentAmount = _paymentOutstandingAmount(row);
+      if (paymentKey.compareTo(graceEndKey) <= 0) {
+        final applied = _minDouble(paymentAmount, unallocatedPaid);
+        remaining = _roundCurrency(
+          (remaining - applied).clamp(0, double.infinity).toDouble(),
+        );
+        unallocatedPaid = _roundCurrency(
+          (unallocatedPaid - applied).clamp(0, double.infinity).toDouble(),
+        );
+        continue;
+      }
+      if (paymentKey.compareTo(calculationKey) > 0) continue;
+      final days = _calendarDaysBetweenKeys(cursorKey, paymentKey);
+      if (days > 0 && remaining > 0.009) {
+        totalFee += remaining * policy.dailyRate * days;
+      }
+      final applied = _minDouble(paymentAmount, unallocatedPaid);
+      remaining = _roundCurrency(
+        (remaining - applied).clamp(0, double.infinity).toDouble(),
+      );
+      unallocatedPaid = _roundCurrency(
+        (unallocatedPaid - applied).clamp(0, double.infinity).toDouble(),
+      );
+      cursorKey = paymentKey;
+    }
+
+    final remainingDays = _calendarDaysBetweenKeys(cursorKey, calculationKey);
+    if (remainingDays > 0 && remaining > 0.009) {
+      totalFee += remaining * policy.dailyRate * remainingDays;
+    }
+    return _roundCurrency(totalFee);
+  }
+
+  double _paymentOutstandingAmount(Map<String, Object?> row) {
+    final components =
+        _toDouble(row['capital_aplicado']) + _toDouble(row['interes_aplicado']);
+    if (components > 0.009) return _roundCurrency(components);
+    return _roundCurrency(
+      (_toDouble(row['monto_pagado']) - _toDouble(row['mora_aplicada']))
+          .clamp(0, double.infinity)
+          .toDouble(),
+    );
+  }
+
+  String _dateKey(DateTime value) =>
+      '${value.year.toString().padLeft(4, '0')}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}';
+
+  int _calendarDaysBetweenKeys(String earlier, String later) {
+    final start = DateTime.parse('${earlier}T00:00:00');
+    final end = DateTime.parse('${later}T00:00:00');
+    return end.difference(start).inDays;
+  }
+
+  String _addCalendarDaysKey(String dateKey, int days) {
+    final date = DateTime.parse(
+      '${dateKey}T00:00:00',
+    ).add(Duration(days: days));
+    return _dateKey(date);
+  }
+
+  double _minDouble(double a, double b) => a < b ? a : b;
 
   void _scheduleBackgroundSync(String operationLabel, List<String> scopes) {
     if (!_shouldRunBackgroundSync) {
@@ -1985,6 +2192,13 @@ class PaymentsRepository {
     return InstallmentStatusResolver.businessDateKey(
           installment.dueDate,
         ).compareTo(InstallmentStatusResolver.businessDateKey(paymentDate)) <=
+        0;
+  }
+
+  bool _isPastDueBusinessDate(Installment installment, DateTime paymentDate) {
+    return InstallmentStatusResolver.businessDateKey(
+          installment.dueDate,
+        ).compareTo(InstallmentStatusResolver.businessDateKey(paymentDate)) <
         0;
   }
 
@@ -2724,6 +2938,7 @@ class PaymentsRepository {
 class _InstallmentPaymentOutcome {
   const _InstallmentPaymentOutcome({
     required this.appliedAmount,
+    required this.lateFeePaidNow,
     required this.interestPaidNow,
     required this.principalPaidNow,
     required this.newPaidAmount,
@@ -2734,6 +2949,7 @@ class _InstallmentPaymentOutcome {
   });
 
   final double appliedAmount;
+  final double lateFeePaidNow;
   final double interestPaidNow;
   final double principalPaidNow;
   final double newPaidAmount;
@@ -2741,6 +2957,18 @@ class _InstallmentPaymentOutcome {
   final double newPrincipalPaid;
   final double remainingAmount;
   final String newStatus;
+}
+
+class _LocalLateFeePolicy {
+  const _LocalLateFeePolicy({
+    this.enabled = true,
+    this.dailyRate = 0.005,
+    this.graceDays = 5,
+  });
+
+  final bool enabled;
+  final double dailyRate;
+  final int graceDays;
 }
 
 class PaymentRepairReport {

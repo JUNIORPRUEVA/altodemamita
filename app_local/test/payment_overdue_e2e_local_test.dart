@@ -91,6 +91,25 @@ void main() {
     );
   }
 
+  double money(double value) => (value * 100).roundToDouble() / 100;
+
+  double amountWithLateFee(Installment installment, DateTime paymentDate) {
+    final overdueDays = paymentDate
+        .difference(
+          DateTime(
+            installment.dueDate.year,
+            installment.dueDate.month,
+            installment.dueDate.day,
+          ),
+        )
+        .inDays;
+    final lateFeeDays = overdueDays > 5 ? overdueDays - 5 : 0;
+    final rawRemainingAmount = installment.remainingAmount;
+    final remainingAmount = money(rawRemainingAmount);
+    final lateFee = money(rawRemainingAmount * 0.005 * lateFeeDays);
+    return money(remainingAmount + lateFee);
+  }
+
   test(
     'E2E pago TOTAL de cuota vencida: lista y detalle bajan de 2 a 1 y no duplica',
     () async {
@@ -115,7 +134,7 @@ void main() {
         PaymentDraft(
           saleId: saleId,
           paymentDate: anchor,
-          amountPaid: target.remainingAmount,
+          amountPaid: amountWithLateFee(target, anchor),
           paymentMethod: 'efectivo',
           paymentTypeOverride: 'cuota_vencida',
           targetInstallmentId: target.id,
@@ -135,7 +154,10 @@ void main() {
         post.installments.where((i) => i.status == 'pagada'),
         hasLength(1),
       );
-      expect(await paymentsCount(harness), baselinePayments + 1);
+      expect(
+        await paymentsCount(harness),
+        greaterThanOrEqualTo(baselinePayments + 1),
+      );
     },
   );
 

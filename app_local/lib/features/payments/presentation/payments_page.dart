@@ -2111,6 +2111,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
       defaultPaymentMethod: _controller.defaultPaymentMethod,
       registeredByUserId: currentUserId,
       actionableInstallment: contextData.actionableInstallment,
+      installments: contextData.installments,
       overdueInstallments: contextData.overdueInstallments,
       initialPaymentType: initialPaymentType,
     );

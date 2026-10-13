@@ -23,7 +23,8 @@
   final bool printReceiptAutomatically;
 
   /// Optional explicit payment type selected by the user.
-  /// Values: 'cuota', 'cuota_vencida', 'abono_capital', 'abono_inicial', 'apartado'.
+  /// Values: 'cuota', 'cuota_vencida', 'todas_cuotas_vencidas',
+  /// 'cuotas_adelantadas', 'abono_capital', 'abono_inicial', 'apartado'.
   /// When null, type is derived automatically from the sale state.
   final String? paymentTypeOverride;
 

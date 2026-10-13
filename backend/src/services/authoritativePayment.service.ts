@@ -1,5 +1,5 @@
-import { Prisma, PrismaClient } from '@prisma/client';
-import { AuthoritativeError } from './authoritativeErrors.service';
+import { Prisma, PrismaClient } from "@prisma/client";
+import { AuthoritativeError } from "./authoritativeErrors.service";
 import {
   buildInstallmentSchedule,
   calculateEstimatedInstallmentAmount,
@@ -8,32 +8,34 @@ import {
   resolveInstallmentStatus,
   resolveUpfrontSaleStatus,
   roundCurrency,
-} from './financing.service';
+} from "./financing.service";
 import {
   decimal,
   newSyncId,
   normalizePaymentMethod,
   parseDate,
   toNumber,
-} from './authoritativeSale.service';
+} from "./authoritativeSale.service";
 import {
   IdempotentResult,
   requireIdempotencyKey,
   runIdempotentOperation,
-} from './idempotency.service';
+} from "./idempotency.service";
 import {
   BUSINESS_TIMEZONE,
   dateKeyInTimeZone,
   isPastDueBusinessDay,
-} from './installmentStatus.service';
+} from "./installmentStatus.service";
 import {
   LateFeeCalculationService,
   decimal as lateFeeDecimal,
-} from './lateFeeCalculation.service';
-import { readLateFeePolicy } from './lateFeePolicy.service';
+} from "./lateFeeCalculation.service";
+import { readLateFeePolicy } from "./lateFeePolicy.service";
 
 type TransactionClient = Prisma.TransactionClient;
-type LoadedInstallment = Awaited<ReturnType<typeof loadActiveInstallments>>[number];
+type LoadedInstallment = Awaited<
+  ReturnType<typeof loadActiveInstallments>
+>[number];
 
 /**
  * P0 IDENTIDAD FINANCIERA — metadata de correlacion.
@@ -49,7 +51,7 @@ type LoadedInstallment = Awaited<ReturnType<typeof loadActiveInstallments>>[numb
 export function authoritativePaymentRaw(sourceSyncId?: string | null) {
   const normalized = sourceSyncId?.toString().trim();
   return {
-    authoritativeSource: 'phase_1d' as const,
+    authoritativeSource: "phase_1d" as const,
     ...(normalized ? { sourceSyncId: normalized } : {}),
   };
 }
@@ -112,16 +114,22 @@ export type SettleSaleInput = {
 export class AuthoritativePaymentService {
   constructor(private readonly prisma: PrismaClient) {}
 
-  async getSettlementQuote(input: SettlementQuoteInput): Promise<Prisma.JsonObject> {
+  async getSettlementQuote(
+    input: SettlementQuoteInput,
+  ): Promise<Prisma.JsonObject> {
     return this.prisma.$transaction(async (tx) => {
       const sale = await loadSale(tx, {
         companyId: input.companyId,
-        receivedByUserId: '',
-        idempotencyKey: 'quote',
+        receivedByUserId: "",
+        idempotencyKey: "quote",
         saleId: input.saleId,
       });
       const installments = await loadActiveInstallments(tx, sale.id);
-      return buildSettlementQuoteResponse(sale, installments, parseDate(input.asOfDate, new Date()));
+      return buildSettlementQuoteResponse(
+        sale,
+        installments,
+        parseDate(input.asOfDate, new Date()),
+      );
     });
   }
 
@@ -133,13 +141,13 @@ export class AuthoritativePaymentService {
       runIdempotentOperation(tx, {
         companyId: input.companyId,
         operationKey,
-        operationType: 'payment.register',
+        operationType: "payment.register",
         requestPayload: input,
         run: async () => {
           const response = await registerPaymentInTransaction(tx, input);
           return {
             response,
-            resourceType: 'payment',
+            resourceType: "payment",
             resourceId: String(response.paymentIds),
           };
         },
@@ -155,13 +163,13 @@ export class AuthoritativePaymentService {
       runIdempotentOperation(tx, {
         companyId: input.companyId,
         operationKey,
-        operationType: 'payment.annul',
+        operationType: "payment.annul",
         requestPayload: input,
         run: async () => {
           const response = await annulPaymentInTransaction(tx, input);
           return {
             response,
-            resourceType: 'payment',
+            resourceType: "payment",
             resourceId: input.paymentId,
           };
         },
@@ -169,19 +177,21 @@ export class AuthoritativePaymentService {
     );
   }
 
-  async settleSale(input: SettleSaleInput): Promise<IdempotentResult<Prisma.JsonObject>> {
+  async settleSale(
+    input: SettleSaleInput,
+  ): Promise<IdempotentResult<Prisma.JsonObject>> {
     const operationKey = requireIdempotencyKey(input.idempotencyKey);
     return this.prisma.$transaction((tx) =>
       runIdempotentOperation(tx, {
         companyId: input.companyId,
         operationKey,
-        operationType: 'payment.settlement',
+        operationType: "payment.settlement",
         requestPayload: input,
         run: async () => {
           const response = await settleSaleInTransaction(tx, input);
           return {
             response,
-            resourceType: 'payment',
+            resourceType: "payment",
             resourceId: String(response.paymentId),
           };
         },
@@ -202,13 +212,16 @@ async function settleSaleInTransaction(
     idempotencyKey: input.idempotencyKey,
     saleId: input.saleId,
   });
-  if ((sale.status ?? '') === 'cancelada' || sale.deletedAt) {
-    throw new AuthoritativeError('SALE_STATUS_REJECTED', 'La venta seleccionada no admite liquidacion.');
+  if ((sale.status ?? "") === "cancelada" || sale.deletedAt) {
+    throw new AuthoritativeError(
+      "SALE_STATUS_REJECTED",
+      "La venta seleccionada no admite liquidacion.",
+    );
   }
   if (toNumber(sale.initialPendingAmount) > 0.009) {
     throw new AuthoritativeError(
-      'INITIAL_PENDING_BLOCKS_SETTLEMENT',
-      'Completa primero el inicial pendiente antes de saldar la deuda total.',
+      "INITIAL_PENDING_BLOCKS_SETTLEMENT",
+      "Completa primero el inicial pendiente antes de saldar la deuda total.",
       409,
     );
   }
@@ -216,12 +229,16 @@ async function settleSaleInTransaction(
   const installments = await loadActiveInstallments(tx, sale.id);
   const quote = buildSettlementQuoteResponse(sale, installments, paymentDate);
   if (quote.settlementAmount <= 0.009 || quote.isFullyPaid === true) {
-    throw new AuthoritativeError('SALE_ALREADY_PAID', 'La venta seleccionada ya esta saldada.', 409);
+    throw new AuthoritativeError(
+      "SALE_ALREADY_PAID",
+      "La venta seleccionada ya esta saldada.",
+      409,
+    );
   }
   if (input.quoteVersion && input.quoteVersion !== quote.quoteVersion) {
     throw new AuthoritativeError(
-      'STALE_SETTLEMENT_QUOTE',
-      'El saldo cambio. Revisa el monto actualizado antes de continuar.',
+      "STALE_SETTLEMENT_QUOTE",
+      "El saldo cambio. Revisa el monto actualizado antes de continuar.",
       409,
     );
   }
@@ -234,7 +251,7 @@ async function settleSaleInTransaction(
     : null;
   const preSnapshot = buildSettlementPreSnapshot(sale, installments, lotBefore);
   for (const installment of installments) {
-    if (isClosedStatus(installment.status ?? '')) {
+    if (isClosedStatus(installment.status ?? "")) {
       continue;
     }
     const due = isDueOnOrBeforeBusinessDate(installment.dueDate, paymentDate);
@@ -245,8 +262,10 @@ async function settleSaleInTransaction(
           paidAmount: installment.totalAmount,
           paidPrincipalAmount: installment.principalAmount,
           paidInterestAmount: installment.interestAmount,
-          status: 'pagada',
-          raw: mergeRaw(installment.raw, { settlementReason: 'liquidacion_total' }),
+          status: "pagada",
+          raw: mergeRaw(installment.raw, {
+            settlementReason: "liquidacion_total",
+          }),
           version: { increment: 1 },
         },
       });
@@ -262,8 +281,10 @@ async function settleSaleInTransaction(
           paidPrincipalAmount: decimal(0),
           paidInterestAmount: decimal(0),
           endingBalance: decimal(0),
-          status: 'ajustada',
-          raw: mergeRaw(installment.raw, { adjustmentReason: 'liquidacion_total' }),
+          status: "ajustada",
+          raw: mergeRaw(installment.raw, {
+            adjustmentReason: "liquidacion_total",
+          }),
           version: { increment: 1 },
         },
       });
@@ -273,7 +294,7 @@ async function settleSaleInTransaction(
   const payment = await tx.payment.create({
     data: {
       companyId: input.companyId,
-      syncId: newSyncId('payment'),
+      syncId: newSyncId("payment"),
       saleId: sale.id,
       clientId: sale.clientId,
       receivedByUserId: input.receivedByUserId,
@@ -282,13 +303,14 @@ async function settleSaleInTransaction(
       paidAt: paymentDate,
       amount: decimal(quote.settlementAmount),
       method: normalizePaymentMethod(input.paymentMethod),
-      paymentType: 'liquidacion_total',
-      reference: input.reference ?? `SETTLEMENT-${sale.id}-${now.getTime().toString()}`,
+      paymentType: "liquidacion_total",
+      reference:
+        input.reference ?? `SETTLEMENT-${sale.id}-${now.getTime().toString()}`,
       principalApplied: decimal(quote.principalOutstanding),
       interestApplied: decimal(quote.dueInterest),
       lateFeeApplied: decimal(quote.lateFees),
       raw: {
-        authoritativeSource: 'settlement',
+        authoritativeSource: "settlement",
         quote,
         preSnapshot,
       },
@@ -301,7 +323,7 @@ async function settleSaleInTransaction(
     data: {
       initialPendingAmount: decimal(0),
       balance: decimal(0),
-      status: 'pagada',
+      status: "pagada",
       raw: mergeRaw(sale.raw, {
         lastSettlementPaymentId: payment.id,
         futureInterestWaived: quote.futureInterestWaived,
@@ -312,17 +334,17 @@ async function settleSaleInTransaction(
   if (sale.lotId) {
     await tx.lot.update({
       where: { id: sale.lotId },
-      data: { status: 'vendido', version: { increment: 1 } },
+      data: { status: "vendido", version: { increment: 1 } },
     });
   }
 
   return {
     saleId: sale.id,
     paymentId: payment.id,
-    status: 'pagada',
+    status: "pagada",
     balance: 0,
     initialPendingAmount: 0,
-    paymentType: 'liquidacion_total',
+    paymentType: "liquidacion_total",
     quote,
   };
 }
@@ -335,13 +357,16 @@ async function registerPaymentInTransaction(
   const paymentDate = parseDate(input.paymentDate, now);
   const amountPaid = roundCurrency(input.amountPaid ?? input.amount ?? 0);
   if (amountPaid <= 0) {
-    throw new AuthoritativeError('INVALID_PAYMENT_AMOUNT', 'El monto pagado debe ser mayor que cero.');
+    throw new AuthoritativeError(
+      "INVALID_PAYMENT_AMOUNT",
+      "El monto pagado debe ser mayor que cero.",
+    );
   }
 
   const sale = await loadSale(tx, input);
-  const saleStatus = sale.status ?? 'apartado';
+  const saleStatus = sale.status ?? "apartado";
   const paymentTypeOverride =
-    input.paymentTypeOverride ?? input.paymentType ?? 'cuota';
+    input.paymentTypeOverride ?? input.paymentType ?? "cuota";
   const pendingInitial = toNumber(sale.initialPendingAmount);
   const pendingBalance = toNumber(sale.balance);
   const salePrice = toNumber(sale.total);
@@ -360,8 +385,8 @@ async function registerPaymentInTransaction(
   const saleDate = sale.saleDate;
   if (!saleDate) {
     throw new AuthoritativeError(
-      'SALE_DATE_REQUIRED_FOR_SCHEDULE',
-      'La venta no tiene fecha de venta: no se puede generar ni recalcular el calendario de cuotas.',
+      "SALE_DATE_REQUIRED_FOR_SCHEDULE",
+      "La venta no tiene fecha de venta: no se puede generar ni recalcular el calendario de cuotas.",
       409,
     );
   }
@@ -369,24 +394,31 @@ async function registerPaymentInTransaction(
 
   if (pendingInitial <= 0.009 && pendingBalance <= 0.009) {
     throw new AuthoritativeError(
-      'SALE_ALREADY_PAID',
-      'La venta seleccionada ya no tiene saldo pendiente.',
+      "SALE_ALREADY_PAID",
+      "La venta seleccionada ya no tiene saldo pendiente.",
       409,
     );
   }
 
-  if (paymentTypeOverride === 'abono_capital') {
+  if (paymentTypeOverride === "abono_capital") {
     await assertCapitalPaymentAllowed(tx, sale.id, pendingInitial, paymentDate);
   }
 
-  if (saleStatus === 'apartado' || saleStatus === 'inicial_incompleto') {
-    const saleAmountRemaining = roundCurrency(Math.max(salePrice - paidInitial, 0));
+  if (saleStatus === "apartado" || saleStatus === "inicial_incompleto") {
+    const saleAmountRemaining = roundCurrency(
+      Math.max(salePrice - paidInitial, 0),
+    );
     const initialPaymentApplied = Math.min(amountPaid, saleAmountRemaining);
     if (initialPaymentApplied <= 0) {
-      throw new AuthoritativeError('NO_PAYMENT_IMPACT', 'El pago no impacto la venta seleccionada.');
+      throw new AuthoritativeError(
+        "NO_PAYMENT_IMPACT",
+        "El pago no impacto la venta seleccionada.",
+      );
     }
 
-    const updatedInitialPaid = roundCurrency(paidInitial + initialPaymentApplied);
+    const updatedInitialPaid = roundCurrency(
+      paidInitial + initialPaymentApplied,
+    );
     const updatedInitialPending = calculatePendingInitialPayment({
       requiredInitialPayment: requiredInitial,
       initialPaymentPaid: updatedInitialPaid,
@@ -404,7 +436,7 @@ async function registerPaymentInTransaction(
     const payment = await tx.payment.create({
       data: {
         companyId: input.companyId,
-        syncId: newSyncId('payment'),
+        syncId: newSyncId("payment"),
         saleId: sale.id,
         clientId: sale.clientId,
         receivedByUserId: input.receivedByUserId,
@@ -413,7 +445,7 @@ async function registerPaymentInTransaction(
         paidAt: paymentDate,
         amount: decimal(initialPaymentApplied),
         method: normalizePaymentMethod(input.paymentMethod),
-        paymentType: paidInitial <= 0.009 ? 'apartado' : 'abono_inicial',
+        paymentType: paidInitial <= 0.009 ? "apartado" : "abono_inicial",
         reference: paymentReference(input, sale.id, now),
         yearToPay: input.yearToPay,
         principalApplied: decimal(0),
@@ -434,7 +466,7 @@ async function registerPaymentInTransaction(
         balance: decimal(updatedFinancedBalance),
         status: newStatus,
         activationDate:
-          newStatus === 'activa' || newStatus === 'pagada' ? paymentDate : null,
+          newStatus === "activa" || newStatus === "pagada" ? paymentDate : null,
         version: { increment: 1 },
       },
     });
@@ -443,7 +475,10 @@ async function registerPaymentInTransaction(
       await tx.lot.update({
         where: { id: sale.lotId },
         data: {
-          status: newStatus === 'activa' || newStatus === 'pagada' ? 'vendido' : 'reservado',
+          status:
+            newStatus === "activa" || newStatus === "pagada"
+              ? "vendido"
+              : "reservado",
           version: { increment: 1 },
         },
       });
@@ -460,8 +495,8 @@ async function registerPaymentInTransaction(
 
     if (roundCurrency(amountPaid - initialPaymentApplied) > 0.009) {
       throw new AuthoritativeError(
-        'PAYMENT_EXCEEDS_BALANCE',
-        'El pago excede el monto restante de la venta.',
+        "PAYMENT_EXCEEDS_BALANCE",
+        "El pago excede el monto restante de la venta.",
       );
     }
 
@@ -475,22 +510,26 @@ async function registerPaymentInTransaction(
     };
   }
 
-  if (saleStatus !== 'activa' && saleStatus !== 'pagada') {
+  if (saleStatus !== "activa" && saleStatus !== "pagada") {
     throw new AuthoritativeError(
-      'SALE_STATUS_REJECTED',
-      'La venta seleccionada no admite pagos en su estado actual.',
+      "SALE_STATUS_REJECTED",
+      "La venta seleccionada no admite pagos en su estado actual.",
     );
   }
   if (pendingBalance <= 0.009) {
     throw new AuthoritativeError(
-      'SALE_PLAN_PAID',
-      'La venta seleccionada ya no tiene saldo pendiente del plan.',
+      "SALE_PLAN_PAID",
+      "La venta seleccionada ya no tiene saldo pendiente del plan.",
       409,
     );
   }
 
   const installments = await loadActiveInstallments(tx, sale.id);
-  const lateFeePolicy = await readLateFeePolicy(tx, input.companyId, paymentDate);
+  const lateFeePolicy = await readLateFeePolicy(
+    tx,
+    input.companyId,
+    paymentDate,
+  );
   const lateFeeCalculator = new LateFeeCalculationService({
     enabled: lateFeePolicy.enabled,
     dailyRate: lateFeePolicy.dailyRate,
@@ -504,7 +543,7 @@ async function registerPaymentInTransaction(
       deletedAt: null,
       annulledAt: null,
     },
-    orderBy: [{ paidAt: 'asc' }, { createdAt: 'asc' }],
+    orderBy: [{ paidAt: "asc" }, { createdAt: "asc" }],
   });
   const outstandingPrincipal = calculateOutstandingPrincipal(installments);
   const fixedInstallmentAmount = calculateEstimatedInstallmentAmount({
@@ -512,6 +551,21 @@ async function registerPaymentInTransaction(
     monthlyInterest,
     installmentCount,
   });
+  if (paymentTypeOverride === "cuotas_adelantadas") {
+    const hasOverdueInstallments = installments.some(
+      (item) =>
+        !isClosedStatus(item.status ?? "") &&
+        remainingAmount(item) > 0.009 &&
+        isPastDueBusinessDate(item.dueDate, paymentDate),
+    );
+    if (hasOverdueInstallments) {
+      throw new AuthoritativeError(
+        "ADVANCE_PAYMENT_BLOCKED_OVERDUE_INSTALLMENTS",
+        "No puedes adelantar cuotas porque existen cuotas vencidas. Primero salda las cuotas atrasadas.",
+        409,
+      );
+    }
+  }
   const installmentsToProcess = resolveInstallmentsToProcess({
     installments,
     paymentDate,
@@ -520,16 +574,22 @@ async function registerPaymentInTransaction(
     targetInstallmentNumber: input.targetInstallmentNumber ?? null,
   });
   const requiresInstallmentImpact = [
-    'cuota',
-    'cuota_vencida',
-    'todas_cuotas_vencidas',
+    "cuota",
+    "cuota_vencida",
+    "todas_cuotas_vencidas",
+    "cuotas_adelantadas",
   ].includes(paymentTypeOverride);
   const openInstallmentIds = new Set(
     installments
-      .filter((item) => !isClosedStatus(item.status ?? '') && remainingAmount(item) > 0.009)
+      .filter(
+        (item) =>
+          !isClosedStatus(item.status ?? "") && remainingAmount(item) > 0.009,
+      )
       .map((item) => item.id),
   );
-  const selectedInstallmentIds = new Set(installmentsToProcess.map((item) => item.id));
+  const selectedInstallmentIds = new Set(
+    installmentsToProcess.map((item) => item.id),
+  );
 
   let remaining = amountPaid;
   let totalPrincipalReduction = 0;
@@ -550,7 +610,12 @@ async function registerPaymentInTransaction(
       companyId: input.companyId,
       saleSyncId: sale.syncId,
     });
-    const outcome = applyToInstallment(installment, remaining, paymentDate, lateFeeOutstanding);
+    const outcome = applyToInstallment(
+      installment,
+      remaining,
+      paymentDate,
+      lateFeeOutstanding,
+    );
     if (outcome.appliedAmount <= 0) {
       continue;
     }
@@ -568,7 +633,7 @@ async function registerPaymentInTransaction(
     const payment = await tx.payment.create({
       data: {
         companyId: input.companyId,
-        syncId: newSyncId('payment'),
+        syncId: newSyncId("payment"),
         saleId: sale.id,
         clientId: sale.clientId,
         installmentId: installment.id,
@@ -579,7 +644,7 @@ async function registerPaymentInTransaction(
         paidAt: paymentDate,
         amount: decimal(outcome.appliedAmount),
         method: normalizePaymentMethod(input.paymentMethod),
-        paymentType: 'cuota',
+        paymentType: "cuota",
         reference: paymentReference(input, sale.id, now),
         yearToPay: input.yearToPay,
         principalApplied: decimal(outcome.principalPaidNow),
@@ -606,7 +671,9 @@ async function registerPaymentInTransaction(
     createdPaymentsForLateFee.push(payment as any);
 
     remaining = outcome.remainingAmount;
-    installmentAppliedTotal = roundCurrency(installmentAppliedTotal + outcome.appliedAmount);
+    installmentAppliedTotal = roundCurrency(
+      installmentAppliedTotal + outcome.appliedAmount,
+    );
     totalPrincipalReduction = roundCurrency(
       totalPrincipalReduction + outcome.principalPaidNow,
     );
@@ -614,25 +681,40 @@ async function registerPaymentInTransaction(
 
   if (requiresInstallmentImpact && installmentAppliedTotal <= 0.009) {
     throw new AuthoritativeError(
-      'NO_INSTALLMENT_IMPACT',
-      'El pago no impacto ninguna cuota elegible.',
+      "NO_INSTALLMENT_IMPACT",
+      "El pago no impacto ninguna cuota elegible.",
+    );
+  }
+
+  const isAdvanceInstallmentOnly =
+    paymentTypeOverride === "cuotas_adelantadas" ||
+    (paymentTypeOverride === "cuota" &&
+      installmentsToProcess.length > 0 &&
+      isAfterBusinessDate(installmentsToProcess[0].dueDate, paymentDate));
+  if (isAdvanceInstallmentOnly && remaining > 0.009) {
+    throw new AuthoritativeError(
+      "PAYMENT_EXCEEDS_SELECTED_INSTALLMENTS",
+      "El monto excede las cuotas seleccionadas. Para abonar a capital use el tipo Pago a capital.",
+      409,
     );
   }
 
   let capitalPrepayment = 0;
   if (remaining > 0.009) {
-    const maxCapitalPayment = roundCurrency(outstandingPrincipal - totalPrincipalReduction);
+    const maxCapitalPayment = roundCurrency(
+      outstandingPrincipal - totalPrincipalReduction,
+    );
     if (maxCapitalPayment <= 0) {
       throw new AuthoritativeError(
-        'PAYMENT_EXCEEDS_BALANCE',
-        'El pago excede el saldo pendiente disponible.',
+        "PAYMENT_EXCEEDS_BALANCE",
+        "El pago excede el saldo pendiente disponible.",
       );
     }
     capitalPrepayment = Math.min(remaining, maxCapitalPayment);
     const payment = await tx.payment.create({
       data: {
         companyId: input.companyId,
-        syncId: newSyncId('payment'),
+        syncId: newSyncId("payment"),
         saleId: sale.id,
         clientId: sale.clientId,
         receivedByUserId: input.receivedByUserId,
@@ -641,7 +723,7 @@ async function registerPaymentInTransaction(
         paidAt: paymentDate,
         amount: decimal(capitalPrepayment),
         method: normalizePaymentMethod(input.paymentMethod),
-        paymentType: 'abono_capital',
+        paymentType: "abono_capital",
         reference: paymentReference(input, sale.id, now),
         yearToPay: input.yearToPay,
         principalApplied: decimal(capitalPrepayment),
@@ -653,18 +735,21 @@ async function registerPaymentInTransaction(
     });
     paymentIds.push(payment.id);
     remaining = roundCurrency(remaining - capitalPrepayment);
-    totalPrincipalReduction = roundCurrency(totalPrincipalReduction + capitalPrepayment);
+    totalPrincipalReduction = roundCurrency(
+      totalPrincipalReduction + capitalPrepayment,
+    );
   }
 
   if (remaining > 0.009) {
     throw new AuthoritativeError(
-      'PAYMENT_EXCEEDS_BALANCE',
-      'El pago excede el saldo pendiente de la venta.',
+      "PAYMENT_EXCEEDS_BALANCE",
+      "El pago excede el saldo pendiente de la venta.",
     );
   }
 
   const settlesDisplayedBalance =
-    paymentTypeOverride === 'abono_capital' && amountPaid >= pendingBalance - 0.009;
+    paymentTypeOverride === "abono_capital" &&
+    amountPaid >= pendingBalance - 0.009;
   const settlesAllInstallments =
     requiresInstallmentImpact &&
     remaining <= 0.009 &&
@@ -692,7 +777,9 @@ async function registerPaymentInTransaction(
   if (settlesAllInstallments) {
     const stillOpen = await loadActiveInstallments(tx, sale.id);
     for (const installment of stillOpen) {
-      if (['pagada', 'ajustada', 'cancelada'].includes(installment.status ?? '')) {
+      if (
+        ["pagada", "ajustada", "cancelada"].includes(installment.status ?? "")
+      ) {
         continue;
       }
       await tx.installment.update({
@@ -701,7 +788,7 @@ async function registerPaymentInTransaction(
           paidAmount: installment.totalAmount,
           paidPrincipalAmount: installment.principalAmount,
           paidInterestAmount: installment.interestAmount,
-          status: 'pagada',
+          status: "pagada",
           version: { increment: 1 },
         },
       });
@@ -713,7 +800,7 @@ async function registerPaymentInTransaction(
     settlesDisplayedBalance || settlesAllInstallments || !hasOpenInstallments
       ? 0
       : await loadOutstandingContractBalance(tx, sale.id);
-  const newStatus = newPendingBalance <= 0.009 ? 'pagada' : 'activa';
+  const newStatus = newPendingBalance <= 0.009 ? "pagada" : "activa";
 
   await tx.sale.update({
     where: { id: sale.id },
@@ -739,9 +826,12 @@ async function registerPaymentInTransaction(
  * `performedByUserId` es quien ejecuto la accion; `authorizedByUserId` es el
  * administrador que la autorizo cuando hubo override.
  */
-function mergeAnnulmentAudit(raw: unknown, audit: Record<string, unknown>): Prisma.InputJsonValue {
+function mergeAnnulmentAudit(
+  raw: unknown,
+  audit: Record<string, unknown>,
+): Prisma.InputJsonValue {
   const base =
-    raw && typeof raw === 'object' && !Array.isArray(raw)
+    raw && typeof raw === "object" && !Array.isArray(raw)
       ? { ...(raw as Record<string, unknown>) }
       : {};
   base.annulmentAudit = audit;
@@ -761,14 +851,26 @@ async function annulPaymentInTransaction(
     include: { sale: true, installment: true },
   });
   if (!payment || !payment.sale) {
-    throw new AuthoritativeError('PAYMENT_NOT_FOUND', 'El pago seleccionado no existe.', 404);
+    throw new AuthoritativeError(
+      "PAYMENT_NOT_FOUND",
+      "El pago seleccionado no existe.",
+      404,
+    );
   }
   if (payment.annulledAt) {
     // Idempotencia de anulacion: nunca reversar dos veces el mismo pago.
-    throw new AuthoritativeError('PAYMENT_ALREADY_ANNULLED', 'Este pago ya fue anulado.', 409);
+    throw new AuthoritativeError(
+      "PAYMENT_ALREADY_ANNULLED",
+      "Este pago ya fue anulado.",
+      409,
+    );
   }
   if (payment.deletedAt) {
-    throw new AuthoritativeError('PAYMENT_NOT_FOUND', 'El pago seleccionado no existe.', 404);
+    throw new AuthoritativeError(
+      "PAYMENT_NOT_FOUND",
+      "El pago seleccionado no existe.",
+      404,
+    );
   }
 
   const latest = await tx.payment.findFirst({
@@ -778,13 +880,13 @@ async function annulPaymentInTransaction(
       deletedAt: null,
       annulledAt: null,
     },
-    orderBy: [{ paidAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+    orderBy: [{ paidAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
     select: { id: true },
   });
   if (latest?.id !== payment.id) {
     throw new AuthoritativeError(
-      'ONLY_LATEST_PAYMENT_CAN_BE_ANNULLED',
-      'Solo se permite anular el ultimo pago activo de la venta.',
+      "ONLY_LATEST_PAYMENT_CAN_BE_ANNULLED",
+      "Solo se permite anular el ultimo pago activo de la venta.",
       409,
     );
   }
@@ -814,12 +916,22 @@ async function annulPaymentInTransaction(
     const installmentReduction = roundCurrency(
       toNumber(payment.principalApplied) + toNumber(payment.interestApplied),
     );
-    const newPaidAmount = roundCurrency(Math.max(toNumber(installment.paidAmount) - installmentReduction, 0));
+    const newPaidAmount = roundCurrency(
+      Math.max(toNumber(installment.paidAmount) - installmentReduction, 0),
+    );
     const newPrincipalPaid = roundCurrency(
-      Math.max(toNumber(installment.paidPrincipalAmount) - toNumber(payment.principalApplied), 0),
+      Math.max(
+        toNumber(installment.paidPrincipalAmount) -
+          toNumber(payment.principalApplied),
+        0,
+      ),
     );
     const newInterestPaid = roundCurrency(
-      Math.max(toNumber(installment.paidInterestAmount) - toNumber(payment.interestApplied), 0),
+      Math.max(
+        toNumber(installment.paidInterestAmount) -
+          toNumber(payment.interestApplied),
+        0,
+      ),
     );
     await tx.installment.update({
       where: { id: installment.id },
@@ -838,13 +950,16 @@ async function annulPaymentInTransaction(
     });
   }
 
-  if (payment.paymentType === 'apartado' || payment.paymentType === 'abono_inicial') {
+  if (
+    payment.paymentType === "apartado" ||
+    payment.paymentType === "abono_inicial"
+  ) {
     const updatedSale = await reverseInitialPayment(
       tx,
       payment.sale,
       amount,
       annulledAt,
-      payment.paymentType === 'apartado',
+      payment.paymentType === "apartado",
     );
     return {
       paymentId: payment.id,
@@ -855,18 +970,18 @@ async function annulPaymentInTransaction(
       performedByUserId: input.annulledByUserId,
       authorizedByUserId,
     };
-  } else if (payment.paymentType === 'liquidacion_total') {
+  } else if (payment.paymentType === "liquidacion_total") {
     await restoreSettlementPreSnapshot(tx, payment);
     return {
       paymentId: payment.id,
       saleId: payment.sale.id,
-      status: snapshotSaleStatus(payment.raw) ?? 'activa',
+      status: snapshotSaleStatus(payment.raw) ?? "activa",
       balance: snapshotSaleBalance(payment.raw),
       annulledAt: annulledAt.toISOString(),
       performedByUserId: input.annulledByUserId,
       authorizedByUserId,
     };
-  } else if (payment.paymentType === 'abono_capital') {
+  } else if (payment.paymentType === "abono_capital") {
     await reverseCapitalPayment(tx, payment.sale, amount, annulledAt);
   }
 
@@ -875,11 +990,13 @@ async function annulPaymentInTransaction(
     where: { id: payment.sale.id },
     data: {
       balance: decimal(newBalance),
-      status: newBalance <= 0.009 && toNumber(payment.sale.initialPendingAmount) <= 0.009
-        ? 'pagada'
-        : payment.sale.status === 'pagada'
-          ? 'activa'
-          : payment.sale.status,
+      status:
+        newBalance <= 0.009 &&
+        toNumber(payment.sale.initialPendingAmount) <= 0.009
+          ? "pagada"
+          : payment.sale.status === "pagada"
+            ? "activa"
+            : payment.sale.status,
       version: { increment: 1 },
     },
     select: { id: true, status: true, balance: true },
@@ -901,11 +1018,17 @@ function buildSettlementQuoteResponse(
   installments: LoadedInstallment[],
   asOfDate: Date,
 ) {
-  const open = installments.filter((item) => !isClosedStatus(item.status ?? ''));
+  const open = installments.filter(
+    (item) => !isClosedStatus(item.status ?? ""),
+  );
   const principalOutstanding = roundCurrency(
     open.reduce(
       (sum, item) =>
-        sum + Math.max(toNumber(item.principalAmount) - toNumber(item.paidPrincipalAmount), 0),
+        sum +
+        Math.max(
+          toNumber(item.principalAmount) - toNumber(item.paidPrincipalAmount),
+          0,
+        ),
       0,
     ),
   );
@@ -914,7 +1037,11 @@ function buildSettlementQuoteResponse(
       .filter((item) => isDueOnOrBeforeBusinessDate(item.dueDate, asOfDate))
       .reduce(
         (sum, item) =>
-          sum + Math.max(toNumber(item.interestAmount) - toNumber(item.paidInterestAmount), 0),
+          sum +
+          Math.max(
+            toNumber(item.interestAmount) - toNumber(item.paidInterestAmount),
+            0,
+          ),
         0,
       ),
   );
@@ -923,7 +1050,11 @@ function buildSettlementQuoteResponse(
       .filter((item) => isAfterBusinessDate(item.dueDate, asOfDate))
       .reduce(
         (sum, item) =>
-          sum + Math.max(toNumber(item.interestAmount) - toNumber(item.paidInterestAmount), 0),
+          sum +
+          Math.max(
+            toNumber(item.interestAmount) - toNumber(item.paidInterestAmount),
+            0,
+          ),
         0,
       ),
   );
@@ -938,15 +1069,15 @@ function buildSettlementQuoteResponse(
       [
         item.id,
         item.version,
-        item.status ?? '',
+        item.status ?? "",
         toNumber(item.principalAmount).toFixed(2),
         toNumber(item.interestAmount).toFixed(2),
         toNumber(item.paidPrincipalAmount).toFixed(2),
         toNumber(item.paidInterestAmount).toFixed(2),
         toNumber(item.paidAmount).toFixed(2),
-      ].join(':'),
+      ].join(":"),
     ),
-  ].join('|');
+  ].join("|");
   return {
     saleId: sale.id,
     asOfDate: asOfDate.toISOString(),
@@ -955,11 +1086,11 @@ function buildSettlementQuoteResponse(
     lateFees,
     futureInterestWaived,
     settlementAmount,
-    quoteVersion: Buffer.from(fingerprint).toString('base64url'),
+    quoteVersion: Buffer.from(fingerprint).toString("base64url"),
     isFullyPaid:
       toNumber(sale.initialPendingAmount) <= 0.009 &&
       settlementAmount <= 0.009 &&
-      (sale.status ?? '') === 'pagada',
+      (sale.status ?? "") === "pagada",
   };
 }
 
@@ -968,7 +1099,11 @@ export function buildSettlementQuoteForTest(input: {
   installments: LoadedInstallment[];
   asOfDate: Date;
 }) {
-  return buildSettlementQuoteResponse(input.sale, input.installments, input.asOfDate);
+  return buildSettlementQuoteResponse(
+    input.sale,
+    input.installments,
+    input.asOfDate,
+  );
 }
 
 function buildSettlementPreSnapshot(
@@ -1008,22 +1143,26 @@ function buildSettlementPreSnapshot(
 
 async function restoreSettlementPreSnapshot(
   tx: TransactionClient,
-  payment: Prisma.PaymentGetPayload<{ include: { sale: true; installment: true } }>,
+  payment: Prisma.PaymentGetPayload<{
+    include: { sale: true; installment: true };
+  }>,
 ) {
   const snapshot = readSettlementSnapshot(payment.raw);
   if (!snapshot?.sale) {
     throw new AuthoritativeError(
-      'SETTLEMENT_SNAPSHOT_MISSING',
-      'No se encontro el snapshot financiero para anular esta liquidacion.',
+      "SETTLEMENT_SNAPSHOT_MISSING",
+      "No se encontro el snapshot financiero para anular esta liquidacion.",
       409,
     );
   }
   await tx.sale.update({
     where: { id: String(snapshot.sale.id) },
     data: {
-      status: stringOrNull(snapshot.sale.status) ?? 'activa',
+      status: stringOrNull(snapshot.sale.status) ?? "activa",
       balance: decimal(toNumber(snapshot.sale.balance)),
-      initialPendingAmount: decimal(toNumber(snapshot.sale.initialPendingAmount)),
+      initialPendingAmount: decimal(
+        toNumber(snapshot.sale.initialPendingAmount),
+      ),
       initialPaid: decimal(toNumber(snapshot.sale.initialPaid)),
       financedBalance: decimal(toNumber(snapshot.sale.financedBalance)),
       raw: (snapshot.sale.raw ?? Prisma.JsonNull) as Prisma.InputJsonValue,
@@ -1061,11 +1200,11 @@ async function restoreSettlementPreSnapshot(
 }
 
 function readSettlementSnapshot(raw: unknown) {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return null;
   }
   const snapshot = (raw as Record<string, unknown>).preSnapshot;
-  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
     return null;
   }
   return snapshot as {
@@ -1077,7 +1216,7 @@ function readSettlementSnapshot(raw: unknown) {
 
 function readSnapshotLot(raw: unknown) {
   const lot = readSettlementSnapshot(raw)?.lot;
-  return lot && typeof lot === 'object' && !Array.isArray(lot) ? lot : null;
+  return lot && typeof lot === "object" && !Array.isArray(lot) ? lot : null;
 }
 
 function snapshotSaleStatus(raw: unknown) {
@@ -1088,22 +1227,32 @@ function snapshotSaleBalance(raw: unknown) {
   return toNumber(readSettlementSnapshot(raw)?.sale?.balance);
 }
 
-function mergeRaw(raw: unknown, patch: Record<string, unknown>): Prisma.InputJsonValue {
+function mergeRaw(
+  raw: unknown,
+  patch: Record<string, unknown>,
+): Prisma.InputJsonValue {
   const base =
-    raw && typeof raw === 'object' && !Array.isArray(raw)
+    raw && typeof raw === "object" && !Array.isArray(raw)
       ? { ...(raw as Record<string, unknown>) }
       : {};
   return { ...base, ...patch } as Prisma.InputJsonValue;
 }
 
 function stringOrNull(value: unknown) {
-  return typeof value === 'string' ? value : null;
+  return typeof value === "string" ? value : null;
 }
 
-async function loadSale(tx: TransactionClient, input: RegisterAuthoritativePaymentInput) {
+async function loadSale(
+  tx: TransactionClient,
+  input: RegisterAuthoritativePaymentInput,
+) {
   const sale = input.saleId
     ? await tx.sale.findFirst({
-        where: { id: input.saleId, companyId: input.companyId, deletedAt: null },
+        where: {
+          id: input.saleId,
+          companyId: input.companyId,
+          deletedAt: null,
+        },
       })
     : input.saleSyncId
       ? await tx.sale.findUnique({
@@ -1116,7 +1265,11 @@ async function loadSale(tx: TransactionClient, input: RegisterAuthoritativePayme
         })
       : null;
   if (!sale || sale.deletedAt) {
-    throw new AuthoritativeError('SALE_NOT_FOUND', 'La venta seleccionada no existe.', 404);
+    throw new AuthoritativeError(
+      "SALE_NOT_FOUND",
+      "La venta seleccionada no existe.",
+      404,
+    );
   }
   return sale;
 }
@@ -1124,7 +1277,7 @@ async function loadSale(tx: TransactionClient, input: RegisterAuthoritativePayme
 async function loadActiveInstallments(tx: TransactionClient, saleId: string) {
   return tx.installment.findMany({
     where: { saleId, deletedAt: null },
-    orderBy: { installmentNumber: 'asc' },
+    orderBy: { installmentNumber: "asc" },
   });
 }
 
@@ -1136,8 +1289,8 @@ async function assertCapitalPaymentAllowed(
 ) {
   if (pendingInitial > 0.009) {
     throw new AuthoritativeError(
-      'CAPITAL_PAYMENT_BLOCKED_INITIAL_PENDING',
-      'No puedes aplicar pago a capital porque este cliente tiene un inicial pendiente. Primero debes completar el pago inicial.',
+      "CAPITAL_PAYMENT_BLOCKED_INITIAL_PENDING",
+      "No puedes aplicar pago a capital porque este cliente tiene un inicial pendiente. Primero debes completar el pago inicial.",
       409,
     );
   }
@@ -1145,7 +1298,7 @@ async function assertCapitalPaymentAllowed(
     where: {
       saleId,
       deletedAt: null,
-      status: { notIn: ['pagada', 'ajustada', 'cancelada'] },
+      status: { notIn: ["pagada", "ajustada", "cancelada"] },
     },
   });
   const overdue = openInstallments.find(
@@ -1160,8 +1313,8 @@ async function assertCapitalPaymentAllowed(
   );
   if (overdue && remainingAmount(overdue) > 0.009) {
     throw new AuthoritativeError(
-      'CAPITAL_PAYMENT_BLOCKED_OVERDUE_INSTALLMENTS',
-      'No puedes aplicar pago a capital porque este cliente tiene cuotas vencidas. Primero debes saldar las cuotas atrasadas.',
+      "CAPITAL_PAYMENT_BLOCKED_OVERDUE_INSTALLMENTS",
+      "No puedes aplicar pago a capital porque este cliente tiene cuotas vencidas. Primero debes saldar las cuotas atrasadas.",
       409,
     );
   }
@@ -1174,15 +1327,33 @@ export function applyToInstallment(
   lateFeeOutstanding = 0,
 ) {
   const installmentRemaining = remainingAmount(installment);
-  const lateFeePaidNow = roundCurrency(Math.min(amount, Math.max(lateFeeOutstanding, 0)));
+  const lateFeePaidNow = roundCurrency(
+    Math.min(amount, Math.max(lateFeeOutstanding, 0)),
+  );
   const amountAfterLateFee = roundCurrency(amount - lateFeePaidNow);
-  const appliedToInstallment = amountAfterLateFee > installmentRemaining ? installmentRemaining : amountAfterLateFee;
-  const interestRemaining = toNumber(installment.interestAmount) - toNumber(installment.paidInterestAmount);
-  const interestPaidNow = appliedToInstallment > interestRemaining ? interestRemaining : appliedToInstallment;
-  const principalPaidNow = roundCurrency(appliedToInstallment - interestPaidNow);
-  const newPaidAmount = roundCurrency(toNumber(installment.paidAmount) + appliedToInstallment);
-  const newInterestPaid = roundCurrency(toNumber(installment.paidInterestAmount) + interestPaidNow);
-  const newPrincipalPaid = roundCurrency(toNumber(installment.paidPrincipalAmount) + principalPaidNow);
+  const appliedToInstallment =
+    amountAfterLateFee > installmentRemaining
+      ? installmentRemaining
+      : amountAfterLateFee;
+  const interestRemaining =
+    toNumber(installment.interestAmount) -
+    toNumber(installment.paidInterestAmount);
+  const interestPaidNow =
+    appliedToInstallment > interestRemaining
+      ? interestRemaining
+      : appliedToInstallment;
+  const principalPaidNow = roundCurrency(
+    appliedToInstallment - interestPaidNow,
+  );
+  const newPaidAmount = roundCurrency(
+    toNumber(installment.paidAmount) + appliedToInstallment,
+  );
+  const newInterestPaid = roundCurrency(
+    toNumber(installment.paidInterestAmount) + interestPaidNow,
+  );
+  const newPrincipalPaid = roundCurrency(
+    toNumber(installment.paidPrincipalAmount) + principalPaidNow,
+  );
   const appliedAmount = roundCurrency(lateFeePaidNow + appliedToInstallment);
 
   return {
@@ -1240,7 +1411,9 @@ function calculateInstallmentLateFeeOutstanding(input: {
     (total, payment) => total.plus(payment.lateFeeApplied ?? 0),
     lateFeeDecimal(0),
   );
-  return roundCurrency(Math.max(accruedLateFee.minus(paidLateFee).toNumber(), 0));
+  return roundCurrency(
+    Math.max(accruedLateFee.minus(paidLateFee).toNumber(), 0),
+  );
 }
 
 export function resolveInstallmentsToProcess(input: {
@@ -1250,11 +1423,12 @@ export function resolveInstallmentsToProcess(input: {
   targetInstallmentId?: string | null;
   targetInstallmentNumber?: number | null;
 }) {
-  if (input.paymentTypeOverride === 'abono_capital') {
+  if (input.paymentTypeOverride === "abono_capital") {
     return [];
   }
   const isEligible = (installment: LoadedInstallment) =>
-    !isClosedStatus(installment.status ?? '') && remainingAmount(installment) > 0.009;
+    !isClosedStatus(installment.status ?? "") &&
+    remainingAmount(installment) > 0.009;
 
   if (input.targetInstallmentId) {
     const target = input.installments.find(
@@ -1267,36 +1441,67 @@ export function resolveInstallmentsToProcess(input: {
   if (input.targetInstallmentNumber != null) {
     const target = input.installments.find(
       (item) =>
-        item.installmentNumber === input.targetInstallmentNumber && isEligible(item),
+        item.installmentNumber === input.targetInstallmentNumber &&
+        isEligible(item),
     );
     if (target) {
       return [target];
     }
   }
-  if (input.paymentTypeOverride === 'todas_cuotas_vencidas') {
+  if (input.paymentTypeOverride === "todas_cuotas_vencidas") {
     return input.installments.filter(
       (item) =>
         isEligible(item) &&
         isDueOnOrBeforeBusinessDate(item.dueDate, input.paymentDate),
     );
   }
+  if (input.paymentTypeOverride === "cuotas_adelantadas") {
+    return input.installments.filter(isEligible).sort((left, right) => {
+      const byDate = dateKeyInTimeZone(
+        left.dueDate ?? new Date(0),
+        BUSINESS_TIMEZONE,
+      ).localeCompare(
+        dateKeyInTimeZone(right.dueDate ?? new Date(0), BUSINESS_TIMEZONE),
+      );
+      if (byDate !== 0) return byDate;
+      return (left.installmentNumber ?? 0) - (right.installmentNumber ?? 0);
+    });
+  }
   const actionable = input.installments.find(
     (item) =>
       isEligible(item) &&
       isDueOnOrBeforeBusinessDate(item.dueDate, input.paymentDate),
   );
-  return actionable ? [actionable] : input.installments.filter(isEligible).slice(0, 1);
+  return actionable
+    ? [actionable]
+    : input.installments
+        .filter(isEligible)
+        .sort((left, right) => {
+          const byDate = dateKeyInTimeZone(
+            left.dueDate ?? new Date(0),
+            BUSINESS_TIMEZONE,
+          ).localeCompare(
+            dateKeyInTimeZone(right.dueDate ?? new Date(0), BUSINESS_TIMEZONE),
+          );
+          if (byDate !== 0) return byDate;
+          return (left.installmentNumber ?? 0) - (right.installmentNumber ?? 0);
+        })
+        .slice(0, 1);
 }
 
 function calculateOutstandingPrincipal(installments: LoadedInstallment[]) {
   return roundCurrency(
     installments
-      .filter((item) => !['ajustada', 'cancelada'].includes(item.status ?? ''))
+      .filter((item) => !["ajustada", "cancelada"].includes(item.status ?? ""))
       .reduce(
         (sum, item) =>
           sum +
           Math.min(
-            Math.max(toNumber(item.principalAmount) - toNumber(item.paidPrincipalAmount), 0),
+            Math.max(
+              toNumber(item.principalAmount) -
+                toNumber(item.paidPrincipalAmount),
+              0,
+            ),
             toNumber(item.principalAmount),
           ),
         0,
@@ -1320,14 +1525,16 @@ async function recalculateFutureInstallments(
     return;
   }
   const futureInstallments = input.installments.filter((installment) => {
-    if (isClosedStatus(installment.status ?? '')) {
+    if (isClosedStatus(installment.status ?? "")) {
       return false;
     }
     if (input.remainingPrincipalBalance <= 0) {
       return true;
     }
     if (input.currentInstallmentNumber > 0) {
-      return (installment.installmentNumber ?? 0) > input.currentInstallmentNumber;
+      return (
+        (installment.installmentNumber ?? 0) > input.currentInstallmentNumber
+      );
     }
     return isAfterBusinessDate(installment.dueDate, input.paymentDate);
   });
@@ -1344,7 +1551,9 @@ async function recalculateFutureInstallments(
 
   const schedule = buildInstallmentSchedule({
     saleDate: input.paymentDate,
-    dueDates: futureInstallments.map((item) => item.dueDate ?? input.paymentDate),
+    dueDates: futureInstallments.map(
+      (item) => item.dueDate ?? input.paymentDate,
+    ),
     financedBalance: input.remainingPrincipalBalance,
     monthlyInterest: input.monthlyInterest,
     installmentCount: futureInstallments.length,
@@ -1368,7 +1577,7 @@ async function recalculateFutureInstallments(
             paidPrincipalAmount: decimal(0),
             paidInterestAmount: decimal(0),
             endingBalance: decimal(recalculated.endingBalance),
-            status: 'pendiente',
+            status: "pendiente",
             version: { increment: 1 },
           }
         : zeroAdjustedInstallmentData(),
@@ -1376,14 +1585,31 @@ async function recalculateFutureInstallments(
   }
 }
 
-function isDueOnOrBeforeBusinessDate(dueDate: Date | null | undefined, asOf: Date) {
+function isDueOnOrBeforeBusinessDate(
+  dueDate: Date | null | undefined,
+  asOf: Date,
+) {
   if (!dueDate) return false;
-  return dateKeyInTimeZone(dueDate, BUSINESS_TIMEZONE) <= dateKeyInTimeZone(asOf, BUSINESS_TIMEZONE);
+  return (
+    dateKeyInTimeZone(dueDate, BUSINESS_TIMEZONE) <=
+    dateKeyInTimeZone(asOf, BUSINESS_TIMEZONE)
+  );
+}
+
+function isPastDueBusinessDate(dueDate: Date | null | undefined, asOf: Date) {
+  if (!dueDate) return false;
+  return (
+    dateKeyInTimeZone(dueDate, BUSINESS_TIMEZONE) <
+    dateKeyInTimeZone(asOf, BUSINESS_TIMEZONE)
+  );
 }
 
 function isAfterBusinessDate(dueDate: Date | null | undefined, asOf: Date) {
   if (!dueDate) return false;
-  return dateKeyInTimeZone(dueDate, BUSINESS_TIMEZONE) > dateKeyInTimeZone(asOf, BUSINESS_TIMEZONE);
+  return (
+    dateKeyInTimeZone(dueDate, BUSINESS_TIMEZONE) >
+    dateKeyInTimeZone(asOf, BUSINESS_TIMEZONE)
+  );
 }
 
 async function regenerateInstallmentsForActivatedSale(
@@ -1402,7 +1628,7 @@ async function regenerateInstallmentsForActivatedSale(
     where: { saleId: sale.id, deletedAt: null },
     data: { deletedAt: input.paymentDate, version: { increment: 1 } },
   });
-  if (input.newStatus !== 'activa') {
+  if (input.newStatus !== "activa") {
     return;
   }
   const generatedInstallments = buildInstallmentSchedule({
@@ -1415,7 +1641,7 @@ async function regenerateInstallmentsForActivatedSale(
   await tx.installment.createMany({
     data: generatedInstallments.map((installment) => ({
       companyId: sale.companyId,
-      syncId: newSyncId('installment'),
+      syncId: newSyncId("installment"),
       saleId: sale.id,
       saleSyncId: sale.syncId,
       installmentNumber: installment.installmentNumber,
@@ -1429,7 +1655,7 @@ async function regenerateInstallmentsForActivatedSale(
       paidInterestAmount: decimal(0),
       endingBalance: decimal(installment.endingBalance),
       status: installment.status,
-      raw: { authoritativeSource: 'phase_1d' },
+      raw: { authoritativeSource: "phase_1d" },
     })),
   });
 }
@@ -1442,7 +1668,11 @@ async function reverseInitialPayment(
   isReservation: boolean,
 ) {
   if (!sale) {
-    throw new AuthoritativeError('SALE_NOT_FOUND', 'La venta seleccionada no existe.', 404);
+    throw new AuthoritativeError(
+      "SALE_NOT_FOUND",
+      "La venta seleccionada no existe.",
+      404,
+    );
   }
   // Para apartados, `initialPaid` es 0 y el dinero vive en `reservationPaidAmount`;
   // por eso la reversion debe descontar de la reserva y no del inicial.
@@ -1474,9 +1704,10 @@ async function reverseInitialPayment(
       financedBalance: decimal(updatedFinancedBalance),
       balance: decimal(updatedFinancedBalance),
       status: newStatus,
-      activationDate: newStatus === 'activa' || newStatus === 'pagada'
-        ? sale.activationDate ?? annulledAt
-        : null,
+      activationDate:
+        newStatus === "activa" || newStatus === "pagada"
+          ? (sale.activationDate ?? annulledAt)
+          : null,
       version: { increment: 1 },
     },
     select: { id: true, status: true, balance: true },
@@ -1489,7 +1720,10 @@ async function reverseInitialPayment(
     await tx.lot.update({
       where: { id: sale.lotId },
       data: {
-        status: newStatus === 'activa' || newStatus === 'pagada' ? 'vendido' : 'reservado',
+        status:
+          newStatus === "activa" || newStatus === "pagada"
+            ? "vendido"
+            : "reservado",
         version: { increment: 1 },
       },
     });
@@ -1507,19 +1741,23 @@ async function reverseCapitalPayment(
     return;
   }
   const installments = await loadActiveInstallments(tx, sale.id);
-  const activeFuture = installments.filter((item) => !isClosedStatus(item.status ?? ''));
+  const activeFuture = installments.filter(
+    (item) => !isClosedStatus(item.status ?? ""),
+  );
   if (activeFuture.length === 0) {
     await tx.sale.update({
       where: { id: sale.id },
       data: {
         balance: decimal(roundCurrency(toNumber(sale.balance) + amount)),
-        status: 'activa',
+        status: "activa",
         version: { increment: 1 },
       },
     });
     return;
   }
-  const restoredBalance = roundCurrency(calculateOutstandingPrincipal(installments) + amount);
+  const restoredBalance = roundCurrency(
+    calculateOutstandingPrincipal(installments) + amount,
+  );
   await recalculateFutureInstallments(tx, {
     installments,
     paymentDate: annulledAt,
@@ -1535,30 +1773,43 @@ async function reverseCapitalPayment(
   });
 }
 
-async function hasOpenInstallmentBalance(tx: TransactionClient, saleId: string) {
+async function hasOpenInstallmentBalance(
+  tx: TransactionClient,
+  saleId: string,
+) {
   const installments = await loadActiveInstallments(tx, saleId);
   return installments.some(
-    (item) => !['pagada', 'ajustada', 'cancelada'].includes(item.status ?? '') && remainingAmount(item) > 0.009,
+    (item) =>
+      !["pagada", "ajustada", "cancelada"].includes(item.status ?? "") &&
+      remainingAmount(item) > 0.009,
   );
 }
 
-async function loadOutstandingContractBalance(tx: TransactionClient, saleId: string) {
+async function loadOutstandingContractBalance(
+  tx: TransactionClient,
+  saleId: string,
+) {
   const installments = await loadActiveInstallments(tx, saleId);
   return calculateOutstandingPrincipal(installments);
 }
 
-function remainingAmount(installment: Pick<LoadedInstallment, 'totalAmount' | 'paidAmount'>) {
+function remainingAmount(
+  installment: Pick<LoadedInstallment, "totalAmount" | "paidAmount">,
+) {
   return roundCurrency(
-    Math.max(toNumber(installment.totalAmount) - toNumber(installment.paidAmount), 0),
+    Math.max(
+      toNumber(installment.totalAmount) - toNumber(installment.paidAmount),
+      0,
+    ),
   );
 }
 
 function isClosedStatus(status: string) {
-  return status === 'pagada' || status === 'ajustada' || status === 'cancelada';
+  return status === "pagada" || status === "ajustada" || status === "cancelada";
 }
 
 function paymentReference(
-  input: Pick<RegisterAuthoritativePaymentInput, 'reference'>,
+  input: Pick<RegisterAuthoritativePaymentInput, "reference">,
   saleId: string,
   now: Date,
 ) {
@@ -1575,7 +1826,7 @@ function zeroAdjustedInstallmentData(): Prisma.InstallmentUpdateInput {
     paidPrincipalAmount: decimal(0),
     paidInterestAmount: decimal(0),
     endingBalance: decimal(0),
-    status: 'ajustada',
+    status: "ajustada",
     version: { increment: 1 },
   };
 }
