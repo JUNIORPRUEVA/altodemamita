@@ -20,6 +20,7 @@ import '../../settings/data/settings_repository.dart';
 import '../domain/payment_draft.dart';
 import '../domain/payment_history_item.dart';
 import '../domain/client_pagare_report.dart';
+import '../domain/authoritative_late_fee.dart';
 import '../domain/payment_sale_context.dart';
 import '../domain/payment_sale_option.dart';
 import '../domain/payment_work_queue.dart';
@@ -784,6 +785,30 @@ class PaymentsRepository {
         ? data.map((key, value) => MapEntry(key.toString(), value))
         : <String, dynamic>{};
     return SettlementQuote.fromMap(dataMap);
+  }
+
+  /// Mora autoritativa (bruta / cobrada / condonada / cobrable) de una venta.
+  ///
+  /// El escritorio NO puede deducir una condonacion recalculando localmente:
+  /// si esta llamada falla, el llamador debe tratar la autoridad como no
+  /// disponible (nunca inventar el monto condonado).
+  Future<AuthoritativeLateFeeSummary> fetchAuthoritativeLateFeeSummary(
+    int saleId,
+  ) async {
+    final saleRemoteId = _idRegistry.resolveRemoteId('sales', saleId);
+    if (saleRemoteId == null || saleRemoteId.isEmpty) {
+      throw const BackendApiException(
+        'No se pudo identificar la venta remota para consultar la mora.',
+      );
+    }
+    final response = await _apiClient.get(
+      '/authoritative/sales/$saleRemoteId/late-fee-summary',
+    );
+    final data = response is Map ? response['data'] : null;
+    final dataMap = data is Map
+        ? data.map((key, value) => MapEntry(key.toString(), value))
+        : <String, dynamic>{};
+    return AuthoritativeLateFeeSummary.fromMap(dataMap);
   }
 
   Future<void> settleSale({

@@ -16,6 +16,7 @@ import '../data/receipt_repository.dart';
 import '../domain/client_pagare_report.dart';
 import '../domain/payment_draft.dart';
 import '../domain/payment_history_item.dart';
+import '../domain/authoritative_late_fee.dart';
 import '../domain/payment_sale_context.dart';
 import '../domain/payment_sale_option.dart';
 import '../domain/payment_work_queue.dart';
@@ -2097,6 +2098,12 @@ class _PaymentsPageState extends State<PaymentsPage> {
     return 'pending';
   }
 
+  /// Ultima condonacion conocida por venta.
+  ///
+  /// Permite bloquear una mutacion offline cuando la venta SI tiene mora
+  /// condonada y el backend no puede confirmar el monto cobrable.
+  final Map<int, bool> _knownWaiverBySaleId = <int, bool>{};
+
   Future<void> _registerPayment({String? initialPaymentType}) async {
     final contextData = _controller.selectedContext;
     if (contextData == null) {
@@ -2104,6 +2111,32 @@ class _PaymentsPageState extends State<PaymentsPage> {
     }
 
     final currentUserId = context.read<AuthProvider>().currentUser?.id;
+
+    // Mora autoritativa: si el backend responde, el monto cobrable sale de ahi
+    // (puede haber mora condonada que el calculo local ignora).
+    final lateFeeAuthority = await _controller.fetchLateFeeAuthority(
+      contextData.sale.saleId,
+    );
+    if (!mounted) {
+      return;
+    }
+    final summary = lateFeeAuthority.summary;
+    if (summary != null) {
+      _knownWaiverBySaleId[contextData.sale.saleId] = summary.hasWaiver;
+    }
+    final lateFeePolicy = evaluateLateFeeMutationPolicy(
+      authority: lateFeeAuthority,
+      knownSaleHasWaiver:
+          _knownWaiverBySaleId[contextData.sale.saleId] ?? false,
+    );
+    if (!lateFeePolicy.allowMutation) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          content: Text(lateFeePolicy.message ?? 'No se puede registrar el pago.'),
+        ),
+      );
+      return;
+    }
 
     final draft = await PaymentFormDialog.show(
       context,
@@ -2114,6 +2147,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
       installments: contextData.installments,
       overdueInstallments: contextData.overdueInstallments,
       initialPaymentType: initialPaymentType,
+      authoritativeLateFees: summary,
     );
     if (!mounted || draft == null) {
       return;

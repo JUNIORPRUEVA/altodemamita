@@ -74,6 +74,7 @@ model Company {
   lateFeeSnapshots             LateFeeSnapshot[]
   syncBatches                  SyncBatch[]
   authoritativeOperations      AuthoritativeOperation[]
+  lateFeeWaivers               LateFeeWaiver[]
 }
 
 model Client {
@@ -543,4 +544,36 @@ model LateFeeSnapshot {
 
   @@index([companyId, saleSyncId, calculatedAt])
   @@index([companyId, installmentSyncId])
+}
+
+/// Fase 3 — Condonacion PERMANENTE de mora (uso administrativo excepcional).
+///
+/// La mora acumulada hasta `cutoffAt` queda condonada para la venta/cuota indicada.
+/// NO altera pagos historicos, capital, interes ni la politica global (0.5% / 5 dias).
+/// La mora posterior al corte sigue acumulandose normalmente.
+model LateFeeWaiver {
+  id                String   @id @default(uuid())
+  companyId         String
+  company           Company  @relation(fields: [companyId], references: [id])
+  saleId            String
+  saleSyncId        String
+  /// Cuota afectada. null = condonacion a nivel de venta (cubre todas sus cuotas).
+  installmentId     String?
+  installmentSyncId String?
+  /// Corte: la mora acumulada hasta este instante queda condonada.
+  cutoffAt          DateTime
+  /// Mora calculada al momento de la condonacion (evidencia).
+  calculatedFee     Decimal  @default(0) @db.Decimal(14, 2)
+  /// Mora efectivamente condonada.
+  waivedAmount      Decimal  @default(0) @db.Decimal(14, 2)
+  reason            String?
+  appliedByUserId   String?
+  idempotencyKey    String
+  appliedAt         DateTime @default(now())
+  raw               Json?
+
+  @@unique([companyId, idempotencyKey])
+  @@index([companyId, saleId])
+  @@index([companyId, installmentId])
+  @@index([companyId, cutoffAt])
 }

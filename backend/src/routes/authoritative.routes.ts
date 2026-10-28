@@ -72,6 +72,64 @@ authoritativeRouter.get(
   },
 );
 
+/**
+ * Fase 2 (Windows) — Mora autoritativa (bruto / cobrado / condonado / exigible).
+ * Permite que el cliente muestre el monto cobrable sin recalcular localmente.
+ */
+authoritativeRouter.get(
+  '/sales/:saleId/late-fee-summary',
+  requirePermission('payments', 'read'),
+  async (req, res) => {
+    try {
+      const company = await resolveCompanyForRequest(req);
+      const summary = await payments.getLateFeeSummary({
+        companyId: company.id,
+        saleId: paramValue(req.params.saleId),
+        asOfDate: stringValue(req.query.asOfDate),
+      });
+      res.status(200).json({ data: summary });
+    } catch (error) {
+      const response = authoritativeErrorResponse(error);
+      res.status(response.status).json(response.body);
+    }
+  },
+);
+
+/**
+ * Condonacion persistente de mora (solo OWNER). El monto lo calcula el backend
+ * al `cutoffAt`; nunca se acepta un importe desde el cliente.
+ */
+authoritativeRouter.post(
+  '/sales/:saleId/late-fee-waiver',
+  async (req, res) => {
+    if (req.user?.role !== 'OWNER') {
+      return res.status(403).json({
+        error: { code: 'FORBIDDEN', message: 'No autorizado.' },
+      });
+    }
+    try {
+      const company = await resolveCompanyForRequest(req);
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const result = await payments.waiveLateFees({
+        companyId: company.id,
+        saleId: paramValue(req.params.saleId),
+        operatorUserId: req.user?.id ?? '',
+        idempotencyKey: idempotencyKey(req) ?? '',
+        confirmSaleSyncId: String(body.confirmSaleSyncId ?? ''),
+        cutoffAt: String(body.cutoffAt ?? ''),
+        reason: String(body.reason ?? ''),
+      });
+      res.status(result.replayed ? 200 : 201).json({
+        data: result.response,
+        idempotentReplay: result.replayed,
+      });
+    } catch (error) {
+      const response = authoritativeErrorResponse(error);
+      res.status(response.status).json(response.body);
+    }
+  },
+);
+
 authoritativeRouter.post(
   '/sales/:saleId/settle',
   requirePermission('payments', 'create'),

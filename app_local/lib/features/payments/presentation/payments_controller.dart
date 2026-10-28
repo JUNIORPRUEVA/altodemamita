@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../../core/resilience/friendly_error_messages.dart';
 import '../data/payments_repository.dart';
+import '../domain/authoritative_late_fee.dart';
 import '../domain/payment_draft.dart';
 import '../domain/payment_sale_context.dart';
 import '../domain/payment_sale_option.dart';
@@ -432,6 +433,24 @@ class PaymentsController extends ChangeNotifier {
         quote: null,
         error: FriendlyErrorMessages.forOperation(
           'calcular la liquidacion total',
+          error,
+          module: 'pagos',
+        ),
+      );
+    }
+  }
+
+  /// Mora autoritativa de la venta. Nunca lanza: si el backend no responde se
+  /// devuelve una autoridad NO disponible para que la UI decida con honestidad.
+  Future<LateFeeAuthority> fetchLateFeeAuthority(int saleId) async {
+    try {
+      final summary = await _paymentsRepository
+          .fetchAuthoritativeLateFeeSummary(saleId);
+      return LateFeeAuthority.available(summary);
+    } catch (error) {
+      return LateFeeAuthority.unavailable(
+        reason: FriendlyErrorMessages.forOperation(
+          'consultar la mora autoritativa',
           error,
           module: 'pagos',
         ),

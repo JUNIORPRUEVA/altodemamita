@@ -38,7 +38,7 @@ export class PaymentReminderService {
     });
     if (!sale || isTerminalSaleStatus(sale.status)) return null;
 
-    const [client, lot, installments, payments, lastNotification, lateFeePolicy] = await Promise.all([
+    const [client, lot, installments, payments, lastNotification, lateFeePolicy, waivers] = await Promise.all([
       sale.clientSyncId
         ? prisma.client.findFirst({
             where: { companyId, syncId: sale.clientSyncId, deletedAt: null },
@@ -62,6 +62,11 @@ export class PaymentReminderService {
         orderBy: { createdAt: 'desc' },
       }),
       readLateFeePolicy(prisma, companyId, calculationDate),
+      // Fase 3: la mora condonada no debe reclamarse en recordatorios.
+      prisma.lateFeeWaiver.findMany({
+        where: { companyId, saleId: sale.id },
+        select: { installmentSyncId: true, waivedAmount: true, cutoffAt: true },
+      }),
     ]);
 
     const calculator = new LateFeeCalculationService({
@@ -83,6 +88,7 @@ export class PaymentReminderService {
       },
       installments,
       payments,
+      waivers,
       calculationDate,
     });
 

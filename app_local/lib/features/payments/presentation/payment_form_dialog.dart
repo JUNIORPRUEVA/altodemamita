@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/utils/dominican_formatters.dart';
 import '../../installments/domain/installment.dart';
+import '../domain/authoritative_late_fee.dart';
 import '../domain/payment_draft.dart';
 import '../domain/payment_sale_option.dart';
 
@@ -18,6 +19,7 @@ class PaymentFormDialog extends StatefulWidget {
     this.installments = const [],
     this.overdueInstallments = const [],
     this.initialPaymentType,
+    this.authoritativeLateFees,
   });
 
   final PaymentSaleOption sale;
@@ -32,6 +34,10 @@ class PaymentFormDialog extends StatefulWidget {
   /// Optional initial payment type to pre-select (e.g. 'cuota_vencida').
   final String? initialPaymentType;
 
+  /// Mora autoritativa del backend. Cuando esta presente NUNCA se usa el
+  /// calculo local para la mora cobrable (puede haber mora condonada).
+  final AuthoritativeLateFeeSummary? authoritativeLateFees;
+
   static Future<PaymentDraft?> show(
     BuildContext context, {
     required PaymentSaleOption sale,
@@ -41,6 +47,7 @@ class PaymentFormDialog extends StatefulWidget {
     List<Installment> installments = const [],
     List<Installment> overdueInstallments = const [],
     String? initialPaymentType,
+    AuthoritativeLateFeeSummary? authoritativeLateFees,
   }) {
     return showDialog<PaymentDraft>(
       context: context,
@@ -52,6 +59,7 @@ class PaymentFormDialog extends StatefulWidget {
         installments: installments,
         overdueInstallments: overdueInstallments,
         initialPaymentType: initialPaymentType,
+        authoritativeLateFees: authoritativeLateFees,
       ),
     );
   }
@@ -793,10 +801,17 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
                         _money(selectedLateFeePreview.totalInstallments),
                       ),
                       _summaryRow(
-                        'Mora calculada',
-                        '${_money(selectedLateFeePreview.totalLateFee)} (${selectedLateFeePreview.totalLateFeeDays} dia${selectedLateFeePreview.totalLateFeeDays == 1 ? '' : 's'} de mora)',
+                        _usesAuthoritativeLateFee ? 'Mora cobrable' : 'Mora calculada',
+                        _usesAuthoritativeLateFee
+                            ? _money(selectedLateFeePreview.totalLateFee)
+                            : '${_money(selectedLateFeePreview.totalLateFee)} (${selectedLateFeePreview.totalLateFeeDays} dia${selectedLateFeePreview.totalLateFeeDays == 1 ? '' : 's'} de mora)',
                         highlight: selectedLateFeePreview.totalLateFee > 0.009,
                       ),
+                      if (_waivedLateFee > 0.009)
+                        _summaryRow(
+                          'Mora condonada',
+                          _money(_waivedLateFee),
+                        ),
                       _summaryRow(
                         'Total recomendado',
                         _money(selectedLateFeePreview.recommendedTotal),
@@ -1235,12 +1250,26 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
   }
 
   double _lateFeeFor(Installment installment) {
+    final localLateFee = _localLateFeeFor(installment);
+    return resolveCollectibleLateFee(
+      localLateFee: localLateFee,
+      authoritative: widget.authoritativeLateFees,
+      installmentNumber: installment.installmentNumber,
+    );
+  }
+
+  double _localLateFeeFor(Installment installment) {
     final lateFeeDays = _lateFeeDaysFor(installment);
     if (lateFeeDays <= 0) return 0;
     return _roundCurrency(
       installment.remainingAmount * _lateFeeDailyRate * lateFeeDays,
     );
   }
+
+  /// Condonacion vigente segun el backend (0 si no hay o no se pudo confirmar).
+  double get _waivedLateFee => widget.authoritativeLateFees?.waivedLateFees ?? 0;
+
+  bool get _usesAuthoritativeLateFee => widget.authoritativeLateFees != null;
 
   int _calendarDaysBetween(DateTime earlier, DateTime later) {
     final start = DateTime(earlier.year, earlier.month, earlier.day);

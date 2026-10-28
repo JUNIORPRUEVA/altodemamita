@@ -30,6 +30,7 @@ import {
   LateFeeCalculationService,
   decimal as lateFeeDecimal,
 } from "./lateFeeCalculation.service";
+import { loadSaleLateFeeWaivers } from "./lateFeeWaiver.service";
 import { readLateFeePolicy } from "./lateFeePolicy.service";
 
 type TransactionClient = Prisma.TransactionClient;
@@ -101,6 +102,18 @@ export type SettlementQuoteInput = {
   asOfDate?: string | Date;
 };
 
+export type WaiveLateFeesInput = {
+  companyId: string;
+  saleId: string;
+  operatorUserId: string;
+  idempotencyKey: string;
+  /** Confirmacion explicita del `Sale.syncId` a condonar. */
+  confirmSaleSyncId: string;
+  /** Corte ISO-8601: la mora acumulada hasta aqui queda condonada. */
+  cutoffAt: string | Date;
+  reason: string;
+};
+
 export type SettleSaleInput = {
   companyId: string;
   receivedByUserId: string;
@@ -126,12 +139,193 @@ export class AuthoritativePaymentService {
         saleId: input.saleId,
       });
       const installments = await loadActiveInstallments(tx, sale.id);
+      const asOfDate = parseDate(input.asOfDate, new Date());
+      // Fase 2: la cotizacion usa EXACTAMENTE el mismo calculo de mora
+      // exigible que la liquidacion real, para que el monto mostrado sea el
+      // monto cobrado en el mismo corte.
+      const lateFees = await resolveSettlementLateFees(
+        tx,
+        input.companyId,
+        sale,
+        installments,
+        asOfDate,
+      );
       return buildSettlementQuoteResponse(
         sale,
         installments,
-        parseDate(input.asOfDate, new Date()),
+        asOfDate,
+        lateFees,
       );
     });
+  }
+
+  /**
+   * Fase 2 (Windows) — Estado autoritativo de mora de una venta.
+   *
+   * Expone bruto / cobrado / condonado / exigible, total y por cuota, para que
+   * los clientes muestren el monto REALMENTE COBRABLE en lugar de recalcularlo
+   * localmente. Solo lectura y acotado a `companyId` (sin fuga entre empresas).
+   */
+  async getLateFeeSummary(
+    input: SettlementQuoteInput,
+  ): Promise<Prisma.JsonObject> {
+    return this.prisma.$transaction(async (tx) => {
+      const sale = await loadSale(tx, {
+        companyId: input.companyId,
+        receivedByUserId: "",
+        idempotencyKey: "late-fee-summary",
+        saleId: input.saleId,
+      });
+      const asOfDate = parseDate(input.asOfDate, new Date());
+      const installments = await loadActiveInstallments(tx, sale.id);
+      const state = await resolveSaleLateFeeState(
+        tx,
+        input.companyId,
+        sale,
+        installments,
+        asOfDate,
+      );
+      return {
+        saleId: sale.id,
+        saleSyncId: sale.syncId,
+        asOfDate: asOfDate.toISOString(),
+        policyEnabled: state.policyEnabled,
+        grossLateFees: state.grossTotal,
+        collectedLateFees: state.collectedTotal,
+        waivedLateFees: state.waivedTotal,
+        outstandingLateFees: state.outstandingTotal,
+        installments: state.installments,
+      } as unknown as Prisma.JsonObject;
+    });
+  }
+
+  /**
+   * Condonacion PERSISTENTE de la mora exigible al corte indicado (OWNER).
+   *
+   * El monto NO se acepta del cliente: se recalcula aqui con el motor
+   * autoritativo (`resolveSaleLateFeeState`) al instante de `cutoffAt`. La mora
+   * posterior al corte sigue acumulandose. Idempotente por `idempotencyKey` y
+   * blindado contra doble condonacion en el mismo corte.
+   *
+   * Toma el bloqueo financiero de la venta para no cruzarse con un pago o una
+   * liquidacion simultaneos (ver `lockSaleForFinancialMutation`).
+   */
+  async waiveLateFees(
+    input: WaiveLateFeesInput,
+  ): Promise<IdempotentResult<Prisma.JsonObject>> {
+    const operationKey = requireIdempotencyKey(input.idempotencyKey);
+    const cutoff = parseDate(input.cutoffAt, undefined as unknown as Date);
+    if (!cutoff || Number.isNaN(cutoff.getTime())) {
+      throw new AuthoritativeError(
+        "INVALID_CUTOFF",
+        "cutoffAt debe ser una fecha ISO-8601 valida.",
+        400,
+      );
+    }
+    const reason = String(input.reason ?? "").trim();
+    if (!reason) {
+      throw new AuthoritativeError(
+        "WAIVER_REASON_REQUIRED",
+        "Indica el motivo de la condonacion.",
+        400,
+      );
+    }
+    return this.prisma.$transaction((tx) =>
+      runIdempotentOperation(tx, {
+        companyId: input.companyId,
+        operationKey,
+        operationType: "admin.sale.waive_late_fees",
+        requestPayload: {
+          saleId: input.saleId,
+          cutoffAt: cutoff.toISOString(),
+          confirmSaleSyncId: input.confirmSaleSyncId,
+          reason,
+        },
+        run: async () => {
+          const sale = await loadSale(tx, {
+            companyId: input.companyId,
+            receivedByUserId: input.operatorUserId,
+            idempotencyKey: operationKey,
+            saleId: input.saleId,
+          });
+          if (sale.syncId !== input.confirmSaleSyncId) {
+            throw new AuthoritativeError(
+              "SALE_CONFIRMATION_MISMATCH",
+              "La confirmacion (saleSyncId) no coincide con la venta.",
+              409,
+            );
+          }
+          await lockSaleForFinancialMutation(tx, sale.id);
+          const duplicated = await tx.lateFeeWaiver.findFirst({
+            where: {
+              companyId: input.companyId,
+              saleId: sale.id,
+              cutoffAt: cutoff,
+            },
+            select: { id: true },
+          });
+          if (duplicated) {
+            throw new AuthoritativeError(
+              "LATE_FEE_ALREADY_WAIVED",
+              `Ya existe una condonacion para esta venta con el mismo corte (${duplicated.id}).`,
+              409,
+            );
+          }
+          const installments = await loadActiveInstallments(tx, sale.id);
+          const state = await resolveSaleLateFeeState(
+            tx,
+            input.companyId,
+            sale,
+            installments,
+            cutoff,
+          );
+          if (state.outstandingTotal <= 0) {
+            throw new AuthoritativeError(
+              "NOTHING_TO_WAIVE",
+              "La mora exigible al corte es 0.00; no hay nada que condonar.",
+              409,
+            );
+          }
+          const row = await tx.lateFeeWaiver.create({
+            data: {
+              companyId: input.companyId,
+              saleId: sale.id,
+              saleSyncId: sale.syncId,
+              installmentId: null,
+              installmentSyncId: null,
+              cutoffAt: cutoff,
+              calculatedFee: decimal(state.grossTotal),
+              waivedAmount: decimal(state.outstandingTotal),
+              reason,
+              appliedByUserId: input.operatorUserId,
+              idempotencyKey: operationKey,
+            },
+            select: { id: true },
+          });
+          const after = await resolveSaleLateFeeState(
+            tx,
+            input.companyId,
+            sale,
+            installments,
+            cutoff,
+          );
+          return {
+            response: {
+              saleId: sale.id,
+              saleSyncId: sale.syncId,
+              waiverId: row.id,
+              cutoffAt: cutoff.toISOString(),
+              windowGrossLateFees: state.grossTotal,
+              collectedLateFees: state.collectedTotal,
+              waivedAmount: state.outstandingTotal,
+              outstandingAfter: after.outstandingTotal,
+            } as unknown as Prisma.JsonObject,
+            resourceType: "sale",
+            resourceId: sale.id,
+          };
+        },
+      }),
+    );
   }
 
   async registerPayment(
@@ -201,6 +395,22 @@ export class AuthoritativePaymentService {
   }
 }
 
+/**
+ * Serializa las mutaciones financieras de UNA venta.
+ *
+ * Sin este bloqueo, una condonacion y un pago concurrentes podian leer el mismo
+ * estado: el pago cobraba la mora bruta y la condonacion la condonaba a la vez,
+ * cobrando al cliente mora que se estaba perdonando. Todas las rutas que leen o
+ * escriben mora de una venta toman primero este bloqueo, en el mismo orden, para
+ * evitar interbloqueos.
+ */
+async function lockSaleForFinancialMutation(
+  tx: TransactionClient,
+  saleId: string,
+): Promise<void> {
+  await tx.$queryRaw`SELECT id FROM "Sale" WHERE id = ${saleId} FOR UPDATE`;
+}
+
 async function settleSaleInTransaction(
   tx: TransactionClient,
   input: SettleSaleInput,
@@ -219,6 +429,7 @@ async function settleSaleInTransaction(
       "La venta seleccionada no admite liquidacion.",
     );
   }
+  await lockSaleForFinancialMutation(tx, sale.id);
   if (toNumber(sale.initialPendingAmount) > 0.009) {
     throw new AuthoritativeError(
       "INITIAL_PENDING_BLOCKS_SETTLEMENT",
@@ -228,7 +439,19 @@ async function settleSaleInTransaction(
   }
 
   const installments = await loadActiveInstallments(tx, sale.id);
-  const quote = buildSettlementQuoteResponse(sale, installments, paymentDate);
+  const lateFees = await resolveSettlementLateFees(
+    tx,
+    input.companyId,
+    sale,
+    installments,
+    paymentDate,
+  );
+  const quote = buildSettlementQuoteResponse(
+    sale,
+    installments,
+    paymentDate,
+    lateFees,
+  );
   if (quote.settlementAmount <= 0.009 || quote.isFullyPaid === true) {
     throw new AuthoritativeError(
       "SALE_ALREADY_PAID",
@@ -365,6 +588,7 @@ async function registerPaymentInTransaction(
   }
 
   const sale = await loadSale(tx, input);
+  await lockSaleForFinancialMutation(tx, sale.id);
   const saleStatus = sale.status ?? "apartado";
   const paymentTypeOverride =
     input.paymentTypeOverride ?? input.paymentType ?? "cuota";
@@ -546,6 +770,17 @@ async function registerPaymentInTransaction(
     },
     orderBy: [{ paidAt: "asc" }, { createdAt: "asc" }],
   });
+  // Fase 1 (hardening): la condonacion a nivel de venta se asigna UNA sola vez
+  // por cuota (`resolveSaleLateFeeState`). Antes se pasaba la lista completa de
+  // condonaciones a cada cuota y el mismo monto se reutilizaba en varias.
+  const saleLateFeeState = await resolveSaleLateFeeState(
+    tx,
+    input.companyId,
+    sale,
+    installments,
+    paymentDate,
+    { payments: priorPayments },
+  );
   const outstandingPrincipal = calculateOutstandingPrincipal(installments);
   const fixedInstallmentAmount = calculateEstimatedInstallmentAmount({
     financedBalance: toNumber(sale.financedBalance),
@@ -611,6 +846,7 @@ async function registerPaymentInTransaction(
       paymentDate,
       companyId: input.companyId,
       saleSyncId: sale.syncId,
+      waivers: installmentWaiverFor(saleLateFeeState, installment.syncId),
     });
     const outcome = applyToInstallment(
       installment,
@@ -846,6 +1082,7 @@ async function annulPaymentInTransaction(
       404,
     );
   }
+  await lockSaleForFinancialMutation(tx, payment.sale.id);
   if (payment.annulledAt) {
     // Idempotencia de anulacion: nunca reversar dos veces el mismo pago.
     throw new AuthoritativeError(
@@ -1006,6 +1243,8 @@ function buildSettlementQuoteResponse(
   sale: Awaited<ReturnType<typeof loadSale>>,
   installments: LoadedInstallment[],
   asOfDate: Date,
+  /** Mora exigible al corte (ya neta de condonaciones y de mora cobrada). */
+  collectibleLateFees = 0,
 ) {
   const open = installments.filter(
     (item) => !isClosedStatus(item.status ?? ""),
@@ -1047,13 +1286,16 @@ function buildSettlementQuoteResponse(
         0,
       ),
   );
-  const settlementAmount = roundCurrency(principalOutstanding + dueInterest);
-  const lateFees = 0;
+  const lateFees = roundCurrency(Math.max(collectibleLateFees, 0));
+  const settlementAmount = roundCurrency(
+    principalOutstanding + dueInterest + lateFees,
+  );
   const fingerprint = [
     sale.id,
     sale.version,
     toNumber(sale.balance).toFixed(2),
     toNumber(sale.initialPendingAmount).toFixed(2),
+    lateFees.toFixed(2),
     ...installments.map((item) =>
       [
         item.id,
@@ -1087,12 +1329,201 @@ export function buildSettlementQuoteForTest(input: {
   sale: Awaited<ReturnType<typeof loadSale>>;
   installments: LoadedInstallment[];
   asOfDate: Date;
+  collectibleLateFees?: number;
 }) {
   return buildSettlementQuoteResponse(
     input.sale,
     input.installments,
     input.asOfDate,
+    input.collectibleLateFees ?? 0,
   );
+}
+
+type LateFeePaymentRow = {
+  installmentSyncId: string | null;
+  paidAt: Date | null;
+  amount: Prisma.Decimal | number | string;
+  principalApplied: Prisma.Decimal | number | string | null;
+  interestApplied: Prisma.Decimal | number | string | null;
+  lateFeeApplied: Prisma.Decimal | number | string | null;
+  deletedAt: Date | null;
+};
+
+export type SaleLateFeeState = {
+  policyEnabled: boolean;
+  grossTotal: number;
+  collectedTotal: number;
+  waivedTotal: number;
+  outstandingTotal: number;
+  /** Mora condonada imputada a cada cuota (asignacion UNICA por cuota). */
+  waivedByInstallment: Map<string, number>;
+  /** Mora bruta acumulada por cuota. */
+  grossByInstallment: Map<string, number>;
+  /** Mora exigible por cuota (neta de condonacion y de mora ya cobrada). */
+  outstandingByInstallment: Map<string, number>;
+  /** Detalle por cuota, listo para presentacion. */
+  installments: Array<{
+    installmentSyncId: string;
+    installmentNumber: number | null;
+    dueDate: string | null;
+    grossLateFee: number;
+    waivedLateFee: number;
+    collectedLateFee: number;
+    outstandingLateFee: number;
+  }>;
+};
+
+/**
+ * Fase 1 (hardening) — Estado de mora de la VENTA en un corte.
+ *
+ * Punto UNICO de asignacion de condonaciones. La condonacion a nivel de venta
+ * (`installmentSyncId` nulo) se asigna UNA sola vez, en orden cronologico, y se
+ * expone por cuota en `waivedByInstallment`. Antes, el pago autoritativo pasaba
+ * la lista completa de condonaciones a cada cuota, reutilizando el mismo monto
+ * varias veces cuando habia varias cuotas vencidas.
+ */
+async function resolveSaleLateFeeState(
+  tx: TransactionClient,
+  companyId: string,
+  sale: Awaited<ReturnType<typeof loadSale>>,
+  installments: LoadedInstallment[],
+  calculationDate: Date,
+  options: { payments?: ReadonlyArray<LateFeePaymentRow> } = {},
+): Promise<SaleLateFeeState> {
+  const policy = await readLateFeePolicy(tx, companyId, calculationDate);
+  if (!policy.enabled) {
+    return {
+      policyEnabled: false,
+      grossTotal: 0,
+      collectedTotal: 0,
+      waivedTotal: 0,
+      outstandingTotal: 0,
+      waivedByInstallment: new Map(),
+      grossByInstallment: new Map(),
+      outstandingByInstallment: new Map(),
+      installments: [],
+    };
+  }
+
+  const calculator = new LateFeeCalculationService({
+    enabled: policy.enabled,
+    dailyRate: policy.dailyRate,
+    graceDays: policy.graceDays,
+    timezone: BUSINESS_TIMEZONE,
+  });
+  const payments =
+    options.payments ??
+    (await tx.payment.findMany({
+      where: {
+        companyId,
+        saleId: sale.id,
+        deletedAt: null,
+        annulledAt: null,
+      },
+      select: {
+        installmentSyncId: true,
+        paidAt: true,
+        amount: true,
+        principalApplied: true,
+        interestApplied: true,
+        lateFeeApplied: true,
+        deletedAt: true,
+      },
+      orderBy: [{ paidAt: "asc" }, { createdAt: "asc" }],
+    }));
+  const waivers = await loadSaleLateFeeWaivers(tx, companyId, sale.id);
+
+  const summary = calculator.calculateSaleSummary({
+    context: { companyId, saleSyncId: sale.syncId },
+    installments,
+    payments: [...payments],
+    waivers,
+    calculationDate,
+  });
+
+  const collectedByInstallment = new Map<string, number>();
+  let collectedTotal = 0;
+  for (const payment of payments) {
+    const amount = toNumber(payment.lateFeeApplied);
+    collectedTotal = roundCurrency(collectedTotal + amount);
+    const key = payment.installmentSyncId;
+    if (!key) continue;
+    collectedByInstallment.set(key, (collectedByInstallment.get(key) ?? 0) + amount);
+  }
+
+  const waivedByInstallment = new Map<string, number>();
+  const grossByInstallment = new Map<string, number>();
+  const outstandingByInstallment = new Map<string, number>();
+  const installmentsDetail: SaleLateFeeState["installments"] = [];
+  let grossTotal = 0;
+  let waivedTotal = 0;
+  let outstandingTotal = 0;
+  for (const cuota of summary.cuotas) {
+    const key = cuota.cuotaSyncId;
+    const gross = toNumber(cuota.moraBruta ?? cuota.mora);
+    const waived = toNumber(cuota.moraCondonada ?? 0);
+    const net = toNumber(cuota.mora);
+    const collected = collectedByInstallment.get(key) ?? 0;
+    const outstanding = Math.max(net - collected, 0);
+    grossByInstallment.set(key, gross);
+    waivedByInstallment.set(key, waived);
+    outstandingByInstallment.set(key, roundCurrency(outstanding));
+    installmentsDetail.push({
+      installmentSyncId: key,
+      installmentNumber: cuota.numeroCuota ?? null,
+      dueDate: cuota.fechaVencimiento ?? null,
+      grossLateFee: roundCurrency(gross),
+      waivedLateFee: roundCurrency(waived),
+      collectedLateFee: roundCurrency(collected),
+      outstandingLateFee: roundCurrency(outstanding),
+    });
+    grossTotal = roundCurrency(grossTotal + gross);
+    waivedTotal = roundCurrency(waivedTotal + waived);
+    outstandingTotal = roundCurrency(outstandingTotal + outstanding);
+  }
+
+  return {
+    policyEnabled: true,
+    grossTotal,
+    collectedTotal,
+    waivedTotal,
+    outstandingTotal,
+    waivedByInstallment,
+    grossByInstallment,
+    outstandingByInstallment,
+    installments: installmentsDetail,
+  };
+}
+
+/**
+ * Fase 2 — Estado de mora EXIGIBLE al corte para una liquidacion total.
+ *
+ * Reutiliza el mismo motor (`LateFeeCalculationService`) que el pago
+ * autoritativo, la condonacion administrativa y los recordatorios. No duplica
+ * formulas ni altera la politica global.
+ *
+ * Reglas:
+ * - Mora bruta/condonada por cuota = `cuota.mora` del motor (ya descuenta las
+ *   condonaciones persistidas en `LateFeeWaiver`).
+ * - Se resta la mora YA COBRADA de esa cuota (`Payment.lateFeeApplied`) para no
+ *   cobrar dos veces.
+ * - Nunca negativo.
+ */
+async function resolveSettlementLateFees(
+  tx: TransactionClient,
+  companyId: string,
+  sale: Awaited<ReturnType<typeof loadSale>>,
+  installments: LoadedInstallment[],
+  asOfDate: Date,
+): Promise<number> {
+  const state = await resolveSaleLateFeeState(
+    tx,
+    companyId,
+    sale,
+    installments,
+    asOfDate,
+  );
+  return state.outstandingTotal;
 }
 
 function buildSettlementPreSnapshot(
@@ -1363,6 +1794,20 @@ export function applyToInstallment(
   };
 }
 
+/**
+ * Condonacion que corresponde a UNA cuota segun la asignacion ya calculada.
+ * Se entrega como condonacion por cuota para que nunca se reutilice el monto.
+ */
+function installmentWaiverFor(
+  state: SaleLateFeeState,
+  installmentSyncId: string | null,
+): Array<{ installmentSyncId: string; waivedAmount: number }> {
+  if (!installmentSyncId) return [];
+  const waived = state.waivedByInstallment.get(installmentSyncId) ?? 0;
+  if (waived <= 0) return [];
+  return [{ installmentSyncId, waivedAmount: waived }];
+}
+
 function calculateInstallmentLateFeeOutstanding(input: {
   calculator: LateFeeCalculationService;
   installment: LoadedInstallment;
@@ -1379,6 +1824,12 @@ function calculateInstallmentLateFeeOutstanding(input: {
   paymentDate: Date;
   companyId: string;
   saleSyncId: string;
+  /** Fase 3: condonaciones de mora vigentes para la venta. */
+  waivers?: Array<{
+    installmentSyncId?: string | null;
+    waivedAmount?: Prisma.Decimal | number | string | null;
+    cutoffAt?: Date | null;
+  }>;
 }) {
   const relatedPayments = input.payments.filter(
     (payment) =>
@@ -1393,6 +1844,7 @@ function calculateInstallmentLateFeeOutstanding(input: {
     },
     installments: [input.installment],
     payments: relatedPayments,
+    waivers: input.waivers,
     calculationDate: input.paymentDate,
   });
   const accruedLateFee = lateFeeDecimal(summary.cuotas[0]?.mora ?? 0);

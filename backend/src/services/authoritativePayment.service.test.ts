@@ -307,3 +307,76 @@ test("settlement quote fingerprint changes when financial state changes", () => 
 
   assert.notEqual(first.quoteVersion, second.quoteVersion);
 });
+
+test("settlement quote includes collectible late fees in the settlement amount", () => {
+  const overdue = {
+    ...installment,
+    principalAmount: new Prisma.Decimal(8000),
+    interestAmount: new Prisma.Decimal(2000),
+    totalAmount: new Prisma.Decimal(10000),
+    dueDate: new Date(2026, 0, 1),
+    status: "vencida",
+  };
+  const future = {
+    ...installment,
+    id: "inst-2",
+    installmentNumber: 2,
+    principalAmount: new Prisma.Decimal(9000),
+    interestAmount: new Prisma.Decimal(1000),
+    totalAmount: new Prisma.Decimal(10000),
+    dueDate: new Date(2026, 5, 1),
+    status: "pendiente",
+  };
+
+  const withoutLateFees = buildSettlementQuoteForTest({
+    sale: {
+      id: "sale-1",
+      version: 4,
+      balance: new Prisma.Decimal(20000),
+      initialPendingAmount: new Prisma.Decimal(0),
+      status: "activa",
+    } as never,
+    installments: [overdue, future] as never,
+    asOfDate: new Date(2026, 1, 1),
+  });
+  const withLateFees = buildSettlementQuoteForTest({
+    sale: {
+      id: "sale-1",
+      version: 4,
+      balance: new Prisma.Decimal(20000),
+      initialPendingAmount: new Prisma.Decimal(0),
+      status: "activa",
+    } as never,
+    installments: [overdue, future] as never,
+    asOfDate: new Date(2026, 1, 1),
+    collectibleLateFees: 480,
+  });
+
+  assert.equal(withoutLateFees.lateFees, 0);
+  assert.equal(withLateFees.lateFees, 480);
+  assert.equal(withLateFees.principalOutstanding, 17000);
+  assert.equal(withLateFees.dueInterest, 2000);
+  assert.equal(withLateFees.settlementAmount, 19480);
+  assert.equal(
+    withLateFees.settlementAmount,
+    withoutLateFees.settlementAmount + 480,
+  );
+  assert.notEqual(withLateFees.quoteVersion, withoutLateFees.quoteVersion);
+});
+
+test("settlement quote never adds negative late fees", () => {
+  const quote = buildSettlementQuoteForTest({
+    sale: {
+      id: "sale-1",
+      version: 4,
+      balance: new Prisma.Decimal(8000),
+      initialPendingAmount: new Prisma.Decimal(0),
+      status: "activa",
+    } as never,
+    installments: [installment] as never,
+    asOfDate: new Date(2026, 1, 1),
+    collectibleLateFees: -250,
+  });
+
+  assert.equal(quote.lateFees, 0);
+});

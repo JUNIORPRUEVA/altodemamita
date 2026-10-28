@@ -39,6 +39,22 @@ export type LateFeePaymentInput = {
   deletedAt?: Date | null;
 };
 
+/**
+ * Condonacion de mora (Fase 3).
+ * `installmentSyncId` nulo = condonacion a nivel de VENTA (se imputa en orden
+ * cronologico a las cuotas vencidas). Un monto por cuota se imputa directo.
+ *
+ * `cutoffAt` es el corte aprobado: la condonacion cubre UNICAMENTE la mora
+ * acumulada hasta ese instante. La mora que sigue acumulandose despues del
+ * corte permanece exigible. Sin `cutoffAt` el tope es la mora actual
+ * (comportamiento historico, solo para compatibilidad).
+ */
+export type LateFeeWaiverInput = {
+  installmentSyncId?: string | null;
+  waivedAmount?: Prisma.Decimal | number | string | null;
+  cutoffAt?: Date | null;
+};
+
 export type LateFeeSaleContext = {
   companyId?: string;
   clienteId?: string | null;
@@ -65,6 +81,10 @@ export type LateFeeInstallmentSummary = {
   diasMora?: number;
   tasaDiaria: string;
   mora: string;
+  /** Mora bruta acumulada (antes de condonacion). */
+  moraBruta?: string;
+  /** Mora condonada imputada a esta cuota. */
+  moraCondonada?: string;
   totalActualizado: string;
 };
 
@@ -78,6 +98,10 @@ export type LateFeeSummary = {
   cantidadCuotasVencidas: number;
   capitalPendiente: string;
   moraTotal: string;
+  /** Mora bruta acumulada (evidencia). Opcional por compatibilidad. */
+  moraBruta?: string;
+  /** Mora condonada aplicada. Opcional por compatibilidad. */
+  moraCondonada?: string;
   totalGeneral: string;
   ultimaCuotaVencidaSyncId: string | null;
   periodoNotificacion: string | null;
@@ -98,6 +122,7 @@ export class LateFeeCalculationService {
     context: LateFeeSaleContext;
     installments: LateFeeInstallmentInput[];
     payments?: LateFeePaymentInput[];
+    waivers?: LateFeeWaiverInput[];
     calculationDate?: Date;
   }): LateFeeSummary {
     const calculationDate = input.calculationDate ?? new Date();
@@ -163,6 +188,96 @@ export class LateFeeCalculationService {
         return (a.numeroCuota ?? 0) - (b.numeroCuota ?? 0);
       });
 
+    // --- Condonaciones (Fase 3) -------------------------------------------
+    // Se imputan sobre la mora BRUTA. Las condonaciones por cuota se aplican
+    // directo; las de venta (installmentSyncId nulo) se imputan en orden
+    // cronologico (ya ordenado) hasta agotarse. `mora` pasa a ser EXIGIBLE.
+    //
+    // CORTE: cada condonacion cubre solo la mora acumulada HASTA su `cutoffAt`.
+    // La mora posterior al corte no la absorbe el monto condonado.
+    const waiverEntries = (input.waivers ?? [])
+      .map((waiver) => ({
+        installmentSyncId: waiver.installmentSyncId ?? null,
+        amount: maxDecimal(decimal(waiver.waivedAmount ?? 0), decimal(0)),
+        cutoffAt: waiver.cutoffAt ? new Date(waiver.cutoffAt) : null,
+      }))
+      .filter((waiver) => waiver.amount.gt(0));
+
+    const grossAtCutoffCache = new Map<string, Map<string, Prisma.Decimal>>();
+    const grossAtCutoff = (cutoffAt: Date | null) => {
+      if (!cutoffAt || Number.isNaN(cutoffAt.getTime())) return null;
+      const effective =
+        cutoffAt.getTime() < calculationDate.getTime() ? cutoffAt : calculationDate;
+      const cacheKey = effective.toISOString();
+      const cached = grossAtCutoffCache.get(cacheKey);
+      if (cached) return cached;
+      const atCutoff = this.calculateSaleSummary({
+        context: input.context,
+        installments: input.installments,
+        payments: input.payments,
+        waivers: [],
+        calculationDate: effective,
+      });
+      const map = new Map<string, Prisma.Decimal>();
+      for (const row of atCutoff.cuotas) {
+        map.set(row.cuotaSyncId, decimal(row.mora));
+      }
+      grossAtCutoffCache.set(cacheKey, map);
+      return map;
+    };
+
+    const waivedByInstallment = new Map<string, Prisma.Decimal>();
+    const applyWaiver = (
+      cuota: LateFeeInstallmentSummary,
+      gross: Prisma.Decimal,
+      amount: Prisma.Decimal,
+      cutoffAt: Date | null,
+    ) => {
+      if (amount.lte(0)) return decimal(0);
+      const alreadyWaived = waivedByInstallment.get(cuota.cuotaSyncId) ?? decimal(0);
+      const atCutoff = grossAtCutoff(cutoffAt);
+      const cap = atCutoff
+        ? minDecimal(gross, atCutoff.get(cuota.cuotaSyncId) ?? decimal(0))
+        : gross;
+      const capacity = maxDecimal(cap.minus(alreadyWaived), decimal(0));
+      if (capacity.lte(0)) return decimal(0);
+      const take = minDecimal(amount, capacity);
+      waivedByInstallment.set(cuota.cuotaSyncId, alreadyWaived.plus(take));
+      return take;
+    };
+
+    // 1) Condonaciones por cuota.
+    for (const waiver of waiverEntries.filter((entry) => entry.installmentSyncId)) {
+      const cuota = summaries.find(
+        (row) => row.cuotaSyncId === waiver.installmentSyncId,
+      );
+      if (!cuota) continue;
+      applyWaiver(cuota, decimal(cuota.mora), waiver.amount, waiver.cutoffAt);
+    }
+    // 2) Condonaciones a nivel de venta, en orden cronologico.
+    for (const waiver of waiverEntries.filter((entry) => !entry.installmentSyncId)) {
+      let pool = waiver.amount;
+      for (const cuota of summaries) {
+        if (pool.lte(0)) break;
+        const take = applyWaiver(cuota, decimal(cuota.mora), pool, waiver.cutoffAt);
+        pool = pool.minus(take);
+      }
+    }
+
+    let grossTotal = decimal(0);
+    let waivedTotal = decimal(0);
+    for (const cuota of summaries) {
+      const gross = decimal(cuota.mora);
+      const waived = waivedByInstallment.get(cuota.cuotaSyncId) ?? decimal(0);
+      const net = maxDecimal(gross.minus(waived), decimal(0));
+      cuota.moraBruta = formatDecimal(gross);
+      cuota.moraCondonada = formatDecimal(money(waived));
+      cuota.mora = formatDecimal(money(net));
+      cuota.totalActualizado = formatDecimal(money(decimal(cuota.saldoPendiente).plus(net)));
+      grossTotal = grossTotal.plus(gross);
+      waivedTotal = waivedTotal.plus(waived);
+    }
+
     const capital = summaries.reduce((total, cuota) => total.plus(cuota.saldoPendiente), decimal(0));
     const lateFeeTotal = summaries.reduce((total, cuota) => total.plus(cuota.mora), decimal(0));
     const latest = [...summaries].sort((a, b) => {
@@ -182,6 +297,8 @@ export class LateFeeCalculationService {
       cantidadCuotasVencidas: summaries.length,
       capitalPendiente: formatDecimal(money(capital)),
       moraTotal: formatDecimal(money(lateFeeTotal)),
+      moraBruta: formatDecimal(money(grossTotal)),
+      moraCondonada: formatDecimal(money(waivedTotal)),
       totalGeneral: formatDecimal(money(capital.plus(lateFeeTotal))),
       ultimaCuotaVencidaSyncId: latest?.cuotaSyncId ?? null,
       periodoNotificacion: latest?.fechaVencimiento.slice(0, 7) ?? null,
