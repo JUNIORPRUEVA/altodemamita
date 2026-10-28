@@ -327,6 +327,10 @@ class _SalesPageState extends State<SalesPage> {
       context,
       clients: _controller.clients,
       availableLots: _controller.availableLots,
+      allLots: _controller.lots.isEmpty ? null : _controller.lots,
+      supportErrorMessage: _controller.supportErrorMessage,
+      onRetrySupport: () =>
+          _controller.load(query: _controller.currentQuery),
       sellers: _controller.sellers,
       defaults: _controller.defaults,
       clientRepository: widget.clientRepository,
@@ -522,6 +526,7 @@ class _SalesPageState extends State<SalesPage> {
       context,
       clients: _controller.clients,
       availableLots: _controller.availableLots,
+      allLots: _controller.lots.isEmpty ? null : _controller.lots,
       sellers: _controller.sellers,
       defaults: _controller.defaults,
       clientRepository: widget.clientRepository,

@@ -806,35 +806,58 @@ class ClientRepository implements SyncRepository {
   }
 
   Future<List<Client>> _fetchAllFromBackend({String query = ''}) async {
-    final response = await _apiClient.get(
-      '/business/clients',
-      queryParameters: {
-        'page': '1',
-        'limit': '100',
-        if (query.trim().isNotEmpty) 'search': query.trim(),
-      },
-    );
-    final payload = response is Map<String, dynamic>
-        ? response
-        : (response as Map).map(
-            (key, value) => MapEntry(key.toString(), value),
-          );
-    final data = payload['data'];
-    final dataMap = data is Map
-        ? data.map((key, value) => MapEntry(key.toString(), value))
-        : payload;
-    final items = (dataMap['items'] as List?) ?? const [];
-    final rawItems = items
-        .whereType<Map>()
-        .map(
-          (item) => item.map((key, value) => MapEntry(key.toString(), value)),
-        )
-        .toList(growable: false);
+    // Paginacion completa: el selector de cliente del formulario de venta
+    // filtra localmente, por lo que la lista debe contener TODOS los clientes
+    // activos y no solo los primeros 100 (riesgo real al superar ese umbral).
+    const pageSize = 100;
+    const maxPages = 50;
+    final collected = <Map<String, dynamic>>[];
+
+    for (var page = 1; page <= maxPages; page++) {
+      final response = await _apiClient.get(
+        '/business/clients',
+        queryParameters: {
+          'page': '$page',
+          'limit': '$pageSize',
+          if (query.trim().isNotEmpty) 'search': query.trim(),
+        },
+      );
+      final payload = response is Map<String, dynamic>
+          ? response
+          : (response as Map).map(
+              (key, value) => MapEntry(key.toString(), value),
+            );
+      final data = payload['data'];
+      final dataMap = data is Map
+          ? data.map((key, value) => MapEntry(key.toString(), value))
+          : payload;
+      final items = (dataMap['items'] as List?) ?? const [];
+      final pageItems = items
+          .whereType<Map>()
+          .map(
+            (item) =>
+                item.map((key, value) => MapEntry(key.toString(), value)),
+          )
+          .toList(growable: false);
+      collected.addAll(pageItems);
+
+      final total = dataMap['total'];
+      if (pageItems.isEmpty) {
+        break;
+      }
+      if (total is num && collected.length >= total.toInt()) {
+        break;
+      }
+      if (pageItems.length < pageSize) {
+        break;
+      }
+    }
+
     // Snapshot cache-first de la lista completa (no de busquedas).
     if (query.trim().isEmpty) {
-      await _listSnapshot.write(rawItems);
+      await _listSnapshot.write(collected);
     }
-    return rawItems.map(_clientFromBackend).toList(growable: false);
+    return collected.map(_clientFromBackend).toList(growable: false);
   }
 
   /// Ultima lista valida de clientes en cache local (best-effort).

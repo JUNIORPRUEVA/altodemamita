@@ -336,6 +336,36 @@ async function createSaleInTransaction(
         financedBalance,
       });
 
+  // Reclamo ATOMICO del solar antes de crear la venta.
+  //
+  // El UPDATE condicionado a `status = 'disponible'` toma el lock de fila de
+  // PostgreSQL: si dos operadores intentan vender el mismo solar a la vez, la
+  // segunda transaccion espera, vuelve a evaluar la condicion con el valor ya
+  // confirmado y obtiene count = 0 -> 409. Sin este compare-and-set ambas
+  // lecturas previas podrian pasar y se crearian dos ventas del mismo solar.
+  const lotClaim = await tx.lot.updateMany({
+    where: {
+      id: lot.id,
+      companyId: input.companyId,
+      deletedAt: null,
+      OR: [{ status: 'disponible' }, { status: null }],
+    },
+    data: {
+      status:
+        isCashSale || status === 'activa' || status === 'pagada'
+          ? 'vendido'
+          : 'reservado',
+      version: { increment: 1 },
+    },
+  });
+  if (lotClaim.count !== 1) {
+    throw new AuthoritativeError(
+      'LOT_JUST_TAKEN',
+      'El solar acaba de ser tomado por otra venta. Actualiza la lista y elige otro solar.',
+      409,
+    );
+  }
+
   const sale = await tx.sale.create({
     data: {
       companyId: input.companyId,
@@ -436,14 +466,6 @@ async function createSaleInTransaction(
     });
     initialPaymentId = payment.id;
   }
-
-  await tx.lot.update({
-    where: { id: lot.id },
-    data: {
-      status: status === 'activa' || status === 'pagada' ? 'vendido' : 'reservado',
-      version: { increment: 1 },
-    },
-  });
 
   return {
     saleId: sale.id,

@@ -143,7 +143,16 @@ class SalesController extends ChangeNotifier {
   List<SaleSummary> sales = const [];
   List<Client> clients = const [];
   List<Lot> availableLots = const [];
+
+  /// Todos los solares activos (disponibles, vendidos y reservados). El
+  /// formulario de venta los necesita para explicar por que un solar no puede
+  /// usarse en lugar de ocultarlo.
+  List<Lot> lots = const [];
   List<Seller> sellers = const [];
+
+  /// Mensaje cuando la carga de soporte (clientes/solares/vendedores) fallo.
+  /// `null` significa carga correcta; nunca se confunde con una lista vacia.
+  String? supportErrorMessage;
   SaleDefaults defaults = const SaleDefaults(
     downPaymentPercentage: 10,
     monthlyInterest: 1,
@@ -359,7 +368,7 @@ class SalesController extends ChangeNotifier {
       });
       final settings = await _guard(settingsFuture);
       final clients = await _guard(_clientRepository.fetchAll());
-      final lots = await _guard(_lotRepository.fetchAvailable());
+      final lots = await _guard(_lotRepository.fetchAll());
       final sellers = await _guard(_sellerRepository.getAll());
       if (_isDisposed || generation != _generation) {
         return;
@@ -368,11 +377,23 @@ class SalesController extends ChangeNotifier {
         this.clients = clients;
       }
       if (lots != null) {
-        availableLots = lots;
+        this.lots = lots;
+        availableLots = lots
+            .where((lot) => lot.isAvailable)
+            .toList(growable: false);
       }
       if (sellers != null) {
         this.sellers = sellers;
       }
+      final failedDatasets = <String>[
+        if (clients == null) 'los clientes',
+        if (lots == null) 'los solares',
+        if (sellers == null) 'los vendedores',
+      ];
+      supportErrorMessage = failedDatasets.isEmpty
+          ? null
+          : 'No pudimos actualizar ${failedDatasets.join(' ni ')}. '
+                'Intenta nuevamente.';
       if (settings != null) {
         defaults = SaleDefaults(
           downPaymentPercentage: _parseDouble(
@@ -389,9 +410,15 @@ class SalesController extends ChangeNotifier {
           ),
         );
       }
+      _notifyIfActive();
     } catch (_) {
       // El soporte del formulario es best-effort: conserva el ultimo estado
       // conocido y nunca derriba la lista de ventas.
+      if (!_isDisposed && generation == _generation) {
+        supportErrorMessage =
+            'No pudimos actualizar los datos del formulario. Intenta nuevamente.';
+        _notifyIfActive();
+      }
     }
   }
 

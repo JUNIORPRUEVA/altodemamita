@@ -12,6 +12,7 @@ import '../../clients/domain/client.dart';
 import '../../clients/presentation/client_form_dialog.dart';
 import '../../lots/data/lot_repository.dart';
 import '../../lots/domain/lot.dart';
+import '../../lots/domain/lot_code.dart';
 import '../../lots/presentation/lot_form_dialog.dart';
 import '../domain/sale.dart';
 import '../data/seller_repository.dart';
@@ -66,6 +67,9 @@ class SaleFormDialog extends StatefulWidget {
     required this.clientRepository,
     required this.lotRepository,
     required this.sellerRepository,
+    this.allLots,
+    this.supportErrorMessage,
+    this.onRetrySupport,
     this.initialDraft,
     this.dialogTitle = 'Nueva venta',
     this.submitLabel = 'Crear venta',
@@ -77,6 +81,20 @@ class SaleFormDialog extends StatefulWidget {
 
   final List<Client> clients;
   final List<Lot> availableLots;
+
+  /// Todos los solares activos (disponibles, vendidos y reservados).
+  ///
+  /// Permite que la busqueda explique por que un solar no puede usarse en
+  /// lugar de ocultarlo, que era la causa de que el operador intentara
+  /// crearlo de nuevo y recibiera un conflicto de duplicado.
+  final List<Lot>? allLots;
+
+  /// Mensaje cuando no se pudieron actualizar los datos de soporte
+  /// (clientes/solares/vendedores). `null` si la carga fue correcta.
+  final String? supportErrorMessage;
+
+  /// Permite reintentar la carga de datos de soporte sin cerrar el modal.
+  final Future<void> Function()? onRetrySupport;
   final List<Seller> sellers;
   final SaleDefaults defaults;
   final ClientRepository clientRepository;
@@ -104,6 +122,9 @@ class SaleFormDialog extends StatefulWidget {
     required ClientRepository clientRepository,
     required LotRepository lotRepository,
     required SellerRepository sellerRepository,
+    List<Lot>? allLots,
+    String? supportErrorMessage,
+    Future<void> Function()? onRetrySupport,
     SaleDraft? initialDraft,
     String dialogTitle = 'Nueva venta',
     String submitLabel = 'Crear venta',
@@ -121,6 +142,9 @@ class SaleFormDialog extends StatefulWidget {
         child: SaleFormDialog(
           clients: clients,
           availableLots: availableLots,
+          allLots: allLots,
+          supportErrorMessage: supportErrorMessage,
+          onRetrySupport: onRetrySupport,
           sellers: sellers,
           defaults: defaults,
           clientRepository: clientRepository,
@@ -228,6 +252,10 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
   String? _pendingPayloadSignature;
   final math.Random _submitRandom = math.Random();
 
+  // Anti-spam de notificaciones: evita repetir el mismo mensaje en rafaga.
+  String? _lastFeedbackMessage;
+  DateTime _lastFeedbackAt = DateTime.fromMillisecondsSinceEpoch(0);
+
   int? get _currentUserId => context.read<AuthProvider>().currentUser?.id;
   int _durationMonths = 0;
 
@@ -274,32 +302,42 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
     return filtered;
   }
 
-  List<Lot> get _filteredLots {
-    final availableLotsFiltered = _availableLots
-        .where(
-          (lot) =>
-              (lot.status == 'disponible' || lot.id == _selectedLotId) &&
-              (!_additionalLotIds.contains(lot.id) || lot.id == _selectedLotId),
-        )
-        .toList();
+  /// Solares que pueden usarse en una venta nueva.
+  Iterable<Lot> get _sellableLots => _availableLots.where((lot) => lot.isAvailable);
 
-    final normalizedQuery = _lotSearchController.text.trim().toLowerCase();
-    final filtered = normalizedQuery.isEmpty
-        ? List<Lot>.from(availableLotsFiltered)
-        : availableLotsFiltered.where((lot) {
-            return lot.displayCode.toLowerCase().contains(normalizedQuery) ||
-                lot.area.toString().contains(normalizedQuery);
-          }).toList();
+  List<Lot> get _filteredLots {
+    final query = _lotSearchController.text.trim();
+    final candidates = _availableLots.where((lot) {
+      if (_additionalLotIds.contains(lot.id) && lot.id != _selectedLotId) {
+        return false;
+      }
+      if (query.isEmpty) {
+        // Sin texto el campo muestra solo los solares utilizables; el estado
+        // vendido/reservado aparece al escribir, para poder explicarlo.
+        return true;
+      }
+      return lot.matchesQuery(query) || lot.id == _selectedLotId;
+    }).toList();
+
+    // Utilizables primero; dentro de cada grupo, por codigo.
+    candidates.sort((a, b) {
+      if (a.isAvailable != b.isAvailable) {
+        return a.isAvailable ? -1 : 1;
+      }
+      return a.displayCode.toLowerCase().compareTo(
+        b.displayCode.toLowerCase(),
+      );
+    });
 
     if (_selectedLotId != null &&
-        !filtered.any((lot) => lot.id == _selectedLotId)) {
+        !candidates.any((lot) => lot.id == _selectedLotId)) {
       final selectedLot = _selectedLot;
       if (selectedLot != null) {
-        filtered.insert(0, selectedLot);
+        candidates.insert(0, selectedLot);
       }
     }
 
-    return filtered;
+    return candidates;
   }
 
   bool get _hasFormData {
@@ -455,7 +493,9 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
   void initState() {
     super.initState();
     _clients = List<Client>.from(widget.clients);
-    _availableLots = List<Lot>.from(widget.availableLots);
+    _availableLots = List<Lot>.from(
+      widget.allLots ?? widget.availableLots,
+    );
     _sellers = List<Seller>.from(widget.sellers);
     _clientSearchController = TextEditingController();
     _sellerSearchController = TextEditingController();
@@ -963,7 +1003,15 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
 
   Widget _buildLotLine() {
     final selectedLot = _selectedLot;
-    final showInlineHint = _availableLots.isEmpty;
+    final sellableCount = _sellableLots.length;
+    final supportError = widget.supportErrorMessage;
+    final showInlineHint = sellableCount == 0;
+    final inlineHint = supportError != null && _availableLots.isEmpty
+        ? supportError
+        : _availableLots.isEmpty
+        ? 'No hay solares disponibles. Puedes crear uno desde este formulario.'
+        : 'No hay solares disponibles para una venta nueva: todos están '
+              'vendidos o reservados.';
     final showAdditionalLots =
         _additionalLotIds.isNotEmpty ||
         (!_isEditingSale && _getAvailableLotsForAddition().isNotEmpty);
@@ -978,17 +1026,16 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
             labelText: 'Seleccionar solar',
             selectedId: _selectedLotId,
             items: _filteredLots,
-            emptyMessage: 'No hay solares disponibles.',
+            emptyMessage: _availableLots.isEmpty
+                ? 'No hay solares registrados.'
+                : 'No hay solares coincidentes.',
             titleBuilder: (lot) => lot.displayCode,
             subtitleBuilder: (lot) =>
-                '${lot.area.toStringAsFixed(1)} m² • RD\$${formatRdCurrency(lot.pricePerSquareMeter)}/m² • ${_formatCurrency(lot.totalPrice)}',
+                '${lot.statusLabel} • ${lot.area.toStringAsFixed(1)} m² • RD\$${formatRdCurrency(lot.pricePerSquareMeter)}/m² • ${_formatCurrency(lot.totalPrice)}',
             idBuilder: (lot) => lot.id,
-            matches: (lot, query) {
-              return lot.displayCode.toLowerCase().contains(query) ||
-                  lot.area.toString().contains(query) ||
-                  lot.pricePerSquareMeter.toString().contains(query) ||
-                  lot.totalPrice.toString().contains(query);
-            },
+            isSelectable: (lot) => lot.isAvailable,
+            onBlockedSelect: _handleBlockedLotSelection,
+            matches: (lot, query) => lot.matchesQuery(query),
             onChanged: (value) {
               setState(() {
                 _selectedLotId = value;
@@ -1005,6 +1052,12 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
               ? null
               : _createLotQuickly,
           trailingActions: [
+            if (supportError != null && widget.onRetrySupport != null)
+              _buildCompactIconButton(
+                icon: Icons.refresh,
+                tooltip: 'Reintentar carga de solares',
+                onPressed: _retrySupportData,
+              ),
             if (!_isEditingSale && _getAvailableLotsForAddition().isNotEmpty)
               _buildCompactIconButton(
                 icon: Icons.add_box_outlined,
@@ -1029,10 +1082,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
         ),
         if (showInlineHint) ...[
           const SizedBox(height: 6),
-          Text(
-            'No hay solares disponibles. Puedes crear uno desde este formulario.',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
+          Text(inlineHint, style: Theme.of(context).textTheme.bodySmall),
         ],
         if (showAdditionalLots) ...[
           const SizedBox(height: 8),
@@ -1990,10 +2040,12 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
       if (!mounted) {
         return;
       }
-      FriendlyErrorMessages.forOperation(
-        'guardar el cliente',
-        error,
-        module: 'ventas',
+      _showFeedback(
+        FriendlyErrorMessages.forOperation(
+          'guardar el cliente',
+          error,
+          module: 'ventas',
+        ),
       );
     } finally {
       if (mounted) {
@@ -2026,18 +2078,30 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
     try {
       print('[SALE-FORM][LOT] saving lot to repository...');
       await widget.lotRepository.save(lotDraft.copyWith(status: 'disponible'));
-      print('[SALE-FORM][LOT] saved -> reloading available lots');
-      final updatedLots = await widget.lotRepository.fetchAvailable();
-      final createdLot = updatedLots.firstWhere(
-        (lot) =>
-            lot.blockNumber == lotDraft.blockNumber &&
-            lot.lotNumber == lotDraft.lotNumber,
-      );
+      print('[SALE-FORM][LOT] saved -> reloading lots');
+      final updatedLots = await _reloadLotsAfterChange();
+      final wantedBlock = LotCode.canonicalBlock(lotDraft.blockNumber);
+      final wantedNumber = lotDraft.lotNumber.trim();
+      Lot? createdLot;
+      for (final lot in updatedLots) {
+        if (LotCode.canonicalBlock(lot.blockNumber) == wantedBlock &&
+            lot.lotNumber.trim() == wantedNumber) {
+          createdLot = lot;
+        }
+      }
+
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
         _availableLots = updatedLots;
-        _selectedLotId = createdLot.id;
+        if (createdLot != null) {
+          _selectedLotId = createdLot.id;
+          _lotSearchController.text = createdLot.displayCode;
+        }
         _syncLotPriceFromSelection();
+        _syncInitialDeadline();
       });
 
       if (widget.onLotCreated != null) {
@@ -2048,10 +2112,16 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
         return;
       }
 
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        const SnackBar(
-          content: Text('Solar creado y seleccionado en la venta.'),
-        ),
+      if (createdLot == null) {
+        _showFeedback(
+          'El solar se guardó, pero no se pudo seleccionar. Búscalo en la lista.',
+        );
+        return;
+      }
+
+      _showFeedback(
+        'Solar ${createdLot.displayCode} creado y seleccionado en la venta.',
+        isError: false,
       );
     } on DuplicateLotException catch (error) {
       print('[SALE-FORM][LOT] DuplicateLotException: ${error.message}');
@@ -2059,9 +2129,14 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
         return;
       }
 
-      ScaffoldMessenger.maybeOf(
-        context,
-      )?.showSnackBar(SnackBar(content: Text(error.message)));
+      // Conflicto de negocio: el solar ya existe. NO se reintenta el POST y se
+      // devuelve al operador a la busqueda del solar existente.
+      _showFeedback(
+        error.existingLot.isAvailable
+            ? '${error.message} Está en la lista: selecciónalo para continuar.'
+            : error.message,
+      );
+      _focusLotSearchForExisting(error.existingLot);
     } catch (error, stack) {
       print('[SALE-FORM][LOT] ERROR $error');
       print(stack);
@@ -2069,10 +2144,12 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
         return;
       }
 
-      FriendlyErrorMessages.forOperation(
-        'guardar el solar',
-        error,
-        module: 'ventas',
+      _showFeedback(
+        FriendlyErrorMessages.forOperation(
+          'guardar el solar',
+          error,
+          module: 'ventas',
+        ),
       );
     } finally {
       if (mounted) {
@@ -2177,14 +2254,14 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
           : null;
 
       if (message != null) {
-        ScaffoldMessenger.maybeOf(
-          context,
-        )?.showSnackBar(SnackBar(content: Text(message)));
+        _showFeedback(message);
       } else {
-        FriendlyErrorMessages.forOperation(
-          'guardar el vendedor',
-          error,
-          module: 'ventas',
+        _showFeedback(
+          FriendlyErrorMessages.forOperation(
+            'guardar el vendedor',
+            error,
+            module: 'ventas',
+          ),
         );
       }
     } finally {
@@ -2350,7 +2427,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
     }
 
     // Validación crítica: el solar debe estar disponible
-    if (!_isEditingSale && selectedLot.status != 'disponible') {
+    if (!_isEditingSale && !selectedLot.isAvailable) {
       print(
         '[SALE-FORM][SAVE] stop: lot not available status=${selectedLot.status} code=${selectedLot.displayCode}',
       );
@@ -2358,7 +2435,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
         SnackBar(
           content: Text(
             'El solar ${selectedLot.displayCode} no está disponible para venta. '
-            'Estado actual: ${selectedLot.status}',
+            'Estado actual: ${selectedLot.statusLabel}',
           ),
           backgroundColor: Colors.red,
           duration: const Duration(seconds: 4),
@@ -2593,6 +2670,157 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
     return value.replaceAll(RegExp(r'[\s\-\(\)\.\+]'), '');
   }
 
+  // ── Notificaciones no intrusivas ─────────────────────────────────────────
+
+  /// Notificacion compacta con icono semantico, sin modal ni bloqueo.
+  ///
+  /// Se deduplica: el mismo texto no se repite dentro de 4 segundos, y nunca
+  /// se muestran trazas, nombres de excepcion ni codigos HTTP.
+  void _showFeedback(String message, {bool isError = true}) {
+    final trimmed = message.trim();
+    if (trimmed.isEmpty || !mounted) {
+      return;
+    }
+    final now = DateTime.now();
+    if (_lastFeedbackMessage == trimmed &&
+        now.difference(_lastFeedbackAt) < const Duration(seconds: 4)) {
+      return;
+    }
+    _lastFeedbackMessage = trimmed;
+    _lastFeedbackAt = now;
+
+    final errorColor = const Color(0xFFB42318);
+    final successColor = const Color(0xFF0F6B3F);
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (messenger == null) {
+      return;
+    }
+    messenger
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          key: const Key('sale_form_feedback'),
+          behavior: SnackBarBehavior.floating,
+          width: math.min(MediaQuery.sizeOf(context).width - 32, 460),
+          duration: const Duration(seconds: 4),
+          backgroundColor: isError ? errorColor : successColor,
+          content: Row(
+            children: [
+              Icon(
+                isError ? Icons.error_outline : Icons.check_circle_outline,
+                size: 18,
+                color: Colors.white,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  trimmed,
+                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+  }
+
+  /// Explica por que un solar no puede seleccionarse en una venta nueva.
+  void _handleBlockedLotSelection(Lot lot) {
+    final code = lot.displayCode;
+    final message = switch (lot.normalizedStatus) {
+      'vendido' =>
+        'El solar $code ya está vendido y no puede utilizarse en otra venta.',
+      'reservado' =>
+        'El solar $code está reservado y no está disponible para una nueva venta.',
+      _ => 'El solar $code no está disponible (estado: ${lot.statusLabel}).',
+    };
+    _showFeedback(message);
+  }
+
+  /// Deja el selector de solar buscando el solar que ya existe tras un
+  /// conflicto de duplicado, sin seleccionarlo automaticamente.
+  void _focusLotSearchForExisting(Lot existingLot) {
+    final number = existingLot.lotNumber.trim();
+    final query = number.isNotEmpty ? number : existingLot.displayCode;
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _lotSearchController.text = query;
+    });
+  }
+
+  /// Reintenta la carga de datos de soporte sin cerrar el formulario.
+  Future<void> _retrySupportData() async {
+    final retry = widget.onRetrySupport;
+    if (retry == null) {
+      return;
+    }
+    try {
+      await retry();
+      final lots = await _reloadLotsAfterChange(preferFullList: true);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _availableLots = lots;
+      });
+      if (_sellableLots.isEmpty) {
+        _showFeedback(
+          'Todavía no hay solares disponibles para una venta nueva.',
+          isError: false,
+        );
+      }
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      _showFeedback('No pudimos actualizar los solares. Intenta nuevamente.');
+    }
+  }
+
+  /// Recarga los solares tras crear/editar uno.
+  ///
+  /// Con [preferFullList] intenta la lista completa (disponibles + vendidos +
+  /// reservados). En el flujo de creacion/edicion rapida usa la lista de
+  /// disponibles y conserva el conocimiento previo de los solares no
+  /// disponibles, para no perder informacion ni depender de I/O adicional.
+  Future<List<Lot>> _reloadLotsAfterChange({bool preferFullList = false}) async {
+    if (preferFullList) {
+      try {
+        final all = await widget.lotRepository.fetchAll();
+        if (all.isNotEmpty) {
+          return all;
+        }
+      } catch (_) {
+        // Se cae a la lista de disponibles.
+      }
+    }
+
+    List<Lot> available;
+    try {
+      available = await widget.lotRepository.fetchAvailable();
+    } catch (_) {
+      available = const <Lot>[];
+    }
+
+    final merged = <int, Lot>{};
+    for (final lot in available) {
+      final id = lot.id;
+      if (id != null) {
+        merged[id] = lot;
+      }
+    }
+    for (final lot in _availableLots) {
+      final id = lot.id;
+      if (id == null) {
+        continue;
+      }
+      merged.putIfAbsent(id, () => lot);
+    }
+    return merged.values.toList(growable: false);
+  }
+
   Client? _findClientById(int? clientId) {
     if (clientId == null) {
       return null;
@@ -2668,10 +2896,12 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
       if (!mounted) {
         return;
       }
-      FriendlyErrorMessages.forOperation(
-        'actualizar el cliente',
-        error,
-        module: 'ventas',
+      _showFeedback(
+        FriendlyErrorMessages.forOperation(
+          'actualizar el cliente',
+          error,
+          module: 'ventas',
+        ),
       );
     }
   }
@@ -2723,10 +2953,12 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
       if (!mounted) {
         return;
       }
-      FriendlyErrorMessages.forOperation(
-        'actualizar el vendedor',
-        error,
-        module: 'ventas',
+      _showFeedback(
+        FriendlyErrorMessages.forOperation(
+          'actualizar el vendedor',
+          error,
+          module: 'ventas',
+        ),
       );
     }
   }
@@ -2741,19 +2973,12 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
           return StatefulBuilder(
             builder: (dialogContext, setDialogState) {
               final availableLots = _getAvailableLotsForAddition();
-              final searchQuery = searchController.text.trim().toLowerCase();
+              final searchQuery = searchController.text.trim();
               final filteredLots = searchQuery.isEmpty
                   ? availableLots
-                  : availableLots.where((lot) {
-                      return lot.displayCode.toLowerCase().contains(
-                            searchQuery,
-                          ) ||
-                          lot.area.toString().contains(searchQuery) ||
-                          lot.pricePerSquareMeter.toString().contains(
-                            searchQuery,
-                          ) ||
-                          lot.totalPrice.toString().contains(searchQuery);
-                    }).toList();
+                  : availableLots
+                        .where((lot) => lot.matchesQuery(searchQuery))
+                        .toList();
 
               return AlertDialog(
                 title: const Text('Agregar otro solar'),
@@ -2869,6 +3094,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
   List<Lot> _getAvailableLotsForAddition() {
     final selectedIds = {_selectedLotId, ..._additionalLotIds};
     return _availableLots
+        .where((lot) => lot.isAvailable)
         .where((lot) => !selectedIds.contains(lot.id))
         .toList();
   }
@@ -2895,7 +3121,7 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
 
     try {
       await widget.lotRepository.save(editedLot.copyWith(status: 'disponible'));
-      final updatedLots = await widget.lotRepository.fetchAvailable();
+      final updatedLots = await _reloadLotsAfterChange();
       final selectedLotId = _selectedLotId;
       final selectedLotExists =
           selectedLotId != null &&
@@ -2929,17 +3155,17 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.maybeOf(
-        context,
-      )?.showSnackBar(SnackBar(content: Text(error.message)));
+      _showFeedback(error.message);
     } catch (error) {
       if (!mounted) {
         return;
       }
-      FriendlyErrorMessages.forOperation(
-        'actualizar el solar',
-        error,
-        module: 'ventas',
+      _showFeedback(
+        FriendlyErrorMessages.forOperation(
+          'actualizar el solar',
+          error,
+          module: 'ventas',
+        ),
       );
     } finally {
       if (mounted) {
@@ -3039,6 +3265,8 @@ class _SearchableSelectionField<T extends Object> extends StatefulWidget {
     this.fieldKey,
     this.helperText,
     this.validator,
+    this.isSelectable,
+    this.onBlockedSelect,
   });
 
   final Key? fieldKey;
@@ -3054,6 +3282,12 @@ class _SearchableSelectionField<T extends Object> extends StatefulWidget {
   final bool Function(T item, String query) matches;
   final ValueChanged<int?> onChanged;
   final String? Function(int? value)? validator;
+
+  /// `false` deja la opcion visible pero no seleccionable (p.ej. solar vendido).
+  final bool Function(T item)? isSelectable;
+
+  /// Se invoca al pulsar una opcion no seleccionable para explicar el motivo.
+  final void Function(T item)? onBlockedSelect;
 
   @override
   State<_SearchableSelectionField<T>> createState() =>
@@ -3135,8 +3369,10 @@ class _SearchableSelectionFieldState<T extends Object>
   Iterable<T> _optionsFor(TextEditingValue textEditingValue) {
     final query = textEditingValue.text.trim().toLowerCase();
     final matches = query.isEmpty
-        ? widget.items
-        : widget.items.where((item) => widget.matches(item, query)).toList();
+        ? widget.items.where(
+            (item) => widget.isSelectable?.call(item) ?? true,
+          )
+        : widget.items.where((item) => widget.matches(item, query));
 
     return matches.take(80);
   }
@@ -3241,8 +3477,16 @@ class _SearchableSelectionFieldState<T extends Object>
                       ),
                       itemBuilder: (context, index) {
                         final item = visibleOptions[index];
+                        final enabled =
+                            widget.isSelectable?.call(item) ?? true;
                         return InkWell(
-                          onTap: () => onSelected(item),
+                          onTap: () {
+                            if (enabled) {
+                              onSelected(item);
+                            } else {
+                              widget.onBlockedSelect?.call(item);
+                            }
+                          },
                           child: Padding(
                             padding: const EdgeInsets.symmetric(
                               horizontal: 16,
@@ -3252,15 +3496,31 @@ class _SearchableSelectionFieldState<T extends Object>
                               crossAxisAlignment: CrossAxisAlignment.start,
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Text(
-                                  widget.titleBuilder(item),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                    fontWeight: FontWeight.w500,
-                                    letterSpacing: 0,
-                                    color: colorScheme.onSurface,
-                                  ),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        widget.titleBuilder(item),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: theme.textTheme.bodyMedium
+                                            ?.copyWith(
+                                              fontWeight: FontWeight.w500,
+                                              letterSpacing: 0,
+                                              color: enabled
+                                                  ? colorScheme.onSurface
+                                                  : colorScheme
+                                                        .onSurfaceVariant,
+                                            ),
+                                      ),
+                                    ),
+                                    if (!enabled)
+                                      Icon(
+                                        Icons.block,
+                                        size: 14,
+                                        color: colorScheme.outline,
+                                      ),
+                                  ],
                                 ),
                                 const SizedBox(height: 3),
                                 Text(
