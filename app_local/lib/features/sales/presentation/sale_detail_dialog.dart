@@ -16,6 +16,8 @@ import '../domain/sale_correction.dart';
 import '../domain/sale_detail.dart';
 import 'documents/sale_documents_dialog.dart';
 import 'sale_correction_dialog.dart';
+import 'sale_association_confirm_dialog.dart';
+import 'sale_association_picker_dialog.dart';
 import 'widgets/installments_flat_table.dart';
 
 Future<void> _printSaleDocument(BuildContext context, SaleDetail detail) async {
@@ -1543,6 +1545,61 @@ class _OwnerSaleCorrectionBarState extends State<_OwnerSaleCorrectionBar> {
     Navigator.of(context).maybePop();
   }
 
+  /// FASE 03B — cambia el cliente o el solar reutilizando los selectores
+  /// existentes y la validacion autoritativa del backend.
+  Future<void> _changeAssociation({required bool isClient}) async {
+    if (_busy) return;
+    final currentLabel = isClient
+        ? widget.detail.clientName
+        : widget.detail.lotDisplayCode;
+    final picker = await showDialog<SaleAssociationTarget>(
+      context: context,
+      builder: (_) => SaleAssociationPickerDialog(
+        isClient: isClient,
+        currentLabel: currentLabel,
+        currentSubtitle: isClient ? widget.detail.clientDocumentId : null,
+      ),
+    );
+    if (picker == null || !mounted) return;
+
+    final action = isClient
+        ? SaleCorrectionAction.changeClient
+        : SaleCorrectionAction.changeLot;
+    final applied = await showDialog<bool>(
+      context: context,
+      builder: (_) => SaleAssociationConfirmDialog(
+        title: isClient ? 'Cambiar cliente' : 'Cambiar solar',
+        currentLabel: currentLabel,
+        targetLabel: picker.label,
+        loadPreview: () => _repository.preview(
+          saleSyncId: _saleSyncId,
+          action: action,
+          clientSyncId: isClient ? picker.remoteId : null,
+          lotSyncId: isClient ? null : picker.remoteId,
+        ),
+        apply: (reason, preview) => _repository.apply(
+          saleSyncId: _saleSyncId,
+          action: action,
+          reason: reason,
+          expectedSaleVersion: preview.saleVersion,
+          clientSyncId: isClient ? picker.remoteId : null,
+          lotSyncId: isClient ? null : picker.remoteId,
+        ),
+      ),
+    );
+    if (applied != true || !mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(
+        content: Text(
+          isClient
+              ? 'Cliente actualizado. La venta se recargara.'
+              : 'Solar actualizado. La venta se recargara.',
+        ),
+      ),
+    );
+    Navigator.of(context).maybePop();
+  }
+
   Future<void> _showAudit() async {
     if (_busy) return;
     setState(() => _busy = true);
@@ -1596,6 +1653,18 @@ class _OwnerSaleCorrectionBarState extends State<_OwnerSaleCorrectionBar> {
                 ? null
                 : () => _open(SaleCorrectionAction.updateFinancing),
             child: const Text('Editar contrato', style: TextStyle(fontSize: 12)),
+          ),
+          TextButton(
+            onPressed: _busy
+                ? null
+                : () => _changeAssociation(isClient: true),
+            child: const Text('Cambiar cliente', style: TextStyle(fontSize: 12)),
+          ),
+          TextButton(
+            onPressed: _busy
+                ? null
+                : () => _changeAssociation(isClient: false),
+            child: const Text('Cambiar solar', style: TextStyle(fontSize: 12)),
           ),
           TextButton(
             onPressed:

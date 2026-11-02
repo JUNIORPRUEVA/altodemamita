@@ -329,6 +329,47 @@ async function main() {
       lotBlock,
     );
 
+    // ── 5b. Aislamiento entre empresas (IDOR) ────────────────────────────
+    const otherCompany = await prisma.company.create({
+      data: { tenantKey: `${RUN}-otra`, name: `Otra ${RUN}` },
+    });
+    let crossCompanyCode = "";
+    try {
+      await service.previewSaleCorrection({
+        companyId: otherCompany.id,
+        saleId: sale1.id,
+        action: "cancel",
+      });
+    } catch (error: any) {
+      crossCompanyCode = String(error?.code ?? "");
+    }
+    check(
+      "otra empresa no puede ver ni corregir la venta (404)",
+      crossCompanyCode === "SALE_NOT_FOUND",
+      crossCompanyCode,
+    );
+
+    let foreignClientCode = "";
+    try {
+      await service.applySaleCorrection({
+        companyId: company.id,
+        saleId: sale1.id,
+        action: "change_client",
+        clientId: "00000000-0000-0000-0000-000000000000",
+        reason: "cliente fuera de la empresa",
+        performedByUserId: owner.id,
+        idempotencyKey: `${RUN}-foreign-client`,
+      });
+    } catch (error: any) {
+      foreignClientCode = String(error?.code ?? "");
+    }
+    check(
+      "un cliente ajeno se rechaza (404 CLIENT_NOT_FOUND)",
+      foreignClientCode === "CLIENT_NOT_FOUND",
+      foreignClientCode,
+    );
+    await prisma.company.deleteMany({ where: { id: otherCompany.id } });
+
     // ── 6. Cancelacion logica reversible ─────────────────────────────────
     await service.applySaleCorrection({
       companyId: company.id,
