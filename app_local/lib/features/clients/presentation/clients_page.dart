@@ -10,6 +10,7 @@ import '../../../features/auth/domain/permission_model.dart';
 import '../../../features/auth/presentation/auth_provider.dart';
 import '../../../shared/sync/row_sync_badge_policy.dart';
 import '../../../shared/widgets/base_layout.dart';
+import '../../../shared/widgets/entity_admin_dialog.dart';
 import '../../../shared/widgets/module_list_states.dart';
 import '../../../shared/widgets/recovery_experience.dart';
 import '../data/client_repository.dart';
@@ -483,6 +484,8 @@ class _ClientsPageState extends State<ClientsPage> {
                               color: const Color(0xFF6B7494),
                               onPressed: () => _confirmDelete(client),
                             ),
+                          if (context.watch<AuthProvider>().isAdmin)
+                            _clientAdminMenu(client),
                         ],
                       ),
                     ),
@@ -493,6 +496,119 @@ class _ClientsPageState extends State<ClientsPage> {
           ),
         ],
       ),
+    );
+  }
+
+  /// FASE 04 — acciones administrativas OWNER sobre un cliente.
+  Widget _clientAdminMenu(Client client) {
+    return PopupMenuButton<String>(
+      tooltip: 'Administración del cliente',
+      padding: EdgeInsets.zero,
+      iconSize: 18,
+      splashRadius: 18,
+      icon: const Icon(Icons.more_horiz, color: Color(0xFF6B7494)),
+      itemBuilder: (_) => const [
+        PopupMenuItem<String>(
+          value: 'update_identity',
+          child: Text('Editar datos (admin)', style: TextStyle(fontSize: 12)),
+        ),
+        PopupMenuItem<String>(
+          value: 'deactivate',
+          child: Text('Desactivar cliente', style: TextStyle(fontSize: 12)),
+        ),
+        PopupMenuItem<String>(
+          value: 'reactivate',
+          child: Text('Reactivar cliente', style: TextStyle(fontSize: 12)),
+        ),
+      ],
+      onSelected: (action) => _runClientAdmin(client, action),
+    );
+  }
+
+  Future<void> _runClientAdmin(Client client, String action) async {
+    final repository = EntityAdminRepository();
+    final remoteId = repository.clientRemoteId(client.syncId);
+    if (remoteId == null) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Este cliente aún no está sincronizado: no se puede administrar.',
+          ),
+        ),
+      );
+      return;
+    }
+    final fields = action == 'update_identity'
+        ? [
+            EntityAdminField(
+              key: 'name',
+              label: 'Nombre',
+              initial: client.fullName,
+            ),
+            EntityAdminField(
+              key: 'document',
+              label: 'Cédula / documento',
+              initial: client.documentId,
+            ),
+            EntityAdminField(
+              key: 'phone',
+              label: 'Teléfono',
+              initial: client.phone ?? '',
+            ),
+            EntityAdminField(
+              key: 'address',
+              label: 'Dirección',
+              initial: client.address ?? '',
+            ),
+          ]
+        : const <EntityAdminField>[];
+    final changed = await showDialog<bool>(
+      context: context,
+      builder: (_) => EntityAdminDialog(
+        title: switch (action) {
+          'update_identity' => 'Editar cliente',
+          'deactivate' => 'Desactivar cliente',
+          'reactivate' => 'Reactivar cliente',
+          _ => 'Administrar cliente',
+        },
+        fields: fields,
+        summaryLines: [client.fullName, client.documentId],
+        loadPreview: (values) => repository.preview(
+          kind: 'client',
+          entityId: remoteId,
+          action: action,
+          values: values,
+        ),
+        apply: (reason, values) async {
+          final preview = await repository.preview(
+            kind: 'client',
+            entityId: remoteId,
+            action: action,
+            values: values,
+          );
+          if (!preview.allowed) {
+            throw Exception(
+              preview.message.isEmpty
+                  ? 'El servidor no autoriza este cambio.'
+                  : preview.message,
+            );
+          }
+          return repository.apply(
+            kind: 'client',
+            entityId: remoteId,
+            action: action,
+            reason: reason,
+            expectedVersion: preview.version,
+            values: values,
+          );
+        },
+      ),
+    );
+    if (changed != true || !mounted) return;
+    await _controller.load();
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      const SnackBar(content: Text('Cliente actualizado correctamente.')),
     );
   }
 

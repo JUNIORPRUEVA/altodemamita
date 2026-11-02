@@ -9,6 +9,7 @@ import { AuthoritativePaymentService } from '../services/authoritativePayment.se
 import { AuthoritativeSaleService } from '../services/authoritativeSale.service';
 import { InstallmentCorrectionService } from '../services/installmentCorrection.service';
 import { SaleCorrectionService } from '../services/saleCorrection.service';
+import { EntityAdminService } from '../services/entityAdmin.service';
 
 export const authoritativeRouter = Router();
 
@@ -16,6 +17,7 @@ const sales = new AuthoritativeSaleService(prisma);
 const payments = new AuthoritativePaymentService(prisma);
 const installmentCorrections = new InstallmentCorrectionService(prisma);
 const saleCorrections = new SaleCorrectionService(prisma);
+const entityAdmin = new EntityAdminService(prisma);
 
 authoritativeRouter.use(authGuard);
 
@@ -239,6 +241,107 @@ authoritativeRouter.get(
     }
   },
 );
+
+/**
+ * FASE 04 — Administracion OWNER de clientes y solares.
+ *
+ * Reutiliza el patron de las fases anteriores: preview por rollback
+ * transaccional, apply atomico/idempotente con version optimista y auditoria.
+ */
+for (const kind of ['clients', 'lots'] as const) {
+  const entityKind = kind === 'clients' ? 'client' : 'lot';
+
+  authoritativeRouter.get(
+    `/authoritative/${kind}/:entityId/admin-preview`,
+    requireOwnerRole(),
+    async (req, res) => {
+      try {
+        const company = await resolveCompanyForRequest(req);
+        const preview = await entityAdmin.preview({
+          companyId: company.id,
+          kind: entityKind,
+          entityId: paramValue(req.params.entityId),
+          action: stringValue(req.query.action) as never,
+          name: stringValue(req.query.name),
+          document: stringValue(req.query.document),
+          phone: stringValue(req.query.phone),
+          address: stringValue(req.query.address),
+          mergeSourceId: stringValue(req.query.mergeSourceId),
+          block: stringValue(req.query.block),
+          number: stringValue(req.query.number),
+          area: numberValue(req.query.area),
+          price: numberValue(req.query.price),
+          status: stringValue(req.query.status),
+        });
+        res.status(200).json({ data: preview });
+      } catch (error) {
+        const response = authoritativeErrorResponse(error);
+        res.status(response.status).json(response.body);
+      }
+    },
+  );
+
+  authoritativeRouter.post(
+    `/authoritative/${kind}/:entityId/admin`,
+    requireOwnerRole(),
+    async (req, res) => {
+      try {
+        const company = await resolveCompanyForRequest(req);
+        const body = (req.body ?? {}) as Record<string, unknown>;
+        const num = (value: unknown) =>
+          value == null || value === '' ? null : Number(value);
+        const result = await entityAdmin.apply({
+          companyId: company.id,
+          kind: entityKind,
+          entityId: paramValue(req.params.entityId),
+          action: String(body.action ?? '') as never,
+          name: body.name == null ? null : String(body.name),
+          document: body.document == null ? null : String(body.document),
+          phone: body.phone == null ? null : String(body.phone),
+          address: body.address == null ? null : String(body.address),
+          mergeSourceId:
+            body.mergeSourceId == null ? null : String(body.mergeSourceId),
+          block: body.block == null ? null : String(body.block),
+          number: body.number == null ? null : String(body.number),
+          area: num(body.area),
+          price: num(body.price),
+          status: body.status == null ? null : String(body.status),
+          reason: String(body.reason ?? ''),
+          performedByUserId: req.user?.id ?? '',
+          idempotencyKey: idempotencyKey(req) ?? '',
+          expectedVersion:
+            body.expectedVersion == null ? null : Number(body.expectedVersion),
+        });
+        res.status(result.replayed ? 200 : 201).json({
+          data: result.response,
+          idempotentReplay: result.replayed,
+        });
+      } catch (error) {
+        const response = authoritativeErrorResponse(error);
+        res.status(response.status).json(response.body);
+      }
+    },
+  );
+
+  authoritativeRouter.get(
+    `/authoritative/${kind}/:entityId/admin-audit`,
+    requireOwnerRole(),
+    async (req, res) => {
+      try {
+        const company = await resolveCompanyForRequest(req);
+        const history = await entityAdmin.history({
+          companyId: company.id,
+          kind: entityKind,
+          entityId: paramValue(req.params.entityId),
+        });
+        res.status(200).json({ data: history });
+      } catch (error) {
+        const response = authoritativeErrorResponse(error);
+        res.status(response.status).json(response.body);
+      }
+    },
+  );
+}
 
 /**
  * FASE 03 — Correccion OWNER de ventas y contratos.
