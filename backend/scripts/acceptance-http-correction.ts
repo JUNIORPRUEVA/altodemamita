@@ -437,6 +437,154 @@ async function main() {
         String(techWaiver.status),
       );
     }
+
+    // ═══ FASE 02 — Gestion OWNER del cronograma por HTTP ══════════════════
+    const lot3 = await prisma.lot.create({
+      data: { companyId: company.id, syncId: `${RUN}-lot-3`, block: "E", number: "13", status: "vendido" },
+    });
+    const sale3 = await prisma.sale.create({
+      data: {
+        companyId: company.id,
+        syncId: `${RUN}-sale-3`,
+        clientId: client.id,
+        lotId: lot3.id,
+        clientSyncId: client.syncId,
+        lotSyncId: lot3.syncId,
+        saleDate: new Date("2026-08-01T00:00:00.000Z"),
+        status: "activa",
+        total: 20000,
+        initialRequiredAmount: 0,
+        initialPaid: 0,
+        initialPendingAmount: 0,
+        financedBalance: 20000,
+        balance: 20000,
+        monthlyInterestRate: 0,
+        installmentCount: 2,
+      },
+    });
+    const inst3a = await prisma.installment.create({
+      data: {
+        companyId: company.id,
+        syncId: `${RUN}-inst-3a`,
+        saleId: sale3.id,
+        saleSyncId: sale3.syncId,
+        installmentNumber: 1,
+        dueDate: new Date("2026-09-01T00:00:00.000Z"),
+        openingBalance: 20000,
+        principalAmount: 10000,
+        interestAmount: 0,
+        totalAmount: 10000,
+        paidAmount: 0,
+        paidPrincipalAmount: 0,
+        paidInterestAmount: 0,
+        endingBalance: 10000,
+        status: "pendiente",
+      },
+    });
+    await prisma.installment.create({
+      data: {
+        companyId: company.id,
+        syncId: `${RUN}-inst-3b`,
+        saleId: sale3.id,
+        saleSyncId: sale3.syncId,
+        installmentNumber: 2,
+        dueDate: new Date("2026-10-01T00:00:00.000Z"),
+        openingBalance: 10000,
+        principalAmount: 10000,
+        interestAmount: 0,
+        totalAmount: 10000,
+        paidAmount: 0,
+        paidPrincipalAmount: 0,
+        paidInterestAmount: 0,
+        endingBalance: 0,
+        status: "pendiente",
+      },
+    });
+
+    const previewPath3 =
+      `/authoritative/sales/${sale3.id}/installment-corrections/preview` +
+      `?action=change_due_date&installmentId=${inst3a.id}&dueDate=2026-09-20T00:00:00.000Z`;
+
+    const techInstallmentPreview = await api(previewPath3, {
+      token: techToken,
+      tenantKey,
+    });
+    check(
+      "TECH recibe 403 al previsualizar la correccion de cronograma",
+      techInstallmentPreview.status === 403,
+      String(techInstallmentPreview.status),
+    );
+
+    const ownerInstallmentPreview = await api(previewPath3, {
+      token: ownerToken,
+      tenantKey,
+    });
+    check(
+      "OWNER previsualiza el cambio de vencimiento",
+      ownerInstallmentPreview.status === 200 &&
+        ownerInstallmentPreview.json?.data?.impact?.principalPreserved === true,
+      `${ownerInstallmentPreview.status}`,
+    );
+
+    const installmentKey = `${RUN}-inst-apply`;
+    const installmentApply = await api(
+      `/authoritative/sales/${sale3.id}/installment-corrections`,
+      {
+        method: "POST",
+        token: ownerToken,
+        tenantKey,
+        idempotencyKey: installmentKey,
+        body: {
+          action: "change_due_date",
+          installmentId: inst3a.id,
+          dueDate: "2026-09-20T00:00:00.000Z",
+          reason: "Vencimiento mal capturado",
+          expectedSaleVersion: sale3.version,
+        },
+      },
+    );
+    check(
+      "OWNER aplica la correccion de cronograma (201)",
+      installmentApply.status === 201,
+      `${installmentApply.status} ${JSON.stringify(installmentApply.json?.error ?? {})}`,
+    );
+    const installmentReplay = await api(
+      `/authoritative/sales/${sale3.id}/installment-corrections`,
+      {
+        method: "POST",
+        token: ownerToken,
+        tenantKey,
+        idempotencyKey: installmentKey,
+        body: {
+          action: "change_due_date",
+          installmentId: inst3a.id,
+          dueDate: "2026-09-20T00:00:00.000Z",
+          reason: "Vencimiento mal capturado",
+          expectedSaleVersion: sale3.version,
+        },
+      },
+    );
+    check(
+      "reintento de cronograma es idempotente (200)",
+      installmentReplay.status === 200 &&
+        installmentReplay.json?.idempotentReplay === true,
+      `${installmentReplay.status}`,
+    );
+
+    const installmentAudit = await api(
+      `/authoritative/sales/${sale3.id}/installment-corrections/audit`,
+      { token: ownerToken, tenantKey },
+    );
+    const installmentEntries = Array.isArray(
+      installmentAudit.json?.data?.history,
+    )
+      ? installmentAudit.json.data.history
+      : [];
+    check(
+      "la auditoria de cronograma devuelve la traza",
+      installmentAudit.status === 200 && installmentEntries.length >= 2,
+      `${installmentAudit.status} eventos=${installmentEntries.length}`,
+    );
   } finally {
     // El backend crea (upsert) una empresa al recibir un tenant desconocido; la
     // prueba de IDOR genera `${RUN}-otra`, que tambien debe eliminarse.

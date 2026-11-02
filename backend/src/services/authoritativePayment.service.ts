@@ -753,7 +753,7 @@ export class AuthoritativePaymentService {
  * escriben mora de una venta toman primero este bloqueo, en el mismo orden, para
  * evitar interbloqueos.
  */
-async function lockSaleForFinancialMutation(
+export async function lockSaleForFinancialMutation(
   tx: TransactionClient,
   saleId: string,
 ): Promise<void> {
@@ -2079,7 +2079,7 @@ export type SaleLateFeeState = {
  * la lista completa de condonaciones a cada cuota, reutilizando el mismo monto
  * varias veces cuando habia varias cuotas vencidas.
  */
-async function resolveSaleLateFeeState(
+export async function resolveSaleLateFeeState(
   tx: TransactionClient,
   companyId: string,
   sale: Awaited<ReturnType<typeof loadSale>>,
@@ -2391,7 +2391,7 @@ async function loadSale(
   return sale;
 }
 
-async function loadActiveInstallments(tx: TransactionClient, saleId: string) {
+export async function loadActiveInstallments(tx: TransactionClient, saleId: string) {
   return tx.installment.findMany({
     where: { saleId, deletedAt: null },
     orderBy: { installmentNumber: "asc" },

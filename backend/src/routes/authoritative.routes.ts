@@ -7,11 +7,13 @@ import { requirePaymentCancelAuthorization, requireOwnerRole } from '../services
 import { authoritativeErrorResponse } from '../services/authoritativeErrors.service';
 import { AuthoritativePaymentService } from '../services/authoritativePayment.service';
 import { AuthoritativeSaleService } from '../services/authoritativeSale.service';
+import { InstallmentCorrectionService } from '../services/installmentCorrection.service';
 
 export const authoritativeRouter = Router();
 
 const sales = new AuthoritativeSaleService(prisma);
 const payments = new AuthoritativePaymentService(prisma);
+const installmentCorrections = new InstallmentCorrectionService(prisma);
 
 authoritativeRouter.use(authGuard);
 
@@ -237,6 +239,101 @@ authoritativeRouter.get(
 );
 
 /**
+ * FASE 02 — Gestion OWNER del cronograma de cuotas.
+ *
+ * `preview` ejecuta la MISMA logica del apply dentro de una transaccion que se
+ * revierte: el impacto mostrado (capital, proximo vencimiento, mora) es real.
+ */
+authoritativeRouter.get(
+  '/sales/:saleId/installment-corrections/preview',
+  requireOwnerRole(),
+  async (req, res) => {
+    try {
+      const company = await resolveCompanyForRequest(req);
+      const preview = await installmentCorrections.previewInstallmentCorrection(
+        {
+          companyId: company.id,
+          saleId: paramValue(req.params.saleId),
+          action: stringValue(req.query.action) as never,
+          installmentId: stringValue(req.query.installmentId),
+          dueDate: stringValue(req.query.dueDate),
+          principalAmount: numberValue(req.query.principalAmount),
+          interestAmount: numberValue(req.query.interestAmount),
+          installmentCount: numberValue(req.query.installmentCount),
+          firstDueDate: stringValue(req.query.firstDueDate),
+        },
+      );
+      res.status(200).json({ data: preview });
+    } catch (error) {
+      const response = authoritativeErrorResponse(error);
+      res.status(response.status).json(response.body);
+    }
+  },
+);
+
+authoritativeRouter.post(
+  '/sales/:saleId/installment-corrections',
+  requireOwnerRole(),
+  async (req, res) => {
+    try {
+      const company = await resolveCompanyForRequest(req);
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const result = await installmentCorrections.applyInstallmentCorrection({
+        companyId: company.id,
+        saleId: paramValue(req.params.saleId),
+        action: String(body.action ?? '') as never,
+        installmentId: body.installmentId == null ? null : String(body.installmentId),
+        dueDate: body.dueDate == null ? null : String(body.dueDate),
+        principalAmount:
+          body.principalAmount == null || body.principalAmount === ''
+            ? null
+            : Number(body.principalAmount),
+        interestAmount:
+          body.interestAmount == null || body.interestAmount === ''
+            ? null
+            : Number(body.interestAmount),
+        installmentCount:
+          body.installmentCount == null || body.installmentCount === ''
+            ? null
+            : Number(body.installmentCount),
+        firstDueDate: body.firstDueDate == null ? null : String(body.firstDueDate),
+        reason: String(body.reason ?? ''),
+        performedByUserId: req.user?.id ?? '',
+        idempotencyKey: idempotencyKey(req) ?? '',
+        expectedSaleVersion:
+          body.expectedSaleVersion == null
+            ? null
+            : Number(body.expectedSaleVersion),
+      });
+      res.status(result.replayed ? 200 : 201).json({
+        data: result.response,
+        idempotentReplay: result.replayed,
+      });
+    } catch (error) {
+      const response = authoritativeErrorResponse(error);
+      res.status(response.status).json(response.body);
+    }
+  },
+);
+
+authoritativeRouter.get(
+  '/sales/:saleId/installment-corrections/audit',
+  requireOwnerRole(),
+  async (req, res) => {
+    try {
+      const company = await resolveCompanyForRequest(req);
+      const history = await installmentCorrections.getInstallmentCorrectionHistory(
+        { companyId: company.id, saleId: paramValue(req.params.saleId) },
+      );
+      res.status(200).json({ data: history });
+    } catch (error) {
+      const response = authoritativeErrorResponse(error);
+      res.status(response.status).json(response.body);
+    }
+  },
+);
+
+/**
  * FASE 01C — Aplica una correccion historica (solo OWNER).
  *
  * Requiere motivo y (recomendado) la version del pago para control optimista.
@@ -315,4 +412,14 @@ function stringValue(value: unknown) {
 
 function paramValue(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value ?? '';
+}
+
+/** Numero opcional desde query string: `undefined` si falta o no es numerico. */
+function numberValue(value: unknown) {
+  const text = Array.isArray(value) ? value[0] : value;
+  if (text == null || text === '') {
+    return null;
+  }
+  const parsed = Number(text);
+  return Number.isFinite(parsed) ? parsed : null;
 }
