@@ -11,20 +11,24 @@ import '../../../core/errors/active_sales_block_delete_exception.dart';
 import '../../../core/system/system_config_service.dart';
 import '../../../services/sync/sync_queue_service.dart';
 import '../domain/lot.dart';
+import '../domain/lot_code.dart';
 
 class DuplicateLotException implements Exception {
   DuplicateLotException(this.existingLot);
 
   final Lot existingLot;
 
+  /// Mensaje unico, en espanol y accionable. Nunca expone codigos HTTP.
   String get message {
-    final status = switch (existingLot.status.trim().toLowerCase()) {
-      'reservado' => 'reservado',
-      'vendido' => 'vendido',
-      _ => 'disponible',
+    final code = existingLot.displayCode;
+    return switch (existingLot.normalizedStatus) {
+      'vendido' =>
+        'El solar $code ya está vendido y no puede utilizarse en otra venta.',
+      'reservado' =>
+        'El solar $code está reservado y no está disponible para una nueva venta.',
+      _ =>
+        'El solar $code ya está registrado. Revisa su estado antes de continuar.',
     };
-
-    return 'Ya existe el solar ${existingLot.displayCode} y actualmente está $status.';
   }
 
   @override
@@ -125,11 +129,11 @@ class LotRepository {
         query: '$blockNumber $lotNumber',
         onlyAvailable: false,
       );
+      final wantedBlock = LotCode.canonicalBlock(blockNumber);
+      final wantedNumber = lotNumber.trim().toLowerCase();
       for (final lot in lots) {
-        if (lot.blockNumber.trim().toLowerCase() ==
-                blockNumber.trim().toLowerCase() &&
-            lot.lotNumber.trim().toLowerCase() ==
-                lotNumber.trim().toLowerCase()) {
+        if (LotCode.canonicalBlock(lot.blockNumber) == wantedBlock &&
+            lot.lotNumber.trim().toLowerCase() == wantedNumber) {
           return lot;
         }
       }
@@ -260,7 +264,29 @@ class LotRepository {
     try {
       _systemConfigService.ensureWritable();
       if (_useBackendMode) {
-        await _saveToBackend(lot);
+        try {
+          await _saveToBackend(lot);
+        } on BackendApiException catch (error) {
+          // El backend es autoritativo y rechaza duplicados con 409 LOT_EXISTS.
+          // Se traduce a una excepcion de negocio para que la interfaz muestre
+          // el motivo real (vendido/reservado/registrado) en lugar de un
+          // mensaje tecnico o de un fallo silencioso.
+          if (error.statusCode == 409) {
+            Lot existing;
+            try {
+              existing =
+                  await findByBlockAndLotNumber(
+                    blockNumber: lot.blockNumber,
+                    lotNumber: lot.lotNumber,
+                  ) ??
+                  lot;
+            } catch (_) {
+              existing = lot;
+            }
+            throw DuplicateLotException(existing);
+          }
+          rethrow;
+        }
         return;
       }
 
@@ -491,38 +517,60 @@ class LotRepository {
     String query = '',
     required bool onlyAvailable,
   }) async {
-    final response = await _apiClient.get(
-      '/business/lots',
-      queryParameters: {
-        'page': '1',
-        'limit': '100',
-        if (onlyAvailable) 'status': 'disponible',
-        if (query.trim().isNotEmpty) 'search': query.trim(),
-      },
-    );
-    final payload = response is Map<String, dynamic>
-        ? response
-        : (response as Map).map(
-            (key, value) => MapEntry(key.toString(), value),
-          );
-    final data = payload['data'];
-    final dataMap = data is Map
-        ? data.map((key, value) => MapEntry(key.toString(), value))
-        : payload;
-    final items = (dataMap['items'] as List?) ?? const [];
-    final rawItems = items
-        .whereType<Map>()
-        .map(
-          (item) => item.map(
-            (key, value) => MapEntry(key.toString(), value),
-          ),
-        )
-        .toList(growable: false);
-    final lots = rawItems.map(_lotFromBackend).toList(growable: false);
+    // Paginacion completa: el formulario de venta necesita TODOS los solares
+    // (no solo los primeros 100) para poder explicar el estado de uno vendido
+    // o reservado y para no truncar instalaciones con mas de 100 solares.
+    const pageSize = 100;
+    const maxPages = 40;
+    final collected = <Map<String, dynamic>>[];
+
+    for (var page = 1; page <= maxPages; page++) {
+      final response = await _apiClient.get(
+        '/business/lots',
+        queryParameters: {
+          'page': '$page',
+          'limit': '$pageSize',
+          if (onlyAvailable) 'status': 'disponible',
+          if (query.trim().isNotEmpty) 'search': query.trim(),
+        },
+      );
+      final payload = response is Map<String, dynamic>
+          ? response
+          : (response as Map).map(
+              (key, value) => MapEntry(key.toString(), value),
+            );
+      final data = payload['data'];
+      final dataMap = data is Map
+          ? data.map((key, value) => MapEntry(key.toString(), value))
+          : payload;
+      final items = (dataMap['items'] as List?) ?? const [];
+      final pageItems = items
+          .whereType<Map>()
+          .map(
+            (item) => item.map(
+              (key, value) => MapEntry(key.toString(), value),
+            ),
+          )
+          .toList(growable: false);
+      collected.addAll(pageItems);
+
+      final total = _toInt(dataMap['total']);
+      if (pageItems.isEmpty) {
+        break;
+      }
+      if (total > 0 && collected.length >= total) {
+        break;
+      }
+      if (pageItems.length < pageSize) {
+        break;
+      }
+    }
+
+    final lots = collected.map(_lotFromBackend).toList(growable: false);
     // Snapshot cache-first solo de la lista completa (no de busquedas ni del
     // filtro de disponibles usado por el formulario de ventas).
     if (!onlyAvailable && query.trim().isEmpty) {
-      await _listSnapshot.write(rawItems);
+      await _listSnapshot.write(collected);
     }
     if (!onlyAvailable) {
       return lots;

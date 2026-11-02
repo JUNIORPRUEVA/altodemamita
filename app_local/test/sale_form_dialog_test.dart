@@ -1106,7 +1106,9 @@ void main() {
       await _settle(tester);
 
       expect(
-        find.text('Ya existe el solar MB-S22 y actualmente está reservado.'),
+        find.text(
+          'El solar MB-S22 está reservado y no está disponible para una nueva venta.',
+        ),
         findsOneWidget,
       );
     },

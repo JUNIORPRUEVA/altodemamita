@@ -1,3 +1,5 @@
+import 'lot_code.dart';
+
 class Lot {
   Lot({
     this.id,
@@ -26,7 +28,33 @@ class Lot {
   final DateTime createdAt;
   final DateTime updatedAt;
 
-  String get displayCode => 'M$blockNumber-S$lotNumber';
+  /// Codigo canonico (`M-N-S493`). Nunca duplica el prefijo de manzana.
+  String get displayCode =>
+      LotCode.canonicalCode(blockNumber: blockNumber, lotNumber: lotNumber);
+
+  /// Estado normalizado (minusculas, sin espacios).
+  String get normalizedStatus => status.trim().toLowerCase();
+
+  /// Etiqueta legible del estado para la interfaz.
+  String get statusLabel => switch (normalizedStatus) {
+    'disponible' => 'Disponible',
+    'vendido' => 'Vendido',
+    'reservado' => 'Reservado',
+    _ => status.trim().isEmpty ? 'Desconocido' : status.trim(),
+  };
+
+  /// `true` solo cuando el solar puede usarse en una venta nueva.
+  bool get isAvailable => normalizedStatus == 'disponible';
+
+  /// `true` si [query] identifica a este solar (busqueda tolerante).
+  bool matchesQuery(String query) => LotCode.matchesQuery(
+    blockNumber: blockNumber,
+    lotNumber: lotNumber,
+    query: query,
+    area: area,
+    unitPricePerSquareMeter: pricePerSquareMeter,
+    totalPrice: totalPrice,
+  );
 
   double get totalPrice => _roundCurrency(area * pricePerSquareMeter);
 
