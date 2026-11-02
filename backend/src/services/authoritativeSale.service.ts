@@ -489,7 +489,7 @@ function normalizeSaleType(value: unknown) {
   return 'FINANCED';
 }
 
-async function cancelSaleInTransaction(
+export async function cancelSaleInTransaction(
   tx: TransactionClient,
   input: CancelAuthoritativeSaleInput,
 ): Promise<Prisma.JsonObject> {

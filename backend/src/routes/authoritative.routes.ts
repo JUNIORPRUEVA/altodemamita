@@ -8,12 +8,14 @@ import { authoritativeErrorResponse } from '../services/authoritativeErrors.serv
 import { AuthoritativePaymentService } from '../services/authoritativePayment.service';
 import { AuthoritativeSaleService } from '../services/authoritativeSale.service';
 import { InstallmentCorrectionService } from '../services/installmentCorrection.service';
+import { SaleCorrectionService } from '../services/saleCorrection.service';
 
 export const authoritativeRouter = Router();
 
 const sales = new AuthoritativeSaleService(prisma);
 const payments = new AuthoritativePaymentService(prisma);
 const installmentCorrections = new InstallmentCorrectionService(prisma);
+const saleCorrections = new SaleCorrectionService(prisma);
 
 authoritativeRouter.use(authGuard);
 
@@ -229,6 +231,103 @@ authoritativeRouter.get(
       const history = await payments.getPaymentCorrectionHistory({
         companyId: company.id,
         paymentId: paramValue(req.params.paymentId),
+      });
+      res.status(200).json({ data: history });
+    } catch (error) {
+      const response = authoritativeErrorResponse(error);
+      res.status(response.status).json(response.body);
+    }
+  },
+);
+
+/**
+ * FASE 03 — Correccion OWNER de ventas y contratos.
+ *
+ * `preview` ejecuta la MISMA logica del apply dentro de una transaccion que se
+ * revierte: el impacto mostrado es el real. Ninguna accion borra historia: la
+ * cancelacion es logica y reversible mediante snapshot auditado.
+ */
+authoritativeRouter.get(
+  '/sales/:saleId/corrections/preview',
+  requireOwnerRole(),
+  async (req, res) => {
+    try {
+      const company = await resolveCompanyForRequest(req);
+      const preview = await saleCorrections.previewSaleCorrection({
+        companyId: company.id,
+        saleId: paramValue(req.params.saleId),
+        action: stringValue(req.query.action) as never,
+        saleDate: stringValue(req.query.saleDate),
+        totalPrice: numberValue(req.query.totalPrice),
+        initialPaidAmount: numberValue(req.query.initialPaidAmount),
+        initialRequiredAmount: numberValue(req.query.initialRequiredAmount),
+        installmentCount: numberValue(req.query.installmentCount),
+        monthlyInterestRate: numberValue(req.query.monthlyInterestRate),
+        initialPaymentDeadline: stringValue(req.query.initialPaymentDeadline),
+        clientId: stringValue(req.query.clientId),
+        lotId: stringValue(req.query.lotId),
+      });
+      res.status(200).json({ data: preview });
+    } catch (error) {
+      const response = authoritativeErrorResponse(error);
+      res.status(response.status).json(response.body);
+    }
+  },
+);
+
+authoritativeRouter.post(
+  '/sales/:saleId/corrections',
+  requireOwnerRole(),
+  async (req, res) => {
+    try {
+      const company = await resolveCompanyForRequest(req);
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const numeric = (value: unknown) =>
+        value == null || value === '' ? null : Number(value);
+      const result = await saleCorrections.applySaleCorrection({
+        companyId: company.id,
+        saleId: paramValue(req.params.saleId),
+        action: String(body.action ?? '') as never,
+        saleDate: body.saleDate == null ? null : String(body.saleDate),
+        totalPrice: numeric(body.totalPrice),
+        initialPaidAmount: numeric(body.initialPaidAmount),
+        initialRequiredAmount: numeric(body.initialRequiredAmount),
+        installmentCount: numeric(body.installmentCount),
+        monthlyInterestRate: numeric(body.monthlyInterestRate),
+        initialPaymentDeadline:
+          body.initialPaymentDeadline == null
+            ? null
+            : String(body.initialPaymentDeadline),
+        clientId: body.clientId == null ? null : String(body.clientId),
+        lotId: body.lotId == null ? null : String(body.lotId),
+        reason: String(body.reason ?? ''),
+        performedByUserId: req.user?.id ?? '',
+        idempotencyKey: idempotencyKey(req) ?? '',
+        expectedSaleVersion:
+          body.expectedSaleVersion == null
+            ? null
+            : Number(body.expectedSaleVersion),
+      });
+      res.status(result.replayed ? 200 : 201).json({
+        data: result.response,
+        idempotentReplay: result.replayed,
+      });
+    } catch (error) {
+      const response = authoritativeErrorResponse(error);
+      res.status(response.status).json(response.body);
+    }
+  },
+);
+
+authoritativeRouter.get(
+  '/sales/:saleId/corrections/audit',
+  requireOwnerRole(),
+  async (req, res) => {
+    try {
+      const company = await resolveCompanyForRequest(req);
+      const history = await saleCorrections.getSaleCorrectionHistory({
+        companyId: company.id,
+        saleId: paramValue(req.params.saleId),
       });
       res.status(200).json({ data: history });
     } catch (error) {

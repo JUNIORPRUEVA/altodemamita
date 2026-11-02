@@ -585,6 +585,82 @@ async function main() {
       installmentAudit.status === 200 && installmentEntries.length >= 2,
       `${installmentAudit.status} eventos=${installmentEntries.length}`,
     );
+
+    // ═══ FASE 03 — Correcciones OWNER de venta por HTTP ═══════════════════
+    const salePreviewPath = `/authoritative/sales/${sale2.id}/corrections/preview?action=cancel`;
+
+    const techSalePreview = await api(salePreviewPath, {
+      token: techToken,
+      tenantKey,
+    });
+    check(
+      "TECH recibe 403 al previsualizar una corrección de venta",
+      techSalePreview.status === 403,
+      String(techSalePreview.status),
+    );
+
+    const ownerSalePreview = await api(salePreviewPath, {
+      token: ownerToken,
+      tenantKey,
+    });
+    check(
+      "OWNER previsualiza la cancelación de venta",
+      ownerSalePreview.status === 200 &&
+        ownerSalePreview.json?.data?.impact?.statusAfter === "cancelada",
+      `${ownerSalePreview.status}`,
+    );
+
+    const saleKey = `${RUN}-sale-cancel`;
+    const saleCancel = await api(
+      `/authoritative/sales/${sale2.id}/corrections`,
+      {
+        method: "POST",
+        token: ownerToken,
+        tenantKey,
+        idempotencyKey: saleKey,
+        body: {
+          action: "cancel",
+          reason: "Cancelación administrativa (prueba)",
+          expectedSaleVersion: sale2.version,
+        },
+      },
+    );
+    check(
+      "OWNER cancela la venta (201)",
+      saleCancel.status === 201,
+      `${saleCancel.status} ${JSON.stringify(saleCancel.json?.error ?? {})}`,
+    );
+    const saleReplay = await api(
+      `/authoritative/sales/${sale2.id}/corrections`,
+      {
+        method: "POST",
+        token: ownerToken,
+        tenantKey,
+        idempotencyKey: saleKey,
+        body: {
+          action: "cancel",
+          reason: "Cancelación administrativa (prueba)",
+          expectedSaleVersion: sale2.version,
+        },
+      },
+    );
+    check(
+      "reintento de cancelación es idempotente (200)",
+      saleReplay.status === 200 && saleReplay.json?.idempotentReplay === true,
+      `${saleReplay.status}`,
+    );
+    const saleAudit = await api(
+      `/authoritative/sales/${sale2.id}/corrections/audit`,
+      { token: ownerToken, tenantKey },
+    );
+    const saleEntries = Array.isArray(saleAudit.json?.data?.history)
+      ? saleAudit.json.data.history
+      : [];
+    check(
+      "la auditoría de venta devuelve la traza",
+      saleAudit.status === 200 && saleEntries.length >= 1,
+      `${saleAudit.status} eventos=${saleEntries.length}`,
+    );
   } finally {
     // El backend crea (upsert) una empresa al recibir un tenant desconocido; la
     // prueba de IDOR genera `${RUN}-otra`, que tambien debe eliminarse.

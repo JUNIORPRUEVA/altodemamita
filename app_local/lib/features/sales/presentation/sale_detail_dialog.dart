@@ -2,15 +2,20 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../../../core/business/installment_status.dart';
 import '../../../core/responsive/app_breakpoints.dart';
+import '../../auth/presentation/auth_provider.dart';
 import '../../payments/data/payments_repository.dart';
 import '../../payments/domain/payment_sale_option.dart';
 import '../../payments/presentation/payment_history_fullscreen.dart';
+import '../data/sale_correction_repository.dart';
 import '../domain/sale_calculator.dart';
+import '../domain/sale_correction.dart';
 import '../domain/sale_detail.dart';
 import 'documents/sale_documents_dialog.dart';
+import 'sale_correction_dialog.dart';
 import 'widgets/installments_flat_table.dart';
 
 Future<void> _printSaleDocument(BuildContext context, SaleDetail detail) async {
@@ -184,6 +189,7 @@ class SaleDetailDialog extends StatelessWidget {
           children: [
             _DialogHeader(detail: detail),
             const Divider(height: 1),
+            _OwnerSaleCorrectionBar(detail: detail),
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
@@ -1419,5 +1425,285 @@ Color _saleDetailStatusColor(String status) {
       return const Color(0xFF1565C0);
     default:
       return const Color(0xFF455A64);
+  }
+}
+
+/// FASE 03 — Acciones administrativas OWNER sobre la venta abierta.
+///
+/// Se muestra solo para administradores; el backend valida el rol de forma
+/// obligatoria (403 si alguien fuerza la llamada).
+class _OwnerSaleCorrectionBar extends StatefulWidget {
+  const _OwnerSaleCorrectionBar({required this.detail});
+
+  final SaleDetail detail;
+
+  @override
+  State<_OwnerSaleCorrectionBar> createState() =>
+      _OwnerSaleCorrectionBarState();
+}
+
+class _OwnerSaleCorrectionBarState extends State<_OwnerSaleCorrectionBar> {
+  final SaleCorrectionRepository _repository = SaleCorrectionRepository();
+  bool _busy = false;
+
+  String get _saleSyncId => widget.detail.sale.syncId ?? '';
+
+  Future<void> _open(String action) async {
+    if (_busy) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    Future<SaleCorrectionPreview> runPreview({
+      DateTime? saleDate,
+      double? totalPrice,
+      double? initialPaidAmount,
+      int? installmentCount,
+      double? monthlyInterestRate,
+    }) {
+      return _repository.preview(
+        saleSyncId: _saleSyncId,
+        action: action,
+        saleDate: saleDate,
+        totalPrice: totalPrice,
+        initialPaidAmount: initialPaidAmount,
+        installmentCount: installmentCount,
+        monthlyInterestRate: monthlyInterestRate,
+      );
+    }
+
+    final sale = widget.detail.sale;
+    final applied = await showDialog<bool>(
+      context: context,
+      builder: (_) => SaleCorrectionDialog(
+        action: action,
+        saleLabel:
+            '${widget.detail.clientName} — ${widget.detail.lotDisplayCode}',
+        currentTotal: sale.salePrice,
+        currentInitialPaid: sale.paidInitialPayment,
+        currentInstallmentCount: sale.installmentCount,
+        currentInterestRate: sale.monthlyInterest,
+        loadPreview:
+            ({
+              saleDate,
+              totalPrice,
+              initialPaidAmount,
+              installmentCount,
+              monthlyInterestRate,
+            }) => runPreview(
+              saleDate: saleDate,
+              totalPrice: totalPrice,
+              initialPaidAmount: initialPaidAmount,
+              installmentCount: installmentCount,
+              monthlyInterestRate: monthlyInterestRate,
+            ),
+        apply:
+            ({
+              required reason,
+              saleDate,
+              totalPrice,
+              initialPaidAmount,
+              installmentCount,
+              monthlyInterestRate,
+            }) async {
+              final preview = await runPreview(
+                saleDate: saleDate,
+                totalPrice: totalPrice,
+                initialPaidAmount: initialPaidAmount,
+                installmentCount: installmentCount,
+                monthlyInterestRate: monthlyInterestRate,
+              );
+              if (!preview.allowed) {
+                throw Exception(
+                  preview.message.isEmpty
+                      ? 'El servidor no autoriza esta corrección.'
+                      : preview.message,
+                );
+              }
+              return _repository.apply(
+                saleSyncId: _saleSyncId,
+                action: action,
+                reason: reason,
+                expectedSaleVersion: preview.saleVersion,
+                saleDate: saleDate,
+                totalPrice: totalPrice,
+                initialPaidAmount: initialPaidAmount,
+                installmentCount: installmentCount,
+                monthlyInterestRate: monthlyInterestRate,
+              );
+            },
+      ),
+    );
+    if (applied != true || !mounted) return;
+    setState(() => _busy = true);
+    messenger?.showSnackBar(
+      const SnackBar(
+        content: Text('Venta corregida. Los saldos fueron recalculados.'),
+      ),
+    );
+    if (!mounted) return;
+    setState(() => _busy = false);
+    Navigator.of(context).maybePop();
+  }
+
+  Future<void> _showAudit() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    Map<String, dynamic> data;
+    try {
+      data = await _repository.fetchAudit(saleSyncId: _saleSyncId);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text('No se pudo cargar la auditoría: $error')),
+      );
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _busy = false);
+    await showDialog<void>(
+      context: context,
+      builder: (_) => _SaleAuditDialog(data: data),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    bool isAdmin;
+    try {
+      isAdmin = context.watch<AuthProvider>().isAdmin;
+    } catch (_) {
+      isAdmin = false;
+    }
+    if (!isAdmin) return const SizedBox.shrink();
+    return Container(
+      color: const Color(0xFFF8FAFC),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.admin_panel_settings_outlined,
+            size: 16,
+            color: Color(0xFF1F4B99),
+          ),
+          const SizedBox(width: 8),
+          const Expanded(
+            child: Text(
+              'Administración del contrato',
+              style: TextStyle(fontSize: 11, color: Color(0xFF6B7494)),
+            ),
+          ),
+          TextButton(
+            onPressed: _busy
+                ? null
+                : () => _open(SaleCorrectionAction.updateFinancing),
+            child: const Text('Editar contrato', style: TextStyle(fontSize: 12)),
+          ),
+          TextButton(
+            onPressed:
+                _busy ? null : () => _open(SaleCorrectionAction.cancel),
+            child: const Text('Cancelar venta', style: TextStyle(fontSize: 12)),
+          ),
+          TextButton(
+            onPressed:
+                _busy ? null : () => _open(SaleCorrectionAction.restore),
+            child: const Text('Restaurar', style: TextStyle(fontSize: 12)),
+          ),
+          TextButton(
+            onPressed: _busy ? null : _showAudit,
+            child: const Text('Auditoría', style: TextStyle(fontSize: 12)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// FASE 03 — Auditoría de solo lectura de la venta.
+class _SaleAuditDialog extends StatelessWidget {
+  const _SaleAuditDialog({required this.data});
+
+  final Map<String, dynamic> data;
+
+  String _date(Object? raw) {
+    final value = DateTime.tryParse((raw ?? '').toString());
+    if (value == null) return '-';
+    final local = value.toLocal();
+    return '${local.day.toString().padLeft(2, '0')}/'
+        '${local.month.toString().padLeft(2, '0')}/${local.year} '
+        '${local.hour.toString().padLeft(2, '0')}:'
+        '${local.minute.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final rawHistory = data['history'];
+    final history = rawHistory is List
+        ? rawHistory
+              .whereType<Map>()
+              .map((entry) => entry.map((k, v) => MapEntry(k.toString(), v)))
+              .toList(growable: false)
+        : const <Map<String, dynamic>>[];
+
+    return AlertDialog(
+      title: const Text('Auditoría de la venta', style: TextStyle(fontSize: 16)),
+      content: SizedBox(
+        width: 480,
+        child: history.isEmpty
+            ? const Text(
+                'Sin correcciones registradas para esta venta.',
+                style: TextStyle(fontSize: 12, color: Color(0xFF7C89A3)),
+              )
+            : Flexible(
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      for (final entry in history)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 5),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '${entry['action'] ?? entry['kind']}',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF1A2235),
+                                ),
+                              ),
+                              if ((entry['reason'] ?? '')
+                                  .toString()
+                                  .trim()
+                                  .isNotEmpty)
+                                Text(
+                                  'Motivo: ${entry['reason']}',
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: Color(0xFF475569),
+                                  ),
+                                ),
+                              Text(
+                                _date(entry['at'] ?? entry['performedAt']),
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: Color(0xFF7C89A3),
+                                ),
+                              ),
+                              const Divider(height: 8),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cerrar'),
+        ),
+      ],
+    );
   }
 }
