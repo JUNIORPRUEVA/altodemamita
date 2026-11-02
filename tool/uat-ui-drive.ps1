@@ -8,7 +8,7 @@
 #>
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('click', 'type', 'paste', 'clear', 'key', 'shot', 'focus', 'maximize', 'drag', 'login')]
+    [ValidateSet('click', 'type', 'paste', 'clear', 'key', 'shot', 'winshot', 'focus', 'maximize', 'drag', 'login', 'loginrel')]
     [string]$Action,
     [int]$X = 0,
     [int]$Y = 0,
@@ -67,6 +67,13 @@ public static class UatNative {
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+    [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, uint nFlags);
+    [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
+    [DllImport("gdi32.dll")] public static extern IntPtr CreateCompatibleDC(IntPtr hdc);
+    [DllImport("gdi32.dll")] public static extern IntPtr CreateCompatibleBitmap(IntPtr hdc, int width, int height);
+    [DllImport("gdi32.dll")] public static extern IntPtr SelectObject(IntPtr hdc, IntPtr hObject);
+    [DllImport("gdi32.dll")] public static extern bool DeleteDC(IntPtr hdc);
+    [DllImport("gdi32.dll")] public static extern bool DeleteObject(IntPtr hObject);
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
 }
 "@
@@ -159,6 +166,25 @@ switch ($Action) {
         Start-Sleep -Milliseconds 200
         Write-Host 'clear: campo vaciado'
     }
+    'winshot' {
+        if (-not $Out) { throw 'Falta -Out' }
+        # PrintWindow dibuja la ventana EN MEMORIA: no depende de que este
+        # delante ni de que tenga el foco (VS Code se lo queda entre comandos).
+        $rect = New-Object UatNative+RECT
+        [UatNative]::GetWindowRect($app.MainWindowHandle, [ref]$rect) | Out-Null
+        $width = $rect.Right - $rect.Left
+        $height = $rect.Bottom - $rect.Top
+        if ($width -le 0 -or $height -le 0) { throw 'La ventana no tiene tamanio utilizable.' }
+        $bmp = New-Object System.Drawing.Bitmap $width, $height
+        $gfx = [System.Drawing.Graphics]::FromImage($bmp)
+        $hdc = $gfx.GetHdc()
+        $ok = [UatNative]::PrintWindow($app.MainWindowHandle, $hdc, 2)
+        $gfx.ReleaseHdc($hdc)
+        $gfx.Dispose()
+        $bmp.Save($Out, [System.Drawing.Imaging.ImageFormat]::Png)
+        $bmp.Dispose()
+        Write-Host "winshot: $Out ($width x $height) printwindow=$ok"
+    }
     'shot' {
         if (-not $Out) { throw 'Falta -Out' }
         # Cada comando de terminal devuelve el foco a VS Code: se reactiva la
@@ -167,6 +193,38 @@ switch ($Action) {
         Start-Sleep -Milliseconds 700
         Save-Shot $Out
         Write-Host "foreground=$([UatNative]::GetForegroundWindow()) app=$($app.MainWindowHandle)"
+    }
+    'loginrel' {
+        # Login con coordenadas RELATIVAS a la ventana (independiente de donde
+        # este colocada), en una sola invocacion, y captura final por PrintWindow.
+        $parts = $Text.Split('|')
+        if ($parts.Count -ne 2) { throw 'Formato esperado: email|password' }
+        $rect = New-Object UatNative+RECT
+        [UatNative]::GetWindowRect($app.MainWindowHandle, [ref]$rect) | Out-Null
+        Assert-Foreground $app
+        Invoke-Click ($rect.Left + $X) ($rect.Top + $Y)
+        [System.Windows.Forms.SendKeys]::SendWait('^a')
+        [System.Windows.Forms.SendKeys]::SendWait('{DEL}')
+        Type-Slow $parts[0]
+        Invoke-Click ($rect.Left + $X2) ($rect.Top + $Y2)
+        [System.Windows.Forms.SendKeys]::SendWait('^a')
+        [System.Windows.Forms.SendKeys]::SendWait('{DEL}')
+        Type-Slow $parts[1]
+        [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+        Write-Host 'loginrel: credenciales enviadas'
+        Start-Sleep -Seconds 9
+        if ($Out) {
+            $r2 = New-Object UatNative+RECT
+            [UatNative]::GetWindowRect($app.MainWindowHandle, [ref]$r2) | Out-Null
+            $w = $r2.Right - $r2.Left; $h = $r2.Bottom - $r2.Top
+            $bmp = New-Object System.Drawing.Bitmap $w, $h
+            $gfx = [System.Drawing.Graphics]::FromImage($bmp)
+            $hdc = $gfx.GetHdc()
+            [UatNative]::PrintWindow($app.MainWindowHandle, $hdc, 2) | Out-Null
+            $gfx.ReleaseHdc($hdc); $gfx.Dispose()
+            $bmp.Save($Out, [System.Drawing.Imaging.ImageFormat]::Png); $bmp.Dispose()
+            Write-Host "winshot: $Out ($w x $h)"
+        }
     }
     'login' {
         # -Text "email|password": inicio de sesion completo en una sola invocacion
