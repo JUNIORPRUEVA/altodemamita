@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sistema_solares/core/business/installment_status.dart';
 import 'package:sistema_solares/core/database/app_database.dart';
 import 'package:sistema_solares/core/database/database_schema.dart';
 import 'package:sistema_solares/features/sales/data/sales_repository.dart';
@@ -110,6 +111,15 @@ void main() {
       final db = await appDatabase.database;
       final now = DateTime(2026, 3, 6, 9, 0).toIso8601String();
 
+      // Fechas RELATIVAS al dia de negocio: el conteo de vencidas se calcula
+      // on-the-fly contra la fecha actual, asi que un fixture con fechas
+      // absolutas se convierte en una bomba de tiempo (la cuota "futura" de
+      // 2026-10-13 paso a vencida el 2026-10-14 y el conteo esperado 2 -> 3).
+      final businessToday = DateTime.parse(
+        InstallmentStatusResolver.currentBusinessDateKey(),
+      );
+      DateTime dayOffset(int days) => businessToday.add(Duration(days: days));
+
       final clientId = await db.insert(DatabaseSchema.clientsTable, {
         'sync_id': 'client-pending-installments-1',
         'version': 1,
@@ -168,7 +178,7 @@ void main() {
         appDatabase: appDatabase,
         saleId: saleId,
         number: 1,
-        dueDate: DateTime(2026, 9, 12),
+        dueDate: dayOffset(-10),
         now: now,
         status: 'pendiente',
         totalAmount: 1000,
@@ -178,7 +188,7 @@ void main() {
         appDatabase: appDatabase,
         saleId: saleId,
         number: 2,
-        dueDate: DateTime(2026, 9, 13),
+        dueDate: dayOffset(-9),
         now: now,
         status: 'parcial',
         totalAmount: 1000,
@@ -188,7 +198,7 @@ void main() {
         appDatabase: appDatabase,
         saleId: saleId,
         number: 3,
-        dueDate: DateTime(2026, 10, 13),
+        dueDate: dayOffset(5),
         now: now,
         status: 'pendiente',
         totalAmount: 1000,
@@ -198,7 +208,7 @@ void main() {
         appDatabase: appDatabase,
         saleId: saleId,
         number: 4,
-        dueDate: DateTime(2026, 9, 11),
+        dueDate: dayOffset(-17),
         now: now,
         status: 'pagada',
         totalAmount: 1000,
@@ -208,7 +218,7 @@ void main() {
         appDatabase: appDatabase,
         saleId: saleId,
         number: 5,
-        dueDate: DateTime(2026, 9, 11),
+        dueDate: dayOffset(-17),
         now: now,
         status: 'ajustada',
         totalAmount: 0,
@@ -218,7 +228,7 @@ void main() {
         appDatabase: appDatabase,
         saleId: saleId,
         number: 6,
-        dueDate: DateTime(2026, 9, 11),
+        dueDate: dayOffset(-17),
         now: now,
         status: 'cancelada',
         totalAmount: 1000,

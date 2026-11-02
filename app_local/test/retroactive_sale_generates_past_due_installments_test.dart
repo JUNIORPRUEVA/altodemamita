@@ -40,6 +40,23 @@ void main() {
     );
     appDatabase = AppDatabase.test(path.join(tempDirectory.path, 'test.db'));
     await appDatabase.initialize();
+
+    // Politica de mora EXPLICITA para ventas retroactivas.
+    //
+    // Sin fila de parametros, el repositorio usa el default implicito (mora
+    // habilitada, 0.5%/dia, 5 dias de gracia). En una venta de 5 meses atras la
+    // mora acumulada consume parte del pago, de modo que abonar el monto exacto
+    // de la cuota la dejaba en `parcial` en vez de `pagada`. La mora real tiene
+    // pruebas dedicadas; aqui se declara deshabilitada para que el escenario sea
+    // determinista.
+    final seedDb = await appDatabase.database;
+    await seedDb.insert(DatabaseSchema.financialParamsTable, {
+      'mora_habilitada': 'false',
+      'mora_tasa_diaria': '0.005',
+      'mora_dias_gracia': '5',
+      'fecha_actualizacion': DateTime(2026, 1, 1).toIso8601String(),
+    });
+
     syncQueueService = SyncQueueService.test(
       appDatabase: appDatabase,
       conflictService: SyncConflictService(appDatabase: appDatabase),
