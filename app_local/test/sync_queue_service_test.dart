@@ -309,11 +309,13 @@ void main() {
 
       await _insertQueuedRecord(appDatabase, scope: 'sales', syncId: 'sale-1');
       await service.start();
-      for (var attempt = 0; attempt < 20; attempt += 1) {
+      // Espera acotada por sondeo: con la suite completa en paralelo 1 s de
+      // margen no alcanzaba y la prueba fallaba por contencion, no por logica.
+      for (var attempt = 0; attempt < 60; attempt += 1) {
         if (await service.pendingCount() == 0) {
           break;
         }
-        await Future<void>.delayed(const Duration(milliseconds: 50));
+        await Future<void>.delayed(const Duration(milliseconds: 100));
       }
 
       final queueRows = await _readQueueRows(appDatabase);

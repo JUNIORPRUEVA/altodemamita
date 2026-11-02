@@ -2233,6 +2233,37 @@ class PaymentsRepository {
       return;
     }
 
+    // COHERENCIA DE LA CADENA DEL CALENDARIO.
+    //
+    // La tabla reconstruida arranca con el capital que queda DESPUES del abono.
+    // La cuota inmediatamente anterior conservaba su `saldo_final` viejo, de
+    // modo que la tabla mostraba un hueco exactamente igual al abono
+    // (7000 -> saldo_final 829036.09 seguido de saldo_inicial 821536.09). No es
+    // un cambio de historia: `saldo_final` es el capital insoluto de esa fila,
+    // y tras imputar el abono ese capital es el nuevo punto de partida.
+    final previousNumber = futureInstallments.first.installmentNumber - 1;
+    if (previousNumber > 0) {
+      for (final installment in installments) {
+        if (installment.installmentNumber != previousNumber ||
+            installment.id == null) {
+          continue;
+        }
+        await txn.update(
+          DatabaseSchema.installmentsTable,
+          {
+            'saldo_final': remainingPrincipalBalance <= 0
+                ? 0.0
+                : _roundCurrency(remainingPrincipalBalance),
+            'fecha_actualizacion': updatedAt,
+            'sync_status': DatabaseSchema.syncStatusPending,
+          },
+          where: 'id = ?',
+          whereArgs: [installment.id],
+        );
+        break;
+      }
+    }
+
     if (remainingPrincipalBalance <= 0) {
       for (final installment in futureInstallments) {
         await txn.update(

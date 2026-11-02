@@ -82,8 +82,21 @@ void main() {
     syncQueueService.dispose();
     await connectivityController.close();
     await appDatabase.close();
-    if (await tempDirectory.exists()) {
-      await tempDirectory.delete(recursive: true);
+    // En Windows el sistema puede tardar en soltar el archivo de SQLite; borrar
+    // el directorio temporal en ese instante lanzaba PathAccessException y
+    // marcaba como fallida una prueba cuyo negocio si habia terminado bien.
+    // Se reintenta con espera creciente y, si aun asi sigue bloqueado, se deja
+    // para que el sistema lo limpie: no es un resultado financiero.
+    for (var attempt = 0; attempt < 5; attempt += 1) {
+      if (!await tempDirectory.exists()) {
+        return;
+      }
+      try {
+        await tempDirectory.delete(recursive: true);
+        return;
+      } on FileSystemException {
+        await Future<void>.delayed(Duration(milliseconds: 100 * (attempt + 1)));
+      }
     }
   });
 
@@ -210,11 +223,21 @@ void main() {
       expect(apiClient.countServerRecords('sales', saleSyncId), 1);
       expect(apiClient.countUploads('sales', saleSyncId), 1);
 
+      // Segunda senal de conectividad sin nada pendiente: NO debe provocar otra
+      // subida. Se espera a que la actividad quede QUIETA (varias lecturas
+      // seguidas sin cambios) en lugar de dormir 30 ms, que con la suite en
+      // paralelo no alcanzaba y hacia la prueba intermitente.
+      final uploadsBefore = apiClient.countUploads('sales', saleSyncId);
       connectivityController.add(const [ConnectivityResult.wifi]);
-      await Future<void>.delayed(const Duration(milliseconds: 30));
+      var quietPolls = 0;
+      await _waitUntil(() async {
+        final current = apiClient.countUploads('sales', saleSyncId);
+        quietPolls = current == uploadsBefore ? quietPolls + 1 : 0;
+        return quietPolls >= 10;
+      });
 
       expect(apiClient.countServerRecords('sales', saleSyncId), 1);
-      expect(apiClient.countUploads('sales', saleSyncId), 1);
+      expect(apiClient.countUploads('sales', saleSyncId), uploadsBefore);
     },
   );
 

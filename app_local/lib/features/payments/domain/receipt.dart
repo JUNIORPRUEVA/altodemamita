@@ -118,6 +118,22 @@ class Receipt {
       0,
       (sum, item) => sum + item.principalApplied,
     );
+
+    // Una operacion MIXTA (cuota + abono a capital) produce dos pagos: uno con
+    // componentes y otro de tipo explicito. Si solo se mostraran los
+    // componentes, el recibo perderia la naturaleza del segundo movimiento
+    // (abono a capital, abono a inicial, apartado, liquidacion), que es
+    // justamente lo que el cliente necesita leer.
+    final explicitLines = payments
+        .where((item) => !_isInstallmentPaymentType(item.paymentType))
+        .map(
+          (item) => ReceiptLineItem(
+            label: _paymentTypeLabel(item),
+            amount: item.amountPaid,
+          ),
+        )
+        .toList(growable: false);
+
     if (lateFeePaid > 0.009 || interestPaid > 0.009 || principalPaid > 0.009) {
       return [
         if (lateFeePaid > 0.009)
@@ -126,21 +142,39 @@ class Receipt {
           ReceiptLineItem(label: 'Interes pagado', amount: interestPaid),
         if (principalPaid > 0.009)
           ReceiptLineItem(label: 'Capital pagado', amount: principalPaid),
+        ...explicitLines,
       ];
     }
+
     return payments
-        .map((item) {
-          final label = switch (item.paymentType) {
-            'apartado' => 'Pago de apartado',
-            'abono_inicial' => 'Abono a inicial',
-            'abono_capital' => 'Abono a capital',
-            'liquidacion_total' => 'Liquidacion total de deuda',
-            'contado' => 'Venta al contado',
-            _ => 'Cuota #${item.installmentNumber ?? '-'}',
-          };
-          return ReceiptLineItem(label: label, amount: item.amountPaid);
-        })
+        .map(
+          (item) => ReceiptLineItem(
+            label: _paymentTypeLabel(item),
+            amount: item.amountPaid,
+          ),
+        )
         .toList(growable: false);
+  }
+
+  /// Un pago de cuota lleva componentes (mora/interes/capital); el resto son
+  /// movimientos con nombre propio y se muestran con su tipo.
+  static bool _isInstallmentPaymentType(String paymentType) {
+    return switch (paymentType) {
+      'apartado' || 'abono_inicial' || 'abono_capital' ||
+      'liquidacion_total' || 'contado' => false,
+      _ => true,
+    };
+  }
+
+  static String _paymentTypeLabel(PaymentHistoryItem item) {
+    return switch (item.paymentType) {
+      'apartado' => 'Pago de apartado',
+      'abono_inicial' => 'Abono a inicial',
+      'abono_capital' => 'Abono a capital',
+      'liquidacion_total' => 'Liquidacion total de deuda',
+      'contado' => 'Venta al contado',
+      _ => 'Cuota #${item.installmentNumber ?? '-'}',
+    };
   }
 
   /// Retorna la fecha formateada para impresión

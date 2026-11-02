@@ -873,7 +873,20 @@ void main() {
 
       for (var index = 0; index < detail.installments.length; index++) {
         final installment = detail.installments[index];
-        expect(installment.totalAmount, fixedInstallmentAmount);
+        // CANONICO: todas las cuotas llevan el pago fijo EXCEPTO la ultima,
+        // que amortiza el saldo de apertura exacto y por eso puede diferir en
+        // centavos (misma regla que el backend autoritativo).
+        if (index < detail.installments.length - 1) {
+          expect(installment.totalAmount, fixedInstallmentAmount);
+        } else {
+          expect(
+            installment.totalAmount,
+            closeTo(
+              installment.principalAmount + installment.interestAmount,
+              0.01,
+            ),
+          );
+        }
         if (index == 0) {
           continue;
         }
@@ -1325,12 +1338,19 @@ void main() {
 
       final beforePaymentDetail = await salesRepository.fetchDetail(saleId);
       final originalFirstInstallment = beforePaymentDetail!.installments.first;
+      // Pago ANTES del vencimiento que cubre la cuota completa y deja un
+      // excedente: el excedente se registra como abono a capital y dispara el
+      // recalculo de la tabla futura manteniendo la cuota fija.
+      const capitalExcess = 7500.0;
+      final paymentAmount = _roundCurrency(
+        originalFirstInstallment.totalAmount + capitalExcess,
+      );
 
       await paymentsRepository.registerPayment(
         PaymentDraft(
           saleId: saleId,
           paymentDate: DateTime(2026, 3, 27),
-          amountPaid: 50000,
+          amountPaid: paymentAmount,
           paymentMethod: 'transferencia',
         ),
       );
@@ -1352,9 +1372,28 @@ void main() {
           0.02,
         ),
       );
-      expect(detail.sale.pendingBalance, lessThanOrEqualTo(850000.02));
-      expect(detail.installments.first.paidAmount, 0);
-      expect(detail.installments.first.openingBalance, closeTo(850000, 0.02));
+      // ORDEN AUTHORITATIVE: el pago cubre primero la cuota exigible en el
+      // orden mora -> interes -> capital (9.000 de interes sobre 900.000 al 1 %)
+      // y solo el EXCEDENTE se imputa a capital anticipado.
+      final firstInterest = 9000.0;
+      final firstPrincipal = _roundCurrency(
+        originalFirstInstallment.totalAmount - firstInterest,
+      );
+      expect(detail.installments.first.status, 'pagada');
+      expect(
+        detail.installments.first.paidInterestAmount,
+        closeTo(firstInterest, 0.01),
+      );
+      expect(
+        detail.installments.first.paidPrincipalAmount,
+        closeTo(firstPrincipal, 0.01),
+      );
+      expect(
+        detail.sale.pendingBalance,
+        lessThan(900000 - firstPrincipal),
+        reason: 'El excedente debe reducir el capital pendiente de la venta.',
+      );
+      expect(detail.installments.first.openingBalance, closeTo(900000, 0.02));
       // El recalculo canonico redondea el dinero a centavos, por eso la
       // comparacion es con tolerancia (el calendario de creacion conserva floats).
       expect(
@@ -1399,10 +1438,16 @@ void main() {
         whereArgs: [saleId],
         orderBy: 'id ASC',
       );
-      expect(paymentRows, hasLength(2));
+      expect(paymentRows, hasLength(3));
       expect(paymentRows.first['tipo_pago'], 'abono_inicial');
+      expect(paymentRows[1]['tipo_pago'], 'cuota');
+      expect(
+        paymentRows[1]['monto_pagado'],
+        closeTo(originalFirstInstallment.totalAmount, 0.01),
+      );
       expect(paymentRows.last['tipo_pago'], 'abono_capital');
-      expect(paymentRows.last['monto_pagado'], 50000.0);
+      expect(paymentRows.last['monto_pagado'], capitalExcess);
+      expect(paymentRows.last['interes_aplicado'], 0);
     },
   );
 
@@ -1561,6 +1606,11 @@ void main() {
           paymentDate: DateTime(2026, 3, 27),
           amountPaid: 100000,
           paymentMethod: 'transferencia',
+          // ABONO A CAPITAL es un tipo de pago EXPLICITO: no se deduce del
+          // monto ni de que la cuota aun no venza. Sin este tipo el pago se
+          // aplica a la cuota exigible en el orden mora -> interes -> capital
+          // y el plazo no se acorta.
+          paymentTypeOverride: 'abono_capital',
         ),
       );
 
@@ -1728,7 +1778,8 @@ void main() {
     expect(receipt, isNotNull);
     expect(receipt!.payments, hasLength(2));
     expect(receipt.totalAmount, mixedAmount);
-    expect(receipt.paymentConcept, contains('Cuota #1'));
+    expect(receipt.paymentConcept, contains('Interes pagado'));
+    expect(receipt.paymentConcept, contains('Capital pagado'));
     expect(receipt.paymentConcept, contains('Abono a capital'));
 
     final pdfBytes = await ReceiptPdfBuilder.build(receipt);
@@ -2118,8 +2169,11 @@ void main() {
     expect(receipt.company.direccion, 'Autopista Duarte Km 10');
     expect(receipt.company.logoBytesBase64, isNotEmpty);
     // CANONICO: el saldo del recibo es el capital insoluto, sin el capital
-    // fantasma que producia el recalculo (450126.83 para un financiado de 450000).
-    expect(receipt.currentOutstandingBalance, lessThan(450000));
+    // fantasma que producia el recalculo (450126.83 para un financiado de
+    // 450000). El pago de 1.000 cubre primero el INTERES de la cuota
+    // (4.500 al 1 % sobre 450.000), asi que el capital no baja: el saldo sigue
+    // siendo el financiado exacto, no una cifra inflada.
+    expect(receipt.currentOutstandingBalance, closeTo(450000, 0.02));
     expect(
       receipt.remainingFinancedBalance,
       closeTo(receipt.currentOutstandingBalance, 0.001),
@@ -2131,7 +2185,10 @@ void main() {
     expect(receipt.nextInstallmentNumber, 1);
     expect(receipt.nextInstallmentDueDate, isNotNull);
     expect(receipt.nextInstallmentAmount, greaterThan(0));
-    expect(receipt.accountStatusLabel, 'Al dia');
+    // El pago de 1.000 se imputo a la PRIMERA cuota (orden authoritative), que
+    // queda parcialmente cubierta antes de vencer: la cuenta ya no esta
+    // "Al dia" en sentido estricto, esta "Parcial".
+    expect(receipt.accountStatusLabel, 'Parcial');
   });
 
   test('lista solo las ventas asociadas al vendedor seleccionado', () async {

@@ -183,59 +183,35 @@ class SaleCalculator {
       return const [];
     }
 
-    final rateDecimal = _normalizeRate(monthlyInterest);
-    final fixedPayment = calculateEstimatedInstallmentAmount(
+    // UNA SOLA IMPLEMENTACION (paridad con el backend autoritativo).
+    //
+    // Antes, el calendario de CREACION calculaba `capital = pagoFijo - interes`
+    // sin redondear ni cerrar la ultima cuota. Con 12 cuotas al 1 % la suma de
+    // capital quedaba en 450 000,0189 para un financiado de 450 000: dos
+    // centavos de capital fantasma. El saldo se guardaba como el financiado
+    // (450 000) al crear la venta, pero en cuanto un pago recalculaba el saldo
+    // desde el calendario pasaba a 450 000,02 — la misma venta con dos saldos
+    // distintos segun el camino.
+    //
+    // `buildInstallmentScheduleForDueDatesWithFixedPayment` redondea a centavos
+    // y hace que la ULTIMA cuota amortice el saldo de apertura exacto, igual que
+    // `backend/src/services/financing.service.ts::buildInstallmentSchedule`.
+    return buildInstallmentScheduleForDueDatesWithFixedPayment(
+      saleId: saleId,
+      dueDates: dueDates,
       financedBalance: financedBalance,
       monthlyInterest: monthlyInterest,
-      installmentCount: dueDates.length,
+      fixedPaymentAmount: calculateEstimatedInstallmentAmount(
+        financedBalance: financedBalance,
+        monthlyInterest: monthlyInterest,
+        installmentCount: dueDates.length,
+      ),
+      createdAt: createdAt,
+      startingInstallmentNumber: startingInstallmentNumber,
+      updatedAt: updatedAt,
+      installmentIds: installmentIds,
+      statusAsOf: statusAsOf,
     );
-    var remainingPrincipal = financedBalance;
-    final installments = <Installment>[];
-    final resolvedUpdatedAt = updatedAt ?? createdAt;
-    final resolvedStatusAsOf = statusAsOf ?? DateTime.now();
-
-    for (var index = 0; index < dueDates.length; index++) {
-      final openingBalance = remainingPrincipal;
-      if (openingBalance <= 0) {
-        break;
-      }
-
-      final interestAmount = _roundCurrency(openingBalance * rateDecimal);
-      final principalAmount = fixedPayment - interestAmount;
-      final rawEndingBalance = openingBalance - principalAmount;
-      final endingBalance = rawEndingBalance < 0.01 ? 0.0 : rawEndingBalance;
-
-      installments.add(
-        Installment(
-          id: installmentIds != null && index < installmentIds.length
-              ? installmentIds[index]
-              : null,
-          saleId: saleId,
-          installmentNumber: startingInstallmentNumber + index,
-          dueDate: dueDates[index],
-          openingBalance: openingBalance,
-          principalAmount: principalAmount,
-          interestAmount: interestAmount,
-          totalAmount: fixedPayment,
-          paidAmount: 0,
-          paidPrincipalAmount: 0,
-          paidInterestAmount: 0,
-          endingBalance: endingBalance,
-          status: resolveInstallmentStatus(
-            dueDate: dueDates[index],
-            paidAmount: 0,
-            totalAmount: fixedPayment,
-            asOf: resolvedStatusAsOf,
-          ),
-          createdAt: createdAt,
-          updatedAt: resolvedUpdatedAt,
-        ),
-      );
-
-      remainingPrincipal = endingBalance;
-    }
-
-    return installments;
   }
 
   static List<Installment> buildInstallmentScheduleForDueDatesWithFixedPayment({
