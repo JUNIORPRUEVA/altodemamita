@@ -15,6 +15,8 @@ import '../../../shared/widgets/module_list_states.dart';
 import '../../../shared/widgets/recovery_experience.dart';
 import '../data/client_repository.dart';
 import '../domain/client.dart';
+import '../../sales/presentation/sale_association_picker_dialog.dart';
+import 'client_admin_fields.dart';
 import 'client_form_dialog.dart';
 import '../../../core/responsive/app_breakpoints.dart';
 import 'clients_controller.dart';
@@ -520,6 +522,15 @@ class _ClientsPageState extends State<ClientsPage> {
           value: 'reactivate',
           child: Text('Reactivar cliente', style: TextStyle(fontSize: 12)),
         ),
+        PopupMenuItem<String>(
+          value: 'merge_duplicates',
+          child: Text('Fusionar duplicados', style: TextStyle(fontSize: 12)),
+        ),
+        PopupMenuDivider(),
+        PopupMenuItem<String>(
+          value: 'audit',
+          child: Text('Ver auditoría', style: TextStyle(fontSize: 12)),
+        ),
       ],
       onSelected: (action) => _runClientAdmin(client, action),
     );
@@ -538,29 +549,37 @@ class _ClientsPageState extends State<ClientsPage> {
       );
       return;
     }
+
+    if (action == 'audit') {
+      try {
+        final data = await repository.fetchAudit(
+          kind: 'client',
+          entityId: remoteId,
+        );
+        if (!mounted) return;
+        await showDialog<void>(
+          context: context,
+          builder: (_) => EntityAdminAuditDialog(
+            title: 'Auditoría de ${client.fullName}',
+            data: data,
+          ),
+        );
+      } catch (error) {
+        if (!mounted) return;
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(content: Text('No se pudo cargar la auditoría: $error')),
+        );
+      }
+      return;
+    }
+
+    if (action == 'merge_duplicates') {
+      await _mergeClient(repository, client, remoteId);
+      return;
+    }
+
     final fields = action == 'update_identity'
-        ? [
-            EntityAdminField(
-              key: 'name',
-              label: 'Nombre',
-              initial: client.fullName,
-            ),
-            EntityAdminField(
-              key: 'document',
-              label: 'Cédula / documento',
-              initial: client.documentId,
-            ),
-            EntityAdminField(
-              key: 'phone',
-              label: 'Teléfono',
-              initial: client.phone ?? '',
-            ),
-            EntityAdminField(
-              key: 'address',
-              label: 'Dirección',
-              initial: client.address ?? '',
-            ),
-          ]
+        ? buildClientIdentityFields(client)
         : const <EntityAdminField>[];
     final changed = await showDialog<bool>(
       context: context,
@@ -609,6 +628,74 @@ class _ClientsPageState extends State<ClientsPage> {
     if (!mounted) return;
     ScaffoldMessenger.maybeOf(context)?.showSnackBar(
       const SnackBar(content: Text('Cliente actualizado correctamente.')),
+    );
+  }
+
+  /// FASE 04B — fusiona un cliente duplicado en el cliente seleccionado.
+  Future<void> _mergeClient(
+    EntityAdminRepository repository,
+    Client target,
+    String targetRemoteId,
+  ) async {
+    final source = await showDialog<SaleAssociationTarget>(
+      context: context,
+      builder: (_) => SaleAssociationPickerDialog(
+        isClient: true,
+        currentLabel: target.fullName,
+        currentSubtitle:
+            'Selecciona el duplicado que se fusionará en este cliente',
+      ),
+    );
+    if (source == null || !mounted) return;
+
+    final changed = await showDialog<bool>(
+      context: context,
+      builder: (_) => EntityAdminDialog(
+        title: 'Fusionar duplicados',
+        mergeSourceId: source.remoteId,
+        summaryLines: [
+          'Se conserva: ${target.fullName} (${target.documentId})',
+          'Se fusiona: ${source.label}',
+          'El duplicado queda como histórico: no se borran ventas, pagos ni recibos.',
+        ],
+        loadPreview: (values) => repository.preview(
+          kind: 'client',
+          entityId: targetRemoteId,
+          action: 'merge_duplicates',
+          mergeSourceId: source.remoteId,
+        ),
+        apply: (reason, values) async {
+          final preview = await repository.preview(
+            kind: 'client',
+            entityId: targetRemoteId,
+            action: 'merge_duplicates',
+            mergeSourceId: source.remoteId,
+          );
+          if (!preview.allowed) {
+            throw Exception(
+              preview.message.isEmpty
+                  ? 'El servidor no autoriza la fusión.'
+                  : preview.message,
+            );
+          }
+          return repository.apply(
+            kind: 'client',
+            entityId: targetRemoteId,
+            action: 'merge_duplicates',
+            reason: reason,
+            expectedVersion: preview.version,
+            mergeSourceId: source.remoteId,
+          );
+        },
+      ),
+    );
+    if (changed != true || !mounted) return;
+    await _controller.load();
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      const SnackBar(
+        content: Text('Clientes fusionados. Las ventas y pagos se conservan.'),
+      ),
     );
   }
 

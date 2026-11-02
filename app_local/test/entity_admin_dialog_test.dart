@@ -84,4 +84,63 @@ void main() {
     final confirm = find.widgetWithText(FilledButton, 'Editar cliente');
     expect(tester.widget<FilledButton>(confirm).onPressed, isNull);
   });
+
+  testWidgets('la fusion muestra ventas y pagos afectados', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: ElevatedButton(
+                onPressed: () => showDialog<bool>(
+                  context: context,
+                  builder: (_) => EntityAdminDialog(
+                    title: 'Fusionar duplicados',
+                    mergeSourceId: 'src-1',
+                    summaryLines: const ['Se conserva: Cliente A'],
+                    loadPreview: (values) async => const EntityAdminPreview(
+                      allowed: true,
+                      code: 'OK',
+                      message: 'Fusion permitida.',
+                      version: 5,
+                      detail: {'movedSales': 3, 'movedPayments': 7},
+                    ),
+                    apply: (reason, values) async => <String, dynamic>{},
+                  ),
+                ),
+                child: const Text('abrir'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('abrir'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('3 venta(s)'), findsOneWidget);
+    expect(find.textContaining('7 pago(s)'), findsOneWidget);
+    expect(find.textContaining('queda como historico'), findsOneWidget);
+  });
+
+  testWidgets('el visor de auditoria lista los cambios', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: EntityAdminAuditDialog(
+            title: 'Auditoria',
+            data: {
+              'history': [
+                {'action': 'deactivate', 'reason': 'Retiro', 'performedAt': '2026-11-02T10:00:00.000Z'},
+                {'action': 'update_details', 'reason': 'Area corregida', 'performedAt': '2026-11-02T11:00:00.000Z'},
+              ],
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.textContaining('deactivate'), findsOneWidget);
+    expect(find.textContaining('Area corregida'), findsOneWidget);
+  });
 }

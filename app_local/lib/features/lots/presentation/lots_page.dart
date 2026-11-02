@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import '../../../features/auth/domain/permission_model.dart';
 import '../../../features/auth/presentation/auth_provider.dart';
 import '../../../shared/widgets/base_layout.dart';
+import '../../../shared/widgets/entity_admin_dialog.dart';
+import 'lot_admin_fields.dart';
 import '../../../shared/widgets/module_list_states.dart';
 import '../../../shared/widgets/recovery_experience.dart';
 import '../data/lot_repository.dart';
@@ -435,6 +437,8 @@ class _LotsPageState extends State<LotsPage> {
                               color: const Color(0xFF6B7494),
                               onPressed: () => _confirmDelete(lot),
                             ),
+                          if (context.watch<AuthProvider>().isAdmin)
+                            _lotAdminMenu(lot),
                         ],
                       ),
                     ),
@@ -445,6 +449,136 @@ class _LotsPageState extends State<LotsPage> {
           ),
         ],
       ),
+    );
+  }
+
+  /// FASE 04B — acciones administrativas OWNER sobre un solar.
+  Widget _lotAdminMenu(Lot lot) {
+    return PopupMenuButton<String>(
+      tooltip: 'Administración del solar',
+      padding: EdgeInsets.zero,
+      iconSize: 18,
+      splashRadius: 18,
+      icon: const Icon(Icons.more_horiz, color: Color(0xFF6B7494)),
+      itemBuilder: (_) => const [
+        PopupMenuItem<String>(
+          value: 'update_details',
+          child: Text('Editar datos (admin)', style: TextStyle(fontSize: 12)),
+        ),
+        PopupMenuItem<String>(
+          value: 'update_status',
+          child: Text('Cambiar estado', style: TextStyle(fontSize: 12)),
+        ),
+        PopupMenuItem<String>(
+          value: 'deactivate',
+          child: Text('Desactivar solar', style: TextStyle(fontSize: 12)),
+        ),
+        PopupMenuItem<String>(
+          value: 'reactivate',
+          child: Text('Reactivar solar', style: TextStyle(fontSize: 12)),
+        ),
+        PopupMenuDivider(),
+        PopupMenuItem<String>(
+          value: 'audit',
+          child: Text('Ver auditoría', style: TextStyle(fontSize: 12)),
+        ),
+      ],
+      onSelected: (action) => _runLotAdmin(lot, action),
+    );
+  }
+
+  Future<void> _runLotAdmin(Lot lot, String action) async {
+    final repository = EntityAdminRepository();
+    final remoteId = repository.lotRemoteId(lot.id);
+    if (remoteId == null) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Este solar aún no está sincronizado: no se puede administrar.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (action == 'audit') {
+      try {
+        final data = await repository.fetchAudit(
+          kind: 'lot',
+          entityId: remoteId,
+        );
+        if (!mounted) return;
+        await showDialog<void>(
+          context: context,
+          builder: (_) => EntityAdminAuditDialog(
+            title: 'Auditoría del solar ${lot.displayCode}',
+            data: data,
+          ),
+        );
+      } catch (error) {
+        if (!mounted) return;
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(content: Text('No se pudo cargar la auditoría: $error')),
+        );
+      }
+      return;
+    }
+
+    final fields = buildLotAdminFields(lot, action);
+
+    final changed = await showDialog<bool>(
+      context: context,
+      builder: (_) => EntityAdminDialog(
+        title: switch (action) {
+          'update_details' => 'Editar solar',
+          'update_status' => 'Cambiar estado',
+          'deactivate' => 'Desactivar solar',
+          'reactivate' => 'Reactivar solar',
+          _ => 'Administrar solar',
+        },
+        fields: [
+          ...fields,
+        ],
+        summaryLines: buildLotAdminSummary(lot),
+        loadPreview: (values) => repository.preview(
+          kind: 'lot',
+          entityId: remoteId,
+          action: action,
+          values: values,
+          status: action == 'update_status' ? values['status'] : null,
+        ),
+        apply: (reason, values) async {
+          final preview = await repository.preview(
+            kind: 'lot',
+            entityId: remoteId,
+            action: action,
+            values: values,
+            status: action == 'update_status' ? values['status'] : null,
+          );
+          if (!preview.allowed) {
+            throw Exception(
+              preview.message.isEmpty
+                  ? 'El servidor no autoriza este cambio.'
+                  : preview.message,
+            );
+          }
+          return repository.apply(
+            kind: 'lot',
+            entityId: remoteId,
+            action: action,
+            reason: reason,
+            expectedVersion: preview.version,
+            values: values,
+            status: action == 'update_status' ? values['status'] : null,
+          );
+        },
+      ),
+    );
+    if (changed != true || !mounted) return;
+    await _controller.load();
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      const SnackBar(content: Text('Solar actualizado correctamente.')),
     );
   }
 

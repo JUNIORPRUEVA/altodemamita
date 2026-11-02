@@ -11,12 +11,17 @@ class EntityAdminPreview {
     required this.code,
     required this.message,
     required this.version,
+    this.detail = const {},
   });
 
   final bool allowed;
   final String code;
   final String message;
   final int version;
+
+  /// Detalle de impacto devuelto por el backend (p. ej. fusion de clientes:
+  /// `movedSales`, `movedPayments`).
+  final Map<String, dynamic> detail;
 
   factory EntityAdminPreview.blocked(String message) => EntityAdminPreview(
     allowed: false,
@@ -26,6 +31,7 @@ class EntityAdminPreview {
   );
 
   factory EntityAdminPreview.fromMap(Map<String, dynamic> map) {
+    final rawDetail = map['detail'];
     return EntityAdminPreview(
       allowed: map['allowed'] != false,
       code: (map['code'] ?? 'OK').toString(),
@@ -33,6 +39,9 @@ class EntityAdminPreview {
       version: map['entityVersion'] is num
           ? (map['entityVersion'] as num).toInt()
           : int.tryParse(map['entityVersion']?.toString() ?? '') ?? 0,
+      detail: rawDetail is Map
+          ? rawDetail.map((key, value) => MapEntry(key.toString(), value))
+          : const {},
     );
   }
 }
@@ -180,6 +189,7 @@ class EntityAdminDialog extends StatefulWidget {
     required this.apply,
     this.fields = const [],
     this.summaryLines = const [],
+    this.mergeSourceId,
   });
 
   final String title;
@@ -192,6 +202,9 @@ class EntityAdminDialog extends StatefulWidget {
   apply;
   final List<EntityAdminField> fields;
   final List<String> summaryLines;
+
+  /// Solo para la fusion de clientes: cliente duplicado que desaparece.
+  final String? mergeSourceId;
 
   @override
   State<EntityAdminDialog> createState() => _EntityAdminDialogState();
@@ -344,6 +357,19 @@ class _EntityAdminDialogState extends State<EntityAdminDialog> {
                     ),
                   ),
                 ),
+                if (preview.detail['movedSales'] != null ||
+                    preview.detail['movedPayments'] != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    'Se reasignaran ${preview.detail['movedSales'] ?? 0} venta(s) '
+                    'y ${preview.detail['movedPayments'] ?? 0} pago(s) al cliente que se conserva. '
+                    'El duplicado queda como historico, sin borrar nada.',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Color(0xFF475569),
+                    ),
+                  ),
+                ],
                 Align(
                   alignment: Alignment.centerRight,
                   child: TextButton(
@@ -397,6 +423,103 @@ class _EntityAdminDialogState extends State<EntityAdminDialog> {
                   ),
                 )
               : Text(widget.title),
+        ),
+      ],
+    );
+  }
+}
+
+/// FASE 04B — Visor de auditoría de solo lectura para clientes y solares.
+class EntityAdminAuditDialog extends StatelessWidget {
+  const EntityAdminAuditDialog({
+    super.key,
+    required this.title,
+    required this.data,
+  });
+
+  final String title;
+  final Map<String, dynamic> data;
+
+  String _date(Object? raw) {
+    final value = DateTime.tryParse((raw ?? '').toString());
+    if (value == null) return '-';
+    final local = value.toLocal();
+    return '${local.day.toString().padLeft(2, '0')}/'
+        '${local.month.toString().padLeft(2, '0')}/${local.year} '
+        '${local.hour.toString().padLeft(2, '0')}:'
+        '${local.minute.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final rawHistory = data['history'];
+    final history = rawHistory is List
+        ? rawHistory
+              .whereType<Map>()
+              .map((entry) => entry.map((k, v) => MapEntry(k.toString(), v)))
+              .toList(growable: false)
+        : const <Map<String, dynamic>>[];
+
+    return AlertDialog(
+      title: Text(title, style: const TextStyle(fontSize: 16)),
+      content: SizedBox(
+        width: 460,
+        child: history.isEmpty
+            ? const Text(
+                'Sin cambios administrativos registrados.',
+                style: TextStyle(fontSize: 12, color: Color(0xFF7C89A3)),
+              )
+            : ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 380),
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      for (final entry in history)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 5),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '${entry['action'] ?? entry['kind']}',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF1A2235),
+                                ),
+                              ),
+                              if ((entry['reason'] ?? '')
+                                  .toString()
+                                  .trim()
+                                  .isNotEmpty)
+                                Text(
+                                  'Motivo: ${entry['reason']}',
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: Color(0xFF475569),
+                                  ),
+                                ),
+                              Text(
+                                _date(entry['at'] ?? entry['performedAt']),
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: Color(0xFF7C89A3),
+                                ),
+                              ),
+                              const Divider(height: 8),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cerrar'),
         ),
       ],
     );
