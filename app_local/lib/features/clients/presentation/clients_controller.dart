@@ -6,6 +6,7 @@ import '../../../core/resilience/friendly_error_messages.dart';
 import '../../../shared/controllers/resilient_list_controller.dart';
 import '../data/client_repository.dart';
 import '../domain/client.dart';
+import '../domain/client_search.dart';
 
 class ClientsController extends ResilientListController<Client> {
   ClientsController({required ClientRepository repository})
@@ -21,28 +22,16 @@ class ClientsController extends ResilientListController<Client> {
 
   List<Client> get clients => items;
 
+  /// Filtro del snapshot local para busquedas.
+  ///
+  /// Usa la MISMA normalizacion que la busqueda autoritativa (acentos,
+  /// varias palabras en cualquier orden y direccion incluida) para que la
+  /// lista cacheada no oculte clientes que la nube si encuentra.
   static List<Client> _filterClients(List<Client> clients, String query) {
-    final tokens = query
-        .trim()
-        .toLowerCase()
-        .split(RegExp(r'\s+'))
-        .where((token) => token.isNotEmpty)
+    if (query.trim().isEmpty) return clients;
+    return clients
+        .where((client) => clientMatchesSearch(client, query))
         .toList(growable: false);
-    if (tokens.isEmpty) return clients;
-    final digits = query.replaceAll(RegExp(r'\D+'), '');
-    return clients.where((client) {
-      final haystack = [
-        client.fullName,
-        client.documentId,
-        client.phone ?? '',
-      ].join(' ').toLowerCase();
-      final normalizedDigits = [
-        client.documentId,
-        client.phone ?? '',
-      ].join(' ').replaceAll(RegExp(r'\D+'), '');
-      return tokens.every(haystack.contains) ||
-          (digits.length >= 2 && normalizedDigits.contains(digits));
-    }).toList(growable: false);
   }
 
   Future<String?> save(Client client) async {

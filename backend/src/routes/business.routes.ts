@@ -8,6 +8,7 @@ import { hashPassword } from '../password';
 import { prisma } from '../prisma';
 import { canonicalPermissionAction, canonicalPermissionModule, ownerPermissionCodes, hasPermission, permissionDomains, requirePermission } from '../rbac';
 import { authoritativeErrorResponse } from '../services/authoritativeErrors.service';
+import { foldedColumnSql, searchDigits, searchTokens } from '../services/clientSearch.service';
 import { AuthoritativeSaleService } from '../services/authoritativeSale.service';
 import { BrandingValidationError, decodeBrandingBase64, saveBrandingLogo } from '../services/branding.service';
 
@@ -1276,18 +1277,38 @@ function listQuery(query: Record<string, unknown>) {
 }
 
 async function normalizedClientSearchIds(companyId: string, search: string | undefined) {
-  const digits = normalizedSearchDigits(search);
-  if (digits.length < 2) return [];
-  const pattern = `%${digits}%`;
+  const tokens = searchTokens(search);
+  const digits = searchDigits(search);
+  if (tokens.length === 0 && digits.length < 2) return [];
+
+  // Haystack normalizado igual que el desktop: minusculas, sin acentos y con
+  // direccion incluida. Cada palabra de la consulta debe aparecer en el
+  // haystack, sin importar el orden (antes se exigia la subcadena contigua).
+  const haystack =
+    `concat_ws(' ', ${foldedColumnSql('name')}, ${foldedColumnSql('document')}, ` +
+    `${foldedColumnSql('phone')}, ${foldedColumnSql('address')})`;
+  const tokenConditions = tokens.map(
+    (token) => Prisma.sql`${Prisma.raw(haystack)} LIKE ${`%${token}%`}`,
+  );
+  const tokenConjunction =
+    tokenConditions.length > 0 ? Prisma.join(tokenConditions, ' AND ') : null;
+  const digitCondition =
+    digits.length >= 2
+      ? Prisma.sql`(regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE ${`%${digits}%`} OR regexp_replace(COALESCE(document, ''), '[^0-9]', '', 'g') LIKE ${`%${digits}%`})`
+      : null;
+
+  const condition =
+    tokenConjunction && digitCondition
+      ? Prisma.sql`(${tokenConjunction}) OR ${digitCondition}`
+      : (tokenConjunction ?? digitCondition);
+  if (!condition) return [];
+
   const rows = await prisma.$queryRaw<Array<{ id: string }>>`
     SELECT id
     FROM "Client"
     WHERE "companyId" = ${companyId}
       AND "deletedAt" IS NULL
-      AND (
-        regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE ${pattern}
-        OR regexp_replace(COALESCE(document, ''), '[^0-9]', '', 'g') LIKE ${pattern}
-      )
+      AND (${condition})
     LIMIT 500
   `;
   return rows.map((row) => row.id);

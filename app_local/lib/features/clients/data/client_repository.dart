@@ -15,6 +15,7 @@ import '../../../models/sync/sync_status.dart';
 import '../../../repositories/sync_repository.dart';
 import '../../../services/sync/sync_queue_service.dart';
 import '../domain/client.dart';
+import '../domain/client_search.dart';
 
 class ClientRepository implements SyncRepository {
   ClientRepository({
@@ -71,37 +72,23 @@ class ClientRepository implements SyncRepository {
 
     final db = await _appDatabase.database;
     final normalizedQuery = query.trim();
-    final rows = normalizedQuery.isEmpty
-        ? await db.query(
-            DatabaseSchema.clientsTable,
-            where: 'deleted_at IS NULL',
-            orderBy: 'nombre COLLATE NOCASE ASC',
-          )
-        : await db.rawQuery(
-            '''
-            SELECT *
-            FROM ${DatabaseSchema.clientsTable}
-            WHERE deleted_at IS NULL
-              AND (
-                nombre LIKE ?
-                OR cedula LIKE ?
-                OR telefono LIKE ?
-                OR direccion LIKE ?
-                OR (? <> '' AND ${_normalizedPhoneSql('telefono')} LIKE ?)
-              )
-            ORDER BY nombre COLLATE NOCASE ASC
-            ''',
-            [
-              '%$normalizedQuery%',
-              '%$normalizedQuery%',
-              '%$normalizedQuery%',
-              '%$normalizedQuery%',
-              _normalizePhoneForSearch(normalizedQuery),
-              '%${_normalizePhoneForSearch(normalizedQuery)}%',
-            ],
-          );
+    // La busqueda se resuelve en Dart con la MISMA normalizacion que usa la
+    // nube (acentos, varias palabras en cualquier orden, direccion y digitos).
+    // SQLite `LIKE` solo ignora mayusculas ASCII: buscar "jose" no encontraba
+    // a un cliente llamado "Jose" con acento, y dos palabras no contiguas no
+    // casaban nunca.
+    final rows = await db.query(
+      DatabaseSchema.clientsTable,
+      where: 'deleted_at IS NULL',
+      orderBy: 'nombre COLLATE NOCASE ASC',
+    );
 
-    final clients = rows.map(Client.fromMap).toList();
+    final allClients = rows.map(Client.fromMap).toList(growable: false);
+    final clients = normalizedQuery.isEmpty
+        ? allClients
+        : allClients
+              .where((client) => clientMatchesSearch(client, normalizedQuery))
+              .toList(growable: false);
     await _logClientListDiagnostics(
       query: normalizedQuery,
       loadedClients: clients,

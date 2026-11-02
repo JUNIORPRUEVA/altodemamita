@@ -6,6 +6,11 @@ import { prisma } from '../prisma';
 import { PaymentReminderService } from './paymentReminder.service';
 
 const originalConfig = {
+  // `paymentRemindersEnabled` viene del entorno y por defecto es `false`.
+  // La prueba necesita el canal habilitado (y el apagado de emergencia
+  // desactivado) para poder ejercitar el dry run: si se depende del `.env`
+  // local, la prueba pasa en una máquina y falla en otra.
+  enabled: config.paymentRemindersEnabled,
   emergencyStop: config.paymentRemindersEmergencyStop,
   testMode: config.paymentRemindersTestMode,
   allowRealRecipients: config.paymentRemindersAllowRealRecipients,
@@ -20,6 +25,7 @@ const originalFindBusinessConfiguration = prisma.businessConfiguration.findUniqu
 
 describe('PaymentReminderService dry run audit', () => {
   afterEach(() => {
+    config.paymentRemindersEnabled = originalConfig.enabled;
     config.paymentRemindersEmergencyStop = originalConfig.emergencyStop;
     config.paymentRemindersTestMode = originalConfig.testMode;
     config.paymentRemindersAllowRealRecipients = originalConfig.allowRealRecipients;
@@ -32,6 +38,7 @@ describe('PaymentReminderService dry run audit', () => {
   });
 
   it('persiste notificacion, entregas y snapshot sin enviar al proveedor', async () => {
+    config.paymentRemindersEnabled = true;
     config.paymentRemindersEmergencyStop = false;
     config.paymentRemindersTestMode = true;
     config.paymentRemindersAllowRealRecipients = false;
@@ -81,6 +88,7 @@ describe('PaymentReminderService dry run audit', () => {
   });
 
   it('bloquea dry-run duplicado con la misma llave logica', async () => {
+    config.paymentRemindersEnabled = true;
     config.paymentRemindersEmergencyStop = false;
     config.paymentRemindersTestMode = true;
     config.paymentRemindersAllowRealRecipients = false;

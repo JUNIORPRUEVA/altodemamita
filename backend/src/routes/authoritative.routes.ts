@@ -252,7 +252,7 @@ for (const kind of ['clients', 'lots'] as const) {
   const entityKind = kind === 'clients' ? 'client' : 'lot';
 
   authoritativeRouter.get(
-    `/authoritative/${kind}/:entityId/admin-preview`,
+    `/${kind}/:entityId/admin-preview`,
     requireOwnerRole(),
     async (req, res) => {
       try {
@@ -282,7 +282,7 @@ for (const kind of ['clients', 'lots'] as const) {
   );
 
   authoritativeRouter.post(
-    `/authoritative/${kind}/:entityId/admin`,
+    `/${kind}/:entityId/admin`,
     requireOwnerRole(),
     async (req, res) => {
       try {
@@ -324,7 +324,7 @@ for (const kind of ['clients', 'lots'] as const) {
   );
 
   authoritativeRouter.get(
-    `/authoritative/${kind}/:entityId/admin-audit`,
+    `/${kind}/:entityId/admin-audit`,
     requireOwnerRole(),
     async (req, res) => {
       try {
