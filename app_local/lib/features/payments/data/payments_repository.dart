@@ -21,6 +21,7 @@ import '../domain/payment_draft.dart';
 import '../domain/payment_history_item.dart';
 import '../domain/client_pagare_report.dart';
 import '../domain/authoritative_late_fee.dart';
+import '../domain/payment_correction.dart';
 import '../domain/payment_sale_context.dart';
 import '../domain/payment_sale_option.dart';
 import '../domain/payment_work_queue.dart';
@@ -809,6 +810,150 @@ class PaymentsRepository {
         ? data.map((key, value) => MapEntry(key.toString(), value))
         : <String, dynamic>{};
     return AuthoritativeLateFeeSummary.fromMap(dataMap);
+  }
+
+  /// FASE 01D — Traza administrativa de un pago (solo lectura, OWNER).
+  Future<Map<String, dynamic>> fetchPaymentCorrectionHistory({
+    required int paymentId,
+    String? remotePaymentId,
+  }) async {
+    final paymentRemoteId = (remotePaymentId ?? '').trim().isNotEmpty
+        ? remotePaymentId!.trim()
+        : _idRegistry.resolveRemoteId('payments', paymentId);
+    if (paymentRemoteId == null || paymentRemoteId.isEmpty) {
+      throw const BackendApiException(
+        'Este pago aun no esta sincronizado con el servidor: no hay auditoria disponible.',
+      );
+    }
+    final response = await _apiClient.get(
+      '/authoritative/payments/$paymentRemoteId/correction-history',
+    );
+    final data = response is Map ? response['data'] : null;
+    return data is Map
+        ? data.map((key, value) => MapEntry(key.toString(), value))
+        : <String, dynamic>{};
+  }
+
+  /// FASE 01C — Previsualiza una correccion historica (solo lectura).
+  ///
+  /// El backend decide si la operacion es financieramente segura. Si la llamada
+  /// falla, se devuelve una previsualizacion BLOQUEADA (fail-closed): nunca se
+  /// ofrece aplicar una correccion que no se pudo validar.
+  Future<PaymentCorrectionPreview> previewPaymentCorrection({
+    required int paymentId,
+    required String action,
+    DateTime? newDate,
+    double? newAmount,
+    String? remotePaymentId,
+  }) async {
+    final paymentRemoteId = (remotePaymentId ?? '').trim().isNotEmpty
+        ? remotePaymentId!.trim()
+        : _idRegistry.resolveRemoteId('payments', paymentId);
+    if (paymentRemoteId == null || paymentRemoteId.isEmpty) {
+      return PaymentCorrectionPreview.blocked(
+        'Este pago aun no esta sincronizado con el servidor: no se puede corregir.',
+      );
+    }
+    final query = <String, String>{'action': action};
+    if (newDate != null) {
+      query['newDate'] = newDate.toUtc().toIso8601String();
+    }
+    if (newAmount != null) {
+      query['newAmount'] = newAmount.toStringAsFixed(2);
+    }
+    try {
+      final response = await _apiClient.get(
+        '/authoritative/payments/$paymentRemoteId/correction-preview',
+        queryParameters: query,
+      );
+      final data = response is Map ? response['data'] : null;
+      final dataMap = data is Map
+          ? data.map((key, value) => MapEntry(key.toString(), value))
+          : <String, dynamic>{};
+      return PaymentCorrectionPreview.fromMap(dataMap);
+    } catch (error) {
+      return PaymentCorrectionPreview.blocked(
+        'No se pudo validar la correccion con el servidor: ${error.toString()}',
+      );
+    }
+  }
+
+  /// FASE 01C — Aplica la correccion validada por el backend (solo OWNER).
+  Future<Map<String, dynamic>> applyPaymentCorrection({
+    required int paymentId,
+    required String action,
+    required String reason,
+    required int expectedPaymentVersion,
+    DateTime? newDate,
+    double? newAmount,
+    String? idempotencyKey,
+    String? remotePaymentId,
+  }) async {
+    _systemConfigService.ensureWritable();
+    final paymentRemoteId = (remotePaymentId ?? '').trim().isNotEmpty
+        ? remotePaymentId!.trim()
+        : _idRegistry.resolveRemoteId('payments', paymentId);
+    if (paymentRemoteId == null || paymentRemoteId.isEmpty) {
+      throw const BackendApiException(
+        'Este pago aun no esta sincronizado con el servidor: no se puede corregir.',
+      );
+    }
+    final response = await _apiClient.post(
+      '/authoritative/payments/$paymentRemoteId/correct',
+      idempotencyKey:
+          idempotencyKey ??
+          'desktop-correction-$paymentId-$action-'
+              '${DateTime.now().microsecondsSinceEpoch}',
+      body: {
+        'action': action,
+        'reason': reason,
+        'expectedPaymentVersion': expectedPaymentVersion,
+        if (newDate != null) 'newDate': newDate.toUtc().toIso8601String(),
+        'newAmount': ?newAmount,
+      },
+    );
+    final data = response is Map ? response['data'] : null;
+    return data is Map
+        ? data.map((key, value) => MapEntry(key.toString(), value))
+        : <String, dynamic>{};
+  }
+
+  /// Condonacion PERSISTENTE de la mora exigible al corte (solo OWNER).
+  ///
+  /// El monto NO se envia: el backend lo recalcula al `cutoffAt`. Se exige el
+  /// `saleSyncId` como confirmacion explicita de la venta a condonar.
+  Future<LateFeeWaiverResult> waiveLateFees({
+    required int saleId,
+    required String reason,
+    required String confirmSaleSyncId,
+    DateTime? cutoffAt,
+    double? waivedAmount,
+  }) async {
+    _systemConfigService.ensureWritable();
+    final saleRemoteId = _idRegistry.resolveRemoteId('sales', saleId);
+    if (saleRemoteId == null || saleRemoteId.isEmpty) {
+      throw const BackendApiException(
+        'No se pudo identificar la venta remota para condonar la mora.',
+      );
+    }
+    final cutoff = cutoffAt ?? DateTime.now();
+    final operationId =
+        'desktop-late-fee-waiver-$saleId-${cutoff.microsecondsSinceEpoch}';
+    final response = await _apiClient.post(
+      '/authoritative/sales/$saleRemoteId/late-fee-waiver',
+      idempotencyKey: operationId,
+      body: {
+        'cutoffAt': cutoff.toUtc().toIso8601String(),
+        'confirmSaleSyncId': confirmSaleSyncId,
+        'reason': reason,
+        'waivedAmount': ?waivedAmount,
+      },
+    );
+    final data = response is Map ? response['data'] : null;
+    final dataMap = data is Map
+        ? data.map((key, value) => MapEntry(key.toString(), value))
+        : <String, dynamic>{};
+    return LateFeeWaiverResult.fromMap(dataMap);
   }
 
   Future<void> settleSale({
@@ -2848,6 +2993,8 @@ class PaymentsRepository {
       annulledByName: item['annulledByName']?.toString(),
       annulmentReason: item['annulmentReason']?.toString(),
       authorizedByAdmin: item['authorizedByAdmin'] == true,
+      remoteId: remoteId.isEmpty ? null : remoteId,
+      remoteVersion: _toInt(item['version']),
     );
   }
 

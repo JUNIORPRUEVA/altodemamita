@@ -14,6 +14,7 @@ import '../../installments/domain/installment.dart';
 import '../data/payments_repository.dart';
 import '../data/receipt_repository.dart';
 import '../domain/client_pagare_report.dart';
+import '../domain/payment_admin_policy.dart';
 import '../domain/payment_draft.dart';
 import '../domain/payment_history_item.dart';
 import '../domain/authoritative_late_fee.dart';
@@ -1390,6 +1391,9 @@ class _PaymentsPageState extends State<PaymentsPage> {
                                     _latestAnnullablePaymentId(
                                       visibleHistory,
                                     ) &&
+                                PaymentAdminPolicy.isAnnullablePaymentType(
+                                  payment.paymentType,
+                                ) &&
                                 !_controller.isSaving,
                             selected: selectedHistoryPaymentId == payment.id,
                             onTap: () {
@@ -2132,7 +2136,9 @@ class _PaymentsPageState extends State<PaymentsPage> {
     if (!lateFeePolicy.allowMutation) {
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         SnackBar(
-          content: Text(lateFeePolicy.message ?? 'No se puede registrar el pago.'),
+          content: Text(
+            lateFeePolicy.message ?? 'No se puede registrar el pago.',
+          ),
         ),
       );
       return;
@@ -2644,6 +2650,14 @@ class _PaymentsPageState extends State<PaymentsPage> {
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         const SnackBar(
           content: Text('No tienes permisos para eliminar pagos.'),
+        ),
+      );
+      return;
+    }
+    if (!PaymentAdminPolicy.isAnnullablePaymentType(payment.paymentType)) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          content: Text(PaymentAdminPolicy.cashSaleAnnulBlockedMessage),
         ),
       );
       return;

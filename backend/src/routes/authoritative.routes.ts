@@ -3,7 +3,7 @@ import { authGuard } from '../auth';
 import { resolveCompanyForRequest } from '../companyIdentity';
 import { prisma } from '../prisma';
 import { requirePermission } from '../rbac';
-import { requirePaymentCancelAuthorization } from '../services/adminAuthorization.service';
+import { requirePaymentCancelAuthorization, requireOwnerRole } from '../services/adminAuthorization.service';
 import { authoritativeErrorResponse } from '../services/authoritativeErrors.service';
 import { AuthoritativePaymentService } from '../services/authoritativePayment.service';
 import { AuthoritativeSaleService } from '../services/authoritativeSale.service';
@@ -118,6 +118,10 @@ authoritativeRouter.post(
         confirmSaleSyncId: String(body.confirmSaleSyncId ?? ''),
         cutoffAt: String(body.cutoffAt ?? ''),
         reason: String(body.reason ?? ''),
+        waivedAmount:
+          body.waivedAmount == null || body.waivedAmount === ''
+            ? null
+            : Number(body.waivedAmount),
       });
       res.status(result.replayed ? 200 : 201).json({
         data: result.response,
@@ -167,6 +171,99 @@ authoritativeRouter.post(
         authorizedByUserId: req.paymentCancellation?.authorizedByUserId ?? null,
         paymentId: paramValue(req.params.paymentId),
         idempotencyKey: idempotencyKey(req) ?? '',
+      });
+      res.status(result.replayed ? 200 : 201).json({
+        data: result.response,
+        idempotentReplay: result.replayed,
+      });
+    } catch (error) {
+      const response = authoritativeErrorResponse(error);
+      res.status(response.status).json(response.body);
+    }
+  },
+);
+
+/**
+ * FASE 01C — Correccion de pagos historicos (solo OWNER).
+ *
+ * `correction-preview` es SOLO LECTURA: devuelve si la operacion es segura y el
+ * impacto financiero estimado, para que el escritorio muestre el efecto exacto
+ * antes de confirmar.
+ */
+authoritativeRouter.get(
+  '/payments/:paymentId/correction-preview',
+  requireOwnerRole(),
+  async (req, res) => {
+    try {
+      const company = await resolveCompanyForRequest(req);
+      const rawAmount = stringValue(req.query.newAmount);
+      const preview = await payments.previewPaymentCorrection({
+        companyId: company.id,
+        paymentId: paramValue(req.params.paymentId),
+        action: stringValue(req.query.action) as never,
+        newDate: stringValue(req.query.newDate),
+        newAmount:
+          rawAmount == null || rawAmount === ''
+            ? null
+            : Number(rawAmount),
+      });
+      res.status(200).json({ data: preview });
+    } catch (error) {
+      const response = authoritativeErrorResponse(error);
+      res.status(response.status).json(response.body);
+    }
+  },
+);
+
+/**
+ * FASE 01D — Traza administrativa de un pago (SOLO LECTURA, solo OWNER).
+ */
+authoritativeRouter.get(
+  '/payments/:paymentId/correction-history',
+  requireOwnerRole(),
+  async (req, res) => {
+    try {
+      const company = await resolveCompanyForRequest(req);
+      const history = await payments.getPaymentCorrectionHistory({
+        companyId: company.id,
+        paymentId: paramValue(req.params.paymentId),
+      });
+      res.status(200).json({ data: history });
+    } catch (error) {
+      const response = authoritativeErrorResponse(error);
+      res.status(response.status).json(response.body);
+    }
+  },
+);
+
+/**
+ * FASE 01C — Aplica una correccion historica (solo OWNER).
+ *
+ * Requiere motivo y (recomendado) la version del pago para control optimista.
+ * Idempotente por cabecera `Idempotency-Key`.
+ */
+authoritativeRouter.post(
+  '/payments/:paymentId/correct',
+  requireOwnerRole(),
+  async (req, res) => {
+    try {
+      const company = await resolveCompanyForRequest(req);
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const expectedVersion = body.expectedPaymentVersion;
+      const result = await payments.applyPaymentCorrection({
+        companyId: company.id,
+        paymentId: paramValue(req.params.paymentId),
+        action: String(body.action ?? '') as never,
+        newDate: body.newDate == null ? null : String(body.newDate),
+        newAmount:
+          body.newAmount == null || body.newAmount === ''
+            ? null
+            : Number(body.newAmount),
+        reason: String(body.reason ?? ''),
+        performedByUserId: req.user?.id ?? '',
+        idempotencyKey: idempotencyKey(req) ?? '',
+        expectedPaymentVersion:
+          expectedVersion == null ? null : Number(expectedVersion),
       });
       res.status(result.replayed ? 200 : 201).json({
         data: result.response,

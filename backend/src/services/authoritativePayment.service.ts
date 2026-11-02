@@ -32,6 +32,13 @@ import {
 } from "./lateFeeCalculation.service";
 import { loadSaleLateFeeWaivers } from "./lateFeeWaiver.service";
 import { readLateFeePolicy } from "./lateFeePolicy.service";
+import {
+  CorrectionAction,
+  CorrectionDecision,
+  CorrectionSnapshot,
+  evaluatePaymentCorrection,
+  isCorrectionAction,
+} from "./paymentCorrection";
 
 type TransactionClient = Prisma.TransactionClient;
 type LoadedInstallment = Awaited<
@@ -112,6 +119,15 @@ export type WaiveLateFeesInput = {
   /** Corte ISO-8601: la mora acumulada hasta aqui queda condonada. */
   cutoffAt: string | Date;
   reason: string;
+  /**
+   * FASE 01D — monto PARCIAL a condonar.
+   *
+   * `null`/ausente = condonacion total de la mora exigible al corte. Si se
+   * informa, el backend valida que no exceda la mora exigible y persiste ese
+   * monto exacto; el motor distribuye la condonacion por cuota con el mismo
+   * calculo autoritativo (nunca se acepta un importe sin tope).
+   */
+  waivedAmount?: number | null;
 };
 
 export type SettleSaleInput = {
@@ -230,6 +246,19 @@ export class AuthoritativePaymentService {
         400,
       );
     }
+    // FASE 01D: monto parcial opcional. `null` = condonacion total.
+    const requestedWaivedAmount =
+      input.waivedAmount == null ? null : roundCurrency(Number(input.waivedAmount));
+    if (
+      requestedWaivedAmount !== null &&
+      (!Number.isFinite(requestedWaivedAmount) || requestedWaivedAmount <= 0)
+    ) {
+      throw new AuthoritativeError(
+        "INVALID_WAIVED_AMOUNT",
+        "El monto a condonar debe ser mayor que cero.",
+        400,
+      );
+    }
     return this.prisma.$transaction((tx) =>
       runIdempotentOperation(tx, {
         companyId: input.companyId,
@@ -240,6 +269,7 @@ export class AuthoritativePaymentService {
           cutoffAt: cutoff.toISOString(),
           confirmSaleSyncId: input.confirmSaleSyncId,
           reason,
+          waivedAmount: requestedWaivedAmount,
         },
         run: async () => {
           const sale = await loadSale(tx, {
@@ -286,6 +316,18 @@ export class AuthoritativePaymentService {
               409,
             );
           }
+          if (
+            requestedWaivedAmount !== null &&
+            requestedWaivedAmount > roundCurrency(state.outstandingTotal) + 0.009
+          ) {
+            throw new AuthoritativeError(
+              "WAIVED_AMOUNT_EXCEEDS_OUTSTANDING",
+              `La condonacion (${requestedWaivedAmount.toFixed(2)}) excede la mora exigible al corte (${roundCurrency(state.outstandingTotal).toFixed(2)}).`,
+              409,
+            );
+          }
+          const waivedToApply =
+            requestedWaivedAmount ?? roundCurrency(state.outstandingTotal);
           const row = await tx.lateFeeWaiver.create({
             data: {
               companyId: input.companyId,
@@ -295,7 +337,7 @@ export class AuthoritativePaymentService {
               installmentSyncId: null,
               cutoffAt: cutoff,
               calculatedFee: decimal(state.grossTotal),
-              waivedAmount: decimal(state.outstandingTotal),
+              waivedAmount: decimal(waivedToApply),
               reason,
               appliedByUserId: input.operatorUserId,
               idempotencyKey: operationKey,
@@ -317,7 +359,10 @@ export class AuthoritativePaymentService {
               cutoffAt: cutoff.toISOString(),
               windowGrossLateFees: state.grossTotal,
               collectedLateFees: state.collectedTotal,
-              waivedAmount: state.outstandingTotal,
+              waivedAmount: waivedToApply,
+              requestedWaivedAmount,
+              isPartial: requestedWaivedAmount !== null,
+              outstandingBefore: state.outstandingTotal,
               outstandingAfter: after.outstandingTotal,
             } as unknown as Prisma.JsonObject,
             resourceType: "sale",
@@ -370,6 +415,310 @@ export class AuthoritativePaymentService {
         },
       }),
     );
+  }
+
+  /**
+   * FASE 01C — Previsualizacion (solo lectura) de una correccion historica.
+   *
+   * Devuelve si la operacion es segura, el mensaje accionable y el impacto
+   * financiero estimado. No escribe nada.
+   */
+  async previewPaymentCorrection(
+    input: PreviewPaymentCorrectionInput,
+  ): Promise<Prisma.JsonObject> {
+    if (!isCorrectionAction(input.action)) {
+      throw new AuthoritativeError(
+        "CORRECTION_ACTION_UNSUPPORTED",
+        "Accion de correccion no soportada.",
+        400,
+      );
+    }
+    return this.prisma.$transaction(async (tx) => {
+      const payment = await loadCorrectionPayment(
+        tx,
+        input.companyId,
+        input.paymentId,
+      );
+      const { decision, saleBalanceBefore } = await evaluateCorrection(
+        tx,
+        payment,
+        input.action,
+        { newDate: input.newDate, newAmount: input.newAmount },
+      );
+      return correctionResponse(payment, decision, saleBalanceBefore);
+    });
+  }
+
+  /**
+   * FASE 01C — Aplica una correccion historica.
+   *
+   * Garantias: transaccion unica, bloqueo financiero de la venta, idempotencia
+   * por `operationKey`, control optimista de version y auditoria completa. Si
+   * cualquier paso falla, la transaccion revierte por completo.
+   */
+  async applyPaymentCorrection(
+    input: ApplyPaymentCorrectionInput,
+  ): Promise<IdempotentResult<Prisma.JsonObject>> {
+    const operationKey = requireIdempotencyKey(input.idempotencyKey);
+    if (!isCorrectionAction(input.action)) {
+      throw new AuthoritativeError(
+        "CORRECTION_ACTION_UNSUPPORTED",
+        "Accion de correccion no soportada.",
+        400,
+      );
+    }
+    const reason = String(input.reason ?? "").trim();
+    if (!reason) {
+      throw new AuthoritativeError(
+        "CORRECTION_REASON_REQUIRED",
+        "Indica el motivo de la correccion.",
+        400,
+      );
+    }
+    return this.prisma.$transaction((tx) =>
+      runIdempotentOperation(tx, {
+        companyId: input.companyId,
+        operationKey,
+        operationType: `payment.correction.${input.action}`,
+        requestPayload: {
+          paymentId: input.paymentId,
+          action: input.action,
+          newDate: input.newDate ?? null,
+          newAmount: input.newAmount ?? null,
+          reason,
+          performedByUserId: input.performedByUserId,
+        },
+        run: async () => {
+          const initial = await loadCorrectionPayment(
+            tx,
+            input.companyId,
+            input.paymentId,
+          );
+          await lockSaleForFinancialMutation(tx, initial.sale!.id);
+          // Se relee bajo bloqueo: otro proceso pudo anular/corregir el pago.
+          const payment = await loadCorrectionPayment(
+            tx,
+            input.companyId,
+            input.paymentId,
+          );
+          if (
+            input.expectedPaymentVersion != null &&
+            payment.version !== input.expectedPaymentVersion
+          ) {
+            throw new AuthoritativeError(
+              "PAYMENT_VERSION_CONFLICT",
+              "El pago cambio desde que abriste el dialogo. Recarga el historial e intentalo de nuevo.",
+              409,
+            );
+          }
+          const { decision, saleBalanceBefore } = await evaluateCorrection(
+            tx,
+            payment,
+            input.action,
+            { newDate: input.newDate, newAmount: input.newAmount },
+          );
+          if (!decision.allowed) {
+            throw new AuthoritativeError(
+              decision.code,
+              decision.message,
+              409,
+            );
+          }
+
+          let response: Prisma.JsonObject;
+          if (input.action === "annul") {
+            response = await annulPaymentInTransaction(
+              tx,
+              {
+                companyId: input.companyId,
+                paymentId: payment.id,
+                annulledByUserId: input.performedByUserId,
+                authorizedByUserId: null,
+                reason,
+                annulledAt: new Date(),
+                idempotencyKey: operationKey,
+              },
+              { allowHistorical: true },
+            );
+          } else if (input.action === "change_date") {
+            const newDate = parseDate(input.newDate, payment.paidAt ?? new Date());
+            response = (await changePaymentDateInTransaction(
+              tx,
+              payment,
+              newDate,
+              reason,
+              input.performedByUserId,
+            )) as unknown as Prisma.JsonObject;
+          } else {
+            const newAmount = Number(input.newAmount);
+            const newDate = parseDate(input.newDate, payment.paidAt ?? new Date());
+            response = (await replacePaymentAmountInTransaction(
+              tx,
+              payment,
+              newAmount,
+              newDate,
+              reason,
+              input.performedByUserId,
+            )) as unknown as Prisma.JsonObject;
+          }
+
+          return {
+            response: {
+              ...(response as Record<string, unknown>),
+              correction: {
+                action: input.action,
+                code: decision.code,
+                message: decision.message,
+                reason,
+                performedByUserId: input.performedByUserId,
+                performedAt: new Date().toISOString(),
+                saleBalanceBefore,
+                saleBalanceAfter: roundCurrency(
+                  saleBalanceBefore + decision.impact.amountRestoredToBalance,
+                ),
+              },
+            } as unknown as Prisma.JsonObject,
+            resourceType: "payment",
+            resourceId: payment.id,
+          };
+        },
+      }),
+    );
+  }
+
+  /**
+   * FASE 01D — Historial de correcciones (SOLO LECTURA, solo OWNER).
+   *
+   * Reconstruye la traza administrativa de un pago a partir de fuentes que ya
+   * existen (no se inventa una tabla nueva): alta del pago, correcciones
+   * auditadas en `raw.corrections`, anulacion en `raw.annulmentAudit`, registros
+   * idempotentes en `AuthoritativeOperation` y pagos de reemplazo enlazados por
+   * `reversesPaymentId`.
+   */
+  async getPaymentCorrectionHistory(input: {
+    companyId: string;
+    paymentId: string;
+  }): Promise<Prisma.JsonObject> {
+    const payment = await this.prisma.payment.findFirst({
+      where: { id: input.paymentId, companyId: input.companyId },
+      include: { sale: true, installment: true },
+    });
+    if (!payment || !payment.sale) {
+      throw new AuthoritativeError(
+        "PAYMENT_NOT_FOUND",
+        "El pago seleccionado no existe.",
+        404,
+      );
+    }
+    const replacements = await this.prisma.payment.findMany({
+      where: { companyId: input.companyId, reversesPaymentId: payment.id },
+      select: {
+        id: true,
+        amount: true,
+        paidAt: true,
+        paymentType: true,
+        annulledAt: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: "asc" },
+    });
+    const operationIds = [payment.id, ...replacements.map((row) => row.id)];
+    const operations = await this.prisma.authoritativeOperation.findMany({
+      where: {
+        companyId: input.companyId,
+        resourceId: { in: operationIds },
+        operationType: { startsWith: "payment.correction." },
+      },
+      select: {
+        operationType: true,
+        resourceId: true,
+        createdAt: true,
+        response: true,
+      },
+      orderBy: { createdAt: "asc" },
+    });
+
+    type Entry = Record<string, unknown>;
+    const history: Entry[] = [
+      {
+        kind: "created",
+        at: payment.createdAt.toISOString(),
+        action: "register",
+        amount: toNumber(payment.amount),
+        paymentType: payment.paymentType,
+        detail: "Pago registrado",
+      },
+    ];
+
+    const raw = (payment.raw ?? {}) as Record<string, unknown>;
+    if (Array.isArray(raw.corrections)) {
+      for (const entry of raw.corrections as unknown[]) {
+        if (entry && typeof entry === "object") {
+          history.push({ kind: "correction", ...(entry as Entry) });
+        }
+      }
+    }
+    if (raw.annulmentAudit && typeof raw.annulmentAudit === "object") {
+      const audit = raw.annulmentAudit as Entry;
+      history.push({
+        kind: "annulment",
+        at: audit.annulledAt ?? null,
+        action: "annul",
+        reason: audit.reason ?? null,
+        performedByUserId: audit.performedByUserId ?? null,
+        authorizedByUserId: audit.authorizedByUserId ?? null,
+        overridden: audit.override === true,
+      });
+    }
+    for (const operation of operations) {
+      const response = (operation.response ?? {}) as Record<string, unknown>;
+      const correction = (response.correction ?? {}) as Record<string, unknown>;
+      history.push({
+        kind: "authoritative_operation",
+        at: operation.createdAt.toISOString(),
+        action: String(operation.operationType).replace(
+          "payment.correction.",
+          "",
+        ),
+        reason: correction.reason ?? null,
+        performedByUserId: correction.performedByUserId ?? null,
+        saleBalanceBefore: correction.saleBalanceBefore ?? null,
+        saleBalanceAfter: correction.saleBalanceAfter ?? null,
+        targetPaymentId: operation.resourceId,
+      });
+    }
+    for (const replacement of replacements) {
+      history.push({
+        kind: "replacement",
+        at: replacement.createdAt.toISOString(),
+        action: "replacement_created",
+        paymentId: replacement.id,
+        amount: toNumber(replacement.amount),
+        paidAt: replacement.paidAt?.toISOString() ?? null,
+        paymentType: replacement.paymentType,
+        annulledAt: replacement.annulledAt?.toISOString() ?? null,
+      });
+    }
+
+    history.sort((a, b) =>
+      String(a.at ?? "").localeCompare(String(b.at ?? "")),
+    );
+
+    return {
+      payment: {
+        id: payment.id,
+        saleId: payment.sale.id,
+        paymentType: payment.paymentType,
+        amount: toNumber(payment.amount),
+        paidAt: payment.paidAt?.toISOString() ?? null,
+        createdAt: payment.createdAt.toISOString(),
+        annulledAt: payment.annulledAt?.toISOString() ?? null,
+        annulmentReason: payment.annulmentReason ?? null,
+        version: payment.version,
+        installmentNumber: payment.installment?.installmentNumber ?? null,
+      },
+      history,
+    } as unknown as Prisma.JsonObject;
   }
 
   async settleSale(
@@ -1063,9 +1412,35 @@ function mergeAnnulmentAudit(
   return base as Prisma.InputJsonValue;
 }
 
+/**
+ * Tipos de pago que NO admiten anulacion individual (FASE 01B, defecto P1).
+ *
+ * `contado` registra el cobro de una venta al contado con `installmentId=null`
+ * y la venta ya queda `pagada` con balance 0. Anularlo no tiene cuota que
+ * revertir ni deuda que restaurar: el pago quedaba anulado mientras la venta
+ * seguia `pagada` y el solar `vendido`, borrando la evidencia del cobro sin
+ * devolver la obligacion. Se rechaza de forma explicita y accionable.
+ *
+ * La via correcta para deshacer una venta al contado es anular/revertir la
+ * venta completa desde Ventas (operacion con su propio motor y auditoria).
+ */
+export function paymentAnnulmentTypeRejection(
+  paymentType: string | null | undefined,
+): { code: string; message: string } | null {
+  if ((paymentType ?? "").trim().toLowerCase() === "contado") {
+    return {
+      code: "CASH_SALE_PAYMENT_NOT_ANNULLABLE",
+      message:
+        "El cobro de una venta al contado no se puede anular individualmente: anula o revierte la venta completa desde Ventas.",
+    };
+  }
+  return null;
+}
+
 async function annulPaymentInTransaction(
   tx: TransactionClient,
   input: AnnulAuthoritativePaymentInput,
+  options: { allowHistorical?: boolean } = {},
 ): Promise<Prisma.JsonObject> {
   const annulledAt = parseDate(input.annulledAt, new Date());
   const payment = await tx.payment.findFirst({
@@ -1099,6 +1474,15 @@ async function annulPaymentInTransaction(
     );
   }
 
+  const typeRejection = paymentAnnulmentTypeRejection(payment.paymentType);
+  if (typeRejection) {
+    throw new AuthoritativeError(
+      typeRejection.code,
+      typeRejection.message,
+      409,
+    );
+  }
+
   const latest = await tx.payment.findFirst({
     where: {
       companyId: input.companyId,
@@ -1109,7 +1493,10 @@ async function annulPaymentInTransaction(
     orderBy: [{ paidAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
     select: { id: true },
   });
-  if (latest?.id !== payment.id) {
+  // FASE 01C: la anulacion historica solo se habilita desde el motor de
+  // correccion, que ANTES demuestra con `evaluatePaymentCorrection` que la
+  // reconstruccion financiera es segura. La ruta normal conserva la regla LIFO.
+  if (!options.allowHistorical && latest?.id !== payment.id) {
     throw new AuthoritativeError(
       "ONLY_LATEST_PAYMENT_CAN_BE_ANNULLED",
       "Solo se permite anular el ultimo pago activo de la venta.",
@@ -1236,6 +1623,316 @@ async function annulPaymentInTransaction(
     annulledAt: annulledAt.toISOString(),
     performedByUserId: input.annulledByUserId,
     authorizedByUserId,
+  };
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * FASE 01C — Motor de correccion de pagos historicos
+ *
+ * `previewPaymentCorrection` calcula el impacto sin escribir nada.
+ * `applyPaymentCorrection` aplica la correccion en UNA transaccion, con bloqueo
+ * financiero de la venta, idempotencia por `operationKey`, control de version
+ * opcional y auditoria en `Payment.raw.corrections` + `AuthoritativeOperation`.
+ *
+ * La decision de seguridad es PURA (`services/paymentCorrection.ts`): si la
+ * reconstruccion no es demostrable, se rechaza con un mensaje accionable.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+export type PreviewPaymentCorrectionInput = {
+  companyId: string;
+  paymentId: string;
+  action: CorrectionAction;
+  newDate?: string | Date | null;
+  newAmount?: number | null;
+};
+
+export type ApplyPaymentCorrectionInput = PreviewPaymentCorrectionInput & {
+  performedByUserId: string;
+  reason: string;
+  idempotencyKey: string;
+  /** Version esperada del pago (control optimista). */
+  expectedPaymentVersion?: number | null;
+};
+
+/** Une la auditoria de la correccion dentro del JSON `raw` existente. */
+function appendCorrectionAudit(
+  raw: unknown,
+  entry: Record<string, unknown>,
+): Prisma.InputJsonValue {
+  const base =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? { ...(raw as Record<string, unknown>) }
+      : {};
+  const previous = Array.isArray((base as Record<string, unknown>).corrections)
+    ? ((base as Record<string, unknown>).corrections as unknown[])
+    : [];
+  const history = [...previous, entry].slice(-20);
+  base.corrections = history;
+  return base as Prisma.InputJsonValue;
+}
+
+async function loadCorrectionPayment(
+  tx: TransactionClient,
+  companyId: string,
+  paymentId: string,
+) {
+  const payment = await tx.payment.findFirst({
+    where: { id: paymentId, companyId },
+    include: { sale: true, installment: true },
+  });
+  if (!payment || !payment.sale) {
+    throw new AuthoritativeError(
+      "PAYMENT_NOT_FOUND",
+      "El pago seleccionado no existe.",
+      404,
+    );
+  }
+  return payment;
+}
+
+type CorrectionPayment = Awaited<ReturnType<typeof loadCorrectionPayment>>;
+
+async function buildCorrectionSnapshot(
+  tx: TransactionClient,
+  payment: CorrectionPayment,
+  action: CorrectionAction,
+  params: { newDate?: string | Date | null; newAmount?: number | null },
+): Promise<CorrectionSnapshot> {
+  const sale = payment.sale!;
+  const reference = payment.paidAt ?? payment.createdAt;
+  const laterPayments = await tx.payment.count({
+    where: {
+      companyId: payment.companyId,
+      saleId: sale.id,
+      deletedAt: null,
+      annulledAt: null,
+      id: { not: payment.id },
+      paidAt: { not: null },
+      OR: [
+        { paidAt: { gt: reference } },
+        { paidAt: reference, id: { gt: payment.id } },
+      ],
+    },
+  });
+  const activeInstallments = await tx.installment.count({
+    where: { companyId: payment.companyId, saleId: sale.id, deletedAt: null },
+  });
+  return {
+    action,
+    paymentType: payment.paymentType,
+    amount: toNumber(payment.amount),
+    principalApplied: toNumber(payment.principalApplied),
+    interestApplied: toNumber(payment.interestApplied),
+    lateFeeApplied: toNumber(payment.lateFeeApplied),
+    paidAt: reference,
+    isAnnulled: payment.annulledAt !== null || payment.deletedAt !== null,
+    saleStatus: sale.status ?? null,
+    saleDate: sale.saleDate ?? null,
+    hasLaterActivePayments: laterPayments > 0,
+    hasActiveInstallments: activeInstallments > 0,
+    hasInstallment: payment.installmentId !== null,
+    installment: payment.installment
+      ? {
+          totalAmount: toNumber(payment.installment.totalAmount),
+          paidAmount: toNumber(payment.installment.paidAmount),
+          paidPrincipalAmount: toNumber(payment.installment.paidPrincipalAmount),
+          paidInterestAmount: toNumber(payment.installment.paidInterestAmount),
+          recalculatedAfterPayment: payment.installment.version > 1,
+        }
+      : null,
+    newDate: params.newDate ? parseDate(params.newDate, reference) : null,
+    newAmount: params.newAmount ?? null,
+    now: new Date(),
+  };
+}
+
+/**
+ * Evalua la correccion y devuelve la decision junto con el saldo REAL de la
+ * venta antes de tocar nada.
+ */
+async function evaluateCorrection(
+  tx: TransactionClient,
+  payment: CorrectionPayment,
+  action: CorrectionAction,
+  params: { newDate?: string | Date | null; newAmount?: number | null },
+) {
+  const snapshot = await buildCorrectionSnapshot(tx, payment, action, params);
+  const decision = evaluatePaymentCorrection(snapshot);
+  const saleBalanceBefore = await loadOutstandingContractBalance(
+    tx,
+    payment.sale!.id,
+  );
+  return { snapshot, decision, saleBalanceBefore };
+}
+
+function correctionResponse(
+  payment: CorrectionPayment,
+  decision: CorrectionDecision,
+  saleBalanceBefore: number,
+) {
+  const restored = decision.impact.amountRestoredToBalance;
+  return {
+    payment: {
+      id: payment.id,
+      paymentType: payment.paymentType,
+      amount: toNumber(payment.amount),
+      paidAt: payment.paidAt?.toISOString() ?? null,
+      createdAt: payment.createdAt.toISOString(),
+      principalApplied: toNumber(payment.principalApplied),
+      interestApplied: toNumber(payment.interestApplied),
+      lateFeeApplied: toNumber(payment.lateFeeApplied),
+      annulledAt: payment.annulledAt?.toISOString() ?? null,
+      version: payment.version,
+    },
+    sale: {
+      id: payment.sale!.id,
+      status: payment.sale!.status ?? null,
+      balance: saleBalanceBefore,
+    },
+    correction: {
+      allowed: decision.allowed,
+      code: decision.code,
+      message: decision.message,
+      requiresScheduleReconstruction: decision.requiresScheduleReconstruction,
+      createsReplacementPayment: decision.createsReplacementPayment,
+    },
+    impact: {
+      ...decision.impact,
+      saleBalanceBefore,
+      saleBalanceAfter: roundCurrency(saleBalanceBefore + restored),
+      impactEstimated: true,
+    },
+  } as unknown as Prisma.JsonObject;
+}
+
+/** Cambia SOLO la fecha efectiva (`paidAt`), preservando `createdAt`. */
+async function changePaymentDateInTransaction(
+  tx: TransactionClient,
+  payment: CorrectionPayment,
+  newDate: Date,
+  reason: string,
+  performedByUserId: string,
+) {
+  const performedAt = new Date();
+  await tx.payment.update({
+    where: { id: payment.id },
+    data: {
+      paidAt: newDate,
+      raw: appendCorrectionAudit(payment.raw, {
+        action: "change_date",
+        performedByUserId,
+        reason,
+        performedAt: performedAt.toISOString(),
+        previousPaidAt: payment.paidAt?.toISOString() ?? null,
+        newPaidAt: newDate.toISOString(),
+        createdAtPreserved: payment.createdAt.toISOString(),
+      }),
+      version: { increment: 1 },
+    },
+  });
+  if (payment.installment) {
+    const installment = payment.installment;
+    const status = resolveInstallmentStatus({
+      dueDate: installment.dueDate ?? newDate,
+      paidAmount: toNumber(installment.paidAmount),
+      totalAmount: toNumber(installment.totalAmount),
+      asOf: newDate,
+    });
+    if (status !== installment.status) {
+      await tx.installment.update({
+        where: { id: installment.id },
+        data: { status, version: { increment: 1 } },
+      });
+    }
+  }
+  return {
+    paymentId: payment.id,
+    saleId: payment.sale!.id,
+    action: "change_date",
+    paidAt: newDate.toISOString(),
+    createdAt: payment.createdAt.toISOString(),
+    version: payment.version + 1,
+  };
+}
+
+/**
+ * Corrige el MONTO de un pago de cuota mediante anulacion + reemplazo.
+ *
+ * Nunca reescribe el monto de una fila existente: conserva el evento original
+ * (anulado, con motivo) y registra un pago nuevo generado por el motor
+ * financiero, enlazado con `reversesPaymentId` para trazabilidad.
+ */
+async function replacePaymentAmountInTransaction(
+  tx: TransactionClient,
+  payment: CorrectionPayment,
+  newAmount: number,
+  newDate: Date,
+  reason: string,
+  performedByUserId: string,
+) {
+  const sale = payment.sale!;
+  const annulled = await annulPaymentInTransaction(
+    tx,
+    {
+      companyId: payment.companyId,
+      paymentId: payment.id,
+      annulledByUserId: performedByUserId,
+      authorizedByUserId: null,
+      reason: `Correccion de monto: ${reason}`,
+      annulledAt: new Date(),
+      idempotencyKey: `correction-annul-${payment.id}`,
+    },
+    { allowHistorical: true },
+  );
+
+  const registration = await registerPaymentInTransaction(tx, {
+    companyId: payment.companyId,
+    receivedByUserId: payment.receivedByUserId ?? performedByUserId,
+    idempotencyKey: `correction-${payment.id}`,
+    saleId: sale.id,
+    paymentDate: newDate,
+    amountPaid: roundCurrency(newAmount),
+    paymentMethod: payment.method ?? null,
+    paymentTypeOverride: "cuota",
+    yearToPay: payment.yearToPay ?? null,
+    sourceSyncId: payment.syncId,
+  });
+
+  const createdIds = Array.isArray(
+    (registration as Record<string, unknown>).paymentIds,
+  )
+    ? ((registration as Record<string, unknown>).paymentIds as string[])
+    : [];
+  for (const id of createdIds) {
+    const created = await tx.payment.findUnique({
+      where: { id },
+      select: { id: true, raw: true },
+    });
+    if (!created) continue;
+    await tx.payment.update({
+      where: { id: created.id },
+      data: {
+        reversesPaymentId: payment.id,
+        raw: appendCorrectionAudit(created.raw, {
+          action: "replacement",
+          replacesPaymentId: payment.id,
+          performedByUserId,
+          reason,
+          performedAt: new Date().toISOString(),
+        }),
+      },
+    });
+  }
+
+  return {
+    paymentId: payment.id,
+    saleId: sale.id,
+    action: "correct_amount",
+    previousAmount: toNumber(payment.amount),
+    newAmount: roundCurrency(newAmount),
+    replacementPaymentIds: createdIds,
+    annulment: annulled,
+    registration,
   };
 }
 

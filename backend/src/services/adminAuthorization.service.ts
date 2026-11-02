@@ -192,6 +192,30 @@ export function requirePaymentCancelAuthorization() {
   };
 }
 
+/**
+ * Middleware de rol OWNER reutilizable (FASE 01C).
+ *
+ * Las correcciones historicas y la condonacion de mora son operaciones
+ * administrativas: la MISMA cuenta autenticada debe ser OWNER. No existe
+ * override por credenciales de otro administrador.
+ */
+export function requireOwnerRole() {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!req.user) {
+      return res.status(401).json({ error: { message: "No autenticado." } });
+    }
+    if (req.user.role === "OWNER") {
+      return next();
+    }
+    return res.status(403).json({
+      error: {
+        code: "OWNER_ROLE_REQUIRED",
+        message: "Esta accion requiere el rol de propietario (OWNER).",
+      },
+    });
+  };
+}
+
 const MAX_FAILED_ATTEMPTS = 5;
 const ATTEMPT_WINDOW_MS = 5 * 60 * 1000;
 const failedAttempts = new Map<string, { count: number; resetAt: number }>();

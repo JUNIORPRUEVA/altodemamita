@@ -17,6 +17,8 @@ class PaymentHistoryItem {
     this.annulledByName,
     this.annulmentReason,
     this.authorizedByAdmin = false,
+    this.remoteId,
+    this.remoteVersion,
   });
 
   final int id;
@@ -44,6 +46,16 @@ class PaymentHistoryItem {
 
   /// `true` cuando la anulacion requirio autorizacion de un administrador.
   final bool authorizedByAdmin;
+
+  /// Identificador autoritativo del pago en PostgreSQL.
+  ///
+  /// FASE 01D: las correcciones lo usan directamente, de modo que un pago
+  /// historico se puede corregir aunque el registro en memoria de la sesion
+  /// (que mapea ids remotos) se haya perdido al reiniciar la aplicacion.
+  final String? remoteId;
+
+  /// Version autoritativa del pago (control optimista de concurrencia).
+  final int? remoteVersion;
 
   /// Un pago anulado se conserva en el historial pero ya no es cobrable ni
   /// reversible: no debe ofrecer acciones financieras.

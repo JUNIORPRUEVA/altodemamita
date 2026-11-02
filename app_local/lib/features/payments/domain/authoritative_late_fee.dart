@@ -147,10 +147,10 @@ class LateFeeAuthority {
   });
 
   const LateFeeAuthority.available(AuthoritativeLateFeeSummary summary)
-      : this._(isAvailable: true, summary: summary, reason: null);
+    : this._(isAvailable: true, summary: summary, reason: null);
 
   const LateFeeAuthority.unavailable({String? reason})
-      : this._(isAvailable: false, summary: null, reason: reason);
+    : this._(isAvailable: false, summary: null, reason: reason);
 
   final bool isAvailable;
   final AuthoritativeLateFeeSummary? summary;
@@ -201,8 +201,7 @@ LateFeeMutationPolicy evaluateLateFeeMutationPolicy({
   return const LateFeeMutationPolicy(
     allowMutation: true,
     usesAuthoritativeLateFee: false,
-    message:
-        'Mora calculada localmente: no se pudo confirmar con el servidor.',
+    message: 'Mora calculada localmente: no se pudo confirmar con el servidor.',
   );
 }
 
@@ -213,7 +212,58 @@ double resolveCollectibleLateFee({
   required int? installmentNumber,
 }) {
   if (authoritative == null) return localLateFee;
-  final authoritativeValue =
-      authoritative.outstandingForInstallmentNumber(installmentNumber);
+  final authoritativeValue = authoritative.outstandingForInstallmentNumber(
+    installmentNumber,
+  );
   return authoritativeValue < 0 ? 0 : authoritativeValue;
+}
+
+/// Resultado de una condonacion de mora aplicada por el backend.
+///
+/// Contrato: `POST /authoritative/sales/:saleId/late-fee-waiver`
+/// `{ data: { saleId, saleSyncId, waiverId, cutoffAt,
+///            windowGrossLateFees, collectedLateFees,
+///            waivedAmount, outstandingAfter } }`
+class LateFeeWaiverResult {
+  const LateFeeWaiverResult({
+    required this.waiverId,
+    required this.cutoffAt,
+    required this.waivedAmount,
+    required this.outstandingAfter,
+    required this.collectedLateFees,
+    required this.windowGrossLateFees,
+    this.outstandingBefore = 0,
+    this.isPartial = false,
+  });
+
+  final String waiverId;
+  final String cutoffAt;
+
+  /// Mora efectivamente condonada por el backend en este corte.
+  final double waivedAmount;
+
+  /// Mora exigible que quedo despues de la condonacion (normalmente 0).
+  final double outstandingAfter;
+
+  final double collectedLateFees;
+  final double windowGrossLateFees;
+
+  /// Mora exigible justo antes de la condonacion.
+  final double outstandingBefore;
+
+  /// `true` si la condonacion fue parcial (monto indicado por el OWNER).
+  final bool isPartial;
+
+  factory LateFeeWaiverResult.fromMap(Map<String, dynamic> map) {
+    return LateFeeWaiverResult(
+      waiverId: (map['waiverId'] ?? '').toString(),
+      cutoffAt: (map['cutoffAt'] ?? '').toString(),
+      waivedAmount: _asDouble(map['waivedAmount']),
+      outstandingAfter: _asDouble(map['outstandingAfter']),
+      collectedLateFees: _asDouble(map['collectedLateFees']),
+      windowGrossLateFees: _asDouble(map['windowGrossLateFees']),
+      outstandingBefore: _asDouble(map['outstandingBefore']),
+      isPartial: map['isPartial'] == true,
+    );
+  }
 }

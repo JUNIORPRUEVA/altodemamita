@@ -11,6 +11,12 @@ import '../domain/payment_history_item.dart';
 import '../domain/payment_sale_context.dart';
 import '../domain/payment_sale_option.dart';
 import 'payment_annul_dialog.dart';
+import 'late_fee_waiver_dialog.dart';
+import 'payment_correction_dialog.dart';
+import 'payment_correction_history_dialog.dart';
+import '../domain/authoritative_late_fee.dart';
+import '../domain/payment_admin_policy.dart';
+import '../domain/payment_correction.dart';
 
 Future<void> openClientPaymentHistoryFullscreen(
   BuildContext context, {
@@ -355,6 +361,14 @@ class _SalePaymentHistoryFullscreenPageState
       );
       return;
     }
+    if (!PaymentAdminPolicy.isAnnullablePaymentType(target.paymentType)) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          content: Text(PaymentAdminPolicy.cashSaleAnnulBlockedMessage),
+        ),
+      );
+      return;
+    }
 
     final request = await showDialog<PaymentAnnulResult>(
       context: context,
@@ -449,10 +463,269 @@ class _SalePaymentHistoryFullscreenPageState
     return '$day/$month/${value.year}';
   }
 
+  void _toast(String message) {
+    ScaffoldMessenger.maybeOf(
+      context,
+    )?.showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  /// Condonacion de mora (solo OWNER).
+  ///
+  /// El monto lo calcula el backend al confirmar; aqui solo se muestra el
+  /// impacto autoritativo (`late-fee-summary`) antes de pedir confirmacion.
+  Future<void> _waiveLateFees() async {
+    final auth = context.read<AuthProvider>();
+    if (!auth.isAdmin) {
+      _toast('No tienes permisos para condonar mora.');
+      return;
+    }
+    if (_isSaving) {
+      return;
+    }
+
+    setState(() => _isSaving = true);
+    AuthoritativeLateFeeSummary summary;
+    try {
+      summary = await _repository.fetchAuthoritativeLateFeeSummary(
+        _sale.saleId,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _isSaving = false);
+      _toast(
+        FriendlyErrorMessages.recoverable(
+          action: 'consultar la mora',
+          module: 'pagos',
+          error: error,
+        ).message,
+      );
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _isSaving = false);
+
+    if (summary.outstandingLateFees <= 0.009) {
+      _toast('Esta venta no tiene mora exigible para condonar.');
+      return;
+    }
+
+    final request = await showDialog<({String reason, double? waivedAmount})>(
+      context: context,
+      builder: (_) => LateFeeWaiverDialog(
+        clientName: _sale.clientName,
+        saleLabel: _sale.lotDisplayCode,
+        summary: summary,
+      ),
+    );
+    if (request == null || !mounted) {
+      return;
+    }
+
+    setState(() => _isSaving = true);
+    try {
+      final result = await _repository.waiveLateFees(
+        saleId: _sale.saleId,
+        reason: request.reason,
+        confirmSaleSyncId: summary.saleSyncId,
+        waivedAmount: request.waivedAmount,
+      );
+      if (!mounted) return;
+      final refreshed = await _repository.fetchSaleContext(_sale.saleId);
+      if (!mounted) return;
+      setState(() {
+        if (refreshed != null) {
+          _history = List.of(refreshed.history);
+        }
+      });
+      _toast('Mora condonada: RD\$ ${formatRdCurrency(result.waivedAmount)}.');
+    } catch (error) {
+      if (!mounted) return;
+      _toast(
+        FriendlyErrorMessages.recoverable(
+          action: 'condonar la mora',
+          module: 'pagos',
+          error: error,
+        ).message,
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
+  }
+
+  /// FASE 01C — Correccion historica de un pago concreto.
+  ///
+  /// El dialogo consulta la previsualizacion autoritativa: si el backend no
+  /// autoriza la operacion, la confirmacion queda deshabilitada con el motivo
+  /// exacto. Nada se aplica sin motivo y sin version validada.
+  Future<void> _openCorrection(PaymentHistoryItem item, String action) async {
+    final auth = context.read<AuthProvider>();
+    if (!auth.isAdmin) {
+      _toast('No tienes permisos para corregir pagos.');
+      return;
+    }
+    if (_isSaving) {
+      return;
+    }
+    final changed = await showDialog<bool>(
+      context: context,
+      builder: (_) => PaymentCorrectionDialog(
+        action: action,
+        clientName: _sale.clientName,
+        concept: paymentAnnulConceptLabel(
+          item.paymentType,
+          item.installmentNumber,
+        ),
+        amountLabel: 'RD\$ ${formatRdCurrency(item.amountPaid)}',
+        paymentDateLabel: _formatShortDate(item.paymentDate),
+        loadPreview: ({newDate, newAmount}) =>
+            _repository.previewPaymentCorrection(
+              paymentId: item.id,
+              action: action,
+              newDate: newDate,
+              newAmount: newAmount,
+              remotePaymentId: item.remoteId,
+            ),
+        apply: ({required reason, newDate, newAmount}) async {
+          final preview = await _repository.previewPaymentCorrection(
+            paymentId: item.id,
+            action: action,
+            newDate: newDate,
+            newAmount: newAmount,
+            remotePaymentId: item.remoteId,
+          );
+          if (!preview.allowed) {
+            throw Exception(
+              preview.message.isEmpty
+                  ? 'El servidor no autoriza esta correccion.'
+                  : preview.message,
+            );
+          }
+          return _repository.applyPaymentCorrection(
+            paymentId: item.id,
+            action: action,
+            reason: reason,
+            expectedPaymentVersion: preview.paymentVersion,
+            newDate: newDate,
+            newAmount: newAmount,
+            remotePaymentId: item.remoteId,
+          );
+        },
+      ),
+    );
+    if (changed != true || !mounted) {
+      return;
+    }
+    setState(() => _isSaving = true);
+    try {
+      final refreshed = await _repository.fetchSaleContext(_sale.saleId);
+      if (!mounted) return;
+      if (refreshed != null) {
+        setState(() => _history = List.of(refreshed.history));
+      }
+      _toast('Correccion aplicada. Los saldos se actualizaron.');
+    } catch (_) {
+      if (!mounted) return;
+      _toast(
+        'La correccion se aplico, pero no se pudo refrescar el historial.',
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
+  }
+
+  /// FASE 01D — Traza administrativa de solo lectura.
+  Future<void> _showCorrectionHistory(PaymentHistoryItem item) async {
+    final auth = context.read<AuthProvider>();
+    if (!auth.isAdmin) {
+      _toast('No tienes permisos para ver la auditoria de pagos.');
+      return;
+    }
+    if (_isSaving) {
+      return;
+    }
+    setState(() => _isSaving = true);
+    late Map<String, dynamic> data;
+    try {
+      data = await _repository.fetchPaymentCorrectionHistory(
+        paymentId: item.id,
+        remotePaymentId: item.remoteId,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _isSaving = false);
+      _toast(
+        FriendlyErrorMessages.recoverable(
+          action: 'consultar la auditoria',
+          module: 'pagos',
+          error: error,
+        ).message,
+      );
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _isSaving = false);
+    await showDialog<void>(
+      context: context,
+      builder: (_) => PaymentCorrectionHistoryDialog(data: data),
+    );
+  }
+
+  Widget _correctionMenu(PaymentHistoryItem item) {
+    return PopupMenuButton<String>(
+      tooltip: 'Acciones administrativas',
+      padding: EdgeInsets.zero,
+      iconSize: 16,
+      splashRadius: 16,
+      icon: const Icon(Icons.more_horiz, color: Color(0xFF1F4B99)),
+      onSelected: (value) {
+        if (value == 'history') {
+          _showCorrectionHistory(item);
+          return;
+        }
+        _openCorrection(item, value);
+      },
+      itemBuilder: (_) => [
+        if (!PaymentAdminPolicy.isCashSalePayment(item.paymentType))
+          const PopupMenuItem<String>(
+            value: PaymentCorrectionAction.annul,
+            child: Text('Anular pago', style: TextStyle(fontSize: 12)),
+          ),
+        const PopupMenuItem<String>(
+          value: PaymentCorrectionAction.changeDate,
+          child: Text('Cambiar fecha', style: TextStyle(fontSize: 12)),
+        ),
+        const PopupMenuItem<String>(
+          value: PaymentCorrectionAction.correctAmount,
+          child: Text('Editar monto', style: TextStyle(fontSize: 12)),
+        ),
+        const PopupMenuDivider(),
+        const PopupMenuItem<String>(
+          value: 'history',
+          child: Text('Ver auditoria', style: TextStyle(fontSize: 12)),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
-    final canAnnul = auth.isAdmin && _annullablePayment != null && !_isSaving;
+    final latestPayment = _annullablePayment;
+    final canAnnul =
+        PaymentAdminPolicy.canAnnulPayment(
+          isAdmin: auth.isAdmin,
+          paymentType: latestPayment?.paymentType,
+        ) &&
+        latestPayment != null &&
+        !_isSaving;
+    final blockedByCashSale =
+        auth.isAdmin &&
+        latestPayment != null &&
+        PaymentAdminPolicy.isCashSalePayment(latestPayment.paymentType);
 
     final remainingAmount = _sale.pendingBalance + _sale.pendingInitialPayment;
     final totalPaid = _history.fold<double>(
@@ -480,6 +753,7 @@ class _SalePaymentHistoryFullscreenPageState
                     child: _SaleHistoryTableViewport(
                       history: _history,
                       lotDisplayCode: _sale.lotDisplayCode,
+                      actionsBuilder: auth.isAdmin ? _correctionMenu : null,
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -487,6 +761,46 @@ class _SalePaymentHistoryFullscreenPageState
                     totalPaid: totalPaid,
                     remainingAmount: remainingAmount,
                   ),
+                  const SizedBox(height: 8),
+                  if (auth.isAdmin)
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Tooltip(
+                        message:
+                            'Condona la mora exigible de esta venta (solo administrador).',
+                        child: TextButton.icon(
+                          style: TextButton.styleFrom(
+                            minimumSize: const Size(0, 32),
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            visualDensity: VisualDensity.compact,
+                            foregroundColor: const Color(0xFF1F4B99),
+                          ),
+                          onPressed: _isSaving ? null : _waiveLateFees,
+                          icon: const Icon(Icons.percent, size: 15),
+                          label: const Text(
+                            'Condonar mora',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                        ),
+                      ),
+                    ),
+                  if (blockedByCashSale) ...[
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Tooltip(
+                        message: PaymentAdminPolicy.cashSaleAnnulBlockedMessage,
+                        child: Text(
+                          PaymentAdminPolicy.cashSaleAnnulBlockedMessage,
+                          textAlign: TextAlign.right,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Color(0xFF8A94A6),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                   if (canAnnul) ...[
                     const SizedBox(height: 8),
                     Align(
@@ -869,10 +1183,14 @@ class _SaleHistoryTableViewport extends StatefulWidget {
   const _SaleHistoryTableViewport({
     required this.history,
     required this.lotDisplayCode,
+    this.actionsBuilder,
   });
 
   final List<PaymentHistoryItem> history;
   final String lotDisplayCode;
+
+  /// Acciones administrativas por fila. `null` para operadores no autorizados.
+  final Widget Function(PaymentHistoryItem item)? actionsBuilder;
 
   @override
   State<_SaleHistoryTableViewport> createState() =>
@@ -941,6 +1259,11 @@ class _SaleHistoryTableViewportState extends State<_SaleHistoryTableViewport> {
                             lotDisplayCode: widget.lotDisplayCode,
                             selected: _selectedPaymentId == item.id,
                             hovered: _hoveredPaymentId == item.id,
+                            actions:
+                                widget.actionsBuilder != null &&
+                                    !item.isAnnulled
+                                ? widget.actionsBuilder!(item)
+                                : null,
                             onTap: () {
                               setState(() {
                                 _selectedPaymentId = item.id;
@@ -983,10 +1306,11 @@ class _HistoryTableHeader extends StatelessWidget {
           _HeaderCell('Fecha', width: 106),
           _HeaderCell('Concepto', width: 240),
           _HeaderCell('Metodo', width: 136),
-          _HeaderCell('Referencia', width: 174),
+          _HeaderCell('Referencia', width: 90),
           _HeaderCell('Solar', width: 116),
           _HeaderCell('Venta', width: 96),
           _HeaderCell('Monto', width: 150, alignEnd: true),
+          _HeaderCell('Acciones', width: 84, alignEnd: true),
         ],
       ),
     );
@@ -1159,6 +1483,7 @@ class _SaleHistoryTableRow extends StatelessWidget {
     required this.lotDisplayCode,
     required this.selected,
     required this.hovered,
+    this.actions,
     this.onTap,
     this.onHoverChanged,
   });
@@ -1167,6 +1492,7 @@ class _SaleHistoryTableRow extends StatelessWidget {
   final String lotDisplayCode;
   final bool selected;
   final bool hovered;
+  final Widget? actions;
   final VoidCallback? onTap;
   final ValueChanged<bool>? onHoverChanged;
 
@@ -1237,7 +1563,7 @@ class _SaleHistoryTableRow extends StatelessWidget {
                   ),
                 ),
                 SizedBox(
-                  width: 174,
+                  width: 90,
                   child: Text(
                     (item.reference ?? '').trim().isEmpty
                         ? '-'
@@ -1280,6 +1606,13 @@ class _SaleHistoryTableRow extends StatelessWidget {
                       fontWeight: FontWeight.w800,
                       color: Color(0xFF1A2235),
                     ),
+                  ),
+                ),
+                SizedBox(
+                  width: 84,
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: actions ?? const SizedBox.shrink(),
                   ),
                 ),
               ],

@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import {
   applyToInstallment,
   buildSettlementQuoteForTest,
+  paymentAnnulmentTypeRejection,
   resolveInstallmentsToProcess,
 } from "./authoritativePayment.service";
 
@@ -379,4 +380,31 @@ test("settlement quote never adds negative late fees", () => {
   });
 
   assert.equal(quote.lateFees, 0);
+});
+
+// ── FASE 01B — guarda de integridad: cobro de venta al contado ────────────────
+test("rechaza anular el cobro de una venta al contado", () => {
+  const rejection = paymentAnnulmentTypeRejection("contado");
+  assert.ok(rejection, "debe rechazarse");
+  assert.equal(rejection?.code, "CASH_SALE_PAYMENT_NOT_ANNULLABLE");
+  assert.match(rejection?.message ?? "", /venta al contado/i);
+});
+
+test("rechaza contado con mayusculas o espacios", () => {
+  assert.ok(paymentAnnulmentTypeRejection(" CONTADO "));
+  assert.ok(paymentAnnulmentTypeRejection("Contado"));
+});
+
+test("los tipos con motor de reversion siguen permitidos", () => {
+  for (const type of [
+    "cuota",
+    "apartado",
+    "abono_inicial",
+    "abono_capital",
+    "liquidacion_total",
+  ]) {
+    assert.equal(paymentAnnulmentTypeRejection(type), null, type);
+  }
+  assert.equal(paymentAnnulmentTypeRejection(null), null);
+  assert.equal(paymentAnnulmentTypeRejection(undefined), null);
 });
