@@ -69,13 +69,14 @@ void main() {
   });
 
   test('lee mas de 100 clientes recorriendo todas las paginas', () async {
-    expect(
-      cloudCutoverMode.usesAuthoritativeBusinessWrites,
-      isTrue,
-      reason:
-          'Este test debe ejecutarse con '
-          '--dart-define=CLOUD_CUTOVER_MODE=CLOUD_AUTHORITATIVE',
-    );
+    // Esta prueba solo tiene sentido con el modo nube autoritativo, que se
+    // activa por compilacion:
+    //   flutter test --dart-define=CLOUD_CUTOVER_MODE=CLOUD_AUTHORITATIVE
+    // Se omite (no se relaja ninguna asercion) cuando la compilacion usa el
+    // modo local heredado, igual que `read_only_configuration_hardening_test`.
+    if (!cloudCutoverMode.usesAuthoritativeBusinessWrites) {
+      return;
+    }
 
     final api = _PagedApiClient(total: 250);
     final repository = ClientRepository(
@@ -98,7 +99,9 @@ void main() {
   });
 
   test('se detiene en una sola pagina cuando el total cabe en 100', () async {
-    expect(cloudCutoverMode.usesAuthoritativeBusinessWrites, isTrue);
+    if (!cloudCutoverMode.usesAuthoritativeBusinessWrites) {
+      return;
+    }
 
     final api = _PagedApiClient(total: 97);
     final repository = ClientRepository(

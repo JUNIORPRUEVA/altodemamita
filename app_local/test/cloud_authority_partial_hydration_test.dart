@@ -395,7 +395,16 @@ void main() {
       // que la local, y `_shouldKeepLocal` protege correctamente un local de
       // version mayor. La anulacion real de PostgreSQL siempre llega con la
       // version incrementada, por lo que el remoto gana.
-      expect(finales.first, contains('c1:0.00:pendiente'));
+      //
+      // El estado derivado depende de la FECHA de vencimiento del fixture
+      // (2026-09-20): si ya paso es 'vencida'; si no, 'pendiente'. Se compara
+      // contra la MISMA regla que aplica la aplicacion en lugar de fijar una
+      // cadena, para que la prueba no caduque al cambiar el dia.
+      final estadoEsperado =
+          InstallmentStatusResolver.isPastDue(dueDate: DateTime(2026, 9, 20))
+          ? 'vencida'
+          : 'pendiente';
+      expect(finales.first, contains('c1:0.00:$estadoEsperado'));
     },
   );
 

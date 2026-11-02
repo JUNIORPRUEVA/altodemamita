@@ -227,7 +227,8 @@ void main() {
       await tester.pumpWidget(testApp(_lots()));
       await tester.pumpAndSettle();
 
-      expect(find.text('Solar MM-B-1-S446'), findsOneWidget);
+      // Codigo canonico: la manzana 'M-B-1' no duplica el prefijo 'M'.
+      expect(find.text('Solar MB-1-S446'), findsOneWidget);
       expect(find.textContaining('300.00 m²'), findsOneWidget);
       expect(find.textContaining('RD\$750,000.00'), findsOneWidget);
       expect(find.byTooltip('Nuevo solar'), findsOneWidget);
@@ -349,7 +350,7 @@ void main() {
       await tester.pumpWidget(testApp(_lots()));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Solar MM-B-1-S446'));
+      await tester.tap(find.text('Solar MB-1-S446'));
       await tester.pumpAndSettle();
 
       expect(find.text('Detalle de solar'), findsOneWidget);

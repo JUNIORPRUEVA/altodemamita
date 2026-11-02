@@ -43,6 +43,18 @@ void main() {
       appDatabase = AppDatabase.test(path.join(tempDirectory.path, 'test.db'));
       await appDatabase.initialize();
 
+      // La mora se apaga de forma explicita: estas pruebas comparan la
+      // asignacion capital/interes con la logica anterior. Sin esta fila, el
+      // repositorio asume mora habilitada (0,5 % diario) y un pago que cubre la
+      // cuota se consume integramente en mora, dejandola en 'parcial'.
+      final seedDb = await appDatabase.database;
+      await seedDb.insert(DatabaseSchema.financialParamsTable, {
+        'mora_habilitada': 'false',
+        'mora_tasa_diaria': '0.005',
+        'mora_dias_gracia': '5',
+        'fecha_actualizacion': DateTime.now().toIso8601String(),
+      });
+
       salesRepository = SalesRepository(appDatabase: appDatabase);
       paymentsRepository = PaymentsRepository(appDatabase: appDatabase);
       receiptRepository = ReceiptRepository(
