@@ -575,7 +575,7 @@ async function updateSaleInTransaction(
       seller: true,
       payments: {
         where: { deletedAt: null, annulledAt: null },
-        select: { id: true },
+        select: { id: true, amount: true, lateFeeApplied: true, principalApplied: true },
       },
       installments: {
         where: { deletedAt: null },
@@ -590,14 +590,6 @@ async function updateSaleInTransaction(
   });
   if (!existing) {
     throw new AuthoritativeError('SALE_NOT_FOUND', 'La venta seleccionada no existe.', 404);
-  }
-  if (saleHasActiveFinancialHistory(existing)) {
-    throw new AuthoritativeError(
-      'SALE_EDIT_BLOCKED_BY_PAYMENTS',
-      'Esta venta ya tiene pagos registrados, asi que no se puede reescribir su agenda ni cambiar cliente, solar o importes. ' +
-        'Anula primero los pagos (del mas reciente al mas antiguo) y vuelve a editar.',
-      409,
-    );
   }
 
   const client = await findActiveClient(tx, {
@@ -651,19 +643,6 @@ async function updateSaleInTransaction(
   }
 
   const saleDate = parseDate(input.saleDate, existing.saleDate ?? now);
-  if (
-    shouldBlockSaleDateEditWithExistingInstallments({
-      requestedSaleDate: input.saleDate,
-      existingSaleDate: existing.saleDate,
-      activeInstallmentCount: existing.installments.length,
-    })
-  ) {
-    throw new AuthoritativeError(
-      'SALE_DATE_EDIT_REQUIRES_ADMIN_RECALCULATION',
-      'No puedes cambiar la fecha de venta de una venta financiada con cuotas generadas desde la edicion normal. Requiere una operacion administrativa explicita para recalcular la agenda y preservar el historial.',
-      409,
-    );
-  }
   const downPaymentPercentage =
     input.downPaymentPercentage ??
     input.initialPercentage ??
@@ -753,6 +732,38 @@ async function updateSaleInTransaction(
     salePrice,
     downPaymentAmount: initialPaid,
   });
+
+  // Corrección administrativa con historial financiero.
+  // Regla: NADA de lo ya cobrado se descarta ni se vuelve a registrar.
+  //  - los pagos existentes quedan intactos (no se anulan ni se borran)
+  //  - las cuotas anteriores quedan canceladas para auditoría
+  //  - la agenda nueva se genera solo sobre el capital que sigue pendiente
+  //  - no se crea un inicial nuevo si la venta ya tiene pagos registrados
+  const receivedToDate = existing.payments.reduce(
+    (sum, payment) =>
+      sum +
+      Math.max(0, toNumber(payment.amount) - toNumber(payment.lateFeeApplied)),
+    0,
+  );
+  // El credito del cliente vive en los PAGOS (capital aplicado), no en las
+  // cuotas: las cuotas se cancelan en cada correccion y el credito se perderia
+  // al editar dos veces seguidas.
+  const paidPrincipalFromPayments = existing.payments.reduce(
+    (sum, payment) => sum + toNumber(payment.principalApplied),
+    0,
+  );
+  const paidPrincipalFromInstallments = existing.installments.reduce(
+    (sum, installment) => sum + toNumber(installment.paidPrincipalAmount),
+    0,
+  );
+  const correction = computeCorrectionWithPayments({
+    financedBalance,
+    paidPrincipalFromPayments,
+    paidPrincipalFromInstallments,
+  });
+  const appliedToPrincipal = correction.appliedToPrincipal;
+  const outstandingBalance = correction.outstandingBalance;
+  const hasExistingPayments = saleHasActiveFinancialHistory(existing);
   const initialPendingAmount = calculatePendingInitialPayment({
     requiredInitialPayment: requiredInitial,
     initialPaymentPaid: initialPaid,
@@ -797,16 +808,32 @@ async function updateSaleInTransaction(
       financedBalance: decimal(financedBalance),
       monthlyInterestRate: decimal(monthlyInterest),
       installmentCount,
-      balance: decimal(financedBalance),
-      raw: { authoritativeSource: 'phase_sale_edit' },
+      balance: decimal(outstandingBalance),
+      raw: {
+        authoritativeSource: 'phase_sale_edit',
+        ...(hasExistingPayments
+          ? {
+              correctedWithPayments: {
+                receivedToDate: roundCurrency(receivedToDate),
+                paidPrincipalFromPayments: roundCurrency(
+                  paidPrincipalFromPayments,
+                ),
+                appliedToPrincipal,
+                outstandingBalance,
+                correctedAt: now.toISOString(),
+                correctedByUserId: input.operatorUserId,
+              },
+            }
+          : {}),
+      },
       version: { increment: 1 },
     },
   });
 
-  if (status === 'activa') {
+  if (status === 'activa' && outstandingBalance > 0.009) {
     const installments = buildInstallmentSchedule({
       saleDate,
-      financedBalance,
+      financedBalance: outstandingBalance,
       monthlyInterest,
       installmentCount,
       statusAsOf: now,
@@ -835,7 +862,9 @@ async function updateSaleInTransaction(
 
   let initialPaymentId: string | null = null;
   const initialPaymentAmount = initialIsApartado ? reservationPaid : initialPaid;
-  if (initialPaymentAmount > 0) {
+  // Si la venta ya tiene pagos, el inicial ya está registrado: crearlo otra vez
+  // duplicaría el dinero cobrado.
+  if (initialPaymentAmount > 0 && !hasExistingPayments) {
     const payment = await tx.payment.create({
       data: {
         companyId: input.companyId,
@@ -882,7 +911,7 @@ async function updateSaleInTransaction(
     saleId: updatedSale.id,
     saleSyncId: updatedSale.syncId,
     status,
-    balance: financedBalance,
+    balance: outstandingBalance,
     initialRequiredAmount: requiredInitial,
     initialPaid,
     initialPendingAmount,
@@ -923,18 +952,34 @@ export function saleHasActiveFinancialHistory(sale: {
   );
 }
 
-export function shouldBlockSaleDateEditWithExistingInstallments(input: {
-  requestedSaleDate?: string | Date;
-  existingSaleDate?: Date | null;
-  activeInstallmentCount: number;
+/**
+ * Cálculo de una corrección administrativa de venta que YA tiene dinero cobrado.
+ *
+ * Regla contable: lo cobrado nunca se descarta ni se vuelve a registrar.
+ *  - `appliedToPrincipal` es el capital que el cliente ya pagó. Se toma el
+ *    MAYOR entre lo registrado en los pagos y lo registrado en las cuotas
+ *    pagadas: los pagos son la fuente durable (las cuotas se cancelan en cada
+ *    corrección) y el máximo evita inflar la deuda de ventas antiguas sin
+ *    desglose.
+ *  - `outstandingBalance` es el capital que sigue pendiente y sobre el que se
+ *    genera la agenda nueva. Nunca es negativo.
+ */
+export function computeCorrectionWithPayments(input: {
+  financedBalance: number;
+  paidPrincipalFromPayments?: number;
+  paidPrincipalFromInstallments?: number;
 }) {
-  if (input.requestedSaleDate === undefined || input.activeInstallmentCount <= 0) {
-    return false;
-  }
-  const requested = parseDate(input.requestedSaleDate, input.existingSaleDate ?? new Date());
-  const existing = input.existingSaleDate;
-  if (!existing) return false;
-  return requested.getTime() !== existing.getTime();
+  const appliedToPrincipal = roundCurrency(
+    Math.max(
+      0,
+      input.paidPrincipalFromPayments ?? 0,
+      input.paidPrincipalFromInstallments ?? 0,
+    ),
+  );
+  const outstandingBalance = roundCurrency(
+    Math.max(0, input.financedBalance - appliedToPrincipal),
+  );
+  return { appliedToPrincipal, outstandingBalance };
 }
 
 function resolveSellerEditReference(
