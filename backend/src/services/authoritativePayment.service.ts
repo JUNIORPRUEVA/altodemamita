@@ -288,10 +288,16 @@ export class AuthoritativePaymentService {
             idempotencyKey: operationKey,
             saleId: input.saleId,
           });
-          if (sale.syncId !== input.confirmSaleSyncId) {
+          // La confirmación evita operar sobre la venta equivocada. Se acepta
+          // el `syncId` (histórico) o la llave primaria del servidor, que es
+          // el identificador que maneja el cliente cloud-first.
+          if (
+            sale.syncId !== input.confirmSaleSyncId &&
+            sale.id !== input.confirmSaleSyncId
+          ) {
             throw new AuthoritativeError(
               "SALE_CONFIRMATION_MISMATCH",
-              "La confirmacion (saleSyncId) no coincide con la venta.",
+              "La confirmacion de la venta no coincide. Recarga la venta e intenta nuevamente.",
               409,
             );
           }
