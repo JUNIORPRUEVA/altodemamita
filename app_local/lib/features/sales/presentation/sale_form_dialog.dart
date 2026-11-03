@@ -809,9 +809,12 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
 
   Widget _buildDialogFooter({bool compact = false}) {
     final theme = Theme.of(context);
+    // No basta con que exista un id: si el cliente o el solar no están en las
+    // listas del formulario, el selector se ve vacío y guardar dejaría la
+    // venta sin esa información. Solo se permite guardar si ambos resuelven.
     final pendingFields = <String>[
-      if (_selectedClientId == null) 'cliente',
-      if (_selectedLotId == null) 'solar',
+      if (_findClientById(_selectedClientId) == null) 'cliente',
+      if (_selectedLot == null) 'solar',
     ];
     final readyToSave = pendingFields.isEmpty;
     final submitting = _isSubmitting;
@@ -2364,11 +2367,19 @@ class _SaleFormDialogState extends State<SaleFormDialog> {
     }
 
     final selectedLot = _selectedLot;
-    if (_selectedClientId == null ||
+    if (_findClientById(_selectedClientId) == null ||
         selectedLot == null ||
         selectedLot.id == null) {
       print(
         '[SALE-FORM][SAVE] stop: missing selection clientId=$_selectedClientId lot=${selectedLot?.id}',
+      );
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Selecciona el cliente y el solar de la venta antes de guardar.',
+          ),
+          backgroundColor: Colors.red,
+        ),
       );
       return;
     }

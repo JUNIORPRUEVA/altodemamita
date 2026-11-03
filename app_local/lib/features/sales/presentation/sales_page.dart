@@ -18,6 +18,7 @@ import '../../../shared/widgets/recovery_experience.dart';
 import '../../../shared/mobile/mobile_screens.dart';
 import '../../../shared/mobile/mobile_ui.dart';
 import '../../clients/data/client_repository.dart';
+import '../../clients/domain/client.dart';
 import '../../lots/data/lot_repository.dart';
 import '../../settings/data/settings_repository.dart';
 import '../data/sales_repository.dart';
@@ -26,6 +27,7 @@ import '../domain/sale_detail.dart';
 import '../domain/sale_draft.dart';
 import '../domain/sale.dart';
 import '../domain/sale_summary.dart';
+import '../domain/seller.dart';
 import 'sale_detail_dialog.dart';
 import 'sale_detail_page.dart';
 import 'sale_form_dialog.dart';
@@ -511,6 +513,60 @@ class _SalesPageState extends State<SalesPage> {
     return error == null;
   }
 
+  /// Busca el cliente de la venta en la lista de apoyo y, si no está (sync en
+  /// curso o lista desactualizada), lo recupera por documento o recargando la
+  /// lista. Devuelve `null` si no se puede resolver: en ese caso el formulario
+  /// bloquea el guardado en vez de dejar la venta sin cliente.
+  Future<Client?> _resolveEditingClient(SaleDetail detail) async {
+    final sale = detail.sale;
+    for (final client in _controller.clients) {
+      if (client.id == sale.clientId) {
+        return client;
+      }
+    }
+    final documentId = detail.clientDocumentId.trim();
+    if (documentId.isNotEmpty) {
+      try {
+        final byDocument = await widget.clientRepository.findByDocumentId(
+          documentId,
+        );
+        if (byDocument != null) {
+          return byDocument;
+        }
+      } catch (error) {
+        debugPrint('[SALES][UI] cliente no resuelto por documento: $error');
+      }
+    }
+    try {
+      final all = await widget.clientRepository.fetchAll();
+      for (final client in all) {
+        if (client.id == sale.clientId) {
+          return client;
+        }
+      }
+    } catch (error) {
+      debugPrint('[SALES][UI] clientes no recargados: $error');
+    }
+    return null;
+  }
+
+  Future<Seller?> _resolveEditingSeller(int? sellerId) async {
+    if (sellerId == null) {
+      return null;
+    }
+    for (final seller in _controller.sellers) {
+      if (seller.id == sellerId) {
+        return seller;
+      }
+    }
+    try {
+      return await widget.sellerRepository.getById(sellerId);
+    } catch (error) {
+      debugPrint('[SALES][UI] vendedor no resuelto: $error');
+      return null;
+    }
+  }
+
   Future<void> _editSale(SaleSummary summary) async {
     final detail = await _controller.fetchDetail(summary.id);
     if (!mounted) {
@@ -524,21 +580,46 @@ class _SalesPageState extends State<SalesPage> {
     }
 
     final sale = detail.sale;
+    // Las listas de apoyo pueden estar vacías si el sync aún no terminó. Si el
+    // formulario abre sin el cliente, el usuario vería "Seleccionar cliente"
+    // en una venta que sí lo tiene y podría guardar a ciegas. Se resuelve el
+    // cliente y el vendedor reales antes de abrir.
+    final editingClient = await _resolveEditingClient(detail);
+    final clients = editingClient == null
+        ? _controller.clients
+        : [
+            editingClient,
+            ..._controller.clients.where(
+              (client) => client.id != editingClient.id,
+            ),
+          ];
+    final editingSeller = await _resolveEditingSeller(sale.sellerId);
+    final sellers = editingSeller == null
+        ? _controller.sellers
+        : [
+            editingSeller,
+            ..._controller.sellers.where(
+              (seller) => seller.id != editingSeller.id,
+            ),
+          ];
+    if (!mounted) {
+      return;
+    }
     final draft = await SaleFormDialog.show(
       context,
-      clients: _controller.clients,
+      clients: clients,
       availableLots: _controller.availableLots,
       allLots: _controller.lots.isEmpty ? null : _controller.lots,
-      sellers: _controller.sellers,
+      sellers: sellers,
       defaults: _controller.defaults,
       clientRepository: widget.clientRepository,
       lotRepository: widget.lotRepository,
       sellerRepository: widget.sellerRepository,
       initialDraft: SaleDraft(
-        clientId: sale.clientId,
+        clientId: editingClient?.id ?? sale.clientId,
         lotId: sale.lotId,
         userId: sale.userId,
-        sellerId: sale.sellerId,
+        sellerId: editingSeller?.id ?? sale.sellerId,
         saleDate: sale.saleDate,
         salePrice: sale.salePrice,
         downPaymentPercentage: sale.downPaymentPercentage,
