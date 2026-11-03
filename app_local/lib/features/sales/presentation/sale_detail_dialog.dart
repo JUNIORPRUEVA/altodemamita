@@ -758,6 +758,11 @@ class _InstallmentsSection extends StatelessWidget {
         ? 'Esta venta no tiene cuotas generadas.'
         : 'Las cuotas se generarán cuando el inicial quede completado.';
     final hasInstallments = detail.installments.isNotEmpty;
+    // El detalle abre con un resumen inmediato que aun no trae las cuotas:
+    // el plan (installmentCount) ya viene en el listado, asi que los accesos
+    // se muestran desde el primer pintado en vez de esperar la respuesta del
+    // servidor.
+    final canOpenInstallments = hasInstallments || detail.sale.installmentCount > 0;
     final installmentSummary = detail.installmentSummary;
 
     return Column(
@@ -809,17 +814,20 @@ class _InstallmentsSection extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  if (hasInstallments)
+                  if (canOpenInstallments)
                     _CompactFloatingActionButton.extended(
                       heroTag: 'sale-installments-fullscreen',
-                      onPressed: () =>
-                          openInstallmentsFullscreen(context, detail),
+                      // Visible desde el primer pintado, pero solo accionable
+                      // cuando las cuotas reales ya llegaron del servidor.
+                      onPressed: hasInstallments
+                          ? () => openInstallmentsFullscreen(context, detail)
+                          : null,
                       icon: Icons.open_in_full,
                       label: 'Detalle de cuotas',
                     ),
-                  if (hasInstallments && saleId != null && hasAppliedPayments)
+                  if (canOpenInstallments && saleId != null && hasAppliedPayments)
                     const SizedBox(height: 8),
-                  if (hasInstallments && saleId != null && hasAppliedPayments)
+                  if (canOpenInstallments && saleId != null && hasAppliedPayments)
                     _CompactFloatingActionButton.extended(
                       heroTag: 'sale-payments-fullscreen',
                       onPressed: () => openSalePaymentsHistory(

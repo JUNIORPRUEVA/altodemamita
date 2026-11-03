@@ -537,16 +537,6 @@ class _SalesPageState extends State<SalesPage> {
         debugPrint('[SALES][UI] cliente no resuelto por documento: $error');
       }
     }
-    try {
-      final all = await widget.clientRepository.fetchAll();
-      for (final client in all) {
-        if (client.id == sale.clientId) {
-          return client;
-        }
-      }
-    } catch (error) {
-      debugPrint('[SALES][UI] clientes no recargados: $error');
-    }
     return null;
   }
 
@@ -568,7 +558,11 @@ class _SalesPageState extends State<SalesPage> {
   }
 
   Future<void> _editSale(SaleSummary summary) async {
-    final detail = await _controller.fetchDetail(summary.id);
+    // Cache/memoria primero: la ficha ya cargó el detalle, así que el
+    // formulario abre sin esperar otra llamada al servidor.
+    final detail =
+        await _controller.fetchCachedDetail(summary.id) ??
+        await _controller.fetchDetail(summary.id);
     if (!mounted) {
       return;
     }
