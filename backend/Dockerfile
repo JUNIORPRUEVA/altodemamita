@@ -22,4 +22,6 @@ COPY --from=build /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/dist ./dist
 EXPOSE 3000
-CMD ["node", "dist/server.js"]
+# Aplica migraciones pendientes antes de arrancar. Sin esto la base se queda
+# atrás y los endpoints que dependen de tablas nuevas responden 500.
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/server.js"]
