@@ -6,6 +6,7 @@ import { authRouter } from "./routes/auth.routes";
 import { authoritativeRouter } from "./routes/authoritative.routes";
 import { businessRouter } from "./routes/business.routes";
 import { customerRouter } from "./routes/customer.routes";
+import { deviceRouter } from "./routes/device.routes";
 import { ownerRouter } from "./routes/owner.routes";
 import { paymentReminderRouter } from "./routes/paymentReminder.routes";
 import { syncRouter } from "./routes/sync.routes";
@@ -34,8 +35,8 @@ export function createApp() {
   app.use("/api/business", businessRouter);
   app.use("/business", businessRouter);
   app.use("/api/customer", customerRouter);
-  app.use("/customer", customerRouter);
-  app.use("/api/owner", ownerRouter);
+  app.use("/customer", customerRouter);app.use("/api/devices", deviceRouter);
+app.use("/devices", deviceRouter);  app.use("/api/owner", ownerRouter);
   app.use("/owner", ownerRouter);
   app.use("/api/payment-reminders", paymentReminderRouter);
   app.use("/payment-reminders", paymentReminderRouter);

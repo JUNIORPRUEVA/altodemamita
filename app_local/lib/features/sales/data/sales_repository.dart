@@ -74,12 +74,14 @@ class SalesRepository {
   Future<List<SaleSummary>> fetchAll({
     String query = '',
     String? settlementFilter,
+    bool includeCancelled = false,
   }) async {
     if (_useBackendMode) {
       try {
         return _fetchAllFromBackend(
           query: query,
           settlementFilter: settlementFilter,
+          includeCancelled: includeCancelled,
         );
       } catch (error, stackTrace) {
         _log(
@@ -1415,6 +1417,7 @@ class SalesRepository {
     String query = '',
     String? sellerRemoteId,
     String? settlementFilter,
+    bool includeCancelled = false,
   }) async {
     final response = await _apiClient.get(
       '/owner/sales',
@@ -1426,6 +1429,9 @@ class SalesRepository {
           'sellerId': sellerRemoteId,
         if (settlementFilter != null && settlementFilter.trim().isNotEmpty)
           'settlement': settlementFilter.trim(),
+        // Las ventas canceladas quedan con borrado logico; el administrador
+        // necesita verlas para poder restaurarlas.
+        if (includeCancelled) 'includeDeleted': 'true',
       },
     );
     final payload = response is Map<String, dynamic>
@@ -1685,7 +1691,12 @@ class SalesRepository {
     // PostgreSQL. Sin cuotas en la respuesta el resumen financiero quedaría
     // vacío aunque la venta ya tenga plan generado.
     try {
-      final detailResponse = await _apiClient.get('/owner/sales/$remoteId');
+      // includeDeleted permite abrir una venta cancelada (borrado logico) para
+      // poder restaurarla desde la ficha.
+      final detailResponse = await _apiClient.get(
+        '/owner/sales/$remoteId',
+        queryParameters: {'includeDeleted': 'true'},
+      );
       final detailPayload = _responseData(detailResponse);
       final detailSale = _asMap(detailPayload['sale']);
       if (detailSale != null && detailSale.isNotEmpty) {

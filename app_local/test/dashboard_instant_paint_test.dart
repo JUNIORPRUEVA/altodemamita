@@ -234,6 +234,7 @@ class _GatedSalesRepository extends SalesRepository {
   Future<List<SaleSummary>> fetchAll({
     String query = '',
     String? settlementFilter,
+    bool includeCancelled = false,
   }) async {
     await _gate.future;
     return const [];

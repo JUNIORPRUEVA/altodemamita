@@ -402,8 +402,15 @@ async function saleDetail(req: any, res: any) {
   const saleId = String(req.params.saleId ?? '').trim();
 
   let timedAt = Date.now();
+  // Una venta cancelada queda con borrado logico, pero el administrador debe
+  // poder abrirla para restaurarla. Solo se incluye si se pide explicitamente.
+  const includeDeleted = String(req.query.includeDeleted ?? 'false') === 'true';
   const sale = await prisma.sale.findFirst({
-    where: { id: saleId, companyId: company.id, deletedAt: null },
+    where: {
+      id: saleId,
+      companyId: company.id,
+      ...(includeDeleted ? {} : { deletedAt: null }),
+    },
     select: saleListSelect,
   });
   metrics.dbMs += Date.now() - timedAt;

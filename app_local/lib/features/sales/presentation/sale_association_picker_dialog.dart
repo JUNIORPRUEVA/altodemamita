@@ -73,7 +73,17 @@ class _SaleAssociationPickerDialogState
       if (widget.isClient) {
         final clients = await _clientRepository.fetchAll(query: query);
         for (final client in clients) {
-          final remoteId = (client.syncId ?? '').trim();
+          // El backend resuelve el cliente por su id remoto (PK), igual que
+          // hace con los solares. Enviar el syncId hacia fallar con
+          // "El cliente seleccionado no existe en la empresa".
+          final remoteId =
+              (BackendEntityIdRegistry.instance.resolveRemoteId(
+                    'clients',
+                    client.id,
+                  ) ??
+                  client.syncId ??
+                  '')
+                  .trim();
           if (remoteId.isEmpty) continue;
           targets.add(
             SaleAssociationTarget(

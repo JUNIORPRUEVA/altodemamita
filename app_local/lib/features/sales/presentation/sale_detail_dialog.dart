@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/business/installment_status.dart';
+import '../../../core/network/backend_entity_id_registry.dart';
 import '../../../core/responsive/app_breakpoints.dart';
 import '../../auth/presentation/auth_provider.dart';
 import '../../payments/data/payments_repository.dart';
@@ -1448,7 +1449,17 @@ class _OwnerSaleCorrectionBarState extends State<_OwnerSaleCorrectionBar> {
   final SaleCorrectionRepository _repository = SaleCorrectionRepository();
   bool _busy = false;
 
-  String get _saleSyncId => widget.detail.sale.syncId ?? '';
+  /// Identificador que espera el backend en /authoritative/sales/:id. Es el id
+  /// remoto (PK del servidor), no el syncId: el backend resuelve la venta por
+  /// `Sale.id`, igual que en cancelar/restaurar. El syncId queda de respaldo
+  /// para instalaciones antiguas donde ambos valores coincidian.
+  String get _saleSyncId =>
+      BackendEntityIdRegistry.instance.resolveRemoteId(
+        'sales',
+        widget.detail.sale.id,
+      ) ??
+      widget.detail.sale.syncId ??
+      '';
 
   Future<void> _open(String action) async {
     if (_busy) return;

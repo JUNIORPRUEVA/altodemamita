@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../core/utils/dominican_formatters.dart';
@@ -63,6 +65,9 @@ class _PaymentCorrectionDialogState extends State<PaymentCorrectionDialog> {
   DateTime? _newDate;
   double? _newAmount;
 
+  /// Evita pedir la previsualizacion en cada tecla mientras se escribe el monto.
+  Timer? _amountDebounce;
+
   bool get _isDateAction => widget.action == PaymentCorrectionAction.changeDate;
   bool get _isAmountAction =>
       widget.action == PaymentCorrectionAction.correctAmount;
@@ -75,6 +80,7 @@ class _PaymentCorrectionDialogState extends State<PaymentCorrectionDialog> {
 
   @override
   void dispose() {
+    _amountDebounce?.cancel();
     _reasonController.dispose();
     _amountController.dispose();
     super.dispose();
@@ -337,6 +343,17 @@ class _PaymentCorrectionDialogState extends State<PaymentCorrectionDialog> {
                     isDense: true,
                     border: OutlineInputBorder(),
                   ),
+                  // Sin esto el monto solo se registraba al pulsar Enter y el
+                  // formulario seguia marcando "(indica el monto)" al escribir.
+                  onChanged: (value) {
+                    final parsed = double.tryParse(value.replaceAll(',', '.'));
+                    setState(() => _newAmount = parsed);
+                    _amountDebounce?.cancel();
+                    _amountDebounce = Timer(
+                      const Duration(milliseconds: 600),
+                      _reloadPreview,
+                    );
+                  },
                   onSubmitted: (value) {
                     final parsed = double.tryParse(value.replaceAll(',', '.'));
                     if (parsed == null) return;

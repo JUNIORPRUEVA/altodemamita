@@ -573,9 +573,11 @@ export class AuthoritativePaymentService {
                 performedByUserId: input.performedByUserId,
                 performedAt: new Date().toISOString(),
                 saleBalanceBefore,
-                saleBalanceAfter: roundCurrency(
-                  saleBalanceBefore + decision.impact.amountRestoredToBalance,
-                ),
+                saleBalanceAfter: estimateSaleBalanceAfter({
+                  decision,
+                  payment,
+                  saleBalanceBefore,
+                }),
               },
             } as unknown as Prisma.JsonObject,
             resourceType: "payment",
@@ -1499,7 +1501,8 @@ async function annulPaymentInTransaction(
   if (!options.allowHistorical && latest?.id !== payment.id) {
     throw new AuthoritativeError(
       "ONLY_LATEST_PAYMENT_CAN_BE_ANNULLED",
-      "Solo se permite anular el ultimo pago activo de la venta.",
+      "Solo se puede anular el ultimo pago activo de la venta. " +
+        "Anula primero los pagos posteriores (del mas reciente al mas antiguo) y este quedara disponible.",
       409,
     );
   }
@@ -1770,8 +1773,7 @@ function correctionResponse(
   decision: CorrectionDecision,
   saleBalanceBefore: number,
 ) {
-  const restored = decision.impact.amountRestoredToBalance;
-  return {
+  const restored = decision.impact.amountRestoredToBalance;return {
     payment: {
       id: payment.id,
       paymentType: payment.paymentType,
@@ -1799,10 +1801,41 @@ function correctionResponse(
     impact: {
       ...decision.impact,
       saleBalanceBefore,
-      saleBalanceAfter: roundCurrency(saleBalanceBefore + restored),
+      saleBalanceAfter: estimateSaleBalanceAfter({
+        decision,
+        payment,
+        saleBalanceBefore,
+      }),
       impactEstimated: true,
     },
   } as unknown as Prisma.JsonObject;
+}
+
+/**
+ * Saldo de la venta DESPUES de la correccion, estimado con el MISMO criterio
+ * que usa el motor financiero: el saldo pendiente de la venta solo se mueve
+ * por CAPITAL aplicado, nunca por el interes ni por la mora.
+ *
+ * Antes se sumaba el importe completo del pago (capital + interes), asi que la
+ * vista previa anunciaba un saldo mayor al que realmente quedaba al confirmar.
+ */
+function estimateSaleBalanceAfter(params: {
+  decision: CorrectionDecision;
+  payment: CorrectionPayment;
+  saleBalanceBefore: number;
+}): number {
+  const { decision, payment, saleBalanceBefore } = params;
+  // Cambiar la fecha no mueve dinero.
+  if (decision.impact.dateChange) {
+    return saleBalanceBefore;
+  }
+  // La correccion de monto anula y registra un reemplazo: el efecto neto lo
+  // determina el nuevo pago, que la vista previa no puede calcular aqui.
+  if (decision.createsReplacementPayment) {
+    return saleBalanceBefore;
+  }
+  const principal = Math.max(toNumber(payment.principalApplied), 0);
+  return roundCurrency(saleBalanceBefore + principal);
 }
 
 /** Cambia SOLO la fecha efectiva (`paidAt`), preservando `createdAt`. */

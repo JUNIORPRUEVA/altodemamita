@@ -197,12 +197,14 @@ class _SalesPageState extends State<SalesPage> {
             _SalesToolbar(
               controller: _searchController,
               onlySettled: _controller.isFullyPaidFilter,
+              onlyCancelled: _controller.showCancelled,
               isSaving: _controller.isSaving,
               canCreateSales: canCreateSales,
               onSearch: _runSearch,
               onChanged: _handleSearchChanged,
               onClear: _clearSearch,
               onToggleSettled: _controller.toggleFullyPaidFilter,
+              onToggleCancelled: _controller.toggleCancelledFilter,
               onCreate: _createSale,
             ),
             Expanded(
@@ -1059,37 +1061,92 @@ class _SalesFilterDrawer extends StatelessWidget {
   }
 }
 
+/// Boton de filtro de la barra de Ventas.
+///
+/// Existe en lugar de `FilterChip` porque en el build release el chip no
+/// recibia el clic (solo respondia en debug); los botones de la misma barra si
+/// funcionaban en ambos.
+class _SalesFilterButton extends StatelessWidget {
+  const _SalesFilterButton({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onPressed,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    // Sin Tooltip: con tooltip el boton mostraba la ayuda al pasar el raton
+    // pero el clic no llegaba a dispararse (comprobado en release). El resto de
+    // botones de la barra, que no tienen tooltip, si funcionan.
+    return OutlinedButton.icon(
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size(0, 38),
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        backgroundColor: selected ? const Color(0xFFE7F6EE) : null,
+        foregroundColor: selected
+            ? const Color(0xFF1B6E4C)
+            : const Color(0xFF1F4B99),
+        side: BorderSide(
+          color: selected ? const Color(0xFF2E9E6B) : const Color(0xFFD0D7E4),
+        ),
+      ),
+      onPressed: onPressed,
+      icon: Icon(icon, size: 16),
+      label: Text(label, style: const TextStyle(fontSize: 13)),
+    );
+  }
+}
+
 class _SalesToolbar extends StatelessWidget {
   const _SalesToolbar({
     required this.controller,
     required this.onlySettled,
+    required this.onlyCancelled,
     required this.isSaving,
     required this.canCreateSales,
     required this.onSearch,
     required this.onChanged,
     required this.onClear,
     required this.onToggleSettled,
+    required this.onToggleCancelled,
     required this.onCreate,
   });
 
   final TextEditingController controller;
   final bool onlySettled;
+  final bool onlyCancelled;
   final bool isSaving;
   final bool canCreateSales;
   final VoidCallback onSearch;
   final ValueChanged<String> onChanged;
   final VoidCallback onClear;
   final VoidCallback onToggleSettled;
+  final VoidCallback onToggleCancelled;
   final VoidCallback onCreate;
 
   @override
   Widget build(BuildContext context) {
+    // Nota: se usan OutlinedButton en lugar de FilterChip porque el chip no
+    // recibia el clic en el build release (solo en debug). Los botones de esta
+    // misma barra si respondian, asi que se iguala el patron.
     final actionChildren = <Widget>[
-      FilterChip(
-        label: const Text('Venta definitiva', style: TextStyle(fontSize: 13)),
+      _SalesFilterButton(
+        label: 'Venta definitiva',
+        icon: Icons.verified_rounded,
         selected: onlySettled,
-        tooltip: 'Mostrar solo ventas saldadas (completamente pagadas)',
-        onSelected: (_) => onToggleSettled(),
+        onPressed: onToggleSettled,
+      ),
+      _SalesFilterButton(
+        label: 'Canceladas',
+        icon: Icons.restore_from_trash_outlined,
+        selected: onlyCancelled,
+        onPressed: onToggleCancelled,
       ),
       FilledButton.icon(
         style: FilledButton.styleFrom(
@@ -1131,15 +1188,13 @@ class _SalesToolbar extends StatelessWidget {
         children: [
           Expanded(child: SizedBox(height: 42, child: _searchField())),
           const SizedBox(width: 16),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              for (var index = 0; index < actionChildren.length; index++) ...[
-                if (index > 0) const SizedBox(width: 8),
-                actionChildren[index],
-              ],
-            ],
-          ),
+          // Los botones van directos en la fila externa: dentro de una Row
+          // anidada los dos filtros se pintaban pero no recibian el clic
+          // (comprobado en release). Los botones de la derecha si funcionaban.
+          for (var index = 0; index < actionChildren.length; index++) ...[
+            if (index > 0) const SizedBox(width: 8),
+            actionChildren[index],
+          ],
         ],
       ),
     );

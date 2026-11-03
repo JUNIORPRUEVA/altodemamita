@@ -175,8 +175,14 @@ class SalesController extends ChangeNotifier {
   String? get settlementFilter => _settlementFilter;
   bool get isFullyPaidFilter => _settlementFilter == fullyPaidFilter;
 
+  /// Cuando esta activo se listan las ventas canceladas (borrado logico) para
+  /// que el administrador pueda abrirlas y restaurarlas.
+  bool _showCancelled = false;
+  bool get showCancelled => _showCancelled;
+
   /// Clave de alcance: consulta + filtro de clasificacion.
-  String get _scopeKey => '$currentQuery|${_settlementFilter ?? ''}';
+  String get _scopeKey =>
+      '$currentQuery|${_settlementFilter ?? ''}|${_showCancelled ? 'cancelled' : ''}';
 
   /// True cuando la lista visible pertenece a la consulta actual.
   bool get hasVisibleData => sales.isNotEmpty && _loadedQuery == _scopeKey;
@@ -201,9 +207,15 @@ class SalesController extends ChangeNotifier {
     );
   }
 
+  /// Alterna entre la lista normal y las ventas canceladas (restaurables).
+  Future<void> toggleCancelledFilter() async {
+    await _performLoad(showCancelled: !_showCancelled);
+  }
+
   Future<void> _performLoad({
     String? query,
     Object? settlementFilter = _unchangedSettlementFilter,
+    Object? showCancelled = _unchangedSettlementFilter,
   }) async {
     if (_isDisposed) {
       return;
@@ -214,6 +226,9 @@ class SalesController extends ChangeNotifier {
     }
     if (!identical(settlementFilter, _unchangedSettlementFilter)) {
       _settlementFilter = settlementFilter as String?;
+    }
+    if (!identical(showCancelled, _unchangedSettlementFilter)) {
+      _showCancelled = showCancelled == true;
     }
     final scope = _scopeKey;
     final isUnfilteredScope = currentQuery.isEmpty && _settlementFilter == null;
@@ -269,7 +284,8 @@ class SalesController extends ChangeNotifier {
       }
       if (cached.isNotEmpty ||
           currentQuery.isNotEmpty ||
-          _settlementFilter != null) {
+          _settlementFilter != null ||
+          _showCancelled) {
         sales = cached;
         _loadedQuery = scope;
         if (isUnfilteredScope && cached.isNotEmpty) {
@@ -286,10 +302,18 @@ class SalesController extends ChangeNotifier {
     List<SaleSummary>? listResult;
     Object? listError;
     try {
-      listResult = await _salesRepository.fetchAll(
+      final fetched = await _salesRepository.fetchAll(
         query: currentQuery,
         settlementFilter: _settlementFilter,
+        includeCancelled: _showCancelled,
       );
+      // El backend devuelve activas y canceladas juntas al incluir borradas:
+      // la vista "Canceladas" muestra solo esas.
+      listResult = _showCancelled
+          ? fetched
+                .where((sale) => sale.status.toLowerCase() == 'cancelada')
+                .toList(growable: false)
+          : fetched;
     } catch (error) {
       listError = error;
     }

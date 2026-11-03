@@ -424,6 +424,9 @@ class _SalePaymentHistoryFullscreenPageState
       }
       setState(() {
         if (refreshed != null) {
+          // Sin esto la cabecera seguia mostrando el saldo anterior a la
+          // anulacion (solo se refrescaba la lista de pagos).
+          _sale = refreshed.sale;
           _history = List.of(refreshed.history);
         } else {
           _history = [
@@ -534,6 +537,7 @@ class _SalePaymentHistoryFullscreenPageState
       if (!mounted) return;
       setState(() {
         if (refreshed != null) {
+          _sale = refreshed.sale;
           _history = List.of(refreshed.history);
         }
       });
@@ -622,7 +626,10 @@ class _SalePaymentHistoryFullscreenPageState
       final refreshed = await _repository.fetchSaleContext(_sale.saleId);
       if (!mounted) return;
       if (refreshed != null) {
-        setState(() => _history = List.of(refreshed.history));
+        setState(() {
+          _sale = refreshed.sale;
+          _history = List.of(refreshed.history);
+        });
       }
       _toast('Correccion aplicada. Los saldos se actualizaron.');
     } catch (_) {

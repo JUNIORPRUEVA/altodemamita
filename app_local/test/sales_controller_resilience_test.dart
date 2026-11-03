@@ -470,6 +470,7 @@ class _FakeSalesRepository extends SalesRepository {
   Future<List<SaleSummary>> fetchAll({
     String query = '',
     String? settlementFilter,
+    bool includeCancelled = false,
   }) async {
     final queryGate = fetchGatesByQuery[query];
     if (queryGate != null) {
