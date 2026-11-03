@@ -560,9 +560,15 @@ class _SalesPageState extends State<SalesPage> {
   Future<void> _editSale(SaleSummary summary) async {
     // Cache/memoria primero: la ficha ya cargó el detalle, así que el
     // formulario abre sin esperar otra llamada al servidor.
-    final detail =
-        await _controller.fetchCachedDetail(summary.id) ??
-        await _controller.fetchDetail(summary.id);
+    SaleDetail? detail;
+    try {
+      detail =
+          await _controller.fetchCachedDetail(summary.id) ??
+          await _controller.fetchDetail(summary.id);
+    } catch (error, stack) {
+      debugPrint('[SALES][UI] detalle para editar falló -> $error\n$stack');
+      detail = null;
+    }
     if (!mounted) {
       return;
     }
@@ -745,8 +751,25 @@ class _SalesPageState extends State<SalesPage> {
   /// se cierra antes para no apilar dos modales; al guardar se reabre con los
   /// datos actualizados.
   Future<void> _editSaleFromListDialog(SaleSummary summary) async {
-    Navigator.of(context).pop();
-    await _editSale(summary);
+    // El detalle se abrió con showDialog, que usa el navigator RAÍZ. Hay que
+    // cerrarlo en ese mismo navigator: cerrar el más cercano desmontaba la
+    // pantalla equivocada y el formulario nunca aparecía.
+    Navigator.of(context, rootNavigator: true).pop();
+    try {
+      await _editSale(summary);
+    } catch (error, stack) {
+      debugPrint('[SALES][UI] editar desde detalle falló -> $error\n$stack');
+      if (!mounted) {
+        return;
+      }
+      _showMessage(
+        FriendlyErrorMessages.forOperation(
+          'abrir el formulario de edición',
+          error,
+          module: 'ventas',
+        ),
+      );
+    }
   }
 
   /// Abre el detalle despues de crear o editar una venta.

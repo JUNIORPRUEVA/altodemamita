@@ -1832,4 +1832,62 @@ void main() {
     expect(_searchableFieldText(tester, 'Seleccionar cliente'), 'Martin Perez');
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'abre en modo edicion aunque el cliente del borrador no este en la lista',
+    (tester) async {
+      final now = DateTime(2026, 3, 26);
+
+      await _configureDesktopSurface(tester, const Size(1280, 860));
+
+      await tester.pumpWidget(
+        _buildTestApp(
+          SaleFormDialog(
+            // Lista vacia a proposito: reproduce el caso real en el que la
+            // lista de apoyo no trae al cliente de la venta.
+            clients: const [],
+            availableLots: [
+              _testLot(
+                id: 2,
+                blockNumber: 'M',
+                lotNumber: 'S342',
+                area: 250,
+                totalPrice: 500000,
+                now: now,
+              ),
+            ],
+            sellers: const [],
+            defaults: const SaleDefaults(
+              downPaymentPercentage: 10,
+              monthlyInterest: 1,
+              installmentCount: 12,
+            ),
+            clientRepository: clientRepository,
+            lotRepository: lotRepository,
+            sellerRepository: sellerRepository,
+            dialogTitle: 'Editar venta',
+            submitLabel: 'Guardar cambios',
+            initialDraft: SaleDraft(
+              clientId: 987654,
+              lotId: 2,
+              userId: 1,
+              sellerId: null,
+              saleDate: DateTime(2026, 4, 17),
+              salePrice: 500000,
+              downPaymentPercentage: 10,
+              requiredInitialPayment: 50000,
+              initialPaymentPaid: 50000,
+              monthlyInterest: 1,
+              installmentCount: 120,
+              status: 'activa',
+            ),
+          ),
+        ),
+      );
+      await _settle(tester);
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Editar venta'), findsOneWidget);
+    },
+  );
 }
