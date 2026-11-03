@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/utils/dominican_formatters.dart';
+import '../../../core/network/backend_entity_id_registry.dart';
 import '../../../features/auth/domain/permission_model.dart';
 import '../../../features/auth/presentation/auth_provider.dart';
 import '../../../core/resilience/friendly_error_messages.dart';
@@ -2154,6 +2155,36 @@ class _PaymentsPageState extends State<PaymentsPage> {
       overdueInstallments: contextData.overdueInstallments,
       initialPaymentType: initialPaymentType,
       authoritativeLateFees: summary,
+      // Eliminar la mora de una cuota desde el propio formulario de pago.
+      // No depende del resumen autoritativo: si esa consulta falla, el botón
+      // sigue disponible y el backend calcula la mora antes de condonar.
+      waiveInstallmentLateFee:
+          ({required int installmentNumber, required String reason}) async {
+            final saleSyncId =
+                summary?.saleSyncId ??
+                BackendEntityIdRegistry.instance.resolveRemoteId(
+                  'sales',
+                  contextData.sale.saleId,
+                ) ??
+                '';
+            if (saleSyncId.isEmpty) {
+              throw Exception(
+                'Esta venta aún no está sincronizada: no se puede condonar.',
+              );
+            }
+            await widget.paymentsRepository.waiveLateFees(
+              saleId: contextData.sale.saleId,
+              reason: reason,
+              confirmSaleSyncId: saleSyncId,
+              installmentNumber: installmentNumber,
+            );
+            final refreshed = await _controller.fetchLateFeeAuthority(
+              contextData.sale.saleId,
+            );
+            _knownWaiverBySaleId[contextData.sale.saleId] =
+                refreshed.summary?.hasWaiver ?? true;
+            return refreshed.summary;
+          },
     );
     if (!mounted || draft == null) {
       return;

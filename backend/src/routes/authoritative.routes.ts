@@ -128,6 +128,14 @@ authoritativeRouter.post(
           body.waivedAmount == null || body.waivedAmount === ''
             ? null
             : Number(body.waivedAmount),
+        installmentSyncId:
+          body.installmentSyncId == null || body.installmentSyncId === ''
+            ? null
+            : String(body.installmentSyncId),
+        installmentNumber:
+          body.installmentNumber == null || body.installmentNumber === ''
+            ? null
+            : Number(body.installmentNumber),
       });
       res.status(result.replayed ? 200 : 201).json({
         data: result.response,

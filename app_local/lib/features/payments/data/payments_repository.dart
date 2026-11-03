@@ -928,6 +928,8 @@ class PaymentsRepository {
     required String confirmSaleSyncId,
     DateTime? cutoffAt,
     double? waivedAmount,
+    String? installmentSyncId,
+    int? installmentNumber,
   }) async {
     _systemConfigService.ensureWritable();
     final saleRemoteId = _idRegistry.resolveRemoteId('sales', saleId);
@@ -937,8 +939,11 @@ class PaymentsRepository {
       );
     }
     final cutoff = cutoffAt ?? DateTime.now();
+    final targetInstallment = (installmentSyncId ?? '').trim();
     final operationId =
-        'desktop-late-fee-waiver-$saleId-${cutoff.microsecondsSinceEpoch}';
+        'desktop-late-fee-waiver-$saleId-'
+        '${targetInstallment.isEmpty ? (installmentNumber ?? 'sale') : targetInstallment}-'
+        '${cutoff.microsecondsSinceEpoch}';
     final response = await _apiClient.post(
       '/authoritative/sales/$saleRemoteId/late-fee-waiver',
       idempotencyKey: operationId,
@@ -946,6 +951,10 @@ class PaymentsRepository {
         'cutoffAt': cutoff.toUtc().toIso8601String(),
         'confirmSaleSyncId': confirmSaleSyncId,
         'reason': reason,
+        if (targetInstallment.isNotEmpty)
+          'installmentSyncId': targetInstallment,
+        if (targetInstallment.isEmpty && installmentNumber != null)
+          'installmentNumber': installmentNumber,
         'waivedAmount': ?waivedAmount,
       },
     );

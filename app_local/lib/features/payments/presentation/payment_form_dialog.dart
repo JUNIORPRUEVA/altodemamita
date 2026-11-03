@@ -2,8 +2,10 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../../../core/utils/dominican_formatters.dart';
+import '../../auth/presentation/auth_provider.dart';
 import '../../installments/domain/installment.dart';
 import '../domain/authoritative_late_fee.dart';
 import '../domain/payment_draft.dart';
@@ -20,6 +22,7 @@ class PaymentFormDialog extends StatefulWidget {
     this.overdueInstallments = const [],
     this.initialPaymentType,
     this.authoritativeLateFees,
+    this.waiveInstallmentLateFee,
   });
 
   final PaymentSaleOption sale;
@@ -38,6 +41,14 @@ class PaymentFormDialog extends StatefulWidget {
   /// calculo local para la mora cobrable (puede haber mora condonada).
   final AuthoritativeLateFeeSummary? authoritativeLateFees;
 
+  /// Condona la mora de UNA cuota (solo OWNER) y devuelve el resumen
+  /// autoritativo recalculado (o `null` si no se pudo refrescar).
+  final Future<AuthoritativeLateFeeSummary?> Function({
+    required int installmentNumber,
+    required String reason,
+  })?
+  waiveInstallmentLateFee;
+
   static Future<PaymentDraft?> show(
     BuildContext context, {
     required PaymentSaleOption sale,
@@ -48,6 +59,11 @@ class PaymentFormDialog extends StatefulWidget {
     List<Installment> overdueInstallments = const [],
     String? initialPaymentType,
     AuthoritativeLateFeeSummary? authoritativeLateFees,
+    Future<AuthoritativeLateFeeSummary?> Function({
+      required int installmentNumber,
+      required String reason,
+    })?
+    waiveInstallmentLateFee,
   }) {
     return showDialog<PaymentDraft>(
       context: context,
@@ -60,6 +76,7 @@ class PaymentFormDialog extends StatefulWidget {
         overdueInstallments: overdueInstallments,
         initialPaymentType: initialPaymentType,
         authoritativeLateFees: authoritativeLateFees,
+        waiveInstallmentLateFee: waiveInstallmentLateFee,
       ),
     );
   }
@@ -92,6 +109,14 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
   late DateTime _paymentDate;
   bool _printReceiptAutomatically = false;
   bool _amountWasAutoPrefilled = false;
+
+  /// Resumen autoritativo recalculado tras una condonación hecha desde este
+  /// mismo formulario. Sin condonación se usa el que llegó por parámetro.
+  AuthoritativeLateFeeSummary? _lateFeesOverride;
+  bool _waivingMora = false;
+
+  AuthoritativeLateFeeSummary? get _lateFees =>
+      _lateFeesOverride ?? widget.authoritativeLateFees;
 
   @override
   void initState() {
@@ -1047,6 +1072,33 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
                               ),
                             ),
                             const SizedBox(width: 6),
+                            if (_canWaiveInstallmentMora(installment)) ...[
+                              SizedBox(
+                                height: 30,
+                                child: OutlinedButton.icon(
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: const Color(0xFFB91C1C),
+                                    side: const BorderSide(
+                                      color: Color(0xFFE8B4B4),
+                                    ),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                    ),
+                                  ),
+                                  onPressed: _waivingMora
+                                      ? null
+                                      : () => _confirmWaiveInstallmentMora(
+                                          installment,
+                                        ),
+                                  icon: const Icon(Icons.percent, size: 14),
+                                  label: const Text(
+                                    'Eliminar mora',
+                                    style: TextStyle(fontSize: 11),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                            ],
                             SizedBox(
                               height: 30,
                               child: FilledButton.tonal(
@@ -1075,6 +1127,133 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
         ],
       ),
     );
+  }
+
+  /// Cuota del resumen autoritativo equivalente a la cuota local.
+  AuthoritativeLateFeeInstallment? _authoritativeInstallmentFor(
+    Installment installment,
+  ) {
+    final summary = _lateFees;
+    if (summary == null) {
+      return null;
+    }
+    for (final item in summary.installments) {
+      if (item.installmentNumber == installment.installmentNumber) {
+        return item;
+      }
+    }
+    return null;
+  }
+
+  /// Mora exigible de la cuota según el resumen autoritativo, si está.
+  double? _authoritativeOutstandingFor(Installment installment) {
+    final target = _authoritativeInstallmentFor(installment);
+    if (target == null) {
+      return null;
+    }
+    return target.outstandingLateFee;
+  }
+
+  /// Solo el administrador puede eliminar la mora de una cuota. Se usa la mora
+  /// autoritativa cuando está disponible; si la consulta falla se toma la mora
+  /// local, y el backend vuelve a calcularla antes de condonar.
+  bool _canWaiveInstallmentMora(Installment installment) {
+    if (widget.waiveInstallmentLateFee == null || _waivingMora) {
+      return false;
+    }
+    bool isAdmin;
+    try {
+      isAdmin = context.read<AuthProvider>().isAdmin;
+    } catch (_) {
+      isAdmin = false;
+    }
+    if (!isAdmin) {
+      return false;
+    }
+    final authoritative = _authoritativeOutstandingFor(installment);
+    final amount = authoritative ?? _localLateFeeFor(installment);
+    return amount > 0.009;
+  }
+
+  Future<void> _confirmWaiveInstallmentMora(Installment installment) async {
+    final handler = widget.waiveInstallmentLateFee;
+    if (handler == null) {
+      return;
+    }
+    final amount =
+        _authoritativeOutstandingFor(installment) ??
+        _localLateFeeFor(installment);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Eliminar mora de la cuota'),
+        content: Text(
+          '¿Está seguro de que desea eliminar la mora de la cuota '
+          '#${installment.installmentNumber} por ${_money(amount)}?\n\n'
+          'La mora ya cobrada no se modifica y la mora que se genere después '
+          'volverá a acumularse.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFB91C1C),
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Sí, eliminar mora'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) {
+      return;
+    }
+    setState(() => _waivingMora = true);
+    try {
+      final refreshed = await handler(
+        installmentNumber: installment.installmentNumber,
+        reason:
+            'Condonación de mora de la cuota '
+            '#${installment.installmentNumber} desde el formulario de pago.',
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _waivingMora = false;
+        if (refreshed != null) {
+          _lateFeesOverride = refreshed;
+        }
+        if (_amountWasAutoPrefilled) {
+          _amountController.text = _amountFormatter.formatValue(
+            _recommendedTotalForInstallments(_selectedInstallmentsForPreview()),
+          );
+        }
+      });
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: Text('Mora de la cuota eliminada.')),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _waivingMora = false);
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          content: Text(
+            error
+                .toString()
+                .replaceFirst('Exception: ', '')
+                .replaceFirst('BackendApiException: ', ''),
+          ),
+          backgroundColor: const Color(0xFFB91C1C),
+        ),
+      );
+    }
   }
 
   Future<void> _pickPaymentDate() async {
@@ -1253,7 +1432,7 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
     final localLateFee = _localLateFeeFor(installment);
     return resolveCollectibleLateFee(
       localLateFee: localLateFee,
-      authoritative: widget.authoritativeLateFees,
+      authoritative: _lateFees,
       installmentNumber: installment.installmentNumber,
     );
   }
@@ -1267,9 +1446,9 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
   }
 
   /// Condonacion vigente segun el backend (0 si no hay o no se pudo confirmar).
-  double get _waivedLateFee => widget.authoritativeLateFees?.waivedLateFees ?? 0;
+  double get _waivedLateFee => _lateFees?.waivedLateFees ?? 0;
 
-  bool get _usesAuthoritativeLateFee => widget.authoritativeLateFees != null;
+  bool get _usesAuthoritativeLateFee => _lateFees != null;
 
   int _calendarDaysBetween(DateTime earlier, DateTime later) {
     final start = DateTime(earlier.year, earlier.month, earlier.day);

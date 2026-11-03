@@ -128,6 +128,16 @@ export type WaiveLateFeesInput = {
    * calculo autoritativo (nunca se acepta un importe sin tope).
    */
   waivedAmount?: number | null;
+  /**
+   * Condonación dirigida a UNA cuota concreta (syncId de la cuota).
+   *
+   * Cuando viene informado, el backend condona únicamente la mora exigible de
+   * esa cuota y el registro queda ligado a ella (`installmentId`).
+   * Sin este campo la condonación sigue siendo de venta completa.
+   */
+  installmentSyncId?: string | null;
+  /** Número de cuota (alternativa a `installmentSyncId`). */
+  installmentNumber?: number | null;
 };
 
 export type SettleSaleInput = {
@@ -309,34 +319,82 @@ export class AuthoritativePaymentService {
             installments,
             cutoff,
           );
-          if (state.outstandingTotal <= 0) {
+          const targetInstallmentSyncId = String(
+            input.installmentSyncId ?? "",
+          ).trim();
+          const targetInstallmentNumber =
+            input.installmentNumber == null
+              ? null
+              : Number(input.installmentNumber);
+          let targetInstallment: {
+            id: string;
+            syncId: string;
+            outstanding: number;
+          } | null = null;
+          if (targetInstallmentSyncId || targetInstallmentNumber != null) {
+            const row = targetInstallmentSyncId
+              ? installments.find(
+                  (item) => item.syncId === targetInstallmentSyncId,
+                )
+              : installments.find(
+                  (item) =>
+                    Number(item.installmentNumber) ===
+                    Number(targetInstallmentNumber),
+                );
+            const detail = row
+              ? state.installments.find(
+                  (item) => item.installmentSyncId === row.syncId,
+                )
+              : undefined;
+            if (!detail || !row) {
+              throw new AuthoritativeError(
+                "INSTALLMENT_NOT_FOUND",
+                "La cuota indicada no pertenece a esta venta.",
+                404,
+              );
+            }
+            targetInstallment = {
+              id: row.id,
+              syncId: row.syncId,
+              outstanding: roundCurrency(detail.outstandingLateFee),
+            };
+          }
+          const availableToWaive = targetInstallment
+            ? targetInstallment.outstanding
+            : roundCurrency(state.outstandingTotal);
+          if (availableToWaive <= 0) {
             throw new AuthoritativeError(
               "NOTHING_TO_WAIVE",
-              "La mora exigible al corte es 0.00; no hay nada que condonar.",
+              targetInstallment
+                ? "Esta cuota no tiene mora exigible para condonar."
+                : "La mora exigible al corte es 0.00; no hay nada que condonar.",
               409,
             );
           }
           if (
             requestedWaivedAmount !== null &&
-            requestedWaivedAmount > roundCurrency(state.outstandingTotal) + 0.009
+            requestedWaivedAmount > availableToWaive + 0.009
           ) {
             throw new AuthoritativeError(
               "WAIVED_AMOUNT_EXCEEDS_OUTSTANDING",
-              `La condonacion (${requestedWaivedAmount.toFixed(2)}) excede la mora exigible al corte (${roundCurrency(state.outstandingTotal).toFixed(2)}).`,
+              `La condonacion (${requestedWaivedAmount.toFixed(2)}) excede la mora exigible${targetInstallment ? " de la cuota" : " al corte"} (${availableToWaive.toFixed(2)}).`,
               409,
             );
           }
-          const waivedToApply =
-            requestedWaivedAmount ?? roundCurrency(state.outstandingTotal);
+          const waivedToApply = requestedWaivedAmount ?? availableToWaive;
           const row = await tx.lateFeeWaiver.create({
             data: {
               companyId: input.companyId,
               saleId: sale.id,
               saleSyncId: sale.syncId,
-              installmentId: null,
-              installmentSyncId: null,
+              installmentId: targetInstallment?.id ?? null,
+              installmentSyncId: targetInstallment?.syncId ?? null,
               cutoffAt: cutoff,
-              calculatedFee: decimal(state.grossTotal),
+              calculatedFee: decimal(
+                targetInstallment
+                  ? targetInstallment.outstanding
+                  : state.grossTotal,
+              ),
               waivedAmount: decimal(waivedToApply),
               reason,
               appliedByUserId: input.operatorUserId,
