@@ -115,6 +115,10 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
   AuthoritativeLateFeeSummary? _lateFeesOverride;
   bool _waivingMora = false;
 
+  /// Cuotas cuya mora ya se condonó en esta sesión del formulario. Sirve para
+  /// que el recibo refleje el cambio aunque la consulta autoritativa falle.
+  final Set<int> _waivedInstallmentNumbers = <int>{};
+
   AuthoritativeLateFeeSummary? get _lateFees =>
       _lateFeesOverride ?? widget.authoritativeLateFees;
 
@@ -1161,6 +1165,9 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
     if (widget.waiveInstallmentLateFee == null || _waivingMora) {
       return false;
     }
+    if (_waivedInstallmentNumbers.contains(installment.installmentNumber)) {
+      return false;
+    }
     bool isAdmin;
     try {
       isAdmin = context.read<AuthProvider>().isAdmin;
@@ -1225,6 +1232,7 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
       }
       setState(() {
         _waivingMora = false;
+        _waivedInstallmentNumbers.add(installment.installmentNumber);
         if (refreshed != null) {
           _lateFeesOverride = refreshed;
         }
@@ -1429,6 +1437,9 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
   }
 
   double _lateFeeFor(Installment installment) {
+    if (_waivedInstallmentNumbers.contains(installment.installmentNumber)) {
+      return 0;
+    }
     final localLateFee = _localLateFeeFor(installment);
     return resolveCollectibleLateFee(
       localLateFee: localLateFee,
