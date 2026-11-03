@@ -627,6 +627,9 @@ class _SalesPageState extends State<SalesPage> {
         initialDetail: initialDetail,
         loadCachedDetail: () => _controller.fetchCachedDetail(summary.id),
         loadDetail: () => _controller.fetchDetail(summary.id),
+        onEdit: _canUpdateSales
+            ? () => _editSaleFromListDialog(summary)
+            : null,
       );
       return;
     }
@@ -660,10 +663,28 @@ class _SalesPageState extends State<SalesPage> {
     }
   }
 
+  /// Edicion lanzada desde el panel de detalle (dialogo de escritorio).
+  ///
+  /// Abre el mismo formulario de "Nueva venta" precargado, para corregir fecha,
+  /// cliente, solar, precio, inicial, plazo y tasa en un solo paso. El dialogo
+  /// se cierra antes para no apilar dos modales; al guardar se reabre con los
+  /// datos actualizados.
+  Future<void> _editSaleFromListDialog(SaleSummary summary) async {
+    Navigator.of(context).pop();
+    await _editSale(summary);
+  }
+
   /// Abre el detalle despues de crear o editar una venta.
   Future<void> _showDetailAfterMutation(SaleDetail detail) async {
     if (!_usesDetailPage) {
-      await SaleDetailDialog.show(context, detail);
+      final summary = _summaryFromDetail(detail);
+      await SaleDetailDialog.show(
+        context,
+        detail,
+        onEdit: _canUpdateSales
+            ? () => _editSaleFromListDialog(summary)
+            : null,
+      );
       return;
     }
 

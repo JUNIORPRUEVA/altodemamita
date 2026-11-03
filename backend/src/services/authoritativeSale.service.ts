@@ -594,10 +594,8 @@ async function updateSaleInTransaction(
   if (saleHasActiveFinancialHistory(existing)) {
     throw new AuthoritativeError(
       'SALE_EDIT_BLOCKED_BY_PAYMENTS',
-      'Esta venta ya tiene pagos registrados, asi que no se puede reescribir su agenda desde "Editar venta". ' +
-        'Como administrador tienes dos vias: (1) abrir el detalle de la venta y usar ' +
-        '"Administracion del contrato" > "Editar contrato" / "Cambiar cliente" / "Cambiar solar", o ' +
-        '(2) anular primero los pagos (del mas reciente al mas antiguo) y volver a editar.',
+      'Esta venta ya tiene pagos registrados, asi que no se puede reescribir su agenda ni cambiar cliente, solar o importes. ' +
+        'Anula primero los pagos (del mas reciente al mas antiguo) y vuelve a editar.',
       409,
     );
   }

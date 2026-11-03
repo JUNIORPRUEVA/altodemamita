@@ -17,8 +17,6 @@ import '../domain/sale_correction.dart';
 import '../domain/sale_detail.dart';
 import 'documents/sale_documents_dialog.dart';
 import 'sale_correction_dialog.dart';
-import 'sale_association_confirm_dialog.dart';
-import 'sale_association_picker_dialog.dart';
 import 'widgets/installments_flat_table.dart';
 
 Future<void> _printSaleDocument(BuildContext context, SaleDetail detail) async {
@@ -118,14 +116,23 @@ Future<void> _exportSaleDocument(
 }
 
 class SaleDetailDialog extends StatelessWidget {
-  const SaleDetailDialog({super.key, required this.detail});
+  const SaleDetailDialog({super.key, required this.detail, this.onEdit});
 
   final SaleDetail detail;
 
-  static Future<void> show(BuildContext context, SaleDetail detail) {
+  /// Edición completa de la venta: abre el mismo formulario de "Nueva venta"
+  /// precargado, para corregir fecha, cliente, solar, precio, inicial, plazo y
+  /// tasa en un solo paso. Se omite cuando el usuario no puede editar ventas.
+  final Future<void> Function()? onEdit;
+
+  static Future<void> show(
+    BuildContext context,
+    SaleDetail detail, {
+    Future<void> Function()? onEdit,
+  }) {
     return showDialog<void>(
       context: context,
-      builder: (_) => SaleDetailDialog(detail: detail),
+      builder: (_) => SaleDetailDialog(detail: detail, onEdit: onEdit),
     );
   }
 
@@ -134,6 +141,7 @@ class SaleDetailDialog extends StatelessWidget {
     required SaleDetail initialDetail,
     Future<SaleDetail?> Function()? loadCachedDetail,
     Future<SaleDetail?> Function()? loadDetail,
+    Future<void> Function()? onEdit,
   }) {
     return showDialog<void>(
       context: context,
@@ -141,6 +149,7 @@ class SaleDetailDialog extends StatelessWidget {
         initialDetail: initialDetail,
         loadCachedDetail: loadCachedDetail,
         loadDetail: loadDetail,
+        onEdit: onEdit,
       ),
     );
   }
@@ -192,7 +201,7 @@ class SaleDetailDialog extends StatelessWidget {
           children: [
             _DialogHeader(detail: detail),
             const Divider(height: 1),
-            _OwnerSaleCorrectionBar(detail: detail),
+            _OwnerSaleCorrectionBar(detail: detail, onEdit: onEdit),
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
@@ -229,11 +238,13 @@ class _LiveSaleDetailDialog extends StatefulWidget {
     required this.initialDetail,
     this.loadCachedDetail,
     this.loadDetail,
+    this.onEdit,
   });
 
   final SaleDetail initialDetail;
   final Future<SaleDetail?> Function()? loadCachedDetail;
   final Future<SaleDetail?> Function()? loadDetail;
+  final Future<void> Function()? onEdit;
 
   @override
   State<_LiveSaleDetailDialog> createState() => _LiveSaleDetailDialogState();
@@ -287,7 +298,8 @@ class _LiveSaleDetailDialogState extends State<_LiveSaleDetailDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => SaleDetailDialog(detail: _detail);
+  Widget build(BuildContext context) =>
+      SaleDetailDialog(detail: _detail, onEdit: widget.onEdit);
 }
 
 Future<void> openInstallmentsFullscreen(
@@ -1436,9 +1448,10 @@ Color _saleDetailStatusColor(String status) {
 /// Se muestra solo para administradores; el backend valida el rol de forma
 /// obligatoria (403 si alguien fuerza la llamada).
 class _OwnerSaleCorrectionBar extends StatefulWidget {
-  const _OwnerSaleCorrectionBar({required this.detail});
+  const _OwnerSaleCorrectionBar({required this.detail, this.onEdit});
 
   final SaleDetail detail;
+  final Future<void> Function()? onEdit;
 
   @override
   State<_OwnerSaleCorrectionBar> createState() =>
@@ -1558,59 +1571,6 @@ class _OwnerSaleCorrectionBarState extends State<_OwnerSaleCorrectionBar> {
 
   /// FASE 03B — cambia el cliente o el solar reutilizando los selectores
   /// existentes y la validacion autoritativa del backend.
-  Future<void> _changeAssociation({required bool isClient}) async {
-    if (_busy) return;
-    final currentLabel = isClient
-        ? widget.detail.clientName
-        : widget.detail.lotDisplayCode;
-    final picker = await showDialog<SaleAssociationTarget>(
-      context: context,
-      builder: (_) => SaleAssociationPickerDialog(
-        isClient: isClient,
-        currentLabel: currentLabel,
-        currentSubtitle: isClient ? widget.detail.clientDocumentId : null,
-      ),
-    );
-    if (picker == null || !mounted) return;
-
-    final action = isClient
-        ? SaleCorrectionAction.changeClient
-        : SaleCorrectionAction.changeLot;
-    final applied = await showDialog<bool>(
-      context: context,
-      builder: (_) => SaleAssociationConfirmDialog(
-        title: isClient ? 'Cambiar cliente' : 'Cambiar solar',
-        currentLabel: currentLabel,
-        targetLabel: picker.label,
-        loadPreview: () => _repository.preview(
-          saleSyncId: _saleSyncId,
-          action: action,
-          clientSyncId: isClient ? picker.remoteId : null,
-          lotSyncId: isClient ? null : picker.remoteId,
-        ),
-        apply: (reason, preview) => _repository.apply(
-          saleSyncId: _saleSyncId,
-          action: action,
-          reason: reason,
-          expectedSaleVersion: preview.saleVersion,
-          clientSyncId: isClient ? picker.remoteId : null,
-          lotSyncId: isClient ? null : picker.remoteId,
-        ),
-      ),
-    );
-    if (applied != true || !mounted) return;
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      SnackBar(
-        content: Text(
-          isClient
-              ? 'Cliente actualizado. La venta se recargara.'
-              : 'Solar actualizado. La venta se recargara.',
-        ),
-      ),
-    );
-    Navigator.of(context).maybePop();
-  }
-
   Future<void> _showAudit() async {
     if (_busy) return;
     setState(() => _busy = true);
@@ -1659,24 +1619,12 @@ class _OwnerSaleCorrectionBarState extends State<_OwnerSaleCorrectionBar> {
               style: TextStyle(fontSize: 11, color: Color(0xFF6B7494)),
             ),
           ),
-          TextButton(
-            onPressed: _busy
-                ? null
-                : () => _open(SaleCorrectionAction.updateFinancing),
-            child: const Text('Editar contrato', style: TextStyle(fontSize: 12)),
-          ),
-          TextButton(
-            onPressed: _busy
-                ? null
-                : () => _changeAssociation(isClient: true),
-            child: const Text('Cambiar cliente', style: TextStyle(fontSize: 12)),
-          ),
-          TextButton(
-            onPressed: _busy
-                ? null
-                : () => _changeAssociation(isClient: false),
-            child: const Text('Cambiar solar', style: TextStyle(fontSize: 12)),
-          ),
+          if (widget.onEdit != null)
+            TextButton.icon(
+              onPressed: _busy ? null : widget.onEdit,
+              icon: const Icon(Icons.edit_outlined, size: 15),
+              label: const Text('Editar', style: TextStyle(fontSize: 12)),
+            ),
           TextButton(
             onPressed:
                 _busy ? null : () => _open(SaleCorrectionAction.cancel),
