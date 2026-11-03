@@ -116,7 +116,12 @@ Future<void> _exportSaleDocument(
 }
 
 class SaleDetailDialog extends StatelessWidget {
-  const SaleDetailDialog({super.key, required this.detail, this.onEdit});
+  const SaleDetailDialog({
+    super.key,
+    required this.detail,
+    this.onEdit,
+    this.isLoading = false,
+  });
 
   final SaleDetail detail;
 
@@ -124,6 +129,10 @@ class SaleDetailDialog extends StatelessWidget {
   /// precargado, para corregir fecha, cliente, solar, precio, inicial, plazo y
   /// tasa en un solo paso. Se omite cuando el usuario no puede editar ventas.
   final Future<void> Function()? onEdit;
+
+  /// El detalle autoritativo aun viaja: la ficha muestra un resumen sin cuotas
+  /// y hay que informarlo como carga, no como "no tiene cuotas".
+  final bool isLoading;
 
   static Future<void> show(
     BuildContext context,
@@ -213,7 +222,10 @@ class SaleDetailDialog extends StatelessWidget {
                     const SizedBox(height: 8),
                     _SummarySection(detail: detail),
                     const SizedBox(height: 8),
-                    _InstallmentsSection(detail: detail),
+                    _InstallmentsSection(
+                      detail: detail,
+                      isLoading: isLoading,
+                    ),
                   ],
                 ),
               ),
@@ -253,11 +265,13 @@ class _LiveSaleDetailDialog extends StatefulWidget {
 class _LiveSaleDetailDialogState extends State<_LiveSaleDetailDialog> {
   late SaleDetail _detail = widget.initialDetail;
   bool _loadInFlight = false;
+  bool _isLoadingDetail = false;
 
   @override
   void initState() {
     super.initState();
     if (widget.loadCachedDetail != null || widget.loadDetail != null) {
+      _isLoadingDetail = true;
       _load();
     }
   }
@@ -280,9 +294,12 @@ class _LiveSaleDetailDialogState extends State<_LiveSaleDetailDialog> {
     if (!mounted) {
       return;
     }
-    if (authoritativeDetail != null) {
-      setState(() => _detail = authoritativeDetail);
-    }
+    setState(() {
+      if (authoritativeDetail != null) {
+        _detail = authoritativeDetail;
+      }
+      _isLoadingDetail = false;
+    });
     _loadInFlight = false;
   }
 
@@ -298,8 +315,11 @@ class _LiveSaleDetailDialogState extends State<_LiveSaleDetailDialog> {
   }
 
   @override
-  Widget build(BuildContext context) =>
-      SaleDetailDialog(detail: _detail, onEdit: widget.onEdit);
+  Widget build(BuildContext context) => SaleDetailDialog(
+    detail: _detail,
+    onEdit: widget.onEdit,
+    isLoading: _isLoadingDetail,
+  );
 }
 
 Future<void> openInstallmentsFullscreen(
@@ -744,9 +764,10 @@ class _SummaryCard extends StatelessWidget {
 }
 
 class _InstallmentsSection extends StatelessWidget {
-  const _InstallmentsSection({required this.detail});
+  const _InstallmentsSection({required this.detail, this.isLoading = false});
 
   final SaleDetail detail;
+  final bool isLoading;
 
   @override
   Widget build(BuildContext context) {
@@ -758,11 +779,11 @@ class _InstallmentsSection extends StatelessWidget {
         ? 'Esta venta no tiene cuotas generadas.'
         : 'Las cuotas se generarán cuando el inicial quede completado.';
     final hasInstallments = detail.installments.isNotEmpty;
-    // El detalle abre con un resumen inmediato que aun no trae las cuotas:
-    // el plan (installmentCount) ya viene en el listado, asi que los accesos
-    // se muestran desde el primer pintado en vez de esperar la respuesta del
-    // servidor.
-    final canOpenInstallments = hasInstallments || detail.sale.installmentCount > 0;
+    // Mientras el detalle autoritativo viaja, la ficha muestra un resumen sin
+    // cuotas: hay que decirlo como carga, no como si la venta no tuviera plan.
+    final isLoadingInstallments = isLoading && !hasInstallments;
+    final canOpenInstallments =
+        hasInstallments || detail.sale.installmentCount > 0;
     final installmentSummary = detail.installmentSummary;
 
     return Column(
@@ -788,6 +809,8 @@ class _InstallmentsSection extends StatelessWidget {
                     Text(
                       hasInstallments
                           ? 'Seguimiento de pagos programados'
+                          : isLoadingInstallments
+                          ? 'Consultando las cuotas…'
                           : 'Sin cuotas programadas',
                       style: const TextStyle(
                         fontSize: 17,
@@ -799,6 +822,8 @@ class _InstallmentsSection extends StatelessWidget {
                     Text(
                       hasInstallments
                           ? _installmentSummaryText(installmentSummary)
+                          : isLoadingInstallments
+                          ? 'Estamos consultando la agenda en el servidor.'
                           : emptyMessage,
                       style: const TextStyle(
                         fontSize: 14.5,
@@ -817,8 +842,9 @@ class _InstallmentsSection extends StatelessWidget {
                   if (canOpenInstallments)
                     _CompactFloatingActionButton.extended(
                       heroTag: 'sale-installments-fullscreen',
-                      // Visible desde el primer pintado, pero solo accionable
-                      // cuando las cuotas reales ya llegaron del servidor.
+                      // Visible desde el primer pintado; muestra progreso y se
+                      // habilita cuando las cuotas reales ya llegaron.
+                      busy: isLoadingInstallments,
                       onPressed: hasInstallments
                           ? () => openInstallmentsFullscreen(context, detail)
                           : null,
@@ -854,12 +880,14 @@ class _CompactFloatingActionButton extends StatelessWidget {
     required this.onPressed,
     required this.icon,
     required this.label,
+    this.busy = false,
   });
 
   final String heroTag;
   final VoidCallback? onPressed;
   final IconData icon;
   final String label;
+  final bool busy;
 
   @override
   Widget build(BuildContext context) {
@@ -871,7 +899,16 @@ class _CompactFloatingActionButton extends StatelessWidget {
       elevation: 2,
       highlightElevation: 4,
       extendedPadding: const EdgeInsets.symmetric(horizontal: 14),
-      icon: Icon(icon, size: 17),
+      icon: busy
+          ? const SizedBox(
+              width: 15,
+              height: 15,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
+              ),
+            )
+          : Icon(icon, size: 17),
       label: Text(
         label,
         style: const TextStyle(

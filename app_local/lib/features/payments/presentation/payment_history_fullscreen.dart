@@ -760,6 +760,7 @@ class _SalePaymentHistoryFullscreenPageState
                     child: _SaleHistoryTableViewport(
                       history: _history,
                       lotDisplayCode: _sale.lotDisplayCode,
+                      isRefreshing: _isRefreshing,
                       actionsBuilder: auth.isAdmin ? _correctionMenu : null,
                     ),
                   ),
@@ -1191,10 +1192,16 @@ class _SaleHistoryTableViewport extends StatefulWidget {
     required this.history,
     required this.lotDisplayCode,
     this.actionsBuilder,
+    this.isRefreshing = false,
   });
 
   final List<PaymentHistoryItem> history;
   final String lotDisplayCode;
+
+  /// La lista viene del contexto de la venta y se refresca al abrir la
+  /// pantalla: mientras está vacía hay que decir "cargando", no dejar el área
+  /// en blanco (parecía que la venta no tenía pagos).
+  final bool isRefreshing;
 
   /// Acciones administrativas por fila. `null` para operadores no autorizados.
   final Widget Function(PaymentHistoryItem item)? actionsBuilder;
@@ -1250,51 +1257,105 @@ class _SaleHistoryTableViewportState extends State<_SaleHistoryTableViewport> {
                   const _HistoryTableHeader(),
                   const Divider(height: 1),
                   Expanded(
-                    child: Scrollbar(
-                      controller: _verticalController,
-                      thumbVisibility: true,
-                      child: ListView.separated(
-                        controller: _verticalController,
-                        primary: false,
-                        padding: EdgeInsets.zero,
-                        itemCount: widget.history.length,
-                        separatorBuilder: (_, _) => const Divider(height: 1),
-                        itemBuilder: (context, index) {
-                          final item = widget.history[index];
-                          return _SaleHistoryTableRow(
-                            item: item,
-                            lotDisplayCode: widget.lotDisplayCode,
-                            selected: _selectedPaymentId == item.id,
-                            hovered: _hoveredPaymentId == item.id,
-                            actions:
-                                widget.actionsBuilder != null &&
-                                    !item.isAnnulled
-                                ? widget.actionsBuilder!(item)
-                                : null,
-                            onTap: () {
-                              setState(() {
-                                _selectedPaymentId = item.id;
-                              });
-                            },
-                            onHoverChanged: (hovered) {
-                              setState(() {
-                                _hoveredPaymentId = hovered
-                                    ? item.id
-                                    : (_hoveredPaymentId == item.id
-                                          ? null
-                                          : _hoveredPaymentId);
-                              });
-                            },
-                          );
-                        },
-                      ),
-                    ),
+                    child: widget.history.isEmpty
+                        ? _HistoryEmptyState(
+                            isRefreshing: widget.isRefreshing,
+                          )
+                        : Scrollbar(
+                            controller: _verticalController,
+                            thumbVisibility: true,
+                            child: ListView.separated(
+                              controller: _verticalController,
+                              primary: false,
+                              padding: EdgeInsets.zero,
+                              itemCount: widget.history.length,
+                              separatorBuilder: (_, _) =>
+                                  const Divider(height: 1),
+                              itemBuilder: (context, index) {
+                                final item = widget.history[index];
+                                return _SaleHistoryTableRow(
+                                  item: item,
+                                  lotDisplayCode: widget.lotDisplayCode,
+                                  selected: _selectedPaymentId == item.id,
+                                  hovered: _hoveredPaymentId == item.id,
+                                  actions:
+                                      widget.actionsBuilder != null &&
+                                          !item.isAnnulled
+                                      ? widget.actionsBuilder!(item)
+                                      : null,
+                                  onTap: () {
+                                    setState(() {
+                                      _selectedPaymentId = item.id;
+                                    });
+                                  },
+                                  onHoverChanged: (hovered) {
+                                    setState(() {
+                                      _hoveredPaymentId = hovered
+                                          ? item.id
+                                          : (_hoveredPaymentId == item.id
+                                                ? null
+                                                : _hoveredPaymentId);
+                                    });
+                                  },
+                                );
+                              },
+                            ),
+                          ),
                   ),
                 ],
               ),
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Estado vacío/cargando de la tabla de pagos: nunca deja el área en blanco.
+class _HistoryEmptyState extends StatelessWidget {
+  const _HistoryEmptyState({required this.isRefreshing});
+
+  final bool isRefreshing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (isRefreshing) ...[
+            const SizedBox(
+              width: 26,
+              height: 26,
+              child: CircularProgressIndicator(strokeWidth: 2.5),
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              'Cargando pagos…',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF6B7494),
+              ),
+            ),
+          ] else ...[
+            const Icon(
+              Icons.receipt_long_outlined,
+              size: 34,
+              color: Color(0xFF8893AA),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Esta venta no tiene pagos registrados.',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF6B7494),
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
