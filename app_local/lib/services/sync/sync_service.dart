@@ -152,22 +152,26 @@ class SyncService {
         'jwtPresent=${refreshedSettings.jwtToken.trim().isNotEmpty}',
       );
 
+      final legacyUploadEnabled =
+          !cloudCutoverMode.usesAuthoritativeBusinessWrites;
+
+      // La descarga completa previa a la subida SOLO tiene sentido cuando hay
+      // subida legacy. En modo autoritativo la cola legacy nunca se drena, asi
+      // que un backlog antiguo forzaba una descarga completa (varios MB) en
+      // CADA sincronizacion y congelaba la interfaz varios minutos.
       final shouldRunPreUploadFullDownload =
           _allowCloudPull &&
+          legacyUploadEnabled &&
           (forceFullDownload ||
               await _syncQueueService.hasLegacyDeleteBacklog(
                 scopes: _repositoriesByScope.keys,
               ));
 
-      final legacyUploadEnabled =
-          !cloudCutoverMode.usesAuthoritativeBusinessWrites;
       var uploadedCount = 0;
       var downloadedCount = 0;
       if (shouldRunPreUploadFullDownload) {
         downloadedCount += await downloadUpdates(forceFullDownload: true);
-        if (legacyUploadEnabled) {
-          uploadedCount = await uploadPendingData();
-        }
+        uploadedCount = await uploadPendingData();
         downloadedCount += await downloadUpdates();
       } else {
         if (legacyUploadEnabled) {
