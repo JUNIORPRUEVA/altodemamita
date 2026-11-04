@@ -10,6 +10,7 @@ import '../../../core/network/backend_api_client.dart';
 import '../../../core/responsive/app_breakpoints.dart';
 import '../../../core/utils/dominican_formatters.dart';
 import '../../../core/resilience/friendly_error_messages.dart';
+import '../../../core/resilience/diagnostics_log.dart';
 import '../../../features/auth/domain/permission_model.dart';
 import '../../../features/auth/presentation/auth_provider.dart';
 import '../../../shared/sync/row_sync_badge_policy.dart';
@@ -562,8 +563,11 @@ class _SalesPageState extends State<SalesPage> {
     // memoria, y ese dato es suficiente para precargar todo de inmediato.
     final clock = Stopwatch()..start();
     void mark(String step) {
-      debugPrint('[SALES][UI] editar paso "$step" en ${clock.elapsedMilliseconds} ms');
+      final message = 'editar paso "$step" en ${clock.elapsedMilliseconds} ms';
+      debugPrint('[SALES][UI] $message');
+      DiagnosticsLog.write('editar', message);
     }
+    mark('inicio');
 
     SaleDetail? detail = SalesDetailMemoryCache.get(summary.id);
     mark('memoria');
@@ -629,6 +633,7 @@ class _SalesPageState extends State<SalesPage> {
     if (!mounted) {
       return;
     }
+    mark('antes-de-abrir-formulario');
     final draft = await SaleFormDialog.show(
       context,
       clients: clients,

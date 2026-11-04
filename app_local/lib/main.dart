@@ -12,6 +12,7 @@ import 'devtools/pwa_runtime_diagnostic_app.dart';
 import 'core/resilience/app_incident.dart';
 import 'core/resilience/app_incident_reporter.dart';
 import 'core/resilience/app_paths.dart';
+import 'core/resilience/diagnostics_log.dart';
 import 'core/resilience/app_storage_namespace.dart';
 import 'core/resilience/friendly_error_messages.dart';
 import 'core/resilience/global_error_controller.dart';
@@ -139,6 +140,8 @@ Future<void> main() async {
           errorController: errorController,
         ),
       );
+      DiagnosticsLog.startStallWatchdog();
+      DiagnosticsLog.write('app', 'arranque completado');
     },
     (error, stackTrace) {
       _writeUncaught('zone_guarded', error, stackTrace);
