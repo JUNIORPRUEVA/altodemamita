@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manual del Usuario — Sistema Solares</title>
+<style>
+:root { --ink:#1a2235; --muted:#5b6b85; --line:#e3e9f2; --brand:#1f4b99; --warn:#b42318; --soft:#f6f9fc; }
+* { box-sizing: border-box; }
+body { margin:0; background:#eef2f7; color:var(--ink);
+  font-family:"Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size:15px; line-height:1.6; }
+.shell { max-width: 980px; margin: 0 auto; padding: 24px 16px 80px; }
+.cover { background:linear-gradient(135deg,#1f4b99,#2f6fd0); color:#fff; border-radius:14px;
+  padding:32px 34px; margin-bottom:22px; box-shadow:0 10px 30px rgba(31,75,153,.25); }
+.cover h1 { margin:0 0 6px; font-size:30px; letter-spacing:-.4px; color:#fff; border:0; padding:0; }
+.cover p { margin:2px 0; color:#dbe8fb; font-size:14px; }
+.card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:26px 30px;
+  box-shadow:0 2px 10px rgba(26,34,53,.06); }
+h1 { font-size:26px; margin:34px 0 14px; padding-bottom:10px; border-bottom:2px solid var(--line); }
+h2 { font-size:21px; margin:30px 0 12px; color:var(--brand); }
+h3 { font-size:17px; margin:22px 0 8px; }
+h1:first-child { margin-top:0; }
+p { margin:9px 0; }
+ul, ol { margin:9px 0 9px 4px; padding-left:24px; }
+li { margin:4px 0; }
+code { background:#eef2f8; border:1px solid #dde5f0; border-radius:4px;
+  padding:1px 5px; font-family:Consolas,"Courier New",monospace; font-size:13px; }
+pre { background:#0f1b2d; color:#e6edf7; padding:14px 16px; border-radius:8px; overflow-x:auto;
+  font-family:Consolas,"Courier New",monospace; font-size:13px; }
+pre code { background:none; border:0; color:inherit; padding:0; }
+blockquote { margin:12px 0; padding:12px 16px; background:var(--soft); border-left:4px solid #2f6fd0;
+  border-radius:0 8px 8px 0; color:#33415c; }
+blockquote p { margin:0; }
+hr { border:0; border-top:1px solid var(--line); margin:26px 0; }
+strong { color:#12203a; }
+a { color:var(--brand); }
+.tip { background:#fff7e8; border-left-color:#d99400; }
+@media print {
+  body { background:#fff; font-size:11.5pt; }
+  .shell { max-width:none; padding:0; }
+  .card { border:0; box-shadow:none; padding:0; }
+  .cover { box-shadow:none; border-radius:0; }
+  h2 { break-after:avoid; }
+  h3 { break-after:avoid; }
+  blockquote, pre, li { break-inside:avoid; }
+}
+</style>
+</head>
+<body>
+<div class="shell">
+<div class="cover">
+<h1>Manual del Usuario — Sistema Solares</h1>
+<p>Guía rápida de uso diario</p>
+<p>Versión del sistema: 1.0.0 · Instalador `SistemaSolares_Setup_1.0.0_19`</p>
+<p>Este manual explica paso a paso cómo hacer cada operación del sistema. Está escrito para</p>
+<p>usarse en el día a día: busque la tarea que necesita y siga los pasos.</p>
+</div>
+<div class="card">
+<h2 id="1-antes-de-empezar">1. Antes de empezar</h2>
+<h3 id="1-1-iniciar-sesi-n">1.1 Iniciar sesión</h3>
+<ol>
+<li>Abra el sistema con el acceso directo <strong>Sistema Solares</strong> del escritorio o menú de inicio.</li>
+<li>Escriba su <strong>usuario</strong> y <strong>contraseña</strong>.</li>
+<li>Pulse <strong>Entrar</strong>.</li>
+</ol>
+<p>Si aparece un mensaje de <strong>sesión vencida</strong>, vuelva a iniciar sesión. Es normal cuando pasan varias horas sin usar el sistema.</p>
+<h3 id="1-2-tipos-de-usuario">1.2 Tipos de usuario</h3>
+<ul>
+<li><strong>Administrador</strong>: puede hacer todo, incluido <strong>eliminar la mora</strong> de las cuotas.</li>
+<li><strong>Vendedor</strong>: solo las acciones que le haya habilitado el administrador.</li>
+</ul>
+<p>Si un botón que necesita no aparece, casi siempre es porque su usuario no tiene el permiso. Pida al administrador que lo habilite en <strong>Configuración → Usuarios y permisos</strong>.</p>
+<h3 id="1-3-men-principal">1.3 Menú principal</h3>
+<p>Arriba o a la izquierda encontrará los módulos:</p>
+<ul>
+<li><strong>Resumen</strong>: indicadores del negocio.</li>
+<li><strong>Clientes</strong></li>
+<li><strong>Solares</strong></li>
+<li><strong>Ventas</strong></li>
+<li><strong>Pagos</strong></li>
+<li><strong>Configuración</strong></li>
+</ul>
+<hr>
+<h2 id="2-clientes">2. Clientes</h2>
+<h3 id="2-1-registrar-un-cliente">2.1 Registrar un cliente</h3>
+<ol>
+<li>Entre a <strong>Clientes</strong>.</li>
+<li>Pulse <strong>Nuevo cliente</strong>.</li>
+<li>Complete nombre, cédula, teléfono y dirección.</li>
+<li>Pulse <strong>Guardar</strong>.</li>
+</ol>
+<blockquote>También puede crear un cliente sin salir de una venta: en el formulario de venta, junto al</blockquote>
+<blockquote>campo <strong>Seleccionar cliente</strong>, use el botón de agregar (<strong>+</strong>).</blockquote>
+<h3 id="2-2-buscar-un-cliente">2.2 Buscar un cliente</h3>
+<p>Use la barra de búsqueda del módulo. Puede escribir <strong>nombre, teléfono o cédula</strong>.</p>
+<h3 id="2-3-editar-un-cliente">2.3 Editar un cliente</h3>
+<ol>
+<li>Localice el cliente en la lista.</li>
+<li>Pulse el botón <strong>Editar</strong> de la fila (o el menú <strong>⋮ → Editar</strong>).</li>
+<li>Corrija los datos y pulse <strong>Guardar</strong>.</li>
+<li>Verá el mensaje <strong>"Cliente actualizado correctamente."</strong></li>
+</ol>
+<hr>
+<h2 id="3-solares">3. Solares</h2>
+<h3 id="3-1-crear-un-solar">3.1 Crear un solar</h3>
+<ol>
+<li>Entre a <strong>Solares</strong>.</li>
+<li>Pulse <strong>Nuevo solar</strong>.</li>
+<li>Complete el código, la manzana, las medidas y el precio.</li>
+<li>Pulse <strong>Guardar</strong>.</li>
+</ol>
+<h3 id="3-2-editar-un-solar">3.2 Editar un solar</h3>
+<ol>
+<li>Localice el solar.</li>
+<li>Pulse <strong>Editar</strong> en la fila.</li>
+<li>Cambie lo necesario y guarde.</li>
+<li>Verá <strong>"Solar actualizado correctamente."</strong></li>
+</ol>
+<h3 id="3-3-ver-el-detalle-de-un-solar">3.3 Ver el detalle de un solar</h3>
+<p>Pulse sobre el solar para ver su ficha (<strong>Detalles del Solar</strong>). Desde ahí puede <strong>Editar</strong> o <strong>Cerrar</strong>.</p>
+<blockquote>El estado del solar se actualiza según la venta asociada. No lo cambie a mano para</blockquote>
+<blockquote>"liberar" un solar: si necesita liberarlo, cancele o edite la venta correspondiente.</blockquote>
+<hr>
+<h2 id="4-ventas">4. Ventas</h2>
+<h3 id="4-1-crear-una-venta">4.1 Crear una venta</h3>
+<ol>
+<li>Entre a <strong>Ventas</strong> y pulse <strong>Crear venta</strong>.</li>
+<li>Complete, en este orden:
+<ul>
+<li><strong>Seleccionar cliente</strong></li>
+<li><strong>Seleccionar vendedor</strong></li>
+<li><strong>Seleccionar solar</strong></li>
+<li><strong>Fecha de venta</strong></li>
+<li><strong>Precio total</strong></li>
+<li><strong>Inicial %</strong> (porcentaje de inicial)</li>
+<li><strong>Interés %</strong> (interés mensual)</li>
+<li><strong>Método del primer pago</strong></li>
+<li><strong>Fecha límite</strong></li>
+<li><strong>Número de cuotas</strong></li>
+</ul>
+</li>
+<li>Revise el resumen (<strong>Financiada</strong> o <strong>Al contado</strong>).</li>
+<li>Pulse <strong>Guardar</strong>.</li>
+</ol>
+<p>Si el botón de guardar no responde, el sistema le pedirá <strong>seleccionar el cliente y el solar</strong>: falta uno de esos dos datos obligatorios.</p>
+<h3 id="4-2-ver-el-detalle-de-una-venta">4.2 Ver el detalle de una venta</h3>
+<p>Pulse sobre la venta en la lista. La ficha muestra:</p>
+<ul>
+<li><strong>Valor de la venta</strong></li>
+<li><strong>Cuota mensual estimada</strong></li>
+<li><strong>Balance pendiente</strong></li>
+<li><strong>Tiempo por cobrar</strong></li>
+<li><strong>Detalle de cuotas</strong> (botón)</li>
+<li><strong>Historial de pagos</strong> (botón)</li>
+<li>Métricas de <strong>Capital</strong>, <strong>Interés</strong> y <strong>Total</strong> (proyectado y pagado a la fecha)</li>
+</ul>
+<h3 id="4-3-editar-una-venta">4.3 Editar una venta</h3>
+<p><strong>Es la operación para corregir cualquier dato de una venta ya registrada.</strong></p>
+<ol>
+<li>Abra la venta (desde la lista o desde su detalle).</li>
+<li>Pulse <strong>Editar</strong>:
+<ul>
+<li>En el detalle: botón <strong>Editar</strong> en la barra inferior.</li>
+<li>En la lista: menú <strong>⋮ → Editar</strong> de la fila.</li>
+</ul>
+</li>
+<li>Se abre el mismo formulario de la venta, ya cargado con los datos actuales.</li>
+<li>Cambie lo que necesite: **cliente, vendedor, solar, fechas, precio, inicial, interés o</li>
+</ol>
+<p>número de cuotas**.</p>
+<ol>
+<li>Pulse <strong>Guardar cambios</strong>.</li>
+</ol>
+<p><strong>Qué hace el sistema al guardar:</strong></p>
+<ul>
+<li>Recalcula el <strong>balance pendiente</strong> restando lo que el cliente ya pagó.</li>
+<li><strong>No borra ni modifica los pagos</strong> ya registrados.</li>
+<li>Genera de nuevo la agenda de <strong>cuotas pendientes</strong> con el nuevo saldo.</li>
+<li>Guarda el cambio en la <strong>Auditoría</strong> de la venta.</li>
+</ul>
+<blockquote>Regla de oro: aunque la venta tenga pagos, <strong>se puede editar</strong>. El dinero cobrado se respeta</blockquote>
+<blockquote>siempre; solo se recalcula lo que falta por cobrar.</blockquote>
+<h3 id="4-4-cambiar-el-solar-de-una-venta">4.4 Cambiar el solar de una venta</h3>
+<p>Se hace en la misma edición:</p>
+<ol>
+<li>Abra la venta y pulse <strong>Editar</strong>.</li>
+<li>En <strong>Seleccionar solar</strong>, escoja el nuevo solar.</li>
+<li>Pulse <strong>Guardar cambios</strong>.</li>
+</ol>
+<p>El solar anterior queda libre y el nuevo queda asociado a la venta. No existe un botón aparte de "Cambiar solar": todo se hace desde <strong>Editar</strong>.</p>
+<h3 id="4-5-cambiar-el-cliente-de-una-venta">4.5 Cambiar el cliente de una venta</h3>
+<p>Igual que el solar: <strong>Editar → Seleccionar cliente → Guardar cambios</strong>.</p>
+<h3 id="4-6-cancelar-una-venta">4.6 Cancelar una venta</h3>
+<ol>
+<li>Abra el detalle de la venta.</li>
+<li>Pulse <strong>Cancelar venta</strong>.</li>
+<li>Escriba el <strong>Motivo de la corrección</strong> (mínimo 5 caracteres).</li>
+<li>Confirme con el botón <strong>Cancelar venta</strong>.</li>
+</ol>
+<p>La venta <strong>no se borra</strong>: queda marcada como cancelada y conserva todo su historial. El motivo queda registrado en la auditoría.</p>
+<h3 id="4-7-restaurar-una-venta-cancelada">4.7 Restaurar una venta cancelada</h3>
+<ol>
+<li>Abra el detalle de la venta cancelada.</li>
+<li>Pulse <strong>Restaurar</strong>.</li>
+<li>Escriba el motivo y confirme con <strong>Restaurar venta</strong>.</li>
+</ol>
+<h3 id="4-8-ver-la-auditor-a-de-una-venta">4.8 Ver la auditoría de una venta</h3>
+<ol>
+<li>Abra el detalle de la venta.</li>
+<li>Pulse <strong>Auditoría</strong>.</li>
+<li>Verá cada cambio con su <strong>fecha</strong>, la <strong>acción</strong> realizada y el <strong>motivo</strong> escrito.</li>
+</ol>
+<h3 id="4-9-imprimir-documentos-de-la-venta">4.9 Imprimir documentos de la venta</h3>
+<ol>
+<li>Abra el detalle de la venta.</li>
+<li>Pulse el botón de <strong>imprimir</strong>.</li>
+<li>Elija el documento en <strong>Imprimir documento</strong>.</li>
+<li>Pulse <strong>Imprimir</strong> o <strong>Ver PDF</strong>.</li>
+</ol>
+<h3 id="4-10-eliminar-una-venta-solo-casos-excepcionales">4.10 Eliminar una venta (solo casos excepcionales)</h3>
+<p>Menú <strong>⋮ → Eliminar</strong> en la lista de ventas.</p>
+<blockquote><strong>Advertencia:</strong> eliminar borra del sistema la venta <strong>y todo lo relacionado</strong>: cuotas, pagos</blockquote>
+<blockquote>e iniciales asociados. <strong>No se puede deshacer.</strong> Si solo quiere anular la venta, use</blockquote>
+<blockquote><strong>Cancelar venta</strong>, que conserva el historial.</blockquote>
+<hr>
+<h2 id="5-cuotas">5. Cuotas</h2>
+<h3 id="5-1-ver-las-cuotas-de-una-venta">5.1 Ver las cuotas de una venta</h3>
+<p>Dentro del detalle de la venta pulse <strong>Detalle de cuotas</strong>. Verá número, vencimiento, capital, interés, total y estado.</p>
+<h3 id="5-2-estados-de-una-cuota">5.2 Estados de una cuota</h3>
+<ul>
+<li><strong>Pendiente futura</strong>: todavía no vence.</li>
+<li><strong>Vencida</strong>: pasó la fecha límite sin pago completo.</li>
+<li><strong>Parcial</strong>: se pagó una parte.</li>
+<li><strong>Pagada</strong>: saldada.</li>
+</ul>
+<p>En <strong>Pagos</strong> puede filtrar por cada uno de estos estados.</p>
+<hr>
+<h2 id="6-pagos">6. Pagos</h2>
+<h3 id="6-1-registrar-un-pago">6.1 Registrar un pago</h3>
+<ol>
+<li>Entre a <strong>Pagos</strong>.</li>
+<li>Busque la venta por <strong>nombre, teléfono, cédula o número de solar</strong>.</li>
+<li>Seleccione la venta y pulse <strong>Registrar pago</strong>.</li>
+<li>En <strong>Registrar pago</strong>, elija la cuota o el tipo de pago:
+<ul>
+<li>una cuota específica,</li>
+<li>todas las cuotas vencidas,</li>
+<li>cuotas adelantadas.</li>
+</ul>
+</li>
+<li>Revise el desglose (<strong>Capital</strong>, <strong>Interés</strong>, <strong>Mora</strong>).</li>
+<li>Elija el <strong>método de pago</strong>.</li>
+<li>Confirme.</li>
+</ol>
+<p>Al terminar se muestra el <strong>recibo</strong>, que puede imprimir.</p>
+<blockquote>Si paga el inicial de una venta en apartado, el formulario se titula **Pagar apartado del</blockquote>
+<blockquote>inicial<strong> o </strong>Pagar completivo del inicial**.</blockquote>
+<h3 id="6-2-qu-es-la-mora">6.2 Qué es la mora</h3>
+<p>Es el cargo adicional por pagar después de la fecha límite de una cuota. En el formulario verá:</p>
+<ul>
+<li><strong>Mora cobrable</strong>: monto calculado por el servidor (el que se cobra).</li>
+<li><strong>Mora calculada</strong>: monto estimado cuando todavía no se consultó al servidor.</li>
+<li>Cantidad de <strong>días de mora</strong>.</li>
+<li><strong>Mora condonada</strong>: monto que ya fue eliminado y por lo tanto <strong>no se cobra</strong>.</li>
+</ul>
+<h3 id="6-3-eliminar-la-mora-de-una-cuota-solo-administrador">6.3 Eliminar la mora de UNA cuota (solo Administrador)</h3>
+<p><strong>Esta es la forma de quitar la mora de una cuota concreta.</strong></p>
+<ol>
+<li>Entre a <strong>Pagos</strong> y seleccione la venta.</li>
+<li>Pulse <strong>Registrar pago</strong>.</li>
+<li>En la lista de cuotas vencidas, cada cuota con mora muestra el botón <strong>Eliminar mora</strong>.</li>
+<li>Pulse <strong>Eliminar mora</strong>.</li>
+<li>Aparece el mensaje de confirmación:</li>
+</ol>
+<p><strong>"¿Está seguro de que desea eliminar la mora de la cuota N?"</strong></p>
+<ol>
+<li>Pulse <strong>Sí, eliminar mora</strong>.</li>
+</ol>
+<p>Resultado: el mensaje <strong>"Mora de la cuota eliminada."</strong> confirma la operación. El total a pagar de esa cuota baja inmediatamente y la mora no se vuelve a cobrar.</p>
+<p><strong>Cuándo NO aparece el botón:</strong></p>
+<ul>
+<li>Su usuario no es <strong>Administrador</strong>.</li>
+<li>La cuota no tiene mora pendiente de cobro.</li>
+<li>La cuota ya está pagada.</li>
+</ul>
+<p><strong>Importante:</strong> la mora <strong>ya cobrada</strong> en pagos anteriores no se modifica. Solo se elimina la mora <strong>pendiente</strong>. La mora que se genere <strong>después</strong> se calcula de nuevo.</p>
+<h3 id="6-4-condonar-la-mora-de-toda-la-venta-solo-administrador">6.4 Condonar la mora de TODA la venta (solo Administrador)</h3>
+<p>Útil para un acuerdo comercial que perdona toda la mora acumulada.</p>
+<ol>
+<li>Entre a <strong>Pagos</strong> y seleccione la venta.</li>
+<li>En la sección <strong>Historial</strong> pulse <strong>Ver pagos</strong>.</li>
+<li>Abajo a la derecha pulse <strong>Condonar mora</strong>.</li>
+<li>Revise el resumen que muestra el sistema:
+<ul>
+<li><strong>Mora acumulada (bruta)</strong></li>
+<li><strong>Mora ya cobrada</strong></li>
+<li><strong>Mora condonada vigente</strong></li>
+<li><strong>Mora exigible actual</strong></li>
+</ul>
+</li>
+<li>Elija una de las dos opciones:
+<ul>
+<li>Dejar todo como está y pulsar <strong>Condonar mora</strong> (perdona toda la mora exigible).</li>
+<li>Marcar <strong>"Condonar solo una parte de la mora"</strong> y escribir el <strong>Monto a condonar</strong>.</li>
+</ul>
+</li>
+<li>Escriba el <strong>Motivo de la condonación</strong> (mínimo 5 caracteres, por ejemplo: *acuerdo</li>
+</ol>
+<p>comercial con el cliente*).</p>
+<ol>
+<li>Confirme con <strong>Condonar mora</strong>.</li>
+</ol>
+<p>El sistema mostrará el <strong>"Exigible después de condonar"</strong> antes de confirmar, para que no haya sorpresas.</p>
+<h3 id="6-5-ver-el-historial-de-pagos-de-una-venta">6.5 Ver el historial de pagos de una venta</h3>
+<ul>
+<li><strong>Desde el detalle de la venta:</strong> botón <strong>Historial de pagos</strong>.</li>
+<li><strong>Desde Pagos:</strong> sección <strong>Historial</strong> → <strong>Ver pagos</strong> (abre la pantalla completa con filtros</li>
+</ul>
+<p>y totales de <strong>Total pagado</strong> y <strong>Saldo restante</strong>).</p>
+<p>Si una venta no tiene pagos, la pantalla lo indica: <strong>"Esta venta no tiene pagos registrados."</strong></p>
+<h3 id="6-6-anular-un-pago">6.6 Anular un pago</h3>
+<p>Un pago anulado <strong>no se borra</strong>: se conserva como historial y deja de contar en los totales. Si necesita anular, hágalo desde el historial de pagos de la venta.</p>
+<hr>
+<h2 id="7-vendedores">7. Vendedores</h2>
+<ul>
+<li>Para registrar un vendedor: en el formulario de venta, junto a <strong>Seleccionar vendedor</strong>, use</li>
+</ul>
+<p>el botón de agregar (<strong>+</strong>).</p>
+<ul>
+<li>Para editarlo: en la misma ventana, pulse el botón de editar del vendedor y guarde. Verá</li>
+</ul>
+<p><strong>"Vendedor actualizado correctamente."</strong></p>
+<hr>
+<h2 id="8-configuraci-n">8. Configuración</h2>
+<p>Desde <strong>Configuración</strong> el administrador puede ajustar:</p>
+<ul>
+<li><strong>Información de la empresa</strong> (nombre, logo, datos de contacto).</li>
+<li><strong>Impresoras</strong>.</li>
+<li><strong>Usuarios y permisos</strong>.</li>
+<li><strong>Parámetros financieros</strong> (interés por defecto, porcentaje de inicial).</li>
+<li><strong>Respaldo</strong> de la información.</li>
+</ul>
+<h3 id="8-1-dar-permiso-a-un-usuario">8.1 Dar permiso a un usuario</h3>
+<ol>
+<li><strong>Configuración → Usuarios y permisos</strong>.</li>
+<li>Seleccione el usuario.</li>
+<li>Marque los permisos por módulo (<strong>Ver</strong>, <strong>Crear</strong>, <strong>Editar</strong>, <strong>Eliminar</strong> según el caso).</li>
+<li>Guarde.</li>
+</ol>
+<blockquote>El botón <strong>Eliminar mora</strong> y la opción <strong>Condonar mora</strong> son exclusivos del rol</blockquote>
+<blockquote><strong>Administrador</strong>, aunque el usuario tenga permisos de edición en Pagos.</blockquote>
+<hr>
+<h2 id="9-preguntas-frecuentes">9. Preguntas frecuentes</h2>
+<p><strong>No veo el botón Editar en la venta.</strong> Su usuario no tiene permiso para editar ventas. Pida al administrador que se lo habilite.</p>
+<p><strong>No aparece el botón Eliminar mora.</strong> Solo lo ve el <strong>Administrador</strong>, y solo en cuotas que tengan mora pendiente de cobro.</p>
+<p><strong>Eliminé la mora y quiero cobrarla de nuevo.</strong> No es posible: la condonación queda registrada. Si fue un error, anótelo y consulte con el administrador; el sistema guarda el motivo del cambio.</p>
+<p><strong>La venta ya tenía pagos y la edité: ¿se perdieron los pagos?</strong> No. Los pagos se conservan siempre. El sistema recalcula el saldo restando lo ya pagado.</p>
+<p><strong>Modifiqué el precio de una venta y el saldo cambió mucho.</strong> Es lo esperado: el nuevo saldo es el nuevo precio <strong>menos</strong> lo que el cliente ya pagó. Revise el <strong>Balance pendiente</strong> en el detalle antes de continuar.</p>
+<p><strong>Al guardar una venta me dice que seleccione el cliente y el solar.</strong> Falta uno de los dos. Búsquelo en la lista; si el cliente no existe, créelo con el botón <strong>+</strong>.</p>
+<p><strong>Aparece "La confirmación de la venta no coincide".</strong> La venta cambió en otro equipo. Cierre la venta, vuelva a abrirla y repita la operación.</p>
+<p><strong>El sistema dice "sesión vencida".</strong> Vuelva a iniciar sesión. Si persiste, revise la conexión a internet.</p>
+<p><strong>La lista se queda cargando mucho tiempo.</strong> Espere unos segundos: el sistema está sincronizando con la nube. Si pasa de un minuto, cierre y vuelva a abrir el sistema una sola vez y avise a soporte indicando la hora exacta.</p>
+<p><strong>No hay internet. ¿Puedo trabajar?</strong> El sistema sigue mostrando la información guardada y registra las operaciones; cuando vuelva la conexión se envían al servidor.</p>
+<hr>
+<h2 id="10-reglas-de-oro">10. Reglas de oro</h2>
+<ol>
+<li><strong>Nunca registre dos veces el mismo pago.</strong> Si duda, revise el <strong>Historial de pagos</strong> primero.</li>
+<li><strong>Para corregir una venta, use Editar.</strong> No borre la venta: perdería cuotas y pagos.</li>
+<li><strong>Para anular, use Cancelar venta.</strong> Conserva el historial; Eliminar no.</li>
+<li><strong>Siempre escriba el motivo</strong> en cancelaciones y condonaciones: queda en la auditoría.</li>
+<li><strong>La mora condonada no se cobra después.</strong> Elimínela solo cuando corresponda.</li>
+<li><strong>Todo cambio queda registrado</strong> con usuario, fecha y motivo. Revise la <strong>Auditoría</strong> ante</li>
+</ol>
+<p>cualquier duda.</p>
+<hr>
+<h2 id="11-soporte">11. Soporte</h2>
+<p>Si algo no funciona como se describe aquí:</p>
+<ol>
+<li>Anote <strong>qué estaba haciendo</strong> y la <strong>hora exacta</strong>.</li>
+<li>Tome una <strong>captura de pantalla</strong> del mensaje.</li>
+<li><strong>No borre datos ni reinstale</strong> el sistema.</li>
+<li>Envíe la información al administrador o a soporte técnico.</li>
+</ol>
+<p>Los registros técnicos del sistema están en:</p>
+<pre>
+%LOCALAPPDATA%\SistemaSolares\logs
+</pre>
+<hr>
+<p><em>Manual del Usuario — Sistema Solares. Documento de uso interno del cliente.</em></p>
+</div>
+</div>
+</body>
+</html>
