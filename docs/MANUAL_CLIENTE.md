@@ -29,10 +29,13 @@ Pida al administrador que lo habilite en **Configuración → Usuarios y permiso
 Arriba o a la izquierda encontrará los módulos:
 
 - **Resumen**: indicadores del negocio.
+- **Ventas**: crear, buscar, editar, cancelar e imprimir.
+- **Buscador**: búsqueda global de clientes, solares, ventas y pagos.
 - **Clientes**
 - **Solares**
-- **Ventas**
-- **Pagos**
+- **Pagos**: registro de pagos, recibos, historial y mora.
+- **Cuotas**: seguimiento de amortización.
+- **Vendedores**
 - **Configuración**
 
 ---
@@ -188,6 +191,9 @@ Menú **⋮ → Eliminar** en la lista de ventas.
 ### 5.1 Ver las cuotas de una venta
 Dentro del detalle de la venta pulse **Detalle de cuotas**. Verá número, vencimiento, capital,
 interés, total y estado.
+
+También puede verlas en el módulo **Cuotas**, que muestra el seguimiento de amortización y la
+interpretación de cada estado.
 
 ### 5.2 Estados de una cuota
 - **Pendiente futura**: todavía no vence.
