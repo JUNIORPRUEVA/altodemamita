@@ -540,7 +540,12 @@ class _SalesPageState extends State<SalesPage> {
     return null;
   }
 
-  Future<Seller?> _resolveEditingSeller(int? sellerId) async {
+  /// Vendedor de la venta, SOLO desde las listas ya cargadas.
+  ///
+  /// Antes se pedia al servidor (`getById` descargaba todos los vendedores) y
+  /// eso podia tardar minutos antes de mostrar el formulario. El vendedor es
+  /// opcional en la venta, asi que no se paga ese costo.
+  Seller? _resolveEditingSeller(int? sellerId) {
     if (sellerId == null) {
       return null;
     }
@@ -549,25 +554,40 @@ class _SalesPageState extends State<SalesPage> {
         return seller;
       }
     }
-    try {
-      return await widget.sellerRepository.getById(sellerId);
-    } catch (error) {
-      debugPrint('[SALES][UI] vendedor no resuelto: $error');
-      return null;
-    }
+    return null;
   }
 
   Future<void> _editSale(SaleSummary summary) async {
-    // Cache/memoria primero: la ficha ya cargó el detalle, así que el
-    // formulario abre sin esperar otra llamada al servidor.
-    SaleDetail? detail;
-    try {
-      detail =
-          await _controller.fetchCachedDetail(summary.id) ??
-          await _controller.fetchDetail(summary.id);
-    } catch (error, stack) {
-      debugPrint('[SALES][UI] detalle para editar falló -> $error\n$stack');
-      detail = null;
+    // Nada de red antes de abrir el formulario: la ficha ya tiene el detalle en
+    // memoria, y ese dato es suficiente para precargar todo de inmediato.
+    final clock = Stopwatch()..start();
+    void mark(String step) {
+      debugPrint('[SALES][UI] editar paso "$step" en ${clock.elapsedMilliseconds} ms');
+    }
+
+    SaleDetail? detail = SalesDetailMemoryCache.get(summary.id);
+    mark('memoria');
+    if (detail == null) {
+      try {
+        detail = await _controller
+            .fetchCachedDetail(summary.id)
+            .timeout(const Duration(seconds: 3), onTimeout: () => null);
+      } catch (error) {
+        debugPrint('[SALES][UI] detalle cache falló -> $error');
+        detail = null;
+      }
+      mark('cache');
+    }
+    if (detail == null) {
+      try {
+        detail = await _controller
+            .fetchDetail(summary.id)
+            .timeout(const Duration(seconds: 5), onTimeout: () => null);
+      } catch (error, stack) {
+        debugPrint('[SALES][UI] detalle para editar falló -> $error\n$stack');
+        detail = null;
+      }
+      mark('red-detalle');
     }
     if (!mounted) {
       return;
@@ -580,11 +600,13 @@ class _SalesPageState extends State<SalesPage> {
     }
 
     final sale = detail.sale;
-    // Las listas de apoyo pueden estar vacías si el sync aún no terminó. Si el
-    // formulario abre sin el cliente, el usuario vería "Seleccionar cliente"
-    // en una venta que sí lo tiene y podría guardar a ciegas. Se resuelve el
-    // cliente y el vendedor reales antes de abrir.
-    final editingClient = await _resolveEditingClient(detail);
+    // Las listas de apoyo pueden estar vacias si el sync aun no termino. El
+    // cliente se busca primero en memoria y, si falta, se intenta por documento
+    // con un TOPE de tiempo: esta resolucion nunca debe retrasar el formulario.
+    final editingClient = await _resolveEditingClient(
+      detail,
+    ).timeout(const Duration(seconds: 3), onTimeout: () => null);
+    mark('cliente');
     final clients = editingClient == null
         ? _controller.clients
         : [
@@ -593,7 +615,9 @@ class _SalesPageState extends State<SalesPage> {
               (client) => client.id != editingClient.id,
             ),
           ];
-    final editingSeller = await _resolveEditingSeller(sale.sellerId);
+    // El vendedor es opcional: se resuelve solo en memoria, sin red.
+    final editingSeller = _resolveEditingSeller(sale.sellerId);
+    mark('vendedor');
     final sellers = editingSeller == null
         ? _controller.sellers
         : [

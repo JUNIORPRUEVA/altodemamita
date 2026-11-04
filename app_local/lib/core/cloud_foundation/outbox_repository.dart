@@ -245,7 +245,14 @@ String _stableEncode(Object? value) {
 }
 
 Map<String, Object?> _decodeMap(Object? raw) {
-  final decoded = jsonDecode(raw?.toString() ?? '{}');
+  dynamic decoded;
+  try {
+    decoded = jsonDecode(raw?.toString() ?? '{}');
+  } on FormatException {
+    // Payload corrupto en la cola: se trata como vacio en lugar de romper la
+    // sincronizacion completa.
+    return const <String, Object?>{};
+  }
   if (decoded is Map) {
     return decoded.map((key, value) => MapEntry(key.toString(), value));
   }

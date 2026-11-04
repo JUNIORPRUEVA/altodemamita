@@ -77,12 +77,26 @@ class DashboardStats {
   /// Devuelve `null` ante cualquier JSON invalido o incompleto: un snapshot
   /// corrupto NUNCA debe romper la pantalla ni mostrar ceros falsos.
   static DashboardStats? fromJson(Object? raw) {
-    final map = raw is String ? (jsonDecode(raw) as Object?) : raw;
+    // Un snapshot corrupto se descarta: jsonDecode puede lanzar FormatException
+    // y eso no debe llegar nunca a la UI ni al manejador global de errores.
+    Object? map;
+    if (raw is String) {
+      try {
+        map = jsonDecode(raw) as Object?;
+      } on FormatException {
+        return null;
+      }
+    } else {
+      map = raw;
+    }
     if (map is! Map) {
       return null;
     }
+    // Se fija en un `final` para que la promoción de tipo valga también dentro
+    // de los closures de abajo.
+    final values = map;
     int? asInt(String key) {
-      final value = map[key];
+      final value = values[key];
       if (value is num) {
         return value.toInt();
       }
@@ -90,7 +104,7 @@ class DashboardStats {
     }
 
     double? asDouble(String key) {
-      final value = map[key];
+      final value = values[key];
       if (value is num) {
         return value.toDouble();
       }
