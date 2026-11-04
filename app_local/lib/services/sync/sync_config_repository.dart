@@ -7,6 +7,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../../core/config/app_flags.dart';
 import '../../core/config/backend_config.dart' as backend_config;
+import '../../core/resilience/diagnostics_log.dart';
 import '../../core/security/sensitive_storage.dart';
 import '../../core/system/system_config_service.dart';
 import '../../features/settings/data/settings_repository.dart';
@@ -74,6 +75,9 @@ class SyncConfigRepository {
     } on MissingPluginException {
       return null;
     } catch (error) {
+      // Visible en release: si el archivo de preferencias esta corrupto los
+      // cursores se pierden y cada sincronizacion descarga todo de nuevo.
+      DiagnosticsLog.write('prefs', 'SharedPreferences no disponible: $error');
       debugPrint('[sync-config] SharedPreferences unavailable: $error');
       return null;
     }

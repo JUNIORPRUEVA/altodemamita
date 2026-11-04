@@ -17,6 +17,7 @@ import 'core/resilience/app_storage_namespace.dart';
 import 'core/resilience/friendly_error_messages.dart';
 import 'core/resilience/global_error_controller.dart';
 import 'core/resilience/incident_logger.dart';
+import 'core/resilience/preferences_health.dart';
 import 'core/resilience/startup_recovery_service.dart';
 import 'core/theme/app_theme.dart';
 import 'features/backup/data/backup_config_repository.dart';
@@ -32,6 +33,12 @@ Future<void> main() async {
   await runZonedGuarded(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
+
+      // Antes de la PRIMERA lectura de preferencias: si el archivo quedo
+      // corrupto (bytes NUL) o gigante, se pone en cuarentena. Un archivo
+      // ilegible hacia fallar todos los cursores de sync y cada arranque
+      // descargaba la base completa (varios minutos de interfaz congelada).
+      PreferencesHealth.ensureHealthy();
 
       // Aislamiento por ambiente: en builds alternos (UAT) TODAS las claves de
       // SharedPreferences se prefijan para no compartir config de backend ni

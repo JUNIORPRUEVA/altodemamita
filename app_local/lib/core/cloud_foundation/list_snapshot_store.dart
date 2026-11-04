@@ -6,6 +6,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import '../database/app_database.dart';
 import '../database/database_schema.dart';
 import '../resilience/app_storage_namespace.dart';
+import '../resilience/preferences_health.dart';
 
 /// Cache de solo lectura (last-known-good) para listados de modulos.
 ///
@@ -183,6 +184,15 @@ class ListSnapshotStore {
   }
 
   void _persistFastPayload(String payload) {
+    // Un snapshot grande NUNCA se duplica en SharedPreferences: inflaba el
+    // archivo de preferencias hasta varios MB y una escritura interrumpida lo
+    // dejaba ilegible (cursores de sync perdidos -> descarga completa).
+    // SQLite ya conserva el snapshot; la copia en preferencias solo acelera
+    // listados pequenos.
+    if (payload.length > PreferencesHealth.maxValueBytes) {
+      _removeFastPayload();
+      return;
+    }
     Future<void>(() async {
       try {
         final preferences = await SharedPreferences.getInstance();
