@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -84,6 +85,7 @@ Future<void> main() async {
         if (kDebugMode) {
           FlutterError.presentError(details);
         }
+        _writeUncaught('flutter_framework', details.exception, details.stack);
 
         unawaited(
           errorController.reportUnexpected(
@@ -116,6 +118,7 @@ Future<void> main() async {
       };
 
       PlatformDispatcher.instance.onError = (error, stackTrace) {
+        _writeUncaught('platform_dispatcher', error, stackTrace);
         unawaited(
           errorController.reportUnexpected(
             error: error,
@@ -138,6 +141,7 @@ Future<void> main() async {
       );
     },
     (error, stackTrace) {
+      _writeUncaught('zone_guarded', error, stackTrace);
       unawaited(
         errorController.reportUnexpected(
           error: error,
@@ -305,5 +309,35 @@ class _SistemaSolaresBootstrapState extends State<SistemaSolaresBootstrap> {
       theme: AppTheme.light(),
       home: child,
     );
+  }
+}
+
+/// Traza de errores no controlados en un archivo aparte.
+///
+/// El visor de incidentes no siempre conserva la pila (llega vacía desde el
+/// framework), y sin pila es imposible ubicar el origen. Esto escribe el error
+/// y su traza completa para diagnóstico de soporte.
+void _writeUncaught(String source, Object error, StackTrace? stack) {
+  if (kIsWeb) {
+    return;
+  }
+  try {
+    final directory = Directory(AppPaths().logsDirectory);
+    if (!directory.existsSync()) {
+      directory.createSync(recursive: true);
+    }
+    final file = File('${directory.path}${Platform.pathSeparator}uncaught.log');
+    final buffer = StringBuffer()
+      ..writeln('===== ${DateTime.now().toIso8601String()} [$source]')
+      ..writeln(error.toString());
+    final trace = stack?.toString() ?? StackTrace.current.toString();
+    buffer.writeln(trace);
+    file.writeAsStringSync(
+      buffer.toString(),
+      mode: FileMode.append,
+      flush: true,
+    );
+  } catch (_) {
+    // El diagnóstico nunca debe romper la app.
   }
 }

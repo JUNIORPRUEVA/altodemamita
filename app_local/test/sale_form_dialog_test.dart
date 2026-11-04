@@ -1890,4 +1890,93 @@ void main() {
       expect(find.text('Editar venta'), findsOneWidget);
     },
   );
+
+  testWidgets(
+    'abre en modo edicion con una venta realista (fecha limite, vendedor y '
+    'metodo de inicial)',
+    (tester) async {
+      final now = DateTime(2026, 3, 26);
+
+      await _configureDesktopSurface(tester, const Size(1280, 860));
+
+      await tester.pumpWidget(
+        _buildTestApp(
+          SaleFormDialog(
+            clients: [
+              Client(
+                id: 1,
+                fullName: 'Maria Gomez',
+                documentId: '001-1234567-8',
+                phone: '8095550199',
+                address: 'Calle 1',
+                createdAt: now,
+                updatedAt: now,
+              ),
+            ],
+            availableLots: [
+              _testLot(
+                id: 2,
+                blockNumber: 'M',
+                lotNumber: 'S342',
+                area: 250,
+                totalPrice: 500000,
+                now: now,
+              ),
+            ],
+            allLots: [
+              _testLot(
+                id: 2,
+                blockNumber: 'M',
+                lotNumber: 'S342',
+                area: 250,
+                totalPrice: 500000,
+                now: now,
+              ),
+            ],
+            sellers: [
+              Seller(
+                id: 1,
+                name: 'Pedro Vendedor',
+                phone: '8095550111',
+                documentId: '001-7654321-0',
+                createdAt: now,
+                updatedAt: now,
+              ),
+            ],
+            defaults: const SaleDefaults(
+              downPaymentPercentage: 10,
+              monthlyInterest: 1,
+              installmentCount: 12,
+            ),
+            clientRepository: clientRepository,
+            lotRepository: lotRepository,
+            sellerRepository: sellerRepository,
+            dialogTitle: 'Editar venta',
+            submitLabel: 'Guardar cambios',
+            initialDraft: SaleDraft(
+              clientId: 1,
+              lotId: 2,
+              userId: 1,
+              sellerId: 1,
+              saleDate: DateTime(2026, 4, 17),
+              salePrice: 500000,
+              downPaymentPercentage: 10,
+              requiredInitialPayment: 50000,
+              initialPaymentPaid: 50000,
+              initialPaymentMethod: 'Transferencia',
+              minimumReserveAmount: 0,
+              initialPaymentDeadline: DateTime(2026, 5, 12),
+              monthlyInterest: 1,
+              installmentCount: 120,
+              status: 'activa',
+            ),
+          ),
+        ),
+      );
+      await _settle(tester);
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Editar venta'), findsOneWidget);
+    },
+  );
 }
