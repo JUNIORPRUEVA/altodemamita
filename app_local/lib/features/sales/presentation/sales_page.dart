@@ -752,9 +752,18 @@ class _SalesPageState extends State<SalesPage> {
   /// datos actualizados.
   Future<void> _editSaleFromListDialog(SaleSummary summary) async {
     // El detalle se abrió con showDialog, que usa el navigator RAÍZ. Hay que
-    // cerrarlo en ese mismo navigator: cerrar el más cercano desmontaba la
-    // pantalla equivocada y el formulario nunca aparecía.
-    Navigator.of(context, rootNavigator: true).pop();
+    // cerrarlo en ese mismo navigator y esperar a que la ruta termine de salir:
+    // abrir el formulario con el navigator todavía bloqueado por la transición
+    // hace que el diálogo no se muestre (funcionaba la primera vez y no la
+    // segunda).
+    final navigator = Navigator.of(context, rootNavigator: true);
+    if (navigator.canPop()) {
+      navigator.pop();
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+    if (!mounted) {
+      return;
+    }
     try {
       await _editSale(summary);
     } catch (error, stack) {

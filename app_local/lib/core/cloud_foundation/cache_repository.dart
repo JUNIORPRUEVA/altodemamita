@@ -35,14 +35,23 @@ class CacheRepository {
       whereArgs: [entity],
       orderBy: 'updated_at DESC',
     );
-    return rows
-        .map((row) {
-          final decoded = jsonDecode(row['payload'] as String);
-          return decoded is Map
-              ? decoded.map((key, value) => MapEntry(key.toString(), value))
-              : <String, Object?>{};
-        })
-        .toList(growable: false);
+    final records = <Map<String, Object?>>[];
+    for (final row in rows) {
+      final payload = row['payload'] as String? ?? '';
+      // Un registro corrupto no debe tumbar la lectura completa de la entidad:
+      // se descarta esa fila y se continua con las demas.
+      try {
+        final decoded = jsonDecode(payload);
+        if (decoded is Map) {
+          records.add(
+            decoded.map((key, value) => MapEntry(key.toString(), value)),
+          );
+        }
+      } catch (_) {
+        continue;
+      }
+    }
+    return records;
   }
 
   Future<void> putMetadata(String key, String value) async {

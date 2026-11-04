@@ -602,7 +602,23 @@ class SyncApiClient {
       return const {};
     }
 
-    final decoded = jsonDecode(responseBody);
+    // Una respuesta no-JSON (por ejemplo una pagina de error del proxy) no debe
+    // escalar como FormatException sin control: se registra el origen y se
+    // devuelve un error de sincronizacion manejable.
+    dynamic decoded;
+    try {
+      decoded = jsonDecode(responseBody);
+    } on FormatException catch (error) {
+      final preview = responseBody.substring(
+        0,
+        responseBody.length < 120 ? responseBody.length : 120,
+      ).replaceAll(RegExp(r'\s+'), ' ');
+      _log('Respuesta no-JSON de la API de sync: ${error.message} | inicio="$preview"');
+      throw const FormatException(
+        'El servidor de sincronizacion devolvio una respuesta no valida. '
+        'Vuelve a intentarlo cuando el servidor este disponible.',
+      );
+    }
     if (decoded is! Map<String, dynamic>) {
       throw const FormatException(
         'La API de sincronizacion no devolvio un objeto JSON valido.',
